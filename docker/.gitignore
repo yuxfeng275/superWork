@@ -1,0 +1,12 @@
+# 数据目录
+mysql/data/
+redis/data/
+minio/data/
+
+# 日志文件
+nginx/logs/
+mysql/*.log
+
+# 临时文件
+*.tmp
+*.swp
