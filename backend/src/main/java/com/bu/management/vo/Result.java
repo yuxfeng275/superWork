@@ -45,13 +45,6 @@ public class Result<T> {
     }
 
     /**
-     * 成功响应（无数据）
-     */
-    public static <T> Result<T> success() {
-        return success(null);
-    }
-
-    /**
      * 成功响应（自定义消息）
      */
     public static <T> Result<T> success(String message, T data) {

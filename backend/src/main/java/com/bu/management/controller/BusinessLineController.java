@@ -55,7 +55,7 @@ public class BusinessLineController {
     @DeleteMapping("/{id}")
     public Result<Void> delete(@Parameter(description = "业务线ID") @PathVariable Long id) {
         businessLineService.delete(id);
-        return Result.success("删除成功");
+        return Result.success("删除成功", null);
     }
 
     /**
