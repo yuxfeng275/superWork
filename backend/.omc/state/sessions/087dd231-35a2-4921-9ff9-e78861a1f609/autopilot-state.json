@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "started_at": "2026-04-08T01:27:40.087Z",
+  "original_prompt": "/autopilot 需要新增项目/子项目管理功能，目前只有新增项目，但是无法看到所有的项目/子项目情况",
+  "session_id": "087dd231-35a2-4921-9ff9-e78861a1f609",
+  "project_path": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/backend",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-04-08T01:27:40.089Z"
+}

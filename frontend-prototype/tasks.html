@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务管理 - 电商BU内部管理系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+        }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #001529; color: white;
+            position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-logo {
+            height: 64px; display: flex; align-items: center;
+            justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-logo h1 { font-size: 18px; font-weight: 600; }
+        .menu { padding: 16px 0; }
+        .menu-item {
+            padding: 12px 24px; cursor: pointer;
+            display: flex; align-items: center; gap: 12px;
+            color: rgba(255,255,255,0.65); transition: all 0.3s;
+        }
+        .menu-item:hover, .menu-item.active {
+            background: rgba(255,255,255,0.1); color: white;
+        }
+        .menu-item.active { border-right: 3px solid #667eea; }
+        .main { flex: 1; margin-left: 220px; }
+        .header {
+            height: 64px; background: white; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; position: sticky; top: 0; z-index: 100;
+        }
+        .header-title { font-size: 18px; font-weight: 600; color: #262626; }
+        .header-user { display: flex; align-items: center; gap: 12px; }
+        .user-avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; display: flex; align-items: center; justify-content: center;
+        }
+        .content { padding: 24px; }
+        .toolbar {
+            background: white; padding: 20px; border-radius: 8px; margin-bottom: 16px;
+            display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+        }
+        .filter-item { display: flex; align-items: center; gap: 8px; }
+        .filter-item label { font-size: 14px; color: #595959; white-space: nowrap; }
+        .filter-item select, .filter-item input {
+            height: 36px; padding: 0 12px; border: 1px solid #d9d9d9;
+            border-radius: 6px; font-size: 14px; min-width: 150px;
+        }
+        .btn {
+            height: 36px; padding: 0 20px; border-radius: 6px;
+            font-size: 14px; cursor: pointer; border: none; transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-default { background: white; border: 1px solid #d9d9d9; color: #595959; }
+        .view-toggle { display: flex; gap: 8px; }
+        .view-btn {
+            width: 36px; height: 36px; border: 1px solid #d9d9d9;
+            background: white; border-radius: 6px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .view-btn.active { background: #e8f3ff; border-color: #667eea; color: #667eea; }
+        .board { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px; }
+        .board-column {
+            min-width: 300px; background: #f5f5f5; border-radius: 8px;
+            padding: 16px; flex-shrink: 0;
+        }
+        .column-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .column-title {
+            font-size: 14px; font-weight: 600; color: #262626;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .column-count {
+            background: #e8f3ff; color: #667eea; padding: 2px 8px;
+            border-radius: 10px; font-size: 12px;
+        }
+        .task-card {
+            background: white; border-radius: 8px; padding: 16px;
+            margin-bottom: 12px; cursor: pointer;
+            transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .task-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-2px); }
+        .task-title { font-size: 14px; font-weight: 500; color: #262626; margin-bottom: 8px; }
+        .task-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8c8c8c; }
+        .task-tag {
+            padding: 2px 8px; border-radius: 4px; font-size: 12px;
+        }
+        .task-tag.frontend { background: #fff1f0; color: #ff4d4f; }
+        .task-tag.backend { background: #e6f7ff; color: #1890ff; }
+        .task-tag.design { background: #f9f0ff; color: #722ed1; }
+        .task-avatar {
+            width: 24px; height: 24px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; display: flex; align-items: center; justify-content: center;
+            font-size: 10px;
+        }
+        .task-hours {
+            margin-left: auto; display: flex; align-items: center; gap: 4px;
+        }
+        .table-card { background: white; border-radius: 8px; overflow: hidden; display: none; }
+        .table-card.show { display: block; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+        th { background: #fafafa; font-weight: 600; color: #262626; font-size: 14px; }
+        td { font-size: 14px; color: #595959; }
+        .status-tag {
+            display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 12px;
+        }
+        .status-tag.pending { background: #fffbe6; color: #faad14; }
+        .status-tag.in-progress { background: #e6f7ff; color: #1890ff; }
+        .status-tag.testing { background: #f9f0ff; color: #722ed1; }
+        .status-tag.done { background: #f6ffed; color: #52c41a; }
+        .pagination {
+            display: flex; justify-content: flex-end; padding: 16px; gap: 8px;
+        }
+        .pagination button {
+            min-width: 32px; height: 32px; border: 1px solid #d9d9d9;
+            background: white; border-radius: 6px; cursor: pointer;
+        }
+        .pagination button.active {
+            background: #667eea; color: white; border-color: #667eea;
+        }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); display: flex;
+            align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal {
+            background: white; border-radius: 12px;
+            width: 600px; max-height: 80vh; overflow-y: auto;
+        }
+        .modal-header {
+            padding: 20px 24px; border-bottom: 1px solid #f0f0f0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h3 { font-size: 18px; font-weight: 600; }
+        .modal-close { font-size: 20px; cursor: pointer; color: #8c8c8c; }
+        .modal-body { padding: 24px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 14px; color: #262626; margin-bottom: 8px; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9;
+            border-radius: 6px; font-size: 14px;
+        }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .modal-footer {
+            padding: 16px 24px; border-top: 1px solid #f0f0f0;
+            display: flex; justify-content: flex-end; gap: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="layout">
+            <aside class="sidebar">
+                <div class="sidebar-logo"><h1>BU管理系统</h1></div>
+                <nav class="menu">
+                    <div class="menu-item"><span>🏠</span><span>首页</span></div>
+                    <div class="menu-item"><span>📋</span><span>需求管理</span></div>
+                    <div class="menu-item active"><span>✅</span><span>任务管理</span></div>
+                    <div class="menu-item"><span>📊</span><span>统计看板</span></div>
+                    <div class="menu-item"><span>🏢</span><span>组织架构</span></div>
+                </nav>
+            </aside>
+
+            <main class="main">
+                <header class="header">
+                    <div class="header-title">任务管理</div>
+                    <div class="header-user">
+                        <span>欢迎，管理员</span>
+                        <div class="user-avatar">A</div>
+                    </div>
+                </header>
+
+                <div class="content">
+                    <div class="toolbar">
+                        <div class="filter-item">
+                            <label>项目</label>
+                            <select v-model="filters.project">
+                                <option value="">全部项目</option>
+                                <option value="1">ERP系统</option>
+                                <option value="2">WMS系统</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label>负责人</label>
+                            <select v-model="filters.assignee">
+                                <option value="">全部</option>
+                                <option value="1">张三</option>
+                                <option value="2">李四</option>
+                                <option value="3">王五</option>
+                            </select>
+                        </div>
+                        <div class="filter-item">
+                            <label>状态</label>
+                            <select v-model="filters.status">
+                                <option value="">全部</option>
+                                <option value="待开始">待开始</option>
+                                <option value="进行中">进行中</option>
+                                <option value="测试中">测试中</option>
+                                <option value="已完成">已完成</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-default">重置</button>
+                        <button class="btn btn-primary" @click="showCreateModal = true">+ 新建任务</button>
+                        <div class="view-toggle" style="margin-left: auto;">
+                            <button class="view-btn" :class="{ active: viewMode === 'board' }" @click="viewMode = 'board'">📋</button>
+                            <button class="view-btn" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">📄</button>
+                        </div>
+                    </div>
+
+                    <!-- 看板视图 -->
+                    <div class="board" v-if="viewMode === 'board'">
+                        <div class="board-column">
+                            <div class="column-header">
+                                <div class="column-title">
+                                    <span>待开始</span>
+                                    <span class="column-count">2</span>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">登录页面UI设计</div>
+                                <div class="task-meta">
+                                    <span class="task-tag design">设计</span>
+                                    <span>REQ20260401</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">王</div>
+                                    <span>王五</span>
+                                    <div class="task-hours">⏱️ 0/8h</div>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">数据库表结构设计</div>
+                                <div class="task-meta">
+                                    <span class="task-tag backend">后端</span>
+                                    <span>REQ20260402</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">李</div>
+                                    <span>李四</span>
+                                    <div class="task-hours">⏱️ 0/16h</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="board-column">
+                            <div class="column-header">
+                                <div class="column-title">
+                                    <span>进行中</span>
+                                    <span class="column-count">2</span>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">前端登录组件开发</div>
+                                <div class="task-meta">
+                                    <span class="task-tag frontend">前端</span>
+                                    <span>REQ20260401</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">张</div>
+                                    <span>张三</span>
+                                    <div class="task-hours">⏱️ 4/8h</div>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">后端登录接口开发</div>
+                                <div class="task-meta">
+                                    <span class="task-tag backend">后端</span>
+                                    <span>REQ20260401</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">李</div>
+                                    <span>李四</span>
+                                    <div class="task-hours">⏱️ 8/12h</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="board-column">
+                            <div class="column-header">
+                                <div class="column-title">
+                                    <span>测试中</span>
+                                    <span class="column-count">1</span>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">第三方登录集成</div>
+                                <div class="task-meta">
+                                    <span class="task-tag frontend">前端</span>
+                                    <span>REQ20260401</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">张</div>
+                                    <span>张三</span>
+                                    <div class="task-hours">⏱️ 6/6h</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="board-column">
+                            <div class="column-header">
+                                <div class="column-title">
+                                    <span>已完成</span>
+                                    <span class="column-count">1</span>
+                                </div>
+                            </div>
+                            <div class="task-card" @click="showDetail">
+                                <div class="task-title">需求文档编写</div>
+                                <div class="task-meta">
+                                    <span class="task-tag design">设计</span>
+                                    <span>REQ20260401</span>
+                                </div>
+                                <div class="task-meta" style="margin-top: 8px;">
+                                    <div class="task-avatar">王</div>
+                                    <span>王五</span>
+                                    <div class="task-hours">⏱️ 8/8h</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 表格视图 -->
+                    <div class="table-card" :class="{ show: viewMode === 'table' }">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>任务名称</th>
+                                    <th>所属需求</th>
+                                    <th>项目</th>
+                                    <th>负责人</th>
+                                    <th>预估工时</th>
+                                    <th>实际工时</th>
+                                    <th>状态</th>
+                                    <th>截止日期</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>登录页面UI设计</td>
+                                    <td>REQ20260401</td>
+                                    <td>ERP系统</td>
+                                    <td>王五</td>
+                                    <td>8h</td>
+                                    <td>0h</td>
+                                    <td><span class="status-tag pending">待开始</span></td>
+                                    <td>2026-04-10</td>
+                                    <td><button class="btn btn-default" style="height:28px;padding:0 12px;">编辑</button></td>
+                                </tr>
+                                <tr>
+                                    <td>前端登录组件开发</td>
+                                    <td>REQ20260401</td>
+                                    <td>ERP系统</td>
+                                    <td>张三</td>
+                                    <td>8h</td>
+                                    <td>4h</td>
+                                    <td><span class="status-tag in-progress">进行中</span></td>
+                                    <td>2026-04-15</td>
+                                    <td><button class="btn btn-default" style="height:28px;padding:0 12px;">编辑</button></td>
+                                </tr>
+                                <tr>
+                                    <td>后端登录接口开发</td>
+                                    <td>REQ20260401</td>
+                                    <td>ERP系统</td>
+                                    <td>李四</td>
+                                    <td>12h</td>
+                                    <td>8h</td>
+                                    <td><span class="status-tag in-progress">进行中</span></td>
+                                    <td>2026-04-15</td>
+                                    <td><button class="btn btn-default" style="height:28px;padding:0 12px;">编辑</button></td>
+                                </tr>
+                                <tr>
+                                    <td>第三方登录集成</td>
+                                    <td>REQ20260401</td>
+                                    <td>ERP系统</td>
+                                    <td>张三</td>
+                                    <td>6h</td>
+                                    <td>6h</td>
+                                    <td><span class="status-tag testing">测试中</span></td>
+                                    <td>2026-04-20</td>
+                                    <td><button class="btn btn-default" style="height:28px;padding:0 12px;">编辑</button></td>
+                                </tr>
+                                <tr>
+                                    <td>需求文档编写</td>
+                                    <td>REQ20260401</td>
+                                    <td>ERP系统</td>
+                                    <td>王五</td>
+                                    <td>8h</td>
+                                    <td>8h</td>
+                                    <td><span class="status-tag done">已完成</span></td>
+                                    <td>2026-04-05</td>
+                                    <td><button class="btn btn-default" style="height:28px;padding:0 12px;">编辑</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="pagination">
+                            <button>上一页</button>
+                            <button class="active">1</button>
+                            <button>下一页</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- 新建任务弹窗 -->
+        <div class="modal-overlay" v-if="showCreateModal" @click.self="showCreateModal = false">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>新建任务</h3>
+                    <span class="modal-close" @click="showCreateModal = false">×</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>任务名称 *</label>
+                        <input type="text" v-model="form.title" placeholder="请输入任务名称">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>所属需求 *</label>
+                            <select v-model="form.requirementId">
+                                <option value="">请选择需求</option>
+                                <option value="1">REQ20260401 - 用户登录页面优化</option>
+                                <option value="2">REQ20260402 - 订单导出功能开发</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>负责人 *</label>
+                            <select v-model="form.assigneeId">
+                                <option value="">请选择负责人</option>
+                                <option value="1">张三</option>
+                                <option value="2">李四</option>
+                                <option value="3">王五</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>预估工时</label>
+                            <input type="number" v-model="form.estimatedHours" placeholder="小时">
+                        </div>
+                        <div class="form-group">
+                            <label>截止日期</label>
+                            <input type="date" v-model="form.dueDate">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>任务描述</label>
+                        <textarea v-model="form.description" placeholder="请输入任务描述..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-default" @click="showCreateModal = false">取消</button>
+                    <button class="btn btn-primary" @click="handleSubmit">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive } = Vue
+        const app = createApp({
+            setup() {
+                const viewMode = ref('board')
+                const showCreateModal = ref(false)
+                const filters = reactive({ project: '', assignee: '', status: '' })
+                const form = reactive({ title: '', requirementId: '', assigneeId: '', estimatedHours: '', dueDate: '', description: '' })
+
+                const showDetail = () => { alert('打开任务详情...') }
+                const handleSubmit = () => {
+                    showCreateModal.value = false
+                    alert('创建成功')
+                }
+
+                return { viewMode, showCreateModal, filters, form, showDetail, handleSubmit }
+            }
+        })
+        app.use(ElementPlus)
+        app.mount('#app')
+    </script>
+</body>
+</html>

@@ -11,16 +11,16 @@ INSERT INTO business_line (name, description, status) VALUES
 ('全渠道云鹿SAAS', '全渠道云鹿SAAS业务线', 1),
 ('会员通', '会员通业务线', 1);
 
--- 2. 初始化用户（密码为 123456，需要在应用层加密）
+-- 2. 初始化用户（密码为 123456）
 INSERT INTO user (username, password, real_name, role, email, phone, status) VALUES
-('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '系统管理员', 'BU负责人', 'admin@bu.com', '13800000001', 1),
-('pm_zhang', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '张项目经理', '项目经理', 'pm.zhang@bu.com', '13800000002', 1),
-('tech_li', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '李技术经理', '技术经理', 'tech.li@bu.com', '13800000003', 1),
-('product_wang', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '王产品经理', '产品经理', 'product.wang@bu.com', '13800000004', 1),
-('dev_zhao', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '赵前端开发', '前端研发', 'dev.zhao@bu.com', '13800000005', 1),
-('dev_qian', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '钱后端开发', '后端研发', 'dev.qian@bu.com', '13800000006', 1),
-('test_sun', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '孙测试工程师', '测试', 'test.sun@bu.com', '13800000007', 1),
-('ui_zhou', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '周UI设计师', 'UI设计', 'ui.zhou@bu.com', '13800000008', 1);
+('admin', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '系统管理员', 'BU_ADMIN', 'admin@bu.com', '13800000001', 1),
+('pm_zhang', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '张项目经理', 'PM', 'pm.zhang@bu.com', '13800000002', 1),
+('tech_li', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '李技术经理', 'TECH_MANAGER', 'tech.li@bu.com', '13800000003', 1),
+('product_wang', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '王产品经理', 'PRODUCT', 'product.wang@bu.com', '13800000004', 1),
+('dev_zhao', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '赵前端开发', 'DEVELOPER', 'dev.zhao@bu.com', '13800000005', 1),
+('dev_qian', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '钱后端开发', 'DEVELOPER', 'dev.qian@bu.com', '13800000006', 1),
+('test_sun', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '孙测试工程师', 'TESTER', 'test.sun@bu.com', '13800000007', 1),
+('ui_zhou', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '周UI设计师', 'UI_DESIGN', 'ui.zhou@bu.com', '13800000008', 1);
 
 -- 3. 初始化项目
 INSERT INTO project (business_line_id, parent_id, level, name, full_path, code, manager_id, status) VALUES

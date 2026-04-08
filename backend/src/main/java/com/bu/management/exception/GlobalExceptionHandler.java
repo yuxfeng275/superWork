@@ -23,6 +23,16 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     /**
+     * 处理资源不存在异常
+     */
+    @ExceptionHandler(ResourceNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleResourceNotFoundException(ResourceNotFoundException e) {
+        log.error("资源不存在: ", e);
+        return Result.error(404, e.getMessage());
+    }
+
+    /**
      * 处理运行时异常
      */
     @ExceptionHandler(RuntimeException.class)

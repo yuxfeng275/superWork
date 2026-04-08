@@ -13,6 +13,7 @@ spring:
   flyway:
     enabled: true
     clean-disabled: false  # 开发环境允许清理数据库
+    out-of-order: true  # 允许乱序执行迁移
 
 # MyBatis Plus 配置
 mybatis-plus:

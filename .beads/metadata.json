@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "server",
-  "dolt_database": "superWork_claude_sp",
-  "project_id": "9caf57fe-4c96-4a80-9d87-960452481fac"
-}

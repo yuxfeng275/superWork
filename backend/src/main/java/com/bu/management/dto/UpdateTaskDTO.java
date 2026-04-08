@@ -42,9 +42,4 @@ public class UpdateTaskDTO {
      * 状态：待开始/进行中/已完成
      */
     private String status;
-
-    /**
-     * 优先级：低/中/高
-     */
-    private String priority;
 }

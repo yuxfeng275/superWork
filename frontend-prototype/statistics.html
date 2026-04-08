@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据统计 - 电商BU内部管理系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+        }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #001529; color: white;
+            position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-logo {
+            height: 64px; display: flex; align-items: center;
+            justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-logo h1 { font-size: 18px; font-weight: 600; }
+        .menu { padding: 16px 0; }
+        .menu-item {
+            padding: 12px 24px; cursor: pointer;
+            display: flex; align-items: center; gap: 12px;
+            color: rgba(255,255,255,0.65); transition: all 0.3s;
+        }
+        .menu-item:hover, .menu-item.active {
+            background: rgba(255,255,255,0.1); color: white;
+        }
+        .menu-item.active { border-right: 3px solid #667eea; }
+        .main { flex: 1; margin-left: 220px; }
+        .header {
+            height: 64px; background: white; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; position: sticky; top: 0; z-index: 100;
+        }
+        .header-title { font-size: 18px; font-weight: 600; color: #262626; }
+        .header-user { display: flex; align-items: center; gap: 12px; }
+        .user-avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; display: flex; align-items: center; justify-content: center;
+        }
+        .content { padding: 24px; }
+        .stat-cards {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 24px;
+        }
+        .stat-card {
+            background: white; padding: 24px; border-radius: 12px;
+            display: flex; align-items: center; gap: 20px;
+        }
+        .stat-icon {
+            width: 64px; height: 64px; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 28px;
+        }
+        .stat-icon.blue { background: #e6f7ff; }
+        .stat-icon.green { background: #f6ffed; }
+        .stat-icon.orange { background: #fff7e6; }
+        .stat-icon.red { background: #fff1f0; }
+        .stat-info h3 { font-size: 28px; font-weight: 600; color: #262626; }
+        .stat-info p { font-size: 14px; color: #8c8c8c; margin-top: 4px; }
+        .stat-change { font-size: 12px; margin-left: 8px; }
+        .stat-change.up { color: #52c41a; }
+        .stat-change.down { color: #ff4d4f; }
+        .chart-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;
+        }
+        .chart-card {
+            background: white; padding: 24px; border-radius: 12px;
+        }
+        .chart-title {
+            font-size: 16px; font-weight: 600; color: #262626; margin-bottom: 20px;
+        }
+        .chart-container { height: 300px; }
+        .table-card {
+            background: white; padding: 24px; border-radius: 12px;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+        th { font-weight: 600; color: #262626; font-size: 14px; }
+        td { font-size: 14px; color: #595959; }
+        .progress-bar {
+            width: 100%; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 4px; transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="layout">
+            <aside class="sidebar">
+                <div class="sidebar-logo"><h1>BU管理系统</h1></div>
+                <nav class="menu">
+                    <div class="menu-item"><span>🏠</span><span>首页</span></div>
+                    <div class="menu-item"><span>📋</span><span>需求管理</span></div>
+                    <div class="menu-item"><span>✅</span><span>任务管理</span></div>
+                    <div class="menu-item active"><span>📊</span><span>统计看板</span></div>
+                    <div class="menu-item"><span>🏢</span><span>组织架构</span></div>
+                </nav>
+            </aside>
+
+            <main class="main">
+                <header class="header">
+                    <div class="header-title">数据统计看板</div>
+                    <div class="header-user">
+                        <span>欢迎，管理员</span>
+                        <div class="user-avatar">A</div>
+                    </div>
+                </header>
+
+                <div class="content">
+                    <!-- 统计卡片 -->
+                    <div class="stat-cards">
+                        <div class="stat-card">
+                            <div class="stat-icon blue">📋</div>
+                            <div class="stat-info">
+                                <h3>128<span class="stat-change up">+12%</span></h3>
+                                <p>总需求数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green">✅</div>
+                            <div class="stat-info">
+                                <h3>45<span class="stat-change up">+8%</span></h3>
+                                <p>进行中需求</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon orange">⏱️</div>
+                            <div class="stat-info">
+                                <h3>1,280<span class="stat-change down">-5%</span></h3>
+                                <p>总工时（小时）</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon red">👥</div>
+                            <div class="stat-info">
+                                <h3>28</h3>
+                                <p>团队成员</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 图表区域 -->
+                    <div class="chart-grid">
+                        <div class="chart-card">
+                            <div class="chart-title">需求状态分布</div>
+                            <div class="chart-container" id="statusChart"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">月度需求趋势</div>
+                            <div class="chart-container" id="trendChart"></div>
+                        </div>
+                    </div>
+
+                    <div class="chart-grid">
+                        <div class="chart-card">
+                            <div class="chart-title">人效分析（按人员）</div>
+                            <div class="chart-container" id="efficiencyChart"></div>
+                        </div>
+                        <div class="chart-card">
+                            <div class="chart-title">业务线健康度</div>
+                            <div class="chart-container" id="healthChart"></div>
+                        </div>
+                    </div>
+
+                    <!-- 数据表格 -->
+                    <div class="table-card">
+                        <div class="chart-title">业务线统计</div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>业务线</th>
+                                    <th>需求数</th>
+                                    <th>进行中</th>
+                                    <th>已完成</th>
+                                    <th>总工时</th>
+                                    <th>平均工期</th>
+                                    <th>完成率</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>电商业务线</td>
+                                    <td>68</td>
+                                    <td>18</td>
+                                    <td>45</td>
+                                    <td>680h</td>
+                                    <td>15天</td>
+                                    <td>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <div class="progress-bar" style="width:120px;">
+                                                <div class="progress-fill" style="width:85%;"></div>
+                                            </div>
+                                            <span>85%</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>供应链业务线</td>
+                                    <td>42</td>
+                                    <td>12</td>
+                                    <td>28</td>
+                                    <td>420h</td>
+                                    <td>12天</td>
+                                    <td>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <div class="progress-bar" style="width:120px;">
+                                                <div class="progress-fill" style="width:78%;"></div>
+                                            </div>
+                                            <span>78%</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>客服业务线</td>
+                                    <td>18</td>
+                                    <td>5</td>
+                                    <td>12</td>
+                                    <td>180h</td>
+                                    <td>10天</td>
+                                    <td>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <div class="progress-bar" style="width:120px;">
+                                                <div class="progress-fill" style="width:92%;"></div>
+                                            </div>
+                                            <span>92%</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue
+        const app = createApp({
+            mounted() {
+                this.initCharts()
+            },
+            methods: {
+                initCharts() {
+                    // 需求状态分布饼图
+                    const statusChart = echarts.init(document.getElementById('statusChart'))
+                    statusChart.setOption({
+                        tooltip: { trigger: 'item' },
+                        legend: { bottom: 0 },
+                        series: [{
+                            type: 'pie',
+                            radius: ['40%', '70%'],
+                            avoidLabelOverlap: false,
+                            itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
+                            label: { show: false },
+                            emphasis: { label: { show: true, fontSize: 16 } },
+                            data: [
+                                { value: 35, name: '待评估', itemStyle: { color: '#faad14' } },
+                                { value: 25, name: '评估中', itemStyle: { color: '#1890ff' } },
+                                { value: 20, name: '设计中', itemStyle: { color: '#52c41a' } },
+                                { value: 30, name: '开发中', itemStyle: { color: '#ff4d4f' } },
+                                { value: 10, name: '测试中', itemStyle: { color: '#722ed1' } },
+                                { value: 8, name: '已上线', itemStyle: { color: '#13c2c2' } }
+                            ]
+                        }]
+                    })
+
+                    // 月度趋势图
+                    const trendChart = echarts.init(document.getElementById('trendChart'))
+                    trendChart.setOption({
+                        tooltip: { trigger: 'axis' },
+                        legend: { data: ['新建', '完成'], bottom: 0 },
+                        grid: { left: 50, right: 20, top: 20, bottom: 50 },
+                        xAxis: {
+                            type: 'category',
+                            data: ['1月', '2月', '3月', '4月', '5月', '6月']
+                        },
+                        yAxis: { type: 'value' },
+                        series: [
+                            {
+                                name: '新建',
+                                type: 'bar',
+                                data: [20, 25, 18, 32, 28, 35],
+                                itemStyle: { color: '#667eea', borderRadius: [4, 4, 0, 0] }
+                            },
+                            {
+                                name: '完成',
+                                type: 'bar',
+                                data: [15, 22, 20, 28, 30, 32],
+                                itemStyle: { color: '#52c41a', borderRadius: [4, 4, 0, 0] }
+                            }
+                        ]
+                    })
+
+                    // 人效分析
+                    const efficiencyChart = echarts.init(document.getElementById('efficiencyChart'))
+                    efficiencyChart.setOption({
+                        tooltip: { trigger: 'axis' },
+                        grid: { left: 50, right: 20, top: 20, bottom: 30 },
+                        xAxis: {
+                            type: 'value',
+                            axisLabel: { formatter: '{value}h' }
+                        },
+                        yAxis: {
+                            type: 'category',
+                            data: ['张三', '李四', '王五', '赵六', '钱七']
+                        },
+                        series: [{
+                            type: 'bar',
+                            data: [
+                                { value: 120, itemStyle: { color: '#667eea' } },
+                                { value: 95, itemStyle: { color: '#764ba2' } },
+                                { value: 88, itemStyle: { color: '#667eea' } },
+                                { value: 76, itemStyle: { color: '#764ba2' } },
+                                { value: 65, itemStyle: { color: '#667eea' } }
+                            ],
+                            barWidth: 20
+                        }]
+                    })
+
+                    // 业务线健康度雷达图
+                    const healthChart = echarts.init(document.getElementById('healthChart'))
+                    healthChart.setOption({
+                        tooltip: {},
+                        radar: {
+                            indicator: [
+                                { name: '交付及时率', max: 100 },
+                                { name: '质量评分', max: 100 },
+                                { name: '需求完成率', max: 100 },
+                                { name: '人效', max: 100 },
+                                { name: '满意度', max: 100 }
+                            ],
+                            radius: '65%'
+                        },
+                        series: [{
+                            type: 'radar',
+                            data: [{
+                                value: [92, 88, 85, 78, 95],
+                                name: '电商业务线',
+                                areaStyle: { color: 'rgba(102, 126, 234, 0.3)' },
+                                lineStyle: { color: '#667eea' },
+                                itemStyle: { color: '#667eea' }
+                            }]
+                        }]
+                    })
+
+                    window.addEventListener('resize', () => {
+                        statusChart.resize()
+                        trendChart.resize()
+                        efficiencyChart.resize()
+                        healthChart.resize()
+                    })
+                }
+            }
+        })
+        app.use(ElementPlus)
+        app.mount('#app')
+    </script>
+</body>
+</html>

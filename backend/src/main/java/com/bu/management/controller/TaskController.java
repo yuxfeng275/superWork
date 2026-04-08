@@ -74,16 +74,15 @@ public class TaskController {
     /**
      * 分页查询任务
      */
-    @Operation(summary = "分页查询任务", description = "分页查询任务，支持按需求ID、负责人、状态、优先级筛选")
+    @Operation(summary = "分页查询任务", description = "分页查询任务，支持按需求ID、负责人、状态筛选")
     @GetMapping
     public Result<Page<Task>> getTasksPage(
             @Parameter(description = "页码") @RequestParam(defaultValue = "1") int page,
             @Parameter(description = "每页数量") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "需求ID") @RequestParam(required = false) Long requirementId,
             @Parameter(description = "负责人ID") @RequestParam(required = false) Long assigneeId,
-            @Parameter(description = "状态") @RequestParam(required = false) String status,
-            @Parameter(description = "优先级") @RequestParam(required = false) String priority) {
-        Page<Task> result = taskService.getTasksPage(page, size, requirementId, assigneeId, status, priority);
+            @Parameter(description = "状态") @RequestParam(required = false) String status) {
+        Page<Task> result = taskService.getTasksPage(page, size, requirementId, assigneeId, status);
         return Result.success(result);
     }
 

@@ -104,9 +104,10 @@ public class StatisticsService {
         stats.setPendingCount(tasks.stream().filter(t -> "待开始".equals(t.getStatus())).count());
         stats.setInProgressCount(tasks.stream().filter(t -> "进行中".equals(t.getStatus())).count());
         stats.setCompletedCount(tasks.stream().filter(t -> "已完成".equals(t.getStatus())).count());
-        stats.setHighPriorityCount(tasks.stream().filter(t -> "高".equals(t.getPriority())).count());
-        stats.setMediumPriorityCount(tasks.stream().filter(t -> "中".equals(t.getPriority())).count());
-        stats.setLowPriorityCount(tasks.stream().filter(t -> "低".equals(t.getPriority())).count());
+        // 任务暂时不支持优先级统计
+        stats.setHighPriorityCount(0L);
+        stats.setMediumPriorityCount(0L);
+        stats.setLowPriorityCount(0L);
 
         BigDecimal totalEstimated = tasks.stream()
                 .map(Task::getEstimatedHours)

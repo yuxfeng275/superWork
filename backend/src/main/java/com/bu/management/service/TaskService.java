@@ -46,7 +46,6 @@ public class TaskService {
         task.setDescription(dto.getDescription());
         task.setAssigneeId(dto.getAssigneeId());
         task.setEstimatedHours(dto.getEstimatedHours());
-        task.setPriority(dto.getPriority() != null ? dto.getPriority() : "中");
         task.setStatus("待开始");
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
@@ -82,15 +81,6 @@ public class TaskService {
         }
         if (dto.getStatus() != null) {
             task.setStatus(dto.getStatus());
-            if ("进行中".equals(dto.getStatus()) && task.getStartedAt() == null) {
-                task.setStartedAt(LocalDateTime.now());
-            }
-            if ("已完成".equals(dto.getStatus())) {
-                task.setCompletedAt(LocalDateTime.now());
-            }
-        }
-        if (dto.getPriority() != null) {
-            task.setPriority(dto.getPriority());
         }
         task.setUpdatedAt(LocalDateTime.now());
 
@@ -118,7 +108,7 @@ public class TaskService {
     /**
      * 分页查询任务
      */
-    public Page<Task> getTasksPage(int page, int size, Long requirementId, Long assigneeId, String status, String priority) {
+    public Page<Task> getTasksPage(int page, int size, Long requirementId, Long assigneeId, String status) {
         Page<Task> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
 
@@ -130,9 +120,6 @@ public class TaskService {
         }
         if (status != null && !status.isEmpty()) {
             wrapper.eq(Task::getStatus, status);
-        }
-        if (priority != null && !priority.isEmpty()) {
-            wrapper.eq(Task::getPriority, priority);
         }
 
         wrapper.orderByDesc(Task::getCreatedAt);

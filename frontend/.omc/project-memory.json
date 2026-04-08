@@ -1,0 +1,261 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775612832576,
+  "projectRoot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "vue",
+        "version": "3.5.30",
+        "category": "frontend"
+      },
+      {
+        "name": "@playwright/test",
+        "version": "1.59.1",
+        "category": "testing"
+      },
+      {
+        "name": "vite",
+        "version": "8.0.1",
+        "category": "build"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "vite",
+      "build": "vue-tsc -b && vite build",
+      "preview": "vite preview"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": "ES modules",
+    "testPattern": "*.spec.ts",
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "public",
+      "src",
+      "tests"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 3,
+      "lastAccessed": 1775612832486,
+      "keyFiles": [
+        "favicon.svg",
+        "icons.svg",
+        "index.html"
+      ]
+    },
+    "public": {
+      "path": "public",
+      "purpose": "Public files",
+      "fileCount": 2,
+      "lastAccessed": 1775612832487,
+      "keyFiles": [
+        "favicon.svg",
+        "icons.svg"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1775612832494,
+      "keyFiles": [
+        "App.vue",
+        "main.ts",
+        "style.css"
+      ]
+    },
+    "test-results": {
+      "path": "test-results",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775612832494,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 1,
+      "lastAccessed": 1775612832494,
+      "keyFiles": [
+        "role-auth.spec.ts"
+      ]
+    },
+    "dist/assets": {
+      "path": "dist/assets",
+      "purpose": "Static assets",
+      "fileCount": 30,
+      "lastAccessed": 1775612832496,
+      "keyFiles": [
+        "HomeView-B0tnyxM2.js",
+        "HomeView-DlW31tPp.css",
+        "LoginView-BYpjylSt.css"
+      ]
+    },
+    "src/assets": {
+      "path": "src/assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1775612832496,
+      "keyFiles": [
+        "hero.png",
+        "vite.svg",
+        "vue.svg"
+      ]
+    },
+    "src/components": {
+      "path": "src/components",
+      "purpose": "UI components",
+      "fileCount": 1,
+      "lastAccessed": 1775612832496,
+      "keyFiles": [
+        "HelloWorld.vue"
+      ]
+    },
+    "src/types": {
+      "path": "src/types",
+      "purpose": "Type definitions",
+      "fileCount": 1,
+      "lastAccessed": 1775612832497,
+      "keyFiles": [
+        "requirement.ts"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/views/ProjectView.vue",
+      "accessCount": 23,
+      "lastAccessed": 1775616520651,
+      "type": "file"
+    },
+    {
+      "path": "src/views/OrganizationView.vue",
+      "accessCount": 13,
+      "lastAccessed": 1775616530807,
+      "type": "file"
+    },
+    {
+      "path": "src/views/RequirementsView.vue",
+      "accessCount": 11,
+      "lastAccessed": 1775616429913,
+      "type": "file"
+    },
+    {
+      "path": "src/views",
+      "accessCount": 10,
+      "lastAccessed": 1775616457751,
+      "type": "directory"
+    },
+    {
+      "path": "src/views/SystemUserView.vue",
+      "accessCount": 7,
+      "lastAccessed": 1775616521954,
+      "type": "file"
+    },
+    {
+      "path": "src/views/SystemWorkflowView.vue",
+      "accessCount": 7,
+      "lastAccessed": 1775616525051,
+      "type": "file"
+    },
+    {
+      "path": "src/views/SystemRoleView.vue",
+      "accessCount": 5,
+      "lastAccessed": 1775616523869,
+      "type": "file"
+    },
+    {
+      "path": "src/views/RequirementDetailView.vue",
+      "accessCount": 4,
+      "lastAccessed": 1775614042372,
+      "type": "file"
+    },
+    {
+      "path": "src/views/SystemMenuView.vue",
+      "accessCount": 3,
+      "lastAccessed": 1775614122501,
+      "type": "file"
+    },
+    {
+      "path": "src/views/StatisticsView.vue",
+      "accessCount": 3,
+      "lastAccessed": 1775614123423,
+      "type": "file"
+    },
+    {
+      "path": "src/views/HomeView.vue",
+      "accessCount": 3,
+      "lastAccessed": 1775614128818,
+      "type": "file"
+    },
+    {
+      "path": "src/views/TasksView.vue",
+      "accessCount": 3,
+      "lastAccessed": 1775614129181,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 3,
+      "lastAccessed": 1775616463988,
+      "type": "directory"
+    },
+    {
+      "path": "src/styles/variables.css",
+      "accessCount": 2,
+      "lastAccessed": 1775616516339,
+      "type": "file"
+    },
+    {
+      "path": "src/utils",
+      "accessCount": 1,
+      "lastAccessed": 1775614049077,
+      "type": "directory"
+    },
+    {
+      "path": "src/main.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775616464580,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}

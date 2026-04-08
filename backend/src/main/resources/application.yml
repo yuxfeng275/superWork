@@ -2,7 +2,7 @@ spring:
   application:
     name: bu-management-system
   profiles:
-    active: @spring.profiles.active@
+    active: dev
 
   # 数据源配置
   datasource:

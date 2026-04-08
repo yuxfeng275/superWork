@@ -7,6 +7,7 @@ import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.CustomerContact;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.Requirement;
+import com.bu.management.exception.ResourceNotFoundException;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.CustomerContactMapper;
 import com.bu.management.mapper.ProjectMapper;
@@ -18,6 +19,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * 需求服务
@@ -33,6 +35,7 @@ public class RequirementService {
     private final BusinessLineMapper businessLineMapper;
     private final ProjectMapper projectMapper;
     private final CustomerContactMapper customerContactMapper;
+    private final DataPermissionService dataPermissionService;
 
     /**
      * 创建需求
@@ -89,7 +92,7 @@ public class RequirementService {
     public Requirement update(Long id, RequirementRequest request) {
         Requirement requirement = requirementMapper.selectById(id);
         if (requirement == null) {
-            throw new RuntimeException("需求不存在");
+            throw new ResourceNotFoundException("需求不存在");
         }
 
         // 验证业务线是否存在
@@ -138,7 +141,7 @@ public class RequirementService {
     public void delete(Long id) {
         Requirement requirement = requirementMapper.selectById(id);
         if (requirement == null) {
-            throw new RuntimeException("需求不存在");
+            throw new ResourceNotFoundException("需求不存在");
         }
 
         // 只有待评估状态的需求才能删除
@@ -155,17 +158,54 @@ public class RequirementService {
     public Requirement getById(Long id) {
         Requirement requirement = requirementMapper.selectById(id);
         if (requirement == null) {
-            throw new RuntimeException("需求不存在");
+            throw new ResourceNotFoundException("需求不存在");
         }
         return requirement;
     }
 
     /**
-     * 分页查询需求列表
+     * 分页查询需求列表（无权限过滤 - 管理员使用）
      */
     public Page<Requirement> list(Integer page, Integer size, Long businessLineId, Long projectId,
                                    String type, String status, String priority, String title) {
         Page<Requirement> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<Requirement> wrapper = buildQueryWrapper(businessLineId, projectId, type, status, priority, title);
+        wrapper.orderByDesc(Requirement::getCreatedAt);
+        return requirementMapper.selectPage(pageParam, wrapper);
+    }
+
+    /**
+     * 分页查询需求列表（带数据权限过滤）
+     */
+    public Page<Requirement> listWithPermission(Long userId, String role, Integer page, Integer size,
+                                                Long businessLineId, Long projectId,
+                                                String type, String status, String priority, String title) {
+        Page<Requirement> pageParam = new Page<>(page, size);
+        LambdaQueryWrapper<Requirement> wrapper = buildQueryWrapper(businessLineId, projectId, type, status, priority, title);
+
+        // 数据权限过滤：项目经理和技术经理只能看到其参与项目的需求
+        if (!dataPermissionService.isBuAdmin(role)) {
+            if (dataPermissionService.isProjectRole(role)) {
+                List<Long> userProjectIds = dataPermissionService.getUserProjectIds(userId);
+                if (userProjectIds.isEmpty()) {
+                    // 用户没有任何项目成员资格，返回空结果
+                    wrapper.eq(Requirement::getId, -1L);
+                } else {
+                    wrapper.in(Requirement::getProjectId, userProjectIds);
+                }
+            }
+            // 其他角色（产品、开发、测试等）暂时不做项目级别过滤，可以查看所有
+        }
+
+        wrapper.orderByDesc(Requirement::getCreatedAt);
+        return requirementMapper.selectPage(pageParam, wrapper);
+    }
+
+    /**
+     * 构建查询条件
+     */
+    private LambdaQueryWrapper<Requirement> buildQueryWrapper(Long businessLineId, Long projectId,
+                                                               String type, String status, String priority, String title) {
         LambdaQueryWrapper<Requirement> wrapper = new LambdaQueryWrapper<>();
 
         // 业务线筛选
@@ -198,10 +238,7 @@ public class RequirementService {
             wrapper.like(Requirement::getTitle, title);
         }
 
-        // 按创建时间倒序
-        wrapper.orderByDesc(Requirement::getCreatedAt);
-
-        return requirementMapper.selectPage(pageParam, wrapper);
+        return wrapper;
     }
 
     /**

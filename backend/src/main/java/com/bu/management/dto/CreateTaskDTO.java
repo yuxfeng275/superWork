@@ -37,9 +37,4 @@ public class CreateTaskDTO {
      * 预估工时
      */
     private BigDecimal estimatedHours;
-
-    /**
-     * 优先级：低/中/高
-     */
-    private String priority;
 }

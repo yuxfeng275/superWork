@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -37,6 +38,11 @@ public class Task {
     private String description;
 
     /**
+     * 任务类型：前端开发/后端开发/测试/UI设计
+     */
+    private String taskType;
+
+    /**
      * 负责人ID
      */
     private Long assigneeId;
@@ -57,19 +63,19 @@ public class Task {
     private String status;
 
     /**
-     * 优先级：低/中/高
+     * 开始日期
      */
-    private String priority;
+    private LocalDate startDate;
 
     /**
-     * 开始时间
+     * 结束日期
      */
-    private LocalDateTime startedAt;
+    private LocalDate endDate;
 
     /**
-     * 完成时间
+     * 创建人
      */
-    private LocalDateTime completedAt;
+    private Long createdBy;
 
     /**
      * 创建时间
