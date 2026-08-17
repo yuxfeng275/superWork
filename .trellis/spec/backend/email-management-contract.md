@@ -44,6 +44,15 @@ This contract covers personal Alibaba Cloud Enterprise Mail ingestion, per-user 
 - Digest response: `id, businessDate, status, generationMode, overview, mailCount, importantItems, todos, risks, replySuggestions, generatedAt, pushStatus, pushMessage`.
 - Every structured item contains only a stored message ID belonging to the same user. Invalid model references are rejected.
 
+
+## Per-message AI Interpretation
+
+- `GET /api/emails/messages/{id}/interpretation` returns the stored current-user interpretation state.
+- `POST /api/emails/messages/{id}/interpretation` generates or regenerates via the saved DeepSeek configuration and requires `email:sync`.
+- Stored fields include status, structured JSON, model, sanitized error, and generated time. All reads and writes include `owner_user_id`.
+- Structure: core summary, sender intent, key points, action items with deadline/priority, risks, and reply suggestion.
+- A failed interpretation is persisted as `FAILED`; it never replaces the original body or pretends to be an AI result.
+
 ## Digest and Provider Failure Matrix
 
 | Case | Mail ingestion | Digest | UI state |

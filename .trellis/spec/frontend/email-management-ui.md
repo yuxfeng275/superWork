@@ -36,6 +36,14 @@
 - Attachment cards display type, name, MIME type, and size as metadata only.
 - The reader becomes full-width on mobile and keeps close/navigation actions accessible.
 
+
+## AI Interpretation and Digest Tabs
+
+- The message reader has `邮件原文` and `AI 解读` tabs. First activation of AI interpretation generates automatically when no saved result exists.
+- Saved results render core conclusion, sender intent, key points, action items, risks, reply draft, model, and generated time; users may regenerate.
+- The daily digest uses persisted date-specific data and tabs: `摘要总览`, `重要邮件`, `待办事项`, `风险提醒`, and `回复建议`.
+- Digest overview displays generation mode, saved model, generation time, mail count, and push status.
+
 ## Interaction and Error Contract
 
 - Manual sync starts asynchronously, prevents duplicate clicks while running, polls status, and refreshes Inbox on success.

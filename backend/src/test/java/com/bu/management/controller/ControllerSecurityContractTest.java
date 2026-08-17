@@ -123,6 +123,7 @@ class ControllerSecurityContractTest {
         assertUserIdRequestAttribute(findMethod(EmailController.class, "sync"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "message"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "regenerate"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "generateInterpretation"));
     }
 
     @Test

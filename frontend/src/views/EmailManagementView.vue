@@ -39,6 +39,9 @@ const inboxFilters = reactive({ date: '', keyword: '', page: 1 })
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
+const detailActiveTab = ref('original')
+const digestActiveTab = ref('overview')
+const interpreting = ref(false)
 const selectedMessage = ref<EmailMessageDetail>()
 const detailMessageId = ref<number>()
 
@@ -341,12 +344,17 @@ function changeMessagePage(page: number) {
 async function openMessage(messageOrId: EmailMessageSummary | number) {
   const id = typeof messageOrId === 'number' ? messageOrId : messageOrId.id
   detailMessageId.value = id
+  detailActiveTab.value = 'original'
   detailVisible.value = true
   detailLoading.value = true
   detailError.value = ''
   selectedMessage.value = undefined
   try {
-    selectedMessage.value = await api.getEmailMessage(id)
+    const detail = await api.getEmailMessage(id)
+    detail.interpretation ||= {
+      status: 'NOT_GENERATED', keyPoints: [], actionItems: [], risks: []
+    }
+    selectedMessage.value = detail
   } catch (error: unknown) {
     detailError.value = errorText(error, '邮件详情加载失败')
   } finally {
@@ -378,6 +386,40 @@ async function copyMessageInfo() {
 
 function retryMessageDetail() {
   if (detailMessageId.value) void openMessage(detailMessageId.value)
+}
+
+async function handleDetailTabChange(name: string | number) {
+  detailActiveTab.value = String(name)
+  if (name === 'ai' && selectedMessage.value?.interpretation.status === 'NOT_GENERATED') {
+    await generateInterpretation(false)
+  }
+}
+
+async function generateInterpretation(force: boolean) {
+  if (!selectedMessage.value || interpreting.value) return
+  if (!force && selectedMessage.value.interpretation.status === 'SUCCESS') return
+  interpreting.value = true
+  selectedMessage.value.interpretation.status = 'GENERATING'
+  try {
+    selectedMessage.value.interpretation = await api.generateEmailInterpretation(selectedMessage.value.id)
+    if (selectedMessage.value.interpretation.status === 'SUCCESS') {
+      ElMessage.success('AI 解读已生成并保存')
+    } else {
+      ElMessage.error(selectedMessage.value.interpretation.errorMessage || 'AI 解读失败')
+    }
+  } catch (error: unknown) {
+    selectedMessage.value.interpretation.status = 'FAILED'
+    selectedMessage.value.interpretation.errorMessage = errorText(error, 'AI 解读失败')
+    ElMessage.error(selectedMessage.value.interpretation.errorMessage)
+  } finally {
+    interpreting.value = false
+  }
+}
+
+function interpretationPriorityType(priority?: string) {
+  if (priority === '高' || priority?.toUpperCase() === 'HIGH') return 'danger'
+  if (priority === '中' || priority?.toUpperCase() === 'MEDIUM') return 'warning'
+  return 'info'
 }
 
 async function startSync() {
@@ -507,48 +549,46 @@ onBeforeUnmount(stopSyncPolling)
 
         <el-alert v-if="digestError" :title="digestError" type="error" :closable="false" show-icon />
         <div v-else v-loading="digestLoading" class="digest-content">
-          <div v-if="digest" class="digest-overview">
-            <div class="digest-status-row">
-              <el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag>
-              <el-tag v-if="pushLabel" type="info">企业微信 · {{ pushLabel }}</el-tag>
-              <span>{{ digest.mailCount }} 封邮件</span>
-              <span v-if="digest.generatedAt">生成于 {{ formatDateTime(digest.generatedAt) }}</span>
-            </div>
-            <p class="overview-copy">{{ digest.overview || (digest.status === 'EMPTY' ? '当天没有收到邮件。' : '摘要正在准备中。') }}</p>
-            <p v-if="digest.pushMessage" class="push-message">{{ digest.pushMessage }}</p>
-          </div>
+          <el-tabs v-if="digest" v-model="digestActiveTab" class="digest-tabs">
+            <el-tab-pane label="摘要总览" name="overview">
+              <section aria-label="摘要总览" class="digest-overview">
+                <div class="digest-status-row">
+                  <el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag>
+                  <el-tag v-if="pushLabel" type="info">企业微信 · {{ pushLabel }}</el-tag>
+                  <span>{{ digest.mailCount }} 封邮件</span>
+                  <span v-if="digest.generatedModel">模型 {{ digest.generatedModel }}</span>
+                  <span v-if="digest.generatedAt">生成于 {{ formatDateTime(digest.generatedAt) }}</span>
+                </div>
+                <p class="overview-copy">{{ digest.overview || (digest.status === 'EMPTY' ? '当天没有收到邮件。' : '摘要正在准备中。') }}</p>
+                <p v-if="digest.pushMessage" class="push-message">{{ digest.pushMessage }}</p>
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`重要邮件 ${digest.importantItems.length}`" name="important">
+              <section aria-label="重要邮件" class="digest-tab-list important">
+                <button v-for="item in digest.importantItems" :key="`important-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <el-empty v-if="!digest.importantItems.length" description="暂无重要邮件" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`待办事项 ${digest.todos.length}`" name="todos">
+              <section aria-label="待办事项" class="digest-tab-list todo">
+                <button v-for="item in digest.todos" :key="`todo-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <el-empty v-if="!digest.todos.length" description="暂无待办事项" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`风险提醒 ${digest.risks.length}`" name="risks">
+              <section aria-label="风险提醒" class="digest-tab-list risk">
+                <button v-for="item in digest.risks" :key="`risk-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <el-empty v-if="!digest.risks.length" description="暂无风险提醒" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`回复建议 ${digest.replySuggestions.length}`" name="replies">
+              <section aria-label="回复建议" class="digest-tab-list reply">
+                <button v-for="item in digest.replySuggestions" :key="`reply-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <el-empty v-if="!digest.replySuggestions.length" description="暂无回复建议" :image-size="70" />
+              </section>
+            </el-tab-pane>
+          </el-tabs>
           <el-empty v-else description="该日期暂无摘要" />
-
-          <div v-if="digest" class="digest-grid">
-            <section aria-label="重要邮件" class="digest-card important">
-              <h3>重要邮件</h3>
-              <button v-for="item in digest.importantItems" :key="`important-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)">
-                <strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span>
-              </button>
-              <p v-if="!digest.importantItems.length" class="empty-copy">暂无重要邮件</p>
-            </section>
-            <section aria-label="待办事项" class="digest-card todo">
-              <h3>待办事项</h3>
-              <button v-for="item in digest.todos" :key="`todo-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)">
-                <strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span>
-              </button>
-              <p v-if="!digest.todos.length" class="empty-copy">暂无待办事项</p>
-            </section>
-            <section aria-label="风险提醒" class="digest-card risk">
-              <h3>风险提醒</h3>
-              <button v-for="item in digest.risks" :key="`risk-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)">
-                <strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span>
-              </button>
-              <p v-if="!digest.risks.length" class="empty-copy">暂无风险提醒</p>
-            </section>
-            <section aria-label="回复建议" class="digest-card reply">
-              <h3>回复建议</h3>
-              <button v-for="item in digest.replySuggestions" :key="`reply-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)">
-                <strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span>
-              </button>
-              <p v-if="!digest.replySuggestions.length" class="empty-copy">暂无回复建议</p>
-            </section>
-          </div>
         </div>
       </section>
 
@@ -681,28 +721,60 @@ onBeforeUnmount(stopSyncPolling)
             </details>
           </section>
 
-          <section class="reader-security-note">
-            <el-icon><Lock /></el-icon>
-            <div><strong>安全阅读模式</strong><span>仅展示已提取的纯文本；脚本、远程图片和邮件 HTML 均不会执行。</span></div>
-          </section>
+          <el-tabs v-model="detailActiveTab" class="reader-tabs" @tab-change="handleDetailTabChange">
+            <el-tab-pane label="邮件原文" name="original">
+              <section class="reader-security-note">
+                <el-icon><Lock /></el-icon>
+                <div><strong>安全阅读模式</strong><span>仅展示已提取的纯文本；脚本、远程图片和邮件 HTML 均不会执行。</span></div>
+              </section>
 
-          <section class="reader-body-section">
-            <div class="reader-section-title"><el-icon><Document /></el-icon><span>邮件正文</span></div>
-            <div class="message-paper">
-              <pre class="message-body">{{ selectedMessage.textBody || '（邮件正文为空）' }}</pre>
-            </div>
-          </section>
+              <section class="reader-body-section">
+                <div class="reader-section-title"><el-icon><Document /></el-icon><span>邮件正文</span></div>
+                <div class="message-paper">
+                  <pre class="message-body">{{ selectedMessage.textBody || '（邮件正文为空）' }}</pre>
+                </div>
+              </section>
 
-          <section v-if="selectedMessage.attachments.length" class="attachments" aria-label="附件元数据">
-            <div class="reader-section-title"><el-icon><Paperclip /></el-icon><span>附件</span><small>仅展示元数据，不下载文件内容</small></div>
-            <div class="attachment-grid">
-              <article v-for="attachment in selectedMessage.attachments" :key="`${attachment.fileName}-${attachment.size}`" class="attachment-card">
-                <div class="attachment-type">{{ attachmentIcon(attachment.contentType) }}</div>
-                <div class="attachment-info"><strong>{{ attachment.fileName }}</strong><span>{{ attachment.contentType || '未知类型' }}</span></div>
-                <span class="attachment-size">{{ formatBytes(attachment.size) }}</span>
-              </article>
-            </div>
-          </section>
+              <section v-if="selectedMessage.attachments.length" class="attachments" aria-label="附件元数据">
+                <div class="reader-section-title"><el-icon><Paperclip /></el-icon><span>附件</span><small>仅展示元数据，不下载文件内容</small></div>
+                <div class="attachment-grid">
+                  <article v-for="attachment in selectedMessage.attachments" :key="`${attachment.fileName}-${attachment.size}`" class="attachment-card">
+                    <div class="attachment-type">{{ attachmentIcon(attachment.contentType) }}</div>
+                    <div class="attachment-info"><strong>{{ attachment.fileName }}</strong><span>{{ attachment.contentType || '未知类型' }}</span></div>
+                    <span class="attachment-size">{{ formatBytes(attachment.size) }}</span>
+                  </article>
+                </div>
+              </section>
+            </el-tab-pane>
+
+            <el-tab-pane name="ai">
+              <template #label><span class="ai-tab-label">✦ AI 解读<el-tag v-if="selectedMessage.interpretation.status === 'SUCCESS'" type="success" size="small">已生成</el-tag></span></template>
+              <section class="ai-interpretation" aria-label="AI 解读">
+                <div v-if="interpreting || selectedMessage.interpretation.status === 'GENERATING'" class="ai-generating">
+                  <div class="ai-orb">✦</div><h3>正在深度解读这封邮件</h3><p>AI 正在提取核心结论、待办、风险与回复建议，完成后会自动保存。</p><el-progress :percentage="70" :indeterminate="true" :duration="2" />
+                </div>
+                <div v-else-if="selectedMessage.interpretation.status === 'FAILED'" class="ai-empty-state failed">
+                  <div class="ai-orb">!</div><h3>AI 解读失败</h3><p>{{ selectedMessage.interpretation.errorMessage || '请稍后重试。' }}</p><el-button type="primary" @click="generateInterpretation(true)">重新解读</el-button>
+                </div>
+                <div v-else-if="selectedMessage.interpretation.status === 'SUCCESS'" class="ai-result">
+                  <header class="ai-result-head"><div><span class="reader-kicker">AI INTERPRETATION</span><h2>邮件智能解读</h2></div><div class="ai-result-actions"><el-tag type="success">{{ selectedMessage.interpretation.model || 'AI' }}</el-tag><el-button plain :loading="interpreting" @click="generateInterpretation(true)">重新解读</el-button></div></header>
+                  <section class="ai-summary-card"><span>核心结论</span><p>{{ selectedMessage.interpretation.summary || '暂无核心结论' }}</p></section>
+                  <section class="ai-intent-card"><strong>发件人意图</strong><p>{{ selectedMessage.interpretation.senderIntent || '暂无意图判断' }}</p></section>
+                  <div class="ai-analysis-grid">
+                    <section class="ai-analysis-card points"><h3>关键要点</h3><ul><li v-for="(point, index) in selectedMessage.interpretation.keyPoints" :key="`point-${index}`">{{ point }}</li></ul><p v-if="!selectedMessage.interpretation.keyPoints.length">暂无关键要点</p></section>
+                    <section class="ai-analysis-card actions"><h3>待办事项</h3><article v-for="(action, index) in selectedMessage.interpretation.actionItems" :key="`action-${index}`" class="ai-action-item"><div><strong>{{ action.content || '待办事项' }}</strong><span v-if="action.deadline">截止：{{ action.deadline }}</span></div><el-tag :type="interpretationPriorityType(action.priority)" size="small">{{ action.priority || '普通' }}</el-tag></article><p v-if="!selectedMessage.interpretation.actionItems.length">暂无明确待办</p></section>
+                    <section class="ai-analysis-card risks"><h3>风险提醒</h3><ul><li v-for="(risk, index) in selectedMessage.interpretation.risks" :key="`risk-${index}`">{{ risk }}</li></ul><p v-if="!selectedMessage.interpretation.risks.length">未识别到明显风险</p></section>
+                    <section class="ai-analysis-card reply"><h3>建议回复</h3><pre>{{ selectedMessage.interpretation.replySuggestion || '暂无回复建议' }}</pre></section>
+                  </div>
+                  <footer class="ai-result-foot">由 {{ selectedMessage.interpretation.model || 'AI' }} 生成 · {{ formatDateTime(selectedMessage.interpretation.generatedAt) }} · 请结合邮件原文核验</footer>
+                </div>
+                <div v-else class="ai-empty-state">
+                  <div class="ai-orb">✦</div><h3>让 AI 帮你快速读懂邮件</h3><p>点击后将生成核心结论、关键要点、待办、风险与回复建议，并保存到邮件记录。</p><el-button type="primary" size="large" @click="generateInterpretation(false)">开始 AI 解读</el-button>
+                </div>
+              </section>
+            </el-tab-pane>
+          </el-tabs>
+
         </template>
 
         <el-empty v-else-if="!detailLoading" description="请选择一封邮件查看详情" />
@@ -764,4 +836,11 @@ onBeforeUnmount(stopSyncPolling)
 @media (max-width: 700px) { :global(.email-detail-drawer) { width: 100vw !important; }.reader-toolbar { padding: 9px 13px; }.reader-kicker { display: none; }.reader-hero { padding: 24px 18px 18px; }.reader-subject-row { flex-direction: column-reverse; gap: 12px; }.reader-hero h1 { font-size: 25px; }.received-time { padding: 0; white-space: normal; }.recipient-details { margin-left: 0; }.reader-security-note { margin: 14px 18px 0; }.reader-body-section, .attachments { padding-right: 18px; padding-left: 18px; }.message-paper { padding: 22px 18px; border-radius: 11px; }.attachment-grid { grid-template-columns: 1fr; }.reader-section-title small { display: none; } }
 @media (max-width: 480px) { .digest-panel, .inbox-panel { padding: 16px; }.bind-card { margin: 0; padding: 18px; }.digest-controls .el-button:last-child { flex: 1; }.digest-controls :deep(.el-date-editor) { flex: 1; width: 120px; }.account-actions { flex-direction: column; gap: 8px; }.account-actions .el-button { margin-left: 0; }.reader-toolbar-actions .el-button:nth-child(3), .toolbar-divider { display: none; }.sender-profile .el-tag { display: none; }.message-body { font-size: 14px; line-height: 1.85; } }
 
+
+.digest-tabs :deep(.el-tabs__header) { margin: 0 0 16px; }.digest-tabs :deep(.el-tabs__nav-wrap::after), .reader-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: #e7eaf0; }.digest-tabs :deep(.el-tabs__item) { height: 46px; color: #687386; font-weight: 600; }.digest-tabs :deep(.el-tabs__item.is-active) { color: var(--primary); }.digest-tab-list { min-height: 150px; padding: 4px 18px 14px; border: 1px solid #e4e7ed; border-radius: 12px; background: #fff; }.digest-tab-list.important { border-top: 3px solid #6366f1; }.digest-tab-list.todo { border-top: 3px solid #0ea5e9; }.digest-tab-list.risk { border-top: 3px solid #f97316; }.digest-tab-list.reply { border-top: 3px solid #10b981; }.digest-tab-list .digest-item:first-child { border-top: 0; }
+.reader-tabs { padding-top: 8px; }.reader-tabs :deep(.el-tabs__header) { position: sticky; top: 64px; z-index: 3; margin: 0; padding: 0 40px; background: rgba(247,248,251,.96); backdrop-filter: blur(12px); }.reader-tabs :deep(.el-tabs__item) { height: 52px; padding: 0 22px; color: #687386; font-weight: 700; }.reader-tabs :deep(.el-tabs__content) { overflow: visible; }.ai-tab-label { display: inline-flex; align-items: center; gap: 7px; }.ai-tab-label .el-tag { height: 20px; padding: 0 6px; font-size: 10px; }
+.ai-interpretation { min-height: 470px; padding: 26px 40px 40px; }.ai-empty-state, .ai-generating { display: flex; align-items: center; flex-direction: column; justify-content: center; min-height: 400px; padding: 40px; border: 1px dashed #cfd7ed; border-radius: 16px; background: radial-gradient(circle at 50% 0, #f1f3ff, #fff 62%); text-align: center; }.ai-empty-state.failed { border-color: #f3c7c7; background: #fff8f8; }.ai-orb { display: flex; align-items: center; justify-content: center; width: 68px; height: 68px; margin-bottom: 18px; border-radius: 22px; background: linear-gradient(135deg, #5368d8, #9b5de5); box-shadow: 0 14px 34px rgba(83,104,216,.25); color: #fff; font-size: 30px; }.ai-empty-state.failed .ai-orb { background: linear-gradient(135deg, #d95c5c, #e77e64); }.ai-empty-state h3, .ai-generating h3 { margin: 0; color: #2c3545; font-size: 20px; }.ai-empty-state p, .ai-generating p { max-width: 480px; margin: 10px 0 22px; color: #778193; line-height: 1.7; }.ai-generating .el-progress { width: min(360px, 90%); }
+.ai-result { display: flex; flex-direction: column; gap: 14px; }.ai-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }.ai-result-head h2 { margin: 5px 0 0; color: #293344; font-size: 22px; }.ai-result-actions { display: flex; align-items: center; gap: 8px; }.ai-summary-card { padding: 20px 22px; border: 1px solid #d9ddf5; border-radius: 14px; background: linear-gradient(135deg, #f0f2ff, #fbfbff); }.ai-summary-card span { color: #6170b5; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.ai-summary-card p { margin: 8px 0 0; color: #303b50; font-size: 17px; font-weight: 600; line-height: 1.65; }.ai-intent-card { display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 16px 20px; border-left: 4px solid #7081cf; border-radius: 10px; background: #fff; box-shadow: 0 5px 18px rgba(30,41,59,.04); }.ai-intent-card strong { color: #596579; }.ai-intent-card p { margin: 0; color: #3e4858; line-height: 1.65; }
+.ai-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }.ai-analysis-card { min-height: 150px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 13px; background: #fff; }.ai-analysis-card h3 { margin: 0 0 12px; color: #3d4859; font-size: 14px; }.ai-analysis-card ul { margin: 0; padding-left: 19px; }.ai-analysis-card li { margin: 7px 0; color: #596579; line-height: 1.55; }.ai-analysis-card > p { color: #8a93a2; font-size: 12px; }.ai-analysis-card.points { border-top: 3px solid #6366f1; }.ai-analysis-card.actions { border-top: 3px solid #0ea5e9; }.ai-analysis-card.risks { border-top: 3px solid #f97316; }.ai-analysis-card.reply { border-top: 3px solid #10b981; }.ai-action-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid #f0f1f4; }.ai-action-item div { display: flex; flex-direction: column; gap: 4px; }.ai-action-item strong { color: #4a5567; font-size: 13px; }.ai-action-item span { color: #8a93a2; font-size: 11px; }.ai-analysis-card.reply pre { margin: 0; color: #465365; font-family: inherit; line-height: 1.7; white-space: pre-wrap; }.ai-result-foot { color: #9098a6; font-size: 11px; text-align: right; }
+@media (max-width: 700px) { .reader-tabs :deep(.el-tabs__header) { top: 59px; padding: 0 18px; }.ai-interpretation { padding: 20px 18px 30px; }.ai-analysis-grid { grid-template-columns: 1fr; }.ai-result-head { flex-direction: column; }.ai-result-actions { width: 100%; justify-content: space-between; }.ai-intent-card { grid-template-columns: 1fr; gap: 5px; }.ai-empty-state, .ai-generating { min-height: 350px; padding: 26px 18px; }.digest-tabs :deep(.el-tabs__nav) { white-space: nowrap; }.digest-tabs :deep(.el-tabs__nav-scroll) { overflow-x: auto; } }
 </style>

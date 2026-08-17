@@ -18,6 +18,7 @@ public class EmailDailyDigest {
   private Integer messageCount;
   private String status;
   private String generationMode;
+  private String generatedModel;
   private String overview;
   private String importantItems;
   private String todoItems;

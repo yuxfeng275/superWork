@@ -15,4 +15,5 @@ public record EmailMessageDetail(
     List<String> toAddresses,
     List<String> ccAddresses,
     String textBody,
-    List<AttachmentMeta> attachments) {}
+    List<AttachmentMeta> attachments,
+    EmailInterpretationView interpretation) {}

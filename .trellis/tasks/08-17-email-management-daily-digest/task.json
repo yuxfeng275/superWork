@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Deployed email and generic system config. Email detail reader deeply redesigned with wide workspace, navigation, sender/header hierarchy, safe plain text, attachment cards, and mobile full-width reading.",
+  "notes": "Email AI: per-message interpretation persisted via V30 and displayed in Original/AI tabs. Daily persisted digest optimized into overview/important/todo/risk/reply tabs with model metadata.",
   "meta": {}
 }

@@ -27,5 +27,10 @@ public class EmailMessage {
   private String bodyPreview;
   private String bodyText;
   private String attachmentsJson;
+  private String aiInterpretationStatus;
+  private String aiInterpretationJson;
+  private String aiInterpretationModel;
+  private String aiInterpretationError;
+  private LocalDateTime aiInterpretedAt;
   private LocalDateTime createdAt;
 }

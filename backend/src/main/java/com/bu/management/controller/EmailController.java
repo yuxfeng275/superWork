@@ -7,12 +7,14 @@ import com.bu.management.dto.EmailWeComMappingRequest;
 import com.bu.management.service.EmailAccountService;
 import com.bu.management.service.EmailDigestService;
 import com.bu.management.service.EmailQueryService;
+import com.bu.management.service.EmailInterpretationService;
 import com.bu.management.service.EmailSyncService;
 import com.bu.management.vo.EmailAccountStatus;
 import com.bu.management.vo.EmailConnectionTestResponse;
 import com.bu.management.vo.EmailDigestResponse;
 import com.bu.management.vo.EmailMessageDetail;
 import com.bu.management.vo.EmailMessageListItem;
+import com.bu.management.vo.EmailInterpretationView;
 import com.bu.management.vo.EmailSyncStatus;
 import com.bu.management.vo.EmailWeComMappingStatus;
 import com.bu.management.vo.Result;
@@ -41,6 +43,7 @@ public class EmailController {
     private final EmailSyncService syncService;
     private final EmailQueryService queryService;
     private final EmailDigestService digestService;
+    private final EmailInterpretationService interpretationService;
 
     @GetMapping("/account")
     public Result<EmailAccountStatus> account(@RequestAttribute("userId") Long userId) {
@@ -94,6 +97,21 @@ public class EmailController {
             @RequestAttribute("userId") Long userId,
             @PathVariable Long id) {
         return Result.success(queryService.detail(userId, id));
+    }
+
+    @GetMapping("/messages/{id}/interpretation")
+    public Result<EmailInterpretationView> interpretation(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        return Result.success(interpretationService.get(userId, id));
+    }
+
+    @PostMapping("/messages/{id}/interpretation")
+    @RequirePermission({"email:sync"})
+    public Result<EmailInterpretationView> generateInterpretation(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        return Result.success(interpretationService.generate(userId, id));
     }
 
     @GetMapping("/digests")

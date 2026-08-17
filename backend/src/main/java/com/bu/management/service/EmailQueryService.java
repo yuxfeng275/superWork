@@ -22,6 +22,7 @@ public class EmailQueryService {
     private static final int MAX_PAGE_SIZE = 100;
     private final EmailMessageMapper mapper;
     private final ObjectMapper objectMapper;
+    private final EmailInterpretationService interpretationService;
 
     public Page<EmailMessageListItem> list(
             Long ownerUserId,
@@ -70,7 +71,8 @@ public class EmailQueryService {
                 read(message.getCcAddressesJson(), new TypeReference<List<String>>() {}, List.of()),
                 message.getBodyText(),
                 read(message.getAttachmentsJson(),
-                        new TypeReference<List<AttachmentMeta>>() {}, List.of()));
+                        new TypeReference<List<AttachmentMeta>>() {}, List.of()),
+                interpretationService.toView(message));
     }
 
     private EmailMessageListItem toListItem(EmailMessage message) {

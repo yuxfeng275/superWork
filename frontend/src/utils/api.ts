@@ -8,6 +8,7 @@ import type {
   EmailMessageDetail,
   EmailMessagePage,
   EmailMessageQuery,
+  EmailInterpretation,
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
@@ -1187,6 +1188,14 @@ class ApiService {
 
   async getEmailMessage(id: number): Promise<EmailMessageDetail> {
     return this.request<EmailMessageDetail>(`/api/emails/messages/${id}`)
+  }
+
+  async getEmailInterpretation(id: number): Promise<EmailInterpretation> {
+    return this.request<EmailInterpretation>(`/api/emails/messages/${id}/interpretation`)
+  }
+
+  async generateEmailInterpretation(id: number): Promise<EmailInterpretation> {
+    return this.request<EmailInterpretation>(`/api/emails/messages/${id}/interpretation`, { method: 'POST' })
   }
 
   async getEmailDigest(date: string): Promise<EmailDailyDigest> {

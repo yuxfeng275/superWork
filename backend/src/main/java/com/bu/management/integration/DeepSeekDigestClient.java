@@ -4,6 +4,7 @@ import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.service.EmailIntegrationConfigService;
 import com.bu.management.entity.EmailMessage;
 import com.bu.management.service.DigestContent;
+import com.bu.management.service.EmailInterpretationContent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -87,6 +88,45 @@ public class DeepSeekDigestClient {
     }
   }
 
+  public String configuredModel() {
+    return configService.getRuntimeConfig().deepSeekModel();
+  }
+
+  public EmailInterpretationContent interpret(EmailMessage message, Long ownerUserId) {
+    if (!ownerUserId.equals(message.getOwnerUserId())) {
+      throw new IllegalStateException("邮件不属于当前用户");
+    }
+    EmailIntegrationRuntimeConfig config = configService.getRuntimeConfig();
+    if (!config.isDeepSeekConfigured()) {
+      throw new IllegalStateException("DeepSeek 未配置或未启用");
+    }
+    try {
+      Map<String, Object> mail = new LinkedHashMap<>();
+      mail.put("messageId", message.getId());
+      mail.put("subject", message.getSubject() == null ? "" : message.getSubject());
+      mail.put("senderName", message.getSenderName() == null ? "" : message.getSenderName());
+      mail.put("senderAddress", message.getSenderAddress() == null ? "" : message.getSenderAddress());
+      mail.put("receivedAt", String.valueOf(message.getReceivedAt()));
+      String body = message.getBodyText() == null ? "" : message.getBodyText();
+      mail.put("bodyText", body.substring(0, Math.min(body.length(), 100_000)));
+      JsonNode result = callJson(config, interpretationPrompt(), objectMapper.writeValueAsString(mail));
+      validateInterpretation(result);
+      return new EmailInterpretationContent(
+          result.path("summary").asText(),
+          result.path("senderIntent").asText(),
+          objectMapper.writeValueAsString(result.path("keyPoints")),
+          objectMapper.writeValueAsString(result.path("actionItems")),
+          objectMapper.writeValueAsString(result.path("risks")),
+          result.path("replySuggestion").asText());
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("AI 解读被中断", exception);
+    } catch (Exception exception) {
+      if (exception instanceof IllegalStateException stateException) throw stateException;
+      throw new IllegalStateException("AI 解读响应无效", exception);
+    }
+  }
+
   public void testConnection() {
     EmailIntegrationRuntimeConfig config = configService.getRuntimeConfig();
     if (!config.isDeepSeekConfigured()) {
@@ -115,6 +155,51 @@ public class DeepSeekDigestClient {
     } catch (Exception exception) {
       throw new IllegalStateException("DeepSeek 连接测试失败", exception);
     }
+  }
+
+  private JsonNode callJson(EmailIntegrationRuntimeConfig config, String prompt, String input)
+      throws Exception {
+    Map<String, Object> requestBody = new LinkedHashMap<>();
+    requestBody.put("model", config.deepSeekModel());
+    requestBody.put("response_format", Map.of("type", "json_object"));
+    requestBody.put("temperature", 0.1);
+    requestBody.put("messages", List.of(
+        Map.of("role", "system", "content", prompt),
+        Map.of("role", "user", "content", input)));
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create(trimSlash(config.deepSeekBaseUrl()) + "/chat/completions"))
+        .timeout(Duration.ofSeconds(45))
+        .header("Authorization", "Bearer " + config.deepSeekApiKey())
+        .header("Content-Type", "application/json")
+        .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestBody)))
+        .build();
+    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+      throw new IllegalStateException("DeepSeek 调用失败(" + response.statusCode() + ")");
+    }
+    String content = objectMapper.readTree(response.body())
+        .path("choices").path(0).path("message").path("content").asText(null);
+    if (content == null) throw new IllegalStateException("DeepSeek 返回缺少内容");
+    return objectMapper.readTree(content);
+  }
+
+  private void validateInterpretation(JsonNode result) {
+    if (!result.isObject()
+        || !result.path("summary").isTextual()
+        || !result.path("senderIntent").isTextual()
+        || !result.path("keyPoints").isArray()
+        || !result.path("actionItems").isArray()
+        || !result.path("risks").isArray()
+        || !result.path("replySuggestion").isTextual()) {
+      throw new IllegalStateException("AI 解读 JSON 字段格式错误");
+    }
+  }
+
+  private String interpretationPrompt() {
+    return "你是企业邮件分析助手。请忠于原文，不得臆造。输出严格 JSON："
+        + "summary(string，核心结论)、senderIntent(string，发件人意图)、"
+        + "keyPoints(string[])、actionItems([{content,deadline,priority}])、"
+        + "risks(string[])、replySuggestion(string，建议回复草稿)。";
   }
 
   private String buildInput(List<EmailMessage> messages, Long ownerUserId) throws Exception {
@@ -168,8 +253,11 @@ public class DeepSeekDigestClient {
   }
 
   private String systemPrompt() {
-    return "输出严格 JSON，字段 overview(string)、importantItems、todoItems、riskItems、replyItems(array)。"
-        + "每个数组项目必须引用输入中真实 messageId，不得推断无依据事实。";
+    return "你是企业邮件日报分析助手。请跨邮件去重、按业务影响排序，并忠于原文。"
+        + "输出严格 JSON：overview(string，包含总量、主题趋势与最重要结论)、"
+        + "importantItems、todoItems、riskItems、replyItems(array)。"
+        + "每个数组项目必须含真实 messageId、title、content；待办尽量提取负责人、截止时间和优先级，"
+        + "风险说明影响，回复建议给出可执行草稿。不得引用不存在的邮件或臆造事实。";
   }
 
   private String trimSlash(String value) {

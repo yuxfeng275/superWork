@@ -9,6 +9,7 @@ public record EmailDigestResponse(
     LocalDate businessDate,
     String status,
     String generationMode,
+    String generatedModel,
     String overview,
     int mailCount,
     JsonNode importantItems,

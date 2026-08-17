@@ -95,13 +95,27 @@ const mockConfiguredPage = async (page: Page) => {
   await page.route('**/api/emails/digests**', route => fulfill(route, digest))
   await page.route('**/api/emails/messages**', route => {
     const path = new URL(route.request().url()).pathname
+    if (path === '/api/emails/messages/101/interpretation') {
+      return fulfill(route, {
+        status: 'SUCCESS',
+        summary: '客户要求今天确认最终合同版本。',
+        senderIntent: '推动合同确认并进入签署流程',
+        keyPoints: ['最终合同版本待确认', '邮件包含合同附件'],
+        actionItems: [{ content: '回复合同确认结果', deadline: '今天 18:00', priority: '高' }],
+        risks: ['逾期回复可能影响签署时间'],
+        replySuggestion: '已收到最终版本，我们将在今天 18:00 前回复确认结果。',
+        model: 'deepseek-v4-flash',
+        generatedAt: '2026-08-17T16:30:00'
+      })
+    }
     if (path === '/api/emails/messages/101') {
       return fulfill(route, {
         ...messages.records[0],
         toAddresses: ['owner@example.com'],
         ccAddresses: [],
         textBody: '<img src=x onerror="window.__emailXss=true">\n您好，\n请确认最终合同版本。',
-        attachments: [{ fileName: '合同.pdf', contentType: 'application/pdf', size: 4096 }]
+        attachments: [{ fileName: '合同.pdf', contentType: 'application/pdf', size: 4096 }],
+        interpretation: { status: 'NOT_GENERATED', keyPoints: [], actionItems: [], risks: [] }
       })
     }
     if (path === '/api/emails/messages/102') {
@@ -110,7 +124,8 @@ const mockConfiguredPage = async (page: Page) => {
         toAddresses: ['owner@example.com'],
         ccAddresses: ['delivery@example.com'],
         textBody: '请确认项目上线窗口。',
-        attachments: []
+        attachments: [],
+        interpretation: { status: 'NOT_GENERATED', keyPoints: [], actionItems: [], risks: [] }
       })
     }
     return fulfill(route, messages)
@@ -167,10 +182,15 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
 
   await page.goto('/emails')
   await expect(page.getByRole('link', { name: '邮件管理' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: '摘要总览' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByText('共收到 2 封邮件，1 封需要今天处理。')).toBeVisible()
+  await page.getByRole('tab', { name: /重要邮件 1/ }).click()
   await expect(page.getByRole('region', { name: '重要邮件' })).toContainText('合同确认')
+  await page.getByRole('tab', { name: /待办事项 1/ }).click()
   await expect(page.getByRole('region', { name: '待办事项' })).toContainText('今天 18:00 前回复')
+  await page.getByRole('tab', { name: /风险提醒 1/ }).click()
   await expect(page.getByRole('region', { name: '风险提醒' })).toContainText('上线窗口尚未确认')
+  await page.getByRole('tab', { name: /回复建议 1/ }).click()
   await expect(page.getByRole('region', { name: '回复建议' })).toContainText('已收到，我们将在今天确认。')
   await expect(page.getByLabel('收件箱列表')).toContainText('张经理')
 
@@ -182,12 +202,17 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
   await expect(drawer).toContainText('application/pdf')
   await expect(drawer.getByText('PDF', { exact: true })).toBeVisible()
   await expect(drawer.getByRole('button', { name: '上一封邮件' })).toBeDisabled()
+  await drawer.getByRole('tab', { name: /AI 解读/ }).click()
+  await expect(drawer.getByText('客户要求今天确认最终合同版本。')).toBeVisible()
+  await expect(drawer.getByText('回复合同确认结果')).toBeVisible()
+  await expect(drawer.getByText('逾期回复可能影响签署时间')).toBeVisible()
+  await expect(drawer.getByText('deepseek-v4-flash', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: '下一封邮件' }).click()
   await expect(drawer.getByRole('heading', { name: '项目上线窗口' })).toBeVisible()
   await expect(drawer).toContainText('delivery@example.com')
   await expect(drawer.locator('img')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __emailXss?: boolean }).__emailXss)).toBeUndefined()
-  expect(requestedMessagePaths).toEqual(['/api/emails/messages/101', '/api/emails/messages/102'])
+  expect(requestedMessagePaths).toEqual(['/api/emails/messages/101', '/api/emails/messages/101/interpretation', '/api/emails/messages/102'])
   expect(requestedMessagePaths.some(path => path.includes('/users/'))).toBe(false)
 })
 

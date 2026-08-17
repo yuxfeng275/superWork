@@ -58,11 +58,33 @@ export interface EmailMessageSummary {
   attachmentCount: number
 }
 
+export interface EmailInterpretationActionItem {
+  content?: string
+  deadline?: string
+  priority?: string
+}
+
+export type EmailInterpretationStatus = 'NOT_GENERATED' | 'GENERATING' | 'SUCCESS' | 'FAILED'
+
+export interface EmailInterpretation {
+  status: EmailInterpretationStatus
+  summary?: string
+  senderIntent?: string
+  keyPoints: string[]
+  actionItems: EmailInterpretationActionItem[]
+  risks: string[]
+  replySuggestion?: string
+  model?: string
+  errorMessage?: string
+  generatedAt?: string
+}
+
 export interface EmailMessageDetail extends EmailMessageSummary {
   toAddresses: string[]
   ccAddresses: string[]
   textBody: string
   attachments: EmailAttachment[]
+  interpretation: EmailInterpretation
 }
 
 export interface EmailMessagePage {
@@ -96,6 +118,7 @@ export interface EmailDailyDigest {
   businessDate: string
   status: EmailDigestStatus
   generationMode?: EmailDigestMode
+  generatedModel?: string
   overview?: string
   mailCount: number
   importantItems: EmailDigestItem[]

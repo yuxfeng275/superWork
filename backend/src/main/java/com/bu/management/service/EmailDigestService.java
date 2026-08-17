@@ -86,6 +86,7 @@ public class EmailDigestService {
         digest.setMessageCount(messages.size());
         digest.setStatus(messages.isEmpty() ? "EMPTY" : content.fallback() ? "DEGRADED" : "SUCCESS");
         digest.setGenerationMode(messages.isEmpty() ? "NONE" : content.fallback() ? "RULES" : "AI");
+        digest.setGeneratedModel(content.fallback() ? null : deepSeekClient.configuredModel());
         digest.setOverview(content.overview());
         digest.setImportantItems(content.importantItems());
         digest.setTodoItems(content.todoItems());
@@ -122,6 +123,7 @@ public class EmailDigestService {
         digest.setMessageCount(messageCount);
         digest.setStatus("PENDING");
         digest.setGenerationMode("NONE");
+        digest.setGeneratedModel(null);
         digest.setOverview("");
         digest.setImportantItems("[]");
         digest.setTodoItems("[]");
@@ -249,14 +251,14 @@ public class EmailDigestService {
     }
 
     private EmailDigestResponse pendingResponse(LocalDate date, int count) {
-        return new EmailDigestResponse(null, date, "PENDING", "NONE", null, count,
+        return new EmailDigestResponse(null, date, "PENDING", "NONE", null, null, count,
                 emptyArray(), emptyArray(), emptyArray(), emptyArray(), null, "PENDING", null);
     }
 
     private EmailDigestResponse toResponse(EmailDailyDigest digest) {
         return new EmailDigestResponse(
                 digest.getId(), digest.getDigestDate(), digest.getStatus(), digest.getGenerationMode(),
-                digest.getOverview(), digest.getMessageCount() == null ? 0 : digest.getMessageCount(),
+                digest.getGeneratedModel(), digest.getOverview(), digest.getMessageCount() == null ? 0 : digest.getMessageCount(),
                 parseArray(digest.getImportantItems()), parseArray(digest.getTodoItems()),
                 parseArray(digest.getRiskItems()), parseArray(digest.getReplyItems()),
                 digest.getUpdatedAt(), digest.getPushStatus(), digest.getPushError());

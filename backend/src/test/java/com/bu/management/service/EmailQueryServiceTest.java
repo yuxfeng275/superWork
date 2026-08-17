@@ -18,7 +18,7 @@ class EmailQueryServiceTest {
     void anotherUsersMessageIdIsReportedAsNotFound() {
         EmailMessageMapper mapper = mock(EmailMessageMapper.class);
         when(mapper.selectOne(any())).thenReturn(null);
-        EmailQueryService service = new EmailQueryService(mapper, new ObjectMapper());
+        EmailQueryService service = new EmailQueryService(mapper, new ObjectMapper(), mock(EmailInterpretationService.class));
 
         assertThatThrownBy(() -> service.detail(7L, 99L))
                 .isInstanceOf(ResourceNotFoundException.class)
