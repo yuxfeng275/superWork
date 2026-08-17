@@ -27,6 +27,15 @@
 - System-wide DeepSeek and WeCom settings live under `/system/configs`, not on `/emails`.
 - The email page contains only personal mailbox and employee WeCom UserId settings.
 
+
+## Message Reader
+
+- Message detail uses a wide reading workspace rather than a narrow basic drawer.
+- It provides previous/next navigation within the loaded Inbox page, position indicator, sender identity, full Shanghai timestamp, expandable full headers, Message-ID, and copyable metadata.
+- Body text is rendered in a paper-like plain-text region; HTML, remote images, and scripts are never executed.
+- Attachment cards display type, name, MIME type, and size as metadata only.
+- The reader becomes full-width on mobile and keeps close/navigation actions accessible.
+
 ## Interaction and Error Contract
 
 - Manual sync starts asynchronously, prevents duplicate clicks while running, polls status, and refreshes Inbox on success.

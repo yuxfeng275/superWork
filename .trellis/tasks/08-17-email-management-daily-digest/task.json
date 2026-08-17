@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Email feature deployed. System-wide DeepSeek/WeCom settings moved to generic System > Configuration Management via V29; personal mailbox stays on /emails.",
+  "notes": "Deployed email and generic system config. Email detail reader deeply redesigned with wide workspace, navigation, sender/header hierarchy, safe plain text, attachment cards, and mobile full-width reading.",
   "meta": {}
 }

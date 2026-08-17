@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowRight, Delete, Edit, Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Calendar, Close, CopyDocument, Delete, Document, Edit, Lock, Paperclip, Refresh, Search } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
 import type {
   EmailAccount,
@@ -40,6 +40,7 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
 const selectedMessage = ref<EmailMessageDetail>()
+const detailMessageId = ref<number>()
 
 const syncStatus = ref<EmailSyncStatus>({ status: 'IDLE' })
 let syncPollTimer: number | undefined
@@ -78,6 +79,25 @@ const pushLabel = computed(() => {
   return digest.value?.pushStatus ? labels[digest.value.pushStatus] || digest.value.pushStatus : ''
 })
 
+const selectedMessageIndex = computed(() => {
+  if (!selectedMessage.value) return -1
+  return messages.value.records.findIndex(message => message.id === selectedMessage.value?.id)
+})
+const selectedMessagePosition = computed(() => selectedMessageIndex.value >= 0
+  ? `${selectedMessageIndex.value + 1} / ${messages.value.records.length}`
+  : '')
+const previousMessage = computed(() => selectedMessageIndex.value > 0
+  ? messages.value.records[selectedMessageIndex.value - 1]
+  : undefined)
+const nextMessage = computed(() => selectedMessageIndex.value >= 0
+  && selectedMessageIndex.value < messages.value.records.length - 1
+  ? messages.value.records[selectedMessageIndex.value + 1]
+  : undefined)
+const senderInitial = computed(() => {
+  const source = selectedMessage.value?.fromName || selectedMessage.value?.fromAddress || '邮'
+  return source.trim().charAt(0).toUpperCase() || '邮'
+})
+
 function emptyMessagePage(): EmailMessagePage {
   return { records: [], total: 0, size: pageSize, current: 1, pages: 0 }
 }
@@ -108,6 +128,27 @@ function maskEmail(value?: string) {
 function formatDateTime(value?: string) {
   if (!value) return '暂无记录'
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function formatFullDateTime(value?: string) {
+  if (!value) return '时间未知'
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+  const date = new Date(value.includes('T') && !hasTimezone ? `${value}+08:00` : value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ')
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
+    hour: '2-digit', minute: '2-digit'
+  }).format(date)
+}
+
+function attachmentIcon(contentType?: string) {
+  if (contentType?.includes('pdf')) return 'PDF'
+  if (contentType?.startsWith('image/')) return 'IMG'
+  if (contentType?.includes('sheet') || contentType?.includes('excel')) return 'XLS'
+  if (contentType?.includes('word') || contentType?.includes('document')) return 'DOC'
+  if (contentType?.includes('zip') || contentType?.includes('compressed')) return 'ZIP'
+  return 'FILE'
 }
 
 function formatBytes(value: number) {
@@ -299,6 +340,7 @@ function changeMessagePage(page: number) {
 
 async function openMessage(messageOrId: EmailMessageSummary | number) {
   const id = typeof messageOrId === 'number' ? messageOrId : messageOrId.id
+  detailMessageId.value = id
   detailVisible.value = true
   detailLoading.value = true
   detailError.value = ''
@@ -310,6 +352,32 @@ async function openMessage(messageOrId: EmailMessageSummary | number) {
   } finally {
     detailLoading.value = false
   }
+}
+
+async function navigateMessage(direction: -1 | 1) {
+  const target = direction < 0 ? previousMessage.value : nextMessage.value
+  if (target) await openMessage(target)
+}
+
+async function copyMessageInfo() {
+  if (!selectedMessage.value) return
+  const message = selectedMessage.value
+  const text = [
+    message.subject || '（无主题）',
+    `发件人：${message.fromName || message.fromAddress} <${message.fromAddress}>`,
+    `时间：${formatFullDateTime(message.receivedAt)}`,
+    message.messageId ? `Message-ID：${message.messageId}` : ''
+  ].filter(Boolean).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('邮件信息已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择邮件信息')
+  }
+}
+
+function retryMessageDetail() {
+  if (detailMessageId.value) void openMessage(detailMessageId.value)
 }
 
 async function startSync() {
@@ -534,26 +602,111 @@ onBeforeUnmount(stopSyncPolling)
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="邮件详情" size="520px" class="email-detail-drawer" append-to-body>
-      <div v-loading="detailLoading" class="message-detail">
-        <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+    <el-drawer
+      v-model="detailVisible"
+      :with-header="false"
+      size="min(860px, 92vw)"
+      class="email-detail-drawer"
+      append-to-body
+      destroy-on-close
+      aria-label="邮件详情"
+    >
+      <article class="mail-reader" v-loading="detailLoading">
+        <header class="reader-toolbar">
+          <div class="reader-location">
+            <span class="reader-kicker">INBOX · 只读邮件</span>
+            <span v-if="selectedMessagePosition" class="reader-position">{{ selectedMessagePosition }}</span>
+          </div>
+          <div class="reader-toolbar-actions">
+            <el-tooltip content="上一封" placement="bottom">
+              <el-button circle :icon="ArrowLeft" aria-label="上一封邮件" :disabled="!previousMessage || detailLoading" @click="navigateMessage(-1)" />
+            </el-tooltip>
+            <el-tooltip content="下一封" placement="bottom">
+              <el-button circle :icon="ArrowRight" aria-label="下一封邮件" :disabled="!nextMessage || detailLoading" @click="navigateMessage(1)" />
+            </el-tooltip>
+            <span class="toolbar-divider"></span>
+            <el-tooltip content="复制邮件信息" placement="bottom">
+              <el-button circle :icon="CopyDocument" aria-label="复制邮件信息" :disabled="!selectedMessage" @click="copyMessageInfo" />
+            </el-tooltip>
+            <el-tooltip content="关闭" placement="bottom">
+              <el-button circle :icon="Close" aria-label="关闭邮件详情" @click="detailVisible = false" />
+            </el-tooltip>
+          </div>
+        </header>
+
+        <div v-if="detailError" class="reader-error">
+          <el-alert :title="detailError" type="error" :closable="false" show-icon />
+          <el-button type="primary" plain @click="retryMessageDetail">重新加载</el-button>
+        </div>
+
         <template v-else-if="selectedMessage">
-          <h2>{{ selectedMessage.subject || '（无主题）' }}</h2>
-          <dl class="message-headers">
-            <div><dt>发件人</dt><dd>{{ selectedMessage.fromName || selectedMessage.fromAddress }} &lt;{{ selectedMessage.fromAddress }}&gt;</dd></div>
-            <div><dt>收件人</dt><dd>{{ selectedMessage.toAddresses.join('、') || '—' }}</dd></div>
-            <div v-if="selectedMessage.ccAddresses.length"><dt>抄送</dt><dd>{{ selectedMessage.ccAddresses.join('、') }}</dd></div>
-            <div><dt>时间</dt><dd>{{ formatDateTime(selectedMessage.receivedAt) }}</dd></div>
-          </dl>
-          <pre class="message-body">{{ selectedMessage.textBody || '（邮件正文为空）' }}</pre>
+          <section class="reader-hero">
+            <div class="reader-subject-row">
+              <div>
+                <div class="reader-badges">
+                  <el-tag type="info" effect="plain">收件箱</el-tag>
+                  <el-tag v-if="selectedMessage.attachments.length" type="warning" effect="plain">
+                    <el-icon><Paperclip /></el-icon>{{ selectedMessage.attachments.length }} 个附件
+                  </el-tag>
+                </div>
+                <h1>{{ selectedMessage.subject || '（无主题）' }}</h1>
+              </div>
+              <div class="received-time">
+                <el-icon><Calendar /></el-icon>
+                <span>{{ formatFullDateTime(selectedMessage.receivedAt) }}</span>
+              </div>
+            </div>
+
+            <div class="sender-profile">
+              <div class="sender-avatar" aria-hidden="true">{{ senderInitial }}</div>
+              <div class="sender-identity">
+                <strong>{{ selectedMessage.fromName || selectedMessage.fromAddress }}</strong>
+                <span>{{ selectedMessage.fromAddress }}</span>
+              </div>
+              <el-tag type="success" effect="light">发件人</el-tag>
+            </div>
+
+            <details class="recipient-details">
+              <summary>
+                <span>发送给 {{ selectedMessage.toAddresses.length ? selectedMessage.toAddresses.join('、') : '未知收件人' }}</span>
+                <small>查看完整信头</small>
+              </summary>
+              <dl>
+                <div><dt>发件人</dt><dd>{{ selectedMessage.fromName || selectedMessage.fromAddress }} &lt;{{ selectedMessage.fromAddress }}&gt;</dd></div>
+                <div><dt>收件人</dt><dd>{{ selectedMessage.toAddresses.join('、') || '—' }}</dd></div>
+                <div v-if="selectedMessage.ccAddresses.length"><dt>抄送</dt><dd>{{ selectedMessage.ccAddresses.join('、') }}</dd></div>
+                <div><dt>接收时间</dt><dd>{{ formatFullDateTime(selectedMessage.receivedAt) }}</dd></div>
+                <div v-if="selectedMessage.messageId"><dt>Message-ID</dt><dd class="message-id">{{ selectedMessage.messageId }}</dd></div>
+              </dl>
+            </details>
+          </section>
+
+          <section class="reader-security-note">
+            <el-icon><Lock /></el-icon>
+            <div><strong>安全阅读模式</strong><span>仅展示已提取的纯文本；脚本、远程图片和邮件 HTML 均不会执行。</span></div>
+          </section>
+
+          <section class="reader-body-section">
+            <div class="reader-section-title"><el-icon><Document /></el-icon><span>邮件正文</span></div>
+            <div class="message-paper">
+              <pre class="message-body">{{ selectedMessage.textBody || '（邮件正文为空）' }}</pre>
+            </div>
+          </section>
+
           <section v-if="selectedMessage.attachments.length" class="attachments" aria-label="附件元数据">
-            <h3>附件（仅元数据）</h3>
-            <div v-for="attachment in selectedMessage.attachments" :key="`${attachment.fileName}-${attachment.size}`" class="attachment-row">
-              <span>📎 {{ attachment.fileName }}</span><span>{{ attachment.contentType || '未知类型' }} · {{ formatBytes(attachment.size) }}</span>
+            <div class="reader-section-title"><el-icon><Paperclip /></el-icon><span>附件</span><small>仅展示元数据，不下载文件内容</small></div>
+            <div class="attachment-grid">
+              <article v-for="attachment in selectedMessage.attachments" :key="`${attachment.fileName}-${attachment.size}`" class="attachment-card">
+                <div class="attachment-type">{{ attachmentIcon(attachment.contentType) }}</div>
+                <div class="attachment-info"><strong>{{ attachment.fileName }}</strong><span>{{ attachment.contentType || '未知类型' }}</span></div>
+                <span class="attachment-size">{{ formatBytes(attachment.size) }}</span>
+              </article>
             </div>
           </section>
         </template>
-      </div>
+
+        <el-empty v-else-if="!detailLoading" description="请选择一封邮件查看详情" />
+      </article>
     </el-drawer>
   </div>
 </template>
@@ -596,10 +749,19 @@ onBeforeUnmount(stopSyncPolling)
 .message-row { width: 100%; display: grid; grid-template-columns: minmax(140px, .8fr) minmax(240px, 2fr) minmax(150px, .7fr); gap: 18px; align-items: center; padding: 16px 8px; border: 0; border-bottom: 1px solid var(--gray-100); background: #fff; text-align: left; cursor: pointer; }
 .message-row:hover { background: var(--gray-50); }.sender-cell, .message-copy, .message-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.sender-cell strong, .message-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-800); font-size: 13px; }.sender-cell span, .message-copy span, .message-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-500); font-size: 12px; }.message-meta { align-items: flex-end; }
 .pagination { justify-content: flex-end; margin-top: 18px; }.settings-footer { display: flex; width: 100%; }.footer-spacer { flex: 1; }
-.message-detail h2 { margin: 0 0 18px; font-size: 20px; color: var(--gray-900); }.message-headers { margin: 0; padding: 14px; border-radius: 10px; background: var(--gray-50); }.message-headers div { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 4px 0; }.message-headers dt { color: var(--gray-500); }.message-headers dd { margin: 0; overflow-wrap: anywhere; color: var(--gray-700); }.message-body { margin: 18px 0; padding: 0; border: 0; background: transparent; color: var(--gray-800); font-family: inherit; font-size: 14px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
-.attachments { padding-top: 14px; border-top: 1px solid var(--gray-200); }.attachments h3 { font-size: 14px; }.attachment-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 8px; background: var(--gray-50); color: var(--gray-600); font-size: 12px; }
-:global(.email-detail-drawer) { width: min(520px, 100vw) !important; }
+.mail-reader { min-height: 100%; background: #f7f8fb; color: var(--gray-700); }
+.reader-toolbar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 11px 22px; border-bottom: 1px solid #e5e7eb; background: rgba(255, 255, 255, .94); backdrop-filter: blur(14px); }
+.reader-location, .reader-toolbar-actions { display: flex; align-items: center; gap: 9px; }.reader-kicker { color: #596273; font-size: 11px; font-weight: 700; letter-spacing: .08em; }.reader-position { padding: 3px 8px; border-radius: 999px; background: #eef2f7; color: #727b8b; font-size: 11px; }.toolbar-divider { width: 1px; height: 24px; background: #e5e7eb; }
+.reader-error { display: flex; flex-direction: column; gap: 16px; padding: 30px; }
+.reader-hero { padding: 34px 40px 22px; background: #fff; border-bottom: 1px solid #e8ebf0; }.reader-subject-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }.reader-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }.reader-badges .el-tag { gap: 4px; }.reader-hero h1 { max-width: 650px; margin: 13px 0 0; color: #202938; font-size: clamp(24px, 3vw, 34px); font-weight: 700; line-height: 1.32; letter-spacing: -.025em; overflow-wrap: anywhere; }.received-time { display: flex; align-items: center; gap: 7px; padding-top: 5px; color: #778193; font-size: 12px; white-space: nowrap; }
+.sender-profile { display: flex; align-items: center; gap: 12px; margin-top: 28px; }.sender-avatar { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 14px; background: linear-gradient(135deg, #5368d8, #7c5bd8); box-shadow: 0 8px 20px rgba(83,104,216,.22); color: #fff; font-size: 18px; font-weight: 700; }.sender-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.sender-identity strong { color: #2b3443; font-size: 15px; }.sender-identity span { color: #7a8494; font-size: 12px; overflow-wrap: anywhere; }.sender-profile .el-tag { margin-left: auto; }
+.recipient-details { margin: 16px 0 0 58px; border-top: 1px solid #f0f1f4; }.recipient-details summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0 2px; color: #707b8c; font-size: 12px; cursor: pointer; list-style: none; }.recipient-details summary::-webkit-details-marker { display: none; }.recipient-details summary small { color: var(--primary); }.recipient-details dl { margin: 10px 0 0; padding: 14px 16px; border-radius: 10px; background: #f8f9fb; }.recipient-details dl div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 5px 0; }.recipient-details dt { color: #8a93a2; }.recipient-details dd { margin: 0; color: #566173; overflow-wrap: anywhere; }.message-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.reader-security-note { display: flex; align-items: center; gap: 12px; margin: 20px 40px 0; padding: 13px 16px; border: 1px solid #dce9df; border-radius: 12px; background: #f3faf5; color: #427053; }.reader-security-note > .el-icon { flex-shrink: 0; font-size: 20px; }.reader-security-note div { display: flex; flex-direction: column; gap: 2px; }.reader-security-note strong { font-size: 13px; }.reader-security-note span { color: #648170; font-size: 12px; line-height: 1.5; }
+.reader-body-section, .attachments { padding: 24px 40px 0; }.reader-section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; color: #4d5869; font-size: 13px; font-weight: 700; }.reader-section-title .el-icon { color: #7785a6; font-size: 16px; }.reader-section-title small { margin-left: auto; color: #8a93a2; font-size: 11px; font-weight: 400; }.message-paper { min-height: 300px; padding: clamp(24px, 4vw, 42px); border: 1px solid #e1e4ea; border-radius: 14px; background: #fff; box-shadow: 0 12px 35px rgba(30, 41, 59, .06); }.message-body { margin: 0; border: 0; background: transparent; color: #303947; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; font-size: 15px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.attachments { padding-bottom: 38px; }.attachment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }.attachment-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px; border: 1px solid #e2e5eb; border-radius: 12px; background: #fff; transition: border-color .18s, box-shadow .18s, transform .18s; }.attachment-card:hover { border-color: #c6d0ea; box-shadow: 0 8px 22px rgba(30,41,59,.07); transform: translateY(-1px); }.attachment-type { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; background: #eef2ff; color: #5368d8; font-size: 10px; font-weight: 800; letter-spacing: .03em; }.attachment-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #394353; font-size: 13px; }.attachment-info span, .attachment-size { color: #8a93a2; font-size: 11px; }.attachment-size { margin-left: auto; white-space: nowrap; }
+:global(.email-detail-drawer) { width: min(860px, 92vw) !important; }.email-detail-drawer :deep(.el-drawer__body) { padding: 0; overflow: auto; }.email-detail-drawer :deep(.el-loading-mask) { z-index: 5; }
 @media (max-width: 820px) { .bind-card { grid-template-columns: 1fr; gap: 24px; padding: 24px; }.account-header, .section-heading { align-items: flex-start; flex-direction: column; }.account-actions, .account-actions .el-button { width: 100%; }.digest-controls, .inbox-filters { width: 100%; flex-wrap: wrap; }.inbox-filters :deep(.el-date-editor), .inbox-filters :deep(.el-input) { flex: 1 1 180px; width: auto; }.message-row { grid-template-columns: 1fr; gap: 8px; }.message-meta { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }.message-meta span { white-space: normal; }.settings-footer { flex-wrap: wrap; gap: 8px; }.settings-footer .el-button { margin-left: 0; }.footer-spacer { display: none; flex-basis: 100%; }.digest-grid { grid-template-columns: 1fr; } }
-@media (max-width: 480px) { .digest-panel, .inbox-panel { padding: 16px; }.bind-card { margin: 0; padding: 18px; }.digest-controls .el-button:last-child { flex: 1; }.digest-controls :deep(.el-date-editor) { flex: 1; width: 120px; }.account-actions { flex-direction: column; gap: 8px; }.account-actions .el-button { margin-left: 0; }.attachment-row { flex-direction: column; } }
+@media (max-width: 700px) { :global(.email-detail-drawer) { width: 100vw !important; }.reader-toolbar { padding: 9px 13px; }.reader-kicker { display: none; }.reader-hero { padding: 24px 18px 18px; }.reader-subject-row { flex-direction: column-reverse; gap: 12px; }.reader-hero h1 { font-size: 25px; }.received-time { padding: 0; white-space: normal; }.recipient-details { margin-left: 0; }.reader-security-note { margin: 14px 18px 0; }.reader-body-section, .attachments { padding-right: 18px; padding-left: 18px; }.message-paper { padding: 22px 18px; border-radius: 11px; }.attachment-grid { grid-template-columns: 1fr; }.reader-section-title small { display: none; } }
+@media (max-width: 480px) { .digest-panel, .inbox-panel { padding: 16px; }.bind-card { margin: 0; padding: 18px; }.digest-controls .el-button:last-child { flex: 1; }.digest-controls :deep(.el-date-editor) { flex: 1; width: 120px; }.account-actions { flex-direction: column; gap: 8px; }.account-actions .el-button { margin-left: 0; }.reader-toolbar-actions .el-button:nth-child(3), .toolbar-divider { display: none; }.sender-profile .el-tag { display: none; }.message-body { font-size: 14px; line-height: 1.85; } }
 
 </style>

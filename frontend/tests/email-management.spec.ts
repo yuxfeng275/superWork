@@ -104,6 +104,15 @@ const mockConfiguredPage = async (page: Page) => {
         attachments: [{ fileName: '合同.pdf', contentType: 'application/pdf', size: 4096 }]
       })
     }
+    if (path === '/api/emails/messages/102') {
+      return fulfill(route, {
+        ...messages.records[1],
+        toAddresses: ['owner@example.com'],
+        ccAddresses: ['delivery@example.com'],
+        textBody: '请确认项目上线窗口。',
+        attachments: []
+      })
+    }
     return fulfill(route, messages)
   })
   await page.route('**/api/emails/sync/status', route => fulfill(route, { status: 'IDLE' }))
@@ -167,10 +176,18 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
 
   await page.getByLabel('收件箱列表').getByText('合同确认').click()
   const drawer = page.getByRole('dialog', { name: '邮件详情' })
+  await expect(drawer).toContainText('安全阅读模式')
   await expect(drawer).toContainText('<img src=x onerror="window.__emailXss=true">')
+  await expect(drawer).toContainText('合同.pdf')
+  await expect(drawer).toContainText('application/pdf')
+  await expect(drawer.getByText('PDF', { exact: true })).toBeVisible()
+  await expect(drawer.getByRole('button', { name: '上一封邮件' })).toBeDisabled()
+  await drawer.getByRole('button', { name: '下一封邮件' }).click()
+  await expect(drawer.getByRole('heading', { name: '项目上线窗口' })).toBeVisible()
+  await expect(drawer).toContainText('delivery@example.com')
   await expect(drawer.locator('img')).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __emailXss?: boolean }).__emailXss)).toBeUndefined()
-  expect(requestedMessagePaths).toEqual(['/api/emails/messages/101'])
+  expect(requestedMessagePaths).toEqual(['/api/emails/messages/101', '/api/emails/messages/102'])
   expect(requestedMessagePaths.some(path => path.includes('/users/'))).toBe(false)
 })
 
