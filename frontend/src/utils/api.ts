@@ -1,3 +1,4 @@
+import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
   EmailAccount,
@@ -9,9 +10,6 @@ import type {
   EmailMessageQuery,
   EmailSyncStatus,
   EmailWeComMapping,
-  EmailIntegrationConfig,
-  EmailIntegrationConfigPayload,
-  EmailIntegrationTestResult
 } from '@/types/email'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
@@ -1221,23 +1219,26 @@ class ApiService {
     })
   }
 
-  async getEmailIntegrationConfig(): Promise<EmailIntegrationConfig> {
-    return this.request<EmailIntegrationConfig>('/api/emails/integration-config')
+  async getSystemConfigGroups(): Promise<SystemConfigGroupSummary[]> {
+    return this.request<SystemConfigGroupSummary[]>('/api/system/configs')
   }
 
-  async saveEmailIntegrationConfig(data: EmailIntegrationConfigPayload): Promise<EmailIntegrationConfig> {
-    return this.request<EmailIntegrationConfig>('/api/emails/integration-config', {
+  async getSystemConfigGroup(groupCode: string): Promise<SystemConfigGroup> {
+    return this.request<SystemConfigGroup>(`/api/system/configs/${encodeURIComponent(groupCode)}`)
+  }
+
+  async saveSystemConfigGroup(groupCode: string, values: Record<string, string>): Promise<SystemConfigGroup> {
+    return this.request<SystemConfigGroup>(`/api/system/configs/${encodeURIComponent(groupCode)}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify({ values })
     })
   }
 
-  async testEmailDeepSeek(): Promise<EmailIntegrationTestResult> {
-    return this.request<EmailIntegrationTestResult>('/api/emails/integration-config/deepseek/test', { method: 'POST' })
-  }
-
-  async testEmailWeCom(): Promise<EmailIntegrationTestResult> {
-    return this.request<EmailIntegrationTestResult>('/api/emails/integration-config/wecom/test', { method: 'POST' })
+  async testSystemConfigIntegration(groupCode: string, integration: string): Promise<SystemConfigTestResult> {
+    return this.request<SystemConfigTestResult>(
+      `/api/system/configs/${encodeURIComponent(groupCode)}/${encodeURIComponent(integration)}/test`,
+      { method: 'POST' }
+    )
   }
 
   // ==================== OA 集成 (Seeyon) ====================

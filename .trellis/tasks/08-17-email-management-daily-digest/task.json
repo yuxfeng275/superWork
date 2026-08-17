@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Implemented, tested, and deployed to 241. DeepSeek and WeCom business settings are DB-backed page configurations with encrypted secrets; acceptance test records were removed.",
+  "notes": "Email feature deployed. System-wide DeepSeek/WeCom settings moved to generic System > Configuration Management via V29; personal mailbox stays on /emails.",
   "meta": {}
 }

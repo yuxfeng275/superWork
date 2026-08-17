@@ -58,7 +58,7 @@ This contract covers personal Alibaba Cloud Enterprise Mail ingestion, per-user 
 ## Scheduling and Configuration
 
 - `EMAIL_SYNC_CRON` defaults to hourly and `EMAIL_DIGEST_CRON` defaults to 08:00 Asia/Shanghai.
-- DeepSeek and WeCom business settings are managed through `/api/emails/integration-config` and persisted in `email_integration_config`.
+- DeepSeek and WeCom business settings are managed through the generic `/api/system/configs/email-integration` group and persisted in `system_config_item`.
 - API Key and Secret use AES-256-GCM encryption; API responses expose only configured flags. Blank sensitive fields preserve existing encrypted values.
 - Only the root `EMAIL_CREDENTIAL_ENCRYPTION_KEY` remains an infrastructure secret because database ciphertext cannot securely contain its own decryption root.
 - No secret is logged, persisted in plaintext, returned by APIs, or included in errors.

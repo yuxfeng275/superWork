@@ -11,8 +11,7 @@ import type {
   EmailMessagePage,
   EmailMessageSummary,
   EmailSyncStatus,
-  EmailWeComMapping,
-  EmailIntegrationConfig
+  EmailWeComMapping
 } from '@/types/email'
 
 const pageSize = 20
@@ -26,31 +25,6 @@ const bindForm = reactive({ emailAddress: '', appPassword: '' })
 const weComMapping = ref<EmailWeComMapping>()
 const weComForm = reactive({ userId: '', enabled: true })
 const savingWeCom = ref(false)
-const integrationConfig = ref<EmailIntegrationConfig>()
-const integrationLoading = ref(false)
-const integrationError = ref('')
-const savingIntegration = ref(false)
-const testingDeepSeek = ref(false)
-const testingWeCom = ref(false)
-const integrationForm = reactive({
-  deepSeekEnabled: false,
-  deepSeekBaseUrl: 'https://api.deepseek.com',
-  deepSeekModel: 'deepseek-chat',
-  deepSeekApiKey: '',
-  weComEnabled: false,
-  weComBaseUrl: 'https://qyapi.weixin.qq.com',
-  weComCorpId: '',
-  weComAgentId: '',
-  weComSecret: '',
-  publicBaseUrl: 'http://192.168.1.241:18080'
-})
-const managementRoles = new Set(['DIRECTOR', 'DEPUTY_DIRECTOR', 'BUSINESS_OWNER', 'EFFECTIVENESS_OWNER', 'BU_ADMIN'])
-const currentRole = (() => {
-  try { return JSON.parse(localStorage.getItem('user') || '{}')?.role as string | undefined }
-  catch { return undefined }
-})()
-const canConfigureIntegrations = managementRoles.has(currentRole || '')
-
 const selectedDate = ref(shanghaiDate(new Date(Date.now() - 86_400_000)))
 const digest = ref<EmailDailyDigest>()
 const digestLoading = ref(false)
@@ -144,83 +118,6 @@ function formatBytes(value: number) {
 
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
-}
-
-async function loadIntegrationConfig() {
-  if (!canConfigureIntegrations) return
-  integrationLoading.value = true
-  integrationError.value = ''
-  try {
-    const result = await api.getEmailIntegrationConfig()
-    integrationConfig.value = result
-    integrationForm.deepSeekEnabled = result.deepSeekEnabled
-    integrationForm.deepSeekBaseUrl = result.deepSeekBaseUrl || 'https://api.deepseek.com'
-    integrationForm.deepSeekModel = result.deepSeekModel || 'deepseek-chat'
-    integrationForm.deepSeekApiKey = ''
-    integrationForm.weComEnabled = result.weComEnabled
-    integrationForm.weComBaseUrl = result.weComBaseUrl || 'https://qyapi.weixin.qq.com'
-    integrationForm.weComCorpId = result.weComCorpId || ''
-    integrationForm.weComAgentId = result.weComAgentId || ''
-    integrationForm.weComSecret = ''
-    integrationForm.publicBaseUrl = result.publicBaseUrl || 'http://192.168.1.241:18080'
-  } catch (error: unknown) {
-    integrationError.value = errorText(error, '集成配置加载失败')
-  } finally {
-    integrationLoading.value = false
-  }
-}
-
-async function saveIntegrationConfig() {
-  savingIntegration.value = true
-  try {
-    integrationConfig.value = await api.saveEmailIntegrationConfig({
-      deepSeekEnabled: integrationForm.deepSeekEnabled,
-      deepSeekBaseUrl: integrationForm.deepSeekBaseUrl.trim(),
-      deepSeekModel: integrationForm.deepSeekModel.trim(),
-      deepSeekApiKey: integrationForm.deepSeekApiKey || undefined,
-      weComEnabled: integrationForm.weComEnabled,
-      weComBaseUrl: integrationForm.weComBaseUrl.trim(),
-      weComCorpId: integrationForm.weComCorpId.trim() || undefined,
-      weComAgentId: integrationForm.weComAgentId.trim() || undefined,
-      weComSecret: integrationForm.weComSecret || undefined,
-      publicBaseUrl: integrationForm.publicBaseUrl.trim() || undefined
-    })
-    integrationForm.deepSeekApiKey = ''
-    integrationForm.weComSecret = ''
-    ElMessage.success('邮件集成配置已加密保存')
-  } catch (error: unknown) {
-    integrationForm.deepSeekApiKey = ''
-    integrationForm.weComSecret = ''
-    ElMessage.error(errorText(error, '邮件集成配置保存失败'))
-  } finally {
-    savingIntegration.value = false
-  }
-}
-
-async function testDeepSeekIntegration() {
-  testingDeepSeek.value = true
-  try {
-    const result = await api.testEmailDeepSeek()
-    result.success ? ElMessage.success(result.message) : ElMessage.error(result.message)
-    await loadIntegrationConfig()
-  } catch (error: unknown) {
-    ElMessage.error(errorText(error, 'DeepSeek 连接测试失败'))
-  } finally {
-    testingDeepSeek.value = false
-  }
-}
-
-async function testWeComIntegration() {
-  testingWeCom.value = true
-  try {
-    const result = await api.testEmailWeCom()
-    result.success ? ElMessage.success(result.message) : ElMessage.error(result.message)
-    await loadIntegrationConfig()
-  } catch (error: unknown) {
-    ElMessage.error(errorText(error, '企业微信连接测试失败'))
-  } finally {
-    testingWeCom.value = false
-  }
 }
 
 async function loadAccount() {
@@ -466,52 +363,12 @@ function digestItemContent(item: EmailDigestItem) {
   return item.content || item.summary || item.action || item.sender || '点击查看邮件详情'
 }
 
-onMounted(() => {
-  void loadAccount()
-  void loadIntegrationConfig()
-})
+onMounted(loadAccount)
 onBeforeUnmount(stopSyncPolling)
 </script>
 
 <template>
   <div class="email-page" v-loading="accountLoading">
-    <section v-if="canConfigureIntegrations" class="integration-panel" v-loading="integrationLoading" aria-label="邮件集成配置">
-      <div class="section-heading">
-        <div>
-          <span class="eyebrow">ADMIN INTEGRATION</span>
-          <h2>摘要与推送配置</h2>
-          <p>DeepSeek API Key 与企业微信 Secret 加密保存到数据库，保存后不会回显。</p>
-        </div>
-        <el-button type="primary" :loading="savingIntegration" @click="saveIntegrationConfig">保存集成配置</el-button>
-      </div>
-      <el-alert v-if="integrationError" :title="integrationError" type="error" :closable="false" show-icon />
-      <div class="integration-grid">
-        <article class="integration-card">
-          <header><div><h3>DeepSeek 邮件摘要</h3><p>用于生成每日重要邮件、待办、风险与回复建议。</p></div><el-switch v-model="integrationForm.deepSeekEnabled" /></header>
-          <el-form label-position="top">
-            <el-form-item label="服务地址"><el-input v-model="integrationForm.deepSeekBaseUrl" aria-label="DeepSeek 服务地址" /></el-form-item>
-            <el-form-item label="模型"><el-input v-model="integrationForm.deepSeekModel" aria-label="DeepSeek 模型" /></el-form-item>
-            <el-form-item label="API Key">
-              <el-input v-model="integrationForm.deepSeekApiKey" type="password" show-password autocomplete="new-password" aria-label="DeepSeek API Key" :placeholder="integrationConfig?.deepSeekApiKeyConfigured ? '已配置；留空保持不变' : '请输入 API Key'" />
-            </el-form-item>
-            <div class="integration-actions"><el-tag :type="integrationConfig?.deepSeekApiKeyConfigured ? 'success' : 'info'">{{ integrationConfig?.deepSeekApiKeyConfigured ? '密钥已配置' : '密钥未配置' }}</el-tag><el-button :loading="testingDeepSeek" :disabled="!integrationConfig?.deepSeekApiKeyConfigured || !integrationConfig?.deepSeekEnabled" @click="testDeepSeekIntegration">测试连接</el-button></div>
-            <p v-if="integrationConfig?.deepSeekTestMessage" class="test-message">最近测试：{{ integrationConfig.deepSeekTestMessage }} · {{ formatDateTime(integrationConfig.deepSeekTestedAt) }}</p>
-          </el-form>
-        </article>
-        <article class="integration-card">
-          <header><div><h3>企业微信内部应用</h3><p>将摘要概览与系统链接点对点推送给员工。</p></div><el-switch v-model="integrationForm.weComEnabled" /></header>
-          <el-form label-position="top">
-            <el-form-item label="服务地址"><el-input v-model="integrationForm.weComBaseUrl" aria-label="企业微信服务地址" /></el-form-item>
-            <div class="two-column-fields"><el-form-item label="CorpId"><el-input v-model="integrationForm.weComCorpId" aria-label="企业微信 CorpId" /></el-form-item><el-form-item label="AgentId"><el-input v-model="integrationForm.weComAgentId" aria-label="企业微信 AgentId" /></el-form-item></div>
-            <el-form-item label="Secret"><el-input v-model="integrationForm.weComSecret" type="password" show-password autocomplete="new-password" aria-label="企业微信 Secret" :placeholder="integrationConfig?.weComSecretConfigured ? '已配置；留空保持不变' : '请输入应用 Secret'" /></el-form-item>
-            <el-form-item label="系统访问地址"><el-input v-model="integrationForm.publicBaseUrl" aria-label="系统访问地址" placeholder="http://192.168.1.241:18080" /></el-form-item>
-            <div class="integration-actions"><el-tag :type="integrationConfig?.weComSecretConfigured ? 'success' : 'info'">{{ integrationConfig?.weComSecretConfigured ? 'Secret 已配置' : 'Secret 未配置' }}</el-tag><el-button :loading="testingWeCom" :disabled="!integrationConfig?.weComSecretConfigured || !integrationConfig?.weComEnabled" @click="testWeComIntegration">测试连接</el-button></div>
-            <p v-if="integrationConfig?.weComTestMessage" class="test-message">最近测试：{{ integrationConfig.weComTestMessage }} · {{ formatDateTime(integrationConfig.weComTestedAt) }}</p>
-          </el-form>
-        </article>
-      </div>
-    </section>
-
     <el-alert
       v-if="accountError"
       :title="accountError"
@@ -704,7 +561,7 @@ onBeforeUnmount(stopSyncPolling)
 <style scoped>
 .email-page { display: flex; flex-direction: column; gap: 20px; min-width: 0; text-align: left; color: var(--gray-700); }
 .email-page *, .email-page *::before, .email-page *::after { box-sizing: border-box; }
-.bind-card, .integration-panel, .account-header, .digest-panel, .inbox-panel { background: #fff; border: 1px solid var(--gray-200); border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }
+.bind-card, .account-header, .digest-panel, .inbox-panel { background: #fff; border: 1px solid var(--gray-200); border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }
 .bind-card { max-width: 900px; width: 100%; margin: 32px auto; padding: 36px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; }
 .bind-intro h2, .account-header h2, .section-heading h2 { margin: 4px 0 8px; font-size: 22px; color: var(--gray-900); }
 .bind-intro p { line-height: 1.7; color: var(--gray-600); }
@@ -745,14 +602,4 @@ onBeforeUnmount(stopSyncPolling)
 @media (max-width: 820px) { .bind-card { grid-template-columns: 1fr; gap: 24px; padding: 24px; }.account-header, .section-heading { align-items: flex-start; flex-direction: column; }.account-actions, .account-actions .el-button { width: 100%; }.digest-controls, .inbox-filters { width: 100%; flex-wrap: wrap; }.inbox-filters :deep(.el-date-editor), .inbox-filters :deep(.el-input) { flex: 1 1 180px; width: auto; }.message-row { grid-template-columns: 1fr; gap: 8px; }.message-meta { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }.message-meta span { white-space: normal; }.settings-footer { flex-wrap: wrap; gap: 8px; }.settings-footer .el-button { margin-left: 0; }.footer-spacer { display: none; flex-basis: 100%; }.digest-grid { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .digest-panel, .inbox-panel { padding: 16px; }.bind-card { margin: 0; padding: 18px; }.digest-controls .el-button:last-child { flex: 1; }.digest-controls :deep(.el-date-editor) { flex: 1; width: 120px; }.account-actions { flex-direction: column; gap: 8px; }.account-actions .el-button { margin-left: 0; }.attachment-row { flex-direction: column; } }
 
-.integration-panel { padding: 24px; }
-.integration-panel .section-heading p { margin: 6px 0 0; color: var(--gray-500); font-size: 13px; }
-.integration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.integration-card { padding: 18px; border: 1px solid var(--gray-200); border-radius: 12px; background: var(--gray-50); }
-.integration-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.integration-card h3 { margin: 0; color: var(--gray-900); font-size: 16px; }
-.integration-card header p { margin: 5px 0 0; color: var(--gray-500); font-size: 12px; line-height: 1.5; }
-.two-column-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.integration-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.test-message { margin: 10px 0 0; color: var(--gray-500); font-size: 12px; }
 </style>

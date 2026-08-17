@@ -39,6 +39,7 @@ class ControllerSecurityContractTest {
             RequirementStatusTransitionController.class,
             StatisticsController.class,
             SysMenuController.class,
+            SystemConfigController.class,
             SysPermissionController.class,
             SysRoleController.class,
             TaskController.class,
@@ -122,7 +123,11 @@ class ControllerSecurityContractTest {
         assertUserIdRequestAttribute(findMethod(EmailController.class, "sync"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "message"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "regenerate"));
-        assertUserIdRequestAttribute(findMethod(EmailController.class, "saveIntegrationConfig"));
+    }
+
+    @Test
+    void systemConfigWritesReceiveAuthenticatedUserId() {
+        assertUserIdRequestAttribute(findMethod(SystemConfigController.class, "saveGroup"));
     }
 
     private Method findMethod(Class<?> controller, String methodName) {

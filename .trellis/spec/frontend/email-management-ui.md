@@ -24,10 +24,8 @@
 
 ## Integration Configuration
 
-- Management roles see the global DeepSeek and WeCom configuration panel on `/emails`; other employees do not.
-- API Key and Secret inputs are always blank on load and cleared after save. Configured secrets display status flags only.
-- Saving supports enabled flags, root service URLs, model, CorpId, AgentId, public base URL, and optional secret replacement.
-- DeepSeek and WeCom connection tests display sanitized results and never expose credentials.
+- System-wide DeepSeek and WeCom settings live under `/system/configs`, not on `/emails`.
+- The email page contains only personal mailbox and employee WeCom UserId settings.
 
 ## Interaction and Error Contract
 

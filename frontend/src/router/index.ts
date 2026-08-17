@@ -124,6 +124,12 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemWorkflow',
         component: () => import('@/views/SystemWorkflowView.vue'),
         meta: { title: '工作流配置', roleAccess: 'management' }
+      },
+      {
+        path: 'system/configs',
+        name: 'SystemConfigs',
+        component: () => import('@/views/SystemConfigView.vue'),
+        meta: { title: '配置管理', roleAccess: 'management' }
       }
     ]
   }

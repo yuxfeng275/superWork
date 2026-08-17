@@ -3,20 +3,14 @@ package com.bu.management.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.EmailAccountRequest;
-import com.bu.management.dto.EmailIntegrationConfigRequest;
 import com.bu.management.dto.EmailWeComMappingRequest;
 import com.bu.management.service.EmailAccountService;
 import com.bu.management.service.EmailDigestService;
-import com.bu.management.service.EmailIntegrationConfigService;
-import com.bu.management.integration.DeepSeekDigestClient;
-import com.bu.management.integration.WeComClient;
 import com.bu.management.service.EmailQueryService;
 import com.bu.management.service.EmailSyncService;
 import com.bu.management.vo.EmailAccountStatus;
 import com.bu.management.vo.EmailConnectionTestResponse;
 import com.bu.management.vo.EmailDigestResponse;
-import com.bu.management.vo.EmailIntegrationConfigStatus;
-import com.bu.management.vo.EmailIntegrationTestResponse;
 import com.bu.management.vo.EmailMessageDetail;
 import com.bu.management.vo.EmailMessageListItem;
 import com.bu.management.vo.EmailSyncStatus;
@@ -37,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/emails")
@@ -48,9 +41,6 @@ public class EmailController {
     private final EmailSyncService syncService;
     private final EmailQueryService queryService;
     private final EmailDigestService digestService;
-    private final EmailIntegrationConfigService integrationConfigService;
-    private final DeepSeekDigestClient deepSeekClient;
-    private final WeComClient weComClient;
 
     @GetMapping("/account")
     public Result<EmailAccountStatus> account(@RequestAttribute("userId") Long userId) {
@@ -143,54 +133,5 @@ public class EmailController {
                 userId, request.getWeComUserId(), !Boolean.FALSE.equals(request.getEnabled())));
     }
 
-    @GetMapping("/integration-config")
-    @RequirePermission({"email:config"})
-    public Result<EmailIntegrationConfigStatus> integrationConfig() {
-        return Result.success(integrationConfigService.getStatus());
-    }
-
-    @PutMapping("/integration-config")
-    @RequirePermission({"email:config"})
-    public Result<EmailIntegrationConfigStatus> saveIntegrationConfig(
-            @RequestAttribute("userId") Long userId,
-            @Valid @RequestBody EmailIntegrationConfigRequest request) {
-        return Result.success(integrationConfigService.save(request, userId));
-    }
-
-    @PostMapping("/integration-config/deepseek/test")
-    @RequirePermission({"email:config"})
-    public Result<EmailIntegrationTestResponse> testDeepSeek() {
-        LocalDateTime testedAt = LocalDateTime.now();
-        try {
-            deepSeekClient.testConnection();
-            integrationConfigService.recordDeepSeekTest(true, "连接成功", testedAt);
-            return Result.success(new EmailIntegrationTestResponse(true, "连接成功", testedAt));
-        } catch (RuntimeException exception) {
-            String message = safeIntegrationMessage(exception, "DeepSeek 连接失败");
-            integrationConfigService.recordDeepSeekTest(false, message, testedAt);
-            return Result.success(new EmailIntegrationTestResponse(false, message, testedAt));
-        }
-    }
-
-    @PostMapping("/integration-config/wecom/test")
-    @RequirePermission({"email:config"})
-    public Result<EmailIntegrationTestResponse> testWeCom() {
-        LocalDateTime testedAt = LocalDateTime.now();
-        try {
-            weComClient.testConnection();
-            integrationConfigService.recordWeComTest(true, "连接成功", testedAt);
-            return Result.success(new EmailIntegrationTestResponse(true, "连接成功", testedAt));
-        } catch (RuntimeException exception) {
-            String message = safeIntegrationMessage(exception, "企业微信连接失败");
-            integrationConfigService.recordWeComTest(false, message, testedAt);
-            return Result.success(new EmailIntegrationTestResponse(false, message, testedAt));
-        }
-    }
-
-    private String safeIntegrationMessage(RuntimeException exception, String fallback) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) return fallback;
-        return message.substring(0, Math.min(500, message.length()));
-    }
 
 }

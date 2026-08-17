@@ -18,7 +18,7 @@ EMAIL_CREDENTIAL_ENCRYPTION_KEY=<上一步输出>
 
 ## 页面集成配置
 
-管理角色进入“邮件管理”页面顶部的“摘要与推送配置”，可维护：
+管理角色进入“系统 → 配置管理”，打开“邮件摘要与推送”配置组，可维护：
 
 - DeepSeek：启用状态、服务地址、模型、API Key。
 - 企业微信内部应用：启用状态、服务地址、CorpId、AgentId、Secret。
