@@ -1,8 +1,14 @@
 package com.bu.management.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.dto.UserRequest;
+import com.bu.management.entity.SysRole;
+import com.bu.management.entity.SysUserRole;
+import com.bu.management.mapper.SysRoleMapper;
 import com.bu.management.mapper.SysUserRoleMapper;
 import com.bu.management.entity.User;
 import com.bu.management.mapper.UserMapper;
@@ -15,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -26,6 +33,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +53,9 @@ class UserServiceTest {
     @Mock
     private SysUserRoleMapper sysUserRoleMapper;
 
+    @Mock
+    private SysRoleMapper sysRoleMapper;
+
     @InjectMocks
     private UserService userService;
 
@@ -57,7 +68,7 @@ class UserServiceTest {
         validUserRequest.setUsername("testuser");
         validUserRequest.setPassword("password123");
         validUserRequest.setRealName("测试用户");
-        validUserRequest.setRole("ADMIN");
+        validUserRequest.setRole("SOLUTION_MANAGER");
         validUserRequest.setEmail("test@example.com");
         validUserRequest.setPhone("13800138000");
         validUserRequest.setStatus(1);
@@ -67,7 +78,7 @@ class UserServiceTest {
         existingUser.setUsername("testuser");
         existingUser.setPassword("encodedPassword");
         existingUser.setRealName("测试用户");
-        existingUser.setRole("ADMIN");
+        existingUser.setRole("SOLUTION_MANAGER");
         existingUser.setEmail("test@example.com");
         existingUser.setPhone("13800138000");
         existingUser.setStatus(1);
@@ -85,6 +96,7 @@ class UserServiceTest {
             // given
             when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
             when(passwordEncoder.encode("password123")).thenReturn("encodedPassword");
+            mockActiveRole(20L);
             doAnswer(invocation -> {
                 User user = invocation.getArgument(0);
                 user.setId(1L);
@@ -104,6 +116,10 @@ class UserServiceTest {
 
             // 验证密码编码器被调用
             verify(passwordEncoder).encode("password123");
+            ArgumentCaptor<SysUserRole> userRoleCaptor = ArgumentCaptor.forClass(SysUserRole.class);
+            verify(sysUserRoleMapper).insert(userRoleCaptor.capture());
+            assertThat(userRoleCaptor.getValue().getUserId()).isEqualTo(1L);
+            assertThat(userRoleCaptor.getValue().getRoleId()).isEqualTo(20L);
         }
 
         @Test
@@ -159,8 +175,9 @@ class UserServiceTest {
             UserRequest updateRequest = new UserRequest();
             updateRequest.setUsername("testuser");
             updateRequest.setRealName("更新后的姓名");
-            updateRequest.setRole("ADMIN");
+            updateRequest.setRole("SOLUTION_MANAGER");
             updateRequest.setEmail("new@example.com");
+            mockActiveRole(20L);
 
             // when
             User result = userService.update(1L, updateRequest);
@@ -194,13 +211,72 @@ class UserServiceTest {
             updateRequest.setUsername("testuser");
             updateRequest.setPassword("newPassword");
             updateRequest.setRealName("测试用户");
-            updateRequest.setRole("ADMIN");
+            updateRequest.setRole("SOLUTION_MANAGER");
+            mockActiveRole(20L);
 
             // when
             userService.update(1L, updateRequest);
 
             // then - 验证密码编码器被调用（密码在 updateById 之前被设置，但因为引用问题会被后续清除）
             verify(passwordEncoder).encode("newPassword");
+        }
+
+        @Test
+        @DisplayName("超级管理员更新时保持DIRECTOR角色和启用状态")
+        void update_superAdmin_keepsDirectorAndEnabled() {
+            // given
+            existingUser.setUsername("admin");
+            existingUser.setRole(PositionRoles.DIRECTOR);
+            existingUser.setStatus(1);
+            when(userMapper.selectById(1L)).thenReturn(existingUser);
+
+            UserRequest updateRequest = new UserRequest();
+            updateRequest.setUsername("admin");
+            updateRequest.setRealName("系统管理员");
+            updateRequest.setRole(PositionRoles.SOLUTION_MANAGER);
+            updateRequest.setStatus(0);
+            mockActiveRole(1L);
+
+            // when
+            userService.update(1L, updateRequest);
+
+            // then
+            ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+            verify(userMapper).updateById(userCaptor.capture());
+            assertThat(userCaptor.getValue().getUsername()).isEqualTo("admin");
+            assertThat(userCaptor.getValue().getRole()).isEqualTo(PositionRoles.DIRECTOR);
+            assertThat(userCaptor.getValue().getStatus()).isEqualTo(1);
+
+            ArgumentCaptor<LambdaQueryWrapper<SysRole>> roleQueryCaptor =
+                    ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+            verify(sysRoleMapper).selectOne(roleQueryCaptor.capture());
+            LambdaQueryWrapper<SysRole> roleQuery = roleQueryCaptor.getValue();
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                    SysRole.class
+            );
+            roleQuery.getSqlSegment();
+            assertThat(roleQuery.getParamNameValuePairs().values())
+                    .contains(PositionRoles.DIRECTOR)
+                    .doesNotContain(PositionRoles.SOLUTION_MANAGER);
+        }
+
+        @Test
+        @DisplayName("超级管理员不能改名")
+        void update_superAdminRename_throwsException() {
+            // given
+            existingUser.setUsername("admin");
+            when(userMapper.selectById(1L)).thenReturn(existingUser);
+
+            UserRequest updateRequest = new UserRequest();
+            updateRequest.setUsername("root");
+            updateRequest.setRealName("系统管理员");
+            updateRequest.setRole(PositionRoles.DIRECTOR);
+
+            // when & then
+            assertThatThrownBy(() -> userService.update(1L, updateRequest))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("超级管理员账号不能改名");
         }
     }
 
@@ -233,6 +309,20 @@ class UserServiceTest {
             assertThatThrownBy(() -> userService.updateStatus(99L, 0))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessage("用户不存在");
+        }
+
+        @Test
+        @DisplayName("超级管理员不能停用")
+        void updateStatus_superAdminDisable_throwsException() {
+            // given
+            existingUser.setUsername("admin");
+            when(userMapper.selectById(1L)).thenReturn(existingUser);
+
+            // when & then
+            assertThatThrownBy(() -> userService.updateStatus(1L, 0))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("超级管理员账号不能停用");
+            verify(userMapper, never()).updateById(any(User.class));
         }
     }
 
@@ -305,6 +395,21 @@ class UserServiceTest {
             verify(userMapper).updateById(captor.capture());
             assertThat(captor.getValue().getStatus()).isEqualTo(0);
         }
+
+        @Test
+        @DisplayName("超级管理员不能删除")
+        void delete_superAdmin_throwsException() {
+            // given
+            existingUser.setUsername("admin");
+            when(userMapper.selectById(1L)).thenReturn(existingUser);
+
+            // when & then
+            assertThatThrownBy(() -> userService.delete(1L))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("超级管理员账号不能删除");
+            verify(userMapper, never()).deleteById(1L);
+            verify(sysUserRoleMapper, never()).delete(any(LambdaQueryWrapper.class));
+        }
     }
 
     @Nested
@@ -350,5 +455,13 @@ class UserServiceTest {
             assertThat(result).isNotNull();
             assertThat(result.getRecords()).hasSize(1);
         }
+    }
+
+    private void mockActiveRole(Long roleId) {
+        SysRole role = new SysRole();
+        role.setId(roleId);
+        role.setCode("SOLUTION_MANAGER");
+        role.setStatus(1);
+        when(sysRoleMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(role);
     }
 }

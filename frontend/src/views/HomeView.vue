@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '@/utils/api'
+import { hasRoleAccess } from '@/constants/roles'
 
 const stats = ref([
   { label: '进行中需求', value: 0, icon: 'Document', color: '#667eea' },
@@ -10,6 +11,14 @@ const stats = ref([
 ])
 
 const recentRequirements = ref<any[]>([])
+const storedRole = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}')?.role as string | undefined
+  } catch {
+    return undefined
+  }
+})()
+const canViewStatistics = hasRoleAccess(storedRole, 'statistics')
 
 const loadData = async () => {
   try {
@@ -126,7 +135,7 @@ onMounted(() => {
               <el-icon><Finished /></el-icon>
               <span>我的任务</span>
             </router-link>
-            <router-link to="/statistics" class="quick-action-item">
+            <router-link v-if="canViewStatistics" to="/statistics" class="quick-action-item">
               <el-icon><DataAnalysis /></el-icon>
               <span>数据统计</span>
             </router-link>

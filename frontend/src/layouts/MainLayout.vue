@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
+import { getRoleLabel, hasRoleAccess, type RoleAccess } from '@/constants/roles'
 
 const router = useRouter()
 const route = useRoute()
@@ -16,6 +17,8 @@ interface NavItem {
   icon: string
   label: string
   badge?: number
+  access?: RoleAccess
+  allowedUsernames?: string[]
 }
 
 interface NavSection {
@@ -29,33 +32,58 @@ const navItems: NavSection[] = [
     items: [
       { path: '/', icon: 'HomeFilled', label: '首页' },
       { path: '/requirements', icon: 'Document', label: '需求管理' },
-      { path: '/tasks', icon: 'Finished', label: '任务管理' }
+      { path: '/tasks', icon: 'Finished', label: '任务管理' },
+      { path: '/defects', icon: 'CircleCloseFilled', label: '缺陷管理' },
+      {
+        path: '/key-matters',
+        icon: 'Flag',
+        label: '大事儿管理',
+        allowedUsernames: ['admin', 'yufeng']
+      }
     ]
   },
   {
     section: '基础分类',
     items: [
       { path: '/business-lines', icon: 'Collection', label: '业务线管理' },
-      { path: '/projects', icon: 'Folder', label: '项目管理' },
-      { path: '/customers', icon: 'UserFilled', label: '客户信息管理' }
+      { path: '/projects', icon: 'Folder', label: '项目管理', access: 'project' },
+      { path: '/customers', icon: 'UserFilled', label: '客户信息管理', access: 'customer' }
+    ]
+  },
+  {
+    section: '销售管理',
+    items: [
+      { path: '/opportunities', icon: 'Connection', label: '线索商机管理' }
     ]
   },
   {
     section: '数据分析',
     items: [
-      { path: '/statistics', icon: 'DataAnalysis', label: '数据统计' }
+      { path: '/statistics', icon: 'DataAnalysis', label: 'BU驾驶舱', access: 'management' }
     ]
   },
   {
     section: '系统',
     items: [
-      { path: '/system/users', icon: 'User', label: '用户管理' },
-      { path: '/system/roles', icon: 'Lock', label: '角色管理' },
-      { path: '/system/menus', icon: 'Menu', label: '菜单管理' },
-      { path: '/system/workflow', icon: 'Connection', label: '工作流配置' }
+      { path: '/system/users', icon: 'User', label: '用户管理', access: 'management' },
+      { path: '/system/roles', icon: 'Lock', label: '角色管理', access: 'management' },
+      { path: '/system/menus', icon: 'Menu', label: '菜单管理', access: 'management' },
+      { path: '/system/workflow', icon: 'Connection', label: '工作流配置', access: 'management' }
     ]
   }
 ]
+
+const visibleNavItems = computed(() =>
+  navItems
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item =>
+        (!item.access || hasRoleAccess(authStore.user?.role, item.access))
+        && (!item.allowedUsernames || item.allowedUsernames.includes(authStore.user?.username || ''))
+      )
+    }))
+    .filter(section => section.items.length > 0)
+)
 
 const isActive = (path: string) => {
   if (path === '/') return route.path === '/'
@@ -102,24 +130,15 @@ onMounted(loadRequirementBadge)
           <div class="sidebar-logo-icon">📋</div>
           <span class="sidebar-logo-text">BU管理系统</span>
         </a>
-        <button class="sidebar-toggle" @click="isCollapsed = !isCollapsed">
+        <button class="sidebar-toggle" type="button" :aria-label="isCollapsed ? '展开侧边栏' : '收起侧边栏'" @click="isCollapsed = !isCollapsed">
           <el-icon v-if="isCollapsed"><Expand /></el-icon>
           <el-icon v-else><Fold /></el-icon>
         </button>
       </div>
 
-      <!-- 用户信息 -->
-      <div class="sidebar-user">
-        <div class="user-avatar">{{ authStore.user?.realName?.charAt(0) || '用户' }}</div>
-        <div class="user-info">
-          <div class="user-name">{{ authStore.user?.realName || '未登录' }}</div>
-          <div class="user-role">{{ authStore.user?.role || '-' }}</div>
-        </div>
-      </div>
-
       <!-- 导航菜单 -->
       <nav class="sidebar-nav">
-        <div v-for="section in navItems" :key="section.section" class="nav-section">
+        <div v-for="section in visibleNavItems" :key="section.section" class="nav-section">
           <div class="nav-section-title">{{ section.section }}</div>
           <router-link
             v-for="item in section.items"
@@ -127,6 +146,8 @@ onMounted(loadRequirementBadge)
             :to="item.path"
             class="nav-item"
             :class="{ active: isActive(item.path) }"
+            :aria-label="item.label"
+            :title="item.label"
           >
             <span class="nav-item-icon">
               <el-icon><component :is="item.icon" /></el-icon>
@@ -139,13 +160,6 @@ onMounted(loadRequirementBadge)
         </div>
       </nav>
 
-      <!-- 退出登录 -->
-      <div class="sidebar-footer">
-        <button class="logout-btn" @click="handleLogout">
-          <el-icon><SwitchButton /></el-icon>
-          <span>退出登录</span>
-        </button>
-      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -160,7 +174,17 @@ onMounted(loadRequirementBadge)
             <el-icon><Bell /></el-icon>
             <span class="badge"></span>
           </button>
-          <div class="user-avatar sm">{{ authStore.user?.realName?.charAt(0) || '用户' }}</div>
+          <div class="header-user">
+            <div class="user-avatar sm">{{ authStore.user?.realName?.charAt(0) || '用户' }}</div>
+            <div class="header-user-info">
+              <div class="user-name">{{ authStore.user?.realName || '未登录' }}</div>
+              <div class="user-role">{{ getRoleLabel(authStore.user?.role) }}</div>
+            </div>
+            <button class="header-logout" type="button" aria-label="退出登录" @click="handleLogout">
+              <el-icon><SwitchButton /></el-icon>
+              <span>退出</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -176,12 +200,14 @@ onMounted(loadRequirementBadge)
 .layout {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
 /* 侧边栏 */
 .sidebar {
   width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
   background: #fff;
   border-right: 1px solid var(--gray-200);
   display: flex;
@@ -191,6 +217,7 @@ onMounted(loadRequirementBadge)
 
 .sidebar.collapsed {
   width: var(--sidebar-collapsed-width);
+  flex-basis: var(--sidebar-collapsed-width);
 }
 
 .sidebar.collapsed .sidebar-logo-text,
@@ -392,6 +419,7 @@ onMounted(loadRequirementBadge)
 /* 主内容区 */
 .main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -418,6 +446,43 @@ onMounted(loadRequirementBadge)
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--gray-200);
+}
+
+.header-user-info {
+  min-width: 72px;
+}
+
+.header-user-info .user-name,
+.header-user-info .user-role {
+  white-space: nowrap;
+}
+
+.header-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  color: var(--gray-500);
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.header-logout:hover {
+  color: var(--danger);
+  border-color: #fecaca;
+  background: #fef2f2;
 }
 
 .header-action {
@@ -451,7 +516,97 @@ onMounted(loadRequirementBadge)
 
 .content {
   flex: 1;
+  min-width: 0;
   padding: 24px;
-  overflow-y: auto;
+  overflow: auto;
+}
+
+/* 大事儿周会演示：脱离后台壳层，恢复时由页面状态移除该标记。 */
+:global(body.key-matters-presentation) {
+  overflow: hidden;
+}
+
+:global(body.key-matters-presentation .layout) {
+  height: 100dvh;
+}
+
+:global(body.key-matters-presentation .sidebar),
+:global(body.key-matters-presentation .top-header) {
+  display: none;
+}
+
+:global(body.key-matters-presentation .main) {
+  width: 100%;
+  min-width: 0;
+}
+
+:global(body.key-matters-presentation .content) {
+  height: 100dvh;
+  padding: 0;
+  overflow: hidden;
+}
+
+:global(body.key-matters-presentation .key-matters-page) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+:global(body.key-matters-presentation .key-matters-page > .page-toolbar) {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: var(--sidebar-collapsed-width);
+    min-width: var(--sidebar-collapsed-width);
+    max-width: var(--sidebar-collapsed-width);
+    flex-basis: var(--sidebar-collapsed-width);
+  }
+
+  .sidebar .sidebar-logo-text,
+  .sidebar .nav-section-title,
+  .sidebar .nav-item-text,
+  .sidebar .nav-item-badge {
+    display: none;
+  }
+
+  .sidebar-header {
+    padding: 0 18px;
+    justify-content: center;
+  }
+
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .sidebar-nav {
+    padding: 8px;
+  }
+
+  .nav-item {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .top-header {
+    padding: 0 12px;
+  }
+
+  .header-user-info {
+    display: none;
+  }
+
+  .header-user {
+    padding-left: 8px;
+  }
+
+  .header-logout span {
+    display: none;
+  }
+
+  .content {
+    padding: 12px;
+  }
 }
 </style>

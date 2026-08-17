@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.LoginRequest;
 import com.bu.management.dto.RegisterRequest;
 import com.bu.management.service.AuthService;
@@ -33,6 +34,7 @@ public class AuthController {
      */
     @Operation(summary = "用户注册", description = "注册新用户账号")
     @PostMapping("/register")
+    @RequirePermission({"system:user:create"})
     public Result<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         AuthResponse response = authService.register(request);
         return Result.success("注册成功", response);

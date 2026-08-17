@@ -1,0 +1,4 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/key-matter-management-ui.md", "reason": "大事儿详情、周会和响应式行为契约"}
+{"file": "frontend/src/views/KeyMattersView.vue", "reason": "复用现有数据、交互和产品视觉体系"}

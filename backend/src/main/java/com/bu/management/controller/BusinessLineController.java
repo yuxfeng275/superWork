@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.BusinessLineRequest;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.service.BusinessLineService;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/business-lines")
 @RequiredArgsConstructor
+@RequirePermission({"org:view"})
 public class BusinessLineController {
 
     private final BusinessLineService businessLineService;
@@ -31,6 +33,7 @@ public class BusinessLineController {
      */
     @Operation(summary = "创建业务线", description = "创建新的业务线")
     @PostMapping
+    @RequirePermission({"org:edit"})
     public Result<BusinessLine> create(@Valid @RequestBody BusinessLineRequest request) {
         BusinessLine businessLine = businessLineService.create(request);
         return Result.success("创建成功", businessLine);
@@ -41,6 +44,7 @@ public class BusinessLineController {
      */
     @Operation(summary = "更新业务线", description = "更新业务线信息")
     @PutMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<BusinessLine> update(
             @Parameter(description = "业务线ID") @PathVariable Long id,
             @Valid @RequestBody BusinessLineRequest request) {
@@ -53,6 +57,7 @@ public class BusinessLineController {
      */
     @Operation(summary = "删除业务线", description = "删除指定业务线")
     @DeleteMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<Void> delete(@Parameter(description = "业务线ID") @PathVariable Long id) {
         businessLineService.delete(id);
         return Result.success("删除成功", null);

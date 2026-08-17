@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateRequirementConfirmationDTO;
 import com.bu.management.entity.RequirementConfirmation;
 import com.bu.management.service.RequirementConfirmationService;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/requirement-confirmations")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list"})
 public class RequirementConfirmationController {
 
     private final RequirementConfirmationService confirmationService;
@@ -29,6 +31,7 @@ public class RequirementConfirmationController {
      */
     @Operation(summary = "创建需求确认", description = "确认需求，需求状态必须为待确认，确认后自动流转到开发中")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementConfirmation> createConfirmation(@RequestBody CreateRequirementConfirmationDTO dto) {
         RequirementConfirmation confirmation = confirmationService.createConfirmation(dto);
         return Result.success(confirmation);

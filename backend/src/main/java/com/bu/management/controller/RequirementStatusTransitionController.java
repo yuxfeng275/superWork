@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.service.RequirementStatusTransitionService;
 import com.bu.management.vo.RequirementStatusTransition;
 import com.bu.management.vo.Result;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/requirement-transitions")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list"})
 public class RequirementStatusTransitionController {
 
     private final RequirementStatusTransitionService transitionService;

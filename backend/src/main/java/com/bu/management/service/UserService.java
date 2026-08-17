@@ -2,9 +2,12 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.dto.UserRequest;
+import com.bu.management.entity.SysRole;
 import com.bu.management.entity.User;
 import com.bu.management.entity.SysUserRole;
+import com.bu.management.mapper.SysRoleMapper;
 import com.bu.management.mapper.SysUserRoleMapper;
 import com.bu.management.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
@@ -24,9 +27,12 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class UserService {
 
+    private static final String SUPER_ADMIN_USERNAME = "admin";
+
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final SysUserRoleMapper sysUserRoleMapper;
+    private final SysRoleMapper sysRoleMapper;
 
     /**
      * 创建用户
@@ -54,6 +60,12 @@ public class UserService {
             throw new RuntimeException("密码不能为空");
         }
 
+        if (isSuperAdminUsername(request.getUsername())) {
+            request.setUsername(SUPER_ADMIN_USERNAME);
+            request.setRole(PositionRoles.DIRECTOR);
+            request.setStatus(1);
+        }
+
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -64,6 +76,7 @@ public class UserService {
         user.setStatus(request.getStatus() != null ? request.getStatus() : 1);
 
         userMapper.insert(user);
+        syncUserRole(user.getId(), request.getRole());
 
         // 清除密码字段，不返回给前端
         user.setPassword(null);
@@ -78,6 +91,11 @@ public class UserService {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new RuntimeException("用户不存在");
+        }
+
+        boolean superAdmin = isSuperAdmin(user);
+        if (superAdmin && !isSuperAdminUsername(request.getUsername())) {
+            throw new RuntimeException("超级管理员账号不能改名");
         }
 
         // 检查用户名是否已被其他用户使用
@@ -98,9 +116,9 @@ public class UserService {
             }
         }
 
-        user.setUsername(request.getUsername());
+        user.setUsername(superAdmin ? SUPER_ADMIN_USERNAME : request.getUsername());
         user.setRealName(request.getRealName());
-        user.setRole(request.getRole());
+        user.setRole(superAdmin ? PositionRoles.DIRECTOR : request.getRole());
         user.setEmail(request.getEmail());
         user.setPhone(request.getPhone());
 
@@ -109,11 +127,14 @@ public class UserService {
             user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
 
-        if (request.getStatus() != null) {
+        if (superAdmin) {
+            user.setStatus(1);
+        } else if (request.getStatus() != null) {
             user.setStatus(request.getStatus());
         }
 
         userMapper.updateById(user);
+        syncUserRole(user.getId(), user.getRole());
 
         // 清除密码字段
         user.setPassword(null);
@@ -129,6 +150,9 @@ public class UserService {
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
+        if (isSuperAdmin(user) && status != null && status != 1) {
+            throw new RuntimeException("超级管理员账号不能停用");
+        }
 
         user.setStatus(status);
         userMapper.updateById(user);
@@ -142,6 +166,9 @@ public class UserService {
         User user = userMapper.selectById(id);
         if (user == null) {
             throw new RuntimeException("用户不存在");
+        }
+        if (isSuperAdmin(user)) {
+            throw new RuntimeException("超级管理员账号不能删除");
         }
 
         try {
@@ -207,5 +234,32 @@ public class UserService {
         result.getRecords().forEach(user -> user.setPassword(null));
 
         return result;
+    }
+
+    private boolean isSuperAdmin(User user) {
+        return user != null && isSuperAdminUsername(user.getUsername());
+    }
+
+    private boolean isSuperAdminUsername(String username) {
+        return SUPER_ADMIN_USERNAME.equalsIgnoreCase(username != null ? username.trim() : "");
+    }
+
+    private void syncUserRole(Long userId, String roleCode) {
+        LambdaQueryWrapper<SysRole> roleWrapper = new LambdaQueryWrapper<>();
+        roleWrapper.eq(SysRole::getCode, roleCode)
+                .eq(SysRole::getStatus, 1);
+        SysRole role = sysRoleMapper.selectOne(roleWrapper);
+        if (role == null) {
+            throw new RuntimeException("角色不存在或已禁用");
+        }
+
+        LambdaQueryWrapper<SysUserRole> userRoleWrapper = new LambdaQueryWrapper<>();
+        userRoleWrapper.eq(SysUserRole::getUserId, userId);
+        sysUserRoleMapper.delete(userRoleWrapper);
+
+        SysUserRole userRole = new SysUserRole();
+        userRole.setUserId(userId);
+        userRole.setRoleId(role.getId());
+        sysUserRoleMapper.insert(userRole);
     }
 }

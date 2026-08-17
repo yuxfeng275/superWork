@@ -50,7 +50,7 @@ public class ProjectTreeNode {
     private String code;
 
     /**
-     * 项目经理ID
+     * 项目负责人ID
      */
     private Long managerId;
 

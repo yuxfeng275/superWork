@@ -1,9 +1,15 @@
 package com.bu.management.config;
 
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.security.JwtAuthenticationFilter;
+import com.bu.management.vo.Result;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -13,6 +19,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Spring Security 配置
@@ -27,6 +36,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ObjectMapper objectMapper;
 
     /**
      * 密码编码器
@@ -47,8 +57,15 @@ public class SecurityConfig {
 
                 // 配置授权规则
                 .authorizeHttpRequests(auth -> auth
-                        // 允许访问认证接口
-                        .requestMatchers("/api/auth/**").permitAll()
+                        // 登录公开，账号创建仅允许管理岗位执行
+                        .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/register").hasAnyRole(
+                                PositionRoles.DIRECTOR,
+                                PositionRoles.DEPUTY_DIRECTOR,
+                                PositionRoles.BUSINESS_OWNER,
+                                PositionRoles.EFFECTIVENESS_OWNER,
+                                "BU_ADMIN"
+                        )
                         // 允许访问 Swagger 文档
                         .requestMatchers(
                                 "/doc.html",
@@ -64,6 +81,14 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
+                // 区分登录失效和权限不足，便于前端正确跳转登录页
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint((request, response, authException) ->
+                                writeErrorResponse(response, HttpStatus.UNAUTHORIZED, "登录已失效，请重新登录"))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                writeErrorResponse(response, HttpStatus.FORBIDDEN, "无访问权限"))
+                )
+
                 // 配置会话管理（无状态）
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
@@ -73,5 +98,14 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    private void writeErrorResponse(HttpServletResponse response,
+                                    HttpStatus status,
+                                    String message) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        objectMapper.writeValue(response.getWriter(), Result.error(status.value(), message));
     }
 }

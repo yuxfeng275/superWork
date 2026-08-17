@@ -80,7 +80,7 @@ class WorkflowConfigControllerTest {
         request.setRequirementType("项目需求");
         request.setFromStatus("待评估");
         request.setToStatus("评估中");
-        request.setAllowedRoles(List.of("项目经理", "技术经理"));
+        request.setAllowedRoles(List.of("解决方案经理", "技术架构师"));
         request.setConditionType("");
         request.setIsActive(1);
         request.setSortOrder(1);
@@ -90,7 +90,7 @@ class WorkflowConfigControllerTest {
         config.setRequirementType("项目需求");
         config.setFromStatus("待评估");
         config.setToStatus("评估中");
-        config.setAllowedRoles("[\"项目经理\",\"技术经理\"]");
+        config.setAllowedRoles("[\"解决方案经理\",\"技术架构师\"]");
         config.setConditionType(null);
         config.setIsActive(1);
         config.setSortOrder(1);

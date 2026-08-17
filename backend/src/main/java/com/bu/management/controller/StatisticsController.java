@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.service.StatisticsService;
 import com.bu.management.vo.RequirementStatistics;
 import com.bu.management.vo.Result;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/statistics")
 @RequiredArgsConstructor
+@RequirePermission({"statistics:view"})
 public class StatisticsController {
 
     private final StatisticsService statisticsService;

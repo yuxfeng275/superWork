@@ -99,6 +99,27 @@ jwt:
   expiration: 86400000  # 24小时（毫秒）
   refresh-expiration: 604800000  # 7天（毫秒）
 
+# 云效 OpenAPI 集成。令牌仅通过环境变量注入，不落库。
+yunxiao:
+  enabled: ${YUNXIAO_ENABLED:false}
+  edition: ${YUNXIAO_EDITION:center}
+  base-url: ${YUNXIAO_BASE_URL:https://openapi-rdc.aliyuncs.com}
+  organization-id: ${YUNXIAO_ORGANIZATION_ID:}
+  token: ${YUNXIAO_TOKEN:}
+  config-encryption-key: ${YUNXIAO_CONFIG_ENCRYPTION_KEY:}
+  sync-cron: ${YUNXIAO_SYNC_CRON:0 15 * * * *}
+  handoff-retry-cron: ${YUNXIAO_HANDOFF_RETRY_CRON:0 */10 * * * *}
+
+# 致远 OA (Seeyon) 集成配置
+seeyon-oa:
+  enabled: ${SEEYON_OA_ENABLED:false}
+  base-url: ${SEEYON_OA_BASE_URL:https://oa.lucidata.cn}
+  username: ${SEEYON_OA_USERNAME:}
+  password: ${SEEYON_OA_PASSWORD:}
+  token: ${SEEYON_OA_TOKEN:}
+  config-encryption-key: ${SEEYON_OA_CONFIG_ENCRYPTION_KEY:}
+  sync-cron: ${SEEYON_OA_SYNC_CRON:0 30 * * * *}
+
 # 服务器配置
 server:
   port: 8081
@@ -107,6 +128,19 @@ server:
   compression:
     enabled: true
     mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+
+# 运行状态检查
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    redis:
+      enabled: false
 
 # 日志配置
 logging:

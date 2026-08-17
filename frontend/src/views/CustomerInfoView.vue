@@ -341,7 +341,7 @@ onMounted(refresh)
     </div>
 
     <div class="table-card">
-      <el-table :data="contacts" v-loading="loading">
+      <el-table :data="contacts" v-loading="loading" scrollbar-always-on>
         <el-table-column prop="name" label="客户姓名" min-width="140" />
         <el-table-column prop="company" label="公司" min-width="160">
           <template #default="{ row }">
@@ -437,6 +437,11 @@ onMounted(refresh)
 </template>
 
 <style scoped>
+.customer-info-page {
+  width: 100%;
+  min-width: 0;
+}
+
 .content-header {
   display: flex;
   justify-content: space-between;
@@ -588,6 +593,9 @@ onMounted(refresh)
 }
 
 .table-card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   background: #fff;
   border-radius: var(--radius-md);
   padding: 12px;
@@ -631,5 +639,35 @@ onMounted(refresh)
 
 .action-link.danger {
   color: var(--danger);
+}
+
+@media (max-width: 768px) {
+  .content-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .title-with-stats {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .inline-stats {
+    max-width: 100%;
+    flex-wrap: wrap;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .filter-bar :deep(.el-select),
+  .search-input-wrapper,
+  .search-input {
+    width: 100% !important;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 </style>

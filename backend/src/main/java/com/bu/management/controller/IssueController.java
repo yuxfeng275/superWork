@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateIssueDTO;
 import com.bu.management.dto.UpdateIssueDTO;
 import com.bu.management.entity.Issue;
@@ -24,6 +25,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/issues")
 @RequiredArgsConstructor
+@RequirePermission({"issue:list"})
 public class IssueController {
 
     private final IssueService issueService;
@@ -33,6 +35,7 @@ public class IssueController {
      */
     @Operation(summary = "创建事项", description = "创建事项")
     @PostMapping
+    @RequirePermission({"issue:create"})
     public Result<Issue> createIssue(@RequestBody CreateIssueDTO dto) {
         Issue issue = issueService.createIssue(dto);
         return Result.success(issue);
@@ -43,6 +46,7 @@ public class IssueController {
      */
     @Operation(summary = "更新事项", description = "更新事项")
     @PutMapping("/{id}")
+    @RequirePermission({"issue:edit"})
     public Result<Issue> updateIssue(
             @Parameter(description = "事项ID") @PathVariable Long id,
             @RequestBody UpdateIssueDTO dto) {
@@ -95,6 +99,7 @@ public class IssueController {
      */
     @Operation(summary = "删除事项", description = "删除事项")
     @DeleteMapping("/{id}")
+    @RequirePermission({"issue:delete"})
     public Result<Void> deleteIssue(@Parameter(description = "事项ID") @PathVariable Long id) {
         issueService.deleteIssue(id);
         return Result.success();

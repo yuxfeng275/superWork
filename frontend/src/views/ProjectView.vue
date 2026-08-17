@@ -2,6 +2,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Edit } from '@element-plus/icons-vue'
+import { getRoleLabel } from '@/constants/roles'
 
 interface BusinessLine {
   id: number
@@ -160,7 +162,8 @@ const getBusinessLineName = (businessLineId: number) => {
 }
 
 const projectManagers = computed(() => {
-  return allUsers.value.filter(user => user.role === 'PM')
+  // 项目负责人可以由任意团队成员担任，角色仅用于下拉中的辅助提示。
+  return allUsers.value
 })
 
 const STATUS_LABEL: Record<number, string> = { 0: '已结束', 1: '进行中', 2: '待开始', 3: '已交付', 4: '运维中' }
@@ -409,15 +412,27 @@ onMounted(loadData)
                   <code class="card-code">{{ proj.code || '—' }}</code>
                 </span>
                 <span class="card-meta-item">
-                  <span class="card-meta-label">经理</span>
+                  <span class="card-meta-label">负责人</span>
                   <span class="card-meta-value">{{ getManagerName(proj.managerId) }}</span>
                 </span>
               </div>
             </div>
             <div v-if="proj.children && proj.children.length" class="card-subs">
               <span class="sub-label">子项目</span>
-              <span v-for="sub in proj.children" :key="sub.id" class="sub-chip" @click.stop="openDrawer(sub)">
-                {{ sub.name }}
+              <span v-for="sub in proj.children" :key="sub.id" class="sub-chip">
+                <button type="button" class="sub-chip-name" @click.stop="openDrawer(sub)">
+                  {{ sub.name }}
+                </button>
+                <el-tooltip content="编辑子项目" placement="top">
+                  <button
+                    type="button"
+                    class="sub-chip-edit"
+                    :aria-label="`编辑子项目 ${sub.name}`"
+                    @click.stop="openEdit(sub)"
+                  >
+                    <el-icon><Edit /></el-icon>
+                  </button>
+                </el-tooltip>
               </span>
             </div>
             <div class="card-footer">
@@ -454,8 +469,8 @@ onMounted(loadData)
             clearable
             placeholder="留空为主项目"
             style="width: 100%"
+            :disabled="isEdit"
           >
-            <el-option label="无（主项目）" :value="null" />
             <el-option
               v-for="p in dialogMainProjects"
               :key="p.id"
@@ -470,9 +485,14 @@ onMounted(loadData)
         <el-form-item label="编码" prop="code">
           <el-input v-model="projectForm.code" placeholder="如：PMS" />
         </el-form-item>
-        <el-form-item label="项目经理">
-          <el-select v-model="projectForm.managerId" clearable placeholder="请选择项目经理" style="width: 100%">
-            <el-option v-for="u in projectManagers" :key="u.id" :label="u.realName" :value="u.id" />
+        <el-form-item label="项目负责人">
+          <el-select v-model="projectForm.managerId" clearable placeholder="请选择项目负责人" style="width: 100%">
+            <el-option v-for="u in projectManagers" :key="u.id" :label="u.realName" :value="u.id">
+              <div class="manager-option-row">
+                <span>{{ u.realName }}</span>
+                <span>{{ getRoleLabel(u.role) }}</span>
+              </div>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -500,7 +520,7 @@ onMounted(loadData)
           <el-descriptions-item label="完整路径">{{ drawerProject.fullPath }}</el-descriptions-item>
           <el-descriptions-item label="业务线">{{ getBusinessLineName(drawerProject.businessLineId) }}</el-descriptions-item>
           <el-descriptions-item label="层级">{{ drawerProject.level === 1 ? '主项目' : '子项目' }}</el-descriptions-item>
-          <el-descriptions-item label="项目经理">{{ getManagerName(drawerProject.managerId) }}</el-descriptions-item>
+          <el-descriptions-item label="项目负责人">{{ getManagerName(drawerProject.managerId) }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <span :class="['status-badge', { green: drawerProject.status === 1, blue: drawerProject.status === 4, orange: drawerProject.status === 2, purple: drawerProject.status === 3, gray: drawerProject.status === 0 }]">
               {{ STATUS_LABEL[drawerProject.status] ?? '—' }}
@@ -572,6 +592,11 @@ onMounted(loadData)
 </template>
 
 <style scoped>
+.project-page {
+  width: 100%;
+  min-width: 0;
+}
+
 /* ========== 页面头部（与需求管理一致） ========== */
 .content-header {
   display: flex;
@@ -761,13 +786,14 @@ onMounted(loadData)
 /* 项目卡片网格 */
 .project-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 16px;
   padding: 16px;
 }
 
 /* 单个项目卡片 */
 .project-card {
+  min-width: 0;
   border: 1px solid var(--gray-100);
   border-radius: var(--radius-md);
   background: #fff;
@@ -863,17 +889,75 @@ onMounted(loadData)
 }
 
 .sub-chip {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
   color: var(--primary);
   background: var(--primary-light, #eef2ff);
-  padding: 2px 8px;
   border-radius: 4px;
-  cursor: pointer;
   transition: background 0.1s;
+  overflow: hidden;
 }
 
 .sub-chip:hover {
   background: #dbeafe;
+}
+
+.sub-chip-name,
+.sub-chip-edit {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sub-chip-name {
+  min-width: 0;
+  padding: 3px 5px 3px 8px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.sub-chip-edit {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-left: 1px solid color-mix(in srgb, var(--primary) 16%, transparent);
+  opacity: 0.72;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.sub-chip-edit:hover {
+  background: color-mix(in srgb, var(--primary) 10%, white);
+  opacity: 1;
+}
+
+.sub-chip-name:focus-visible,
+.sub-chip-edit:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.sub-chip-edit .el-icon {
+  font-size: 13px;
+}
+
+.manager-option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.manager-option-row span:last-child {
+  color: var(--gray-400);
+  font-size: 12px;
 }
 
 /* 卡片底部操作 */

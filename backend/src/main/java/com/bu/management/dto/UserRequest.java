@@ -31,7 +31,7 @@ public class UserRequest {
     private String realName;
 
     /**
-     * 角色：BU负责人、项目经理、技术经理、产品经理、研发、测试、UI设计
+     * 角色：总监/副总监/经营负责人/成效负责人/解决方案经理/技术架构师/全栈工程师/质量工程师/智能运营工程师/智能客服专员/体验与内容设计师
      */
     @NotBlank(message = "角色不能为空")
     private String role;

@@ -2,16 +2,29 @@
 import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import RequirementDesignPlannerDialog from '@/components/RequirementDesignPlannerDialog.vue'
+import WorkItemAnalysisPanel from '@/components/WorkItemAnalysisPanel.vue'
 import type { Requirement } from '@/types/requirement'
+import type { WorkItemAnalysis, WorkItemDistributionItem, WorkItemOverviewResponse } from '@/types/work-item'
 import { api } from '@/utils/api'
 import { getRequirementStageActions } from '@/utils/requirement-stage'
+import { sanitizeHtml } from '@/utils/sanitize-html'
 
 const viewMode = ref<'table' | 'kanban'>('table')
 const showCreateModal = ref(false)
 const showDetailDrawer = ref(false)
 const showEvaluationModal = ref(false)
 const currentRequirement = ref<Requirement | null>(null)
+const safeCurrentRequirementDescription = computed(() =>
+  sanitizeHtml(currentRequirement.value?.description || '暂无描述')
+)
 const loading = ref(false)
+const emptyAnalysis = (): WorkItemAnalysis => ({
+  statusDistribution: [], projectDistribution: [], ownerDistribution: [], sourceDistribution: [],
+  priorityDistribution: [], overdueProjectDistribution: [], overdueOwnerDistribution: [],
+  overdueAgeDistribution: [], totalEstimatedHours: 0, totalActualHours: 0,
+  completionRate: 0, unassignedCount: 0, overdueIncompleteCount: 0, missingDueDateCount: 0
+})
+const analysis = ref<WorkItemAnalysis>(emptyAnalysis())
 const actionLoading = ref('')
 const showDesignPlanner = ref(false)
 const plannerRequirement = ref<Requirement | null>(null)
@@ -93,6 +106,7 @@ const execCommand = (command: string) => {
 
 const filters = reactive({
   status: [] as string[],
+  dataSource: '' as '' | 'LOCAL' | 'YUNXIAO',
   type: '',
   priority: '',
   search: ''
@@ -189,13 +203,15 @@ const loadData = async () => {
       api.getBusinessLines({ size: 999 }),
       api.getProjects({ size: 999 }),
       api.getUsers({ size: 100 }),
-      api.getRequirements({ size: 999 })
+      api.getRequirementOverview({ size: 200 })
     ])
 
     const businessLineData = extractRecords(businessLineResp)
     const projectsData = extractRecords(projectsResp)
     allUsers.value = extractRecords(usersResp)
     const requirementsData = extractRecords(requirementsResp)
+    const overviewPayload = requirementsResp as WorkItemOverviewResponse
+    analysis.value = overviewPayload?.analysis ?? emptyAnalysis()
 
     // 保存原始数据
     rawBusinessLines.value = businessLineData
@@ -209,20 +225,33 @@ const loadData = async () => {
         ? projectsData.find((p: any) => p.id === reqProject.parentId)
         : reqProject
       return {
-      id: String(req.id),
-      reqNo: req.reqNo || '',
+      id: req.dataSource === 'YUNXIAO' ? req.recordKey : String(req.id ?? req.requirementId),
+      projectId: req.projectId,
+      assigneeId: req.assigneeId,
+      normalizedStatus: req.normalizedStatus,
+      dueDate: req.dueDate,
+      overdueIncomplete: req.overdueIncomplete,
+      overdueDays: req.overdueDays,
+      recordKey: req.recordKey || `local:${req.id}`,
+      dataSource: req.dataSource || 'LOCAL',
+      readOnly: Boolean(req.readOnly),
+      yunxiaoWorkitemId: req.yunxiaoWorkitemId,
+      linkedYunxiaoWorkitemId: req.linkedYunxiaoWorkitemId,
+      linkedYunxiaoSerialNumber: req.linkedYunxiaoSerialNumber,
+      linkedYunxiaoStatus: req.linkedYunxiaoStatus,
+      reqNo: req.requirementNo || req.reqNo || req.serialNumber || '',
       title: req.title,
-      project: mainProject?.name || reqProject?.name || '',
+      project: req.projectNames?.join(' / ') || mainProject?.name || reqProject?.name || '',
       subProject: isSubProject ? (reqProject?.name || '') : '',
       businessLine: businessLineData.find((bl: any) => bl.id === req.businessLineId)?.name || '',
-      type: req.type,
-      status: req.status,
+      type: req.type || '项目需求',
+      status: req.status || '待评估',
       statusClass: getStatusClass(req.status),
-      priority: req.priority,
+      priority: req.priority || '-',
       priorityClass: getPriorityClass(req.priority),
-      owner: req.ownerName || req.creatorName || (allUsers.value.find((u: any) => u.id === req.creatorId)?.realName) || '',
+      owner: req.assigneeName || req.ownerName || req.creatorName || (allUsers.value.find((u: any) => u.id === req.creatorId)?.realName) || '',
       createdAt: req.createdAt?.split('T')[0] || req.createTime?.split('T')[0] || '',
-      source: req.source || '内部',
+      source: req.businessSource || req.source || '内部',
       requester: req.customerContactName || req.requester || '',
       expectDate: req.expectedOnlineDate || req.expectDate || '',
       description: req.description || '',
@@ -331,8 +360,16 @@ const logoColors: Record<string, string> = {
 
 const tableData = ref<Requirement[]>([])
 
+const analysisSections = computed(() => [
+  { key: 'status' as const, title: '状态分布', rows: analysis.value.statusDistribution },
+  { key: 'project' as const, title: '项目分布', rows: analysis.value.projectDistribution },
+  { key: 'source' as const, title: '数据来源', rows: analysis.value.sourceDistribution },
+  { key: 'priority' as const, title: '优先级分布', rows: analysis.value.priorityDistribution }
+])
+
 const filteredData = computed(() => {
   return tableData.value.filter(item => {
+    if (filters.dataSource && item.dataSource !== filters.dataSource) return false
     if (filters.status.length > 0 && !filters.status.includes(item.status)) return false
     if (filters.type && item.type !== filters.type) return false
     if (filters.priority && item.priority !== filters.priority) return false
@@ -415,11 +452,28 @@ const toggleFilter = (key: 'status' | 'type' | 'priority', value: string) => {
   }
 }
 
+const handleAnalysisSelect = (section: string, item: WorkItemDistributionItem) => {
+  if (section === 'status') {
+    const matchingStatuses = tableData.value
+      .filter(requirement => requirement.normalizedStatus === item.key)
+      .map(requirement => requirement.status)
+    filters.status = Array.from(new Set(matchingStatuses))
+  }
+  if (section === 'project') {
+    const matching = tableData.value.find(requirement => String(requirement.projectId) === item.key)
+    selectedProjects.value = matching?.project ? [matching.project] : []
+    selectedSubProjects.value = matching?.subProject ? [matching.subProject] : []
+  }
+  if (section === 'source') filters.dataSource = item.key as 'LOCAL' | 'YUNXIAO'
+  if (section === 'priority') filters.priority = item.key === '未设置' ? '' : item.key
+}
+
 const clearAllFilters = () => {
   selectedBusiness.value = ''
   selectedProjects.value = []
   selectedSubProjects.value = []
   filters.status = []
+  filters.dataSource = ''
   filters.type = ''
   filters.priority = ''
   filters.search = ''
@@ -446,8 +500,13 @@ const handleRowClick = (id: string) => {
 }
 
 const handleRowDoubleClick = (id: string) => {
-  // 双击 - 打开独立页面（无左侧菜单）
-  window.open(`/requirements-standalone/${id}`, '_blank')
+  const requirement = tableData.value.find(item => item.id === id)
+  if (requirement?.readOnly) {
+    goToDetail(id)
+    return
+  }
+  const localId = id.startsWith('local:') ? id.slice('local:'.length) : id
+  window.open(`/requirements-standalone/${localId}`, '_blank')
 }
 
 const goToDetail = (id: string) => {
@@ -459,8 +518,11 @@ const goToDetail = (id: string) => {
 }
 
 const openInNewPage = () => {
-  if (currentRequirement.value) {
-    window.open(`/requirements-standalone/${currentRequirement.value.id}`, '_blank')
+  if (currentRequirement.value && !currentRequirement.value.readOnly) {
+    const id = currentRequirement.value.id.startsWith('local:')
+      ? currentRequirement.value.id.slice('local:'.length)
+      : currentRequirement.value.id
+    window.open(`/requirements-standalone/${id}`, '_blank')
   }
 }
 
@@ -514,11 +576,17 @@ const executeAction = (_type: string) => {
   window.open(targetUrl, '_blank')
 }
 
-const openStandaloneDetail = (id: string) => {
+const openItemDetail = (item: Requirement) => {
+  if (item.readOnly) {
+    currentRequirement.value = item
+    showDetailDrawer.value = true
+    return
+  }
+  const id = item.id.startsWith('local:') ? item.id.slice('local:'.length) : item.id
   window.open(`/requirements-standalone/${id}`, '_blank')
 }
 
-const getRowActions = (item: Requirement) => getRequirementStageActions({
+const getRowActions = (item: Requirement) => item.readOnly ? [] : getRequirementStageActions({
   status: item.status,
   type: item.type,
   hasEvaluation: item.status === '评估中'
@@ -827,7 +895,7 @@ const createRequirement = async () => {
       priority: newRequirement.priority,
       status: '待评估',
       source: newRequirement.source,
-      description: newRequirement.description || (editorRef.value?.innerHTML || ''),
+      description: sanitizeHtml(newRequirement.description || (editorRef.value?.innerHTML || '')),
       projectId: subProject?.id || project?.id || null,
       businessLineId: bl?.id || project?.businessLineId || null,
       expectedOnlineDate: newRequirement.expectDate || null,
@@ -955,6 +1023,16 @@ const getStatusBadgeClass = (status: string) => {
       </div>
     </div>
 
+    <WorkItemAnalysisPanel
+      title="需求结构分析"
+      subtitle="从状态、项目、来源和优先级识别需求结构与交付压力"
+      :analysis="analysis"
+      :sections="analysisSections"
+      @select="handleAnalysisSelect"
+    />
+
+    <section class="requirement-detail-heading"><div><h2>需求明细</h2><p>保留完整业务操作，并支持从分析结果快速下钻</p></div></section>
+
     <!-- 项目选择器 -->
     <div class="project-selector">
       <div class="business-line-row">
@@ -970,8 +1048,11 @@ const getStatusBadgeClass = (status: string) => {
 
       <!-- 筛选栏 -->
       <div class="filter-row">
-        <div class="filter-pills">
-          <button class="filter-pill" :class="{ active: filters.status.length === 0 && !filters.type && !filters.priority }" @click="clearAllFilters">所有需求</button>
+        <div class="filter-pills source-filter" aria-label="需求来源筛选">
+          <button class="filter-pill" :class="{ active: !filters.dataSource }" @click="filters.dataSource = ''">全部来源</button>
+          <button class="filter-pill" :class="{ active: filters.dataSource === 'LOCAL' }" @click="filters.dataSource = 'LOCAL'">本地</button>
+          <button class="filter-pill" :class="{ active: filters.dataSource === 'YUNXIAO' }" @click="filters.dataSource = 'YUNXIAO'">云效</button>
+          <button class="filter-pill reset" @click="clearAllFilters">重置</button>
         </div>
         <!-- 状态下拉多选 -->
         <div class="filter-dropdown" ref="statusDropdownRef">
@@ -1042,14 +1123,22 @@ const getStatusBadgeClass = (status: string) => {
             <th style="width: 100px">状态</th>
             <th style="width: 70px">优先级</th>
             <th style="width: 80px">负责人</th>
-            <th style="width: 100px">更新时间</th>
+            <th style="width: 100px">创建时间</th>
+            <th style="width: 120px">计划完成</th>
             <th style="width: 240px">操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in filteredData" :key="item.id" @click="handleRowClick(item.id)" @dblclick="handleRowDoubleClick(item.id)" style="cursor:pointer">
+          <tr v-for="item in filteredData" :key="item.recordKey || item.id" @click="handleRowClick(item.id)" @dblclick="handleRowDoubleClick(item.id)" style="cursor:pointer">
             <td><span class="req-no">{{ item.reqNo }}</span></td>
-            <td class="highlight">{{ item.title }}</td>
+            <td class="highlight">
+              <div class="requirement-title-cell">
+                <span>{{ item.title }}</span>
+                <span v-if="item.dataSource === 'YUNXIAO'" class="source-badge yunxiao">云效</span>
+                <span v-else class="source-badge local">本地</span>
+                <span v-if="item.linkedYunxiaoSerialNumber" class="linked-badge">已关联 {{ item.linkedYunxiaoSerialNumber }}</span>
+              </div>
+            </td>
             <td style="white-space: nowrap;">
               <span class="project-tag">{{ item.project }}</span>
               <span v-if="item.subProject" style="color: var(--gray-400);"> - {{ item.subProject }}</span>
@@ -1058,10 +1147,16 @@ const getStatusBadgeClass = (status: string) => {
             <td style="white-space: nowrap;"><span :class="['status-badge', getStatusBadgeClass(item.status)]">{{ item.status }}</span></td>
             <td style="white-space: nowrap;"><span :class="['priority-text', item.priorityClass]">{{ item.priority }}</span></td>
             <td style="font-size: 13px;">{{ item.owner }}</td>
-            <td style="font-size: 13px;">{{ item.createdAt }}</td>
+            <td><span class="created-date">{{ item.createdAt || '—' }}</span></td>
+            <td>
+              <div class="due-date-cell" :class="{ overdue: item.overdueIncomplete }">
+                <span>{{ item.dueDate || item.expectDate || '未设置计划' }}</span>
+                <small v-if="item.overdueIncomplete" class="overdue-pill">超期 {{ item.overdueDays }} 天</small>
+              </div>
+            </td>
             <td>
               <div class="row-action-bar" @click.stop>
-                <button class="mini-link" @click.stop="openStandaloneDetail(item.id)">详情</button>
+                <button class="mini-link" @click.stop="openItemDetail(item)">详情</button>
                 <button
                   v-for="action in getRowActions(item)"
                   :key="`${item.id}-${action.type}`"
@@ -1275,13 +1370,13 @@ const getStatusBadgeClass = (status: string) => {
             <span :class="['status-badge', getStatusBadgeClass(currentRequirement?.status || '')]">{{ currentRequirement?.status }}</span>
           </div>
           <div class="drawer-actions">
-            <button class="btn btn-sm btn-default" @click="openInNewPage">新窗口打开</button>
+            <button v-if="!currentRequirement?.readOnly" class="btn btn-sm btn-default" @click="openInNewPage">新窗口打开</button>
             <button class="drawer-close" @click="showDetailDrawer = false">×</button>
           </div>
         </div>
         <div class="drawer-body">
           <!-- 状态流转进度 -->
-          <div class="status-flow">
+          <div v-if="!currentRequirement?.readOnly" class="status-flow">
             <div v-for="(step, index) in statusFlowSteps" :key="step.status" class="status-flow-item" :class="{ completed: isStepCompleted(step.status), current: currentRequirement?.status === step.status }">
               <div class="status-dot">{{ index + 1 }}</div>
               <div class="status-label">{{ step.label }}</div>
@@ -1289,7 +1384,9 @@ const getStatusBadgeClass = (status: string) => {
           </div>
 
           <!-- 操作面板 -->
-          <div class="action-panel" v-if="getCurrentActions().length > 0">
+          <div v-if="currentRequirement?.readOnly" class="readonly-note">只读数据，以云效为准</div>
+
+          <div class="action-panel" v-if="!currentRequirement?.readOnly && getCurrentActions().length > 0">
             <div class="action-panel-title">可执行操作</div>
             <div class="action-buttons">
               <button v-for="action in getCurrentActions()" :key="action.type" :class="['action-btn', action.class]" @click="executeAction(action.type)">
@@ -1343,8 +1440,8 @@ const getStatusBadgeClass = (status: string) => {
                 <div class="detail-value">{{ currentRequirement?.owner || '-' }}</div>
               </div>
               <div class="detail-item">
-                <label>期望上线</label>
-                <div class="detail-value">{{ currentRequirement?.expectDate || '-' }}</div>
+                <label>计划完成</label>
+                <div class="detail-value">{{ currentRequirement?.dueDate || currentRequirement?.expectDate || '未设置' }}</div>
               </div>
             </div>
           </div>
@@ -1401,7 +1498,7 @@ const getStatusBadgeClass = (status: string) => {
           <!-- 需求描述 -->
           <div class="detail-section">
             <h3 class="detail-section-title">需求描述</h3>
-            <div class="detail-description" v-html="currentRequirement?.description || '暂无描述'"></div>
+            <div class="detail-description" v-html="safeCurrentRequirementDescription"></div>
           </div>
 
           <!-- 附件 -->
@@ -1496,6 +1593,11 @@ const getStatusBadgeClass = (status: string) => {
 </template>
 
 <style scoped>
+.requirements-page {
+  width: 100%;
+  min-width: 0;
+}
+
 .content-header {
   display: flex;
   justify-content: space-between;
@@ -1857,6 +1959,8 @@ const getStatusBadgeClass = (status: string) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 10px;
   border: 1.5px solid var(--gray-200);
   border-radius: var(--radius-sm);
@@ -1887,14 +1991,18 @@ const getStatusBadgeClass = (status: string) => {
 
 .project-info {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
 }
 
 .project-card-name {
+  overflow: hidden;
+  color: var(--gray-800);
   font-size: 12px;
   font-weight: 600;
-  color: var(--gray-800);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-card-count {
@@ -1965,6 +2073,10 @@ const getStatusBadgeClass = (status: string) => {
   background: var(--gray-50);
 }
 
+.requirement-detail-heading { margin: 20px 0 10px; }
+.requirement-detail-heading h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
+.requirement-detail-heading p { margin: 3px 0 0; color: var(--gray-500); font-size: 12px; }
+
 .row-action-bar {
   display: flex;
   flex-wrap: wrap;
@@ -2016,6 +2128,43 @@ const getStatusBadgeClass = (status: string) => {
 .highlight {
   font-weight: 500;
   color: var(--gray-800);
+}
+
+.created-date { color: #8a919b; font-size: 12px; font-variant-numeric: tabular-nums; }
+.due-date-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; color: #3f4650; font-size: 12px; font-variant-numeric: tabular-nums; }
+.due-date-cell.overdue > span { color: #8d3e36; font-weight: 600; }
+.overdue-pill { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 7px; border: 1px solid #efc2ba; border-radius: 3px; background: #fff0ed; color: #a33f35; font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.requirement-title-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-badge,
+.linked-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.source-badge.local { color: #285fae; background: #e8f1ff; }
+.source-badge.yunxiao,
+.linked-badge { color: #765514; background: #fff3d1; }
+
+.readonly-note {
+  margin-bottom: 16px;
+  padding: 9px 11px;
+  border-left: 3px solid #d5a136;
+  background: #fff8e5;
+  color: #73561c;
+  font-size: 13px;
 }
 
 .project-tag {
@@ -3110,6 +3259,62 @@ const getStatusBadgeClass = (status: string) => {
   position: absolute;
   inset: 0;
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .content-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .title-with-stats,
+  .page-actions {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .title-with-stats {
+    gap: 10px;
+  }
+
+  .inline-stats {
+    flex-wrap: wrap;
+    padding-left: 10px;
+  }
+
+  .business-line-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .business-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .business-tab {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
+  .filter-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-pills {
+    max-width: 100%;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 1080px) {

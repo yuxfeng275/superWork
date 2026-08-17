@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.AcceptRequirementDTO;
 import com.bu.management.dto.CreateRequirementDeliveryDTO;
 import com.bu.management.entity.RequirementDelivery;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/requirement-deliveries")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list"})
 public class RequirementDeliveryController {
 
     private final RequirementDeliveryService deliveryService;
@@ -30,6 +32,7 @@ public class RequirementDeliveryController {
      */
     @Operation(summary = "创建需求交付", description = "交付需求，需求状态必须为已上线，交付后自动流转到已交付")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementDelivery> createDelivery(@RequestBody CreateRequirementDeliveryDTO dto) {
         RequirementDelivery delivery = deliveryService.createDelivery(dto);
         return Result.success(delivery);
@@ -40,6 +43,7 @@ public class RequirementDeliveryController {
      */
     @Operation(summary = "验收需求", description = "验收需求，需求状态必须为已交付，验收后自动流转到已验收")
     @PostMapping("/{requirementId}/accept")
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementDelivery> acceptRequirement(
             @Parameter(description = "需求ID") @PathVariable Long requirementId,
             @RequestBody AcceptRequirementDTO dto) {

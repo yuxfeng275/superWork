@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateWorkLogDTO;
 import com.bu.management.dto.UpdateWorkLogDTO;
 import com.bu.management.entity.WorkLog;
@@ -26,6 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/work-logs")
 @RequiredArgsConstructor
+@RequirePermission({"task:list"})
 public class WorkLogController {
 
     private final WorkLogService workLogService;
@@ -35,6 +37,7 @@ public class WorkLogController {
      */
     @Operation(summary = "创建工时记录", description = "创建工时记录，自动汇总更新任务实际工时")
     @PostMapping
+    @RequirePermission({"task:edit"})
     public Result<WorkLog> createWorkLog(@RequestBody CreateWorkLogDTO dto) {
         WorkLog workLog = workLogService.createWorkLog(dto);
         return Result.success(workLog);
@@ -45,6 +48,7 @@ public class WorkLogController {
      */
     @Operation(summary = "更新工时记录", description = "更新工时记录，自动汇总更新任务实际工时")
     @PutMapping("/{id}")
+    @RequirePermission({"task:edit"})
     public Result<WorkLog> updateWorkLog(
             @Parameter(description = "工时记录ID") @PathVariable Long id,
             @RequestBody UpdateWorkLogDTO dto) {
@@ -94,6 +98,7 @@ public class WorkLogController {
      */
     @Operation(summary = "删除工时记录", description = "删除工时记录，自动汇总更新任务实际工时")
     @DeleteMapping("/{id}")
+    @RequirePermission({"task:edit"})
     public Result<Void> deleteWorkLog(@Parameter(description = "工时记录ID") @PathVariable Long id) {
         workLogService.deleteWorkLog(id);
         return Result.success();

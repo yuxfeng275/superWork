@@ -427,6 +427,37 @@ test('独立需求详情页按路由 ID 加载真实接口数据', async ({ page
   await expect(page.locator('.description-content')).toContainText('这是从接口返回的需求描述。')
 })
 
+test('需求描述过滤危险 HTML 并保留基础富文本格式', async ({ page }) => {
+  const maliciousDescription = [
+    '<p>安全内容 <strong>加粗文字</strong></p>',
+    '<img src="invalid://image" onerror="window.__descriptionXss = true">',
+    '<a href="javascript:window.__descriptionXss = true">危险链接</a>',
+    '<script>window.__descriptionXss = true</script>'
+  ].join('')
+
+  await page.route('**/api/requirements/777', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: buildRequirement({ description: maliciousDescription }),
+        timestamp: new Date().toISOString()
+      })
+    })
+  })
+
+  await page.goto('/requirements-standalone/777')
+
+  const description = page.locator('.description-content')
+  await expect(description.locator('strong')).toHaveText('加粗文字')
+  await expect(description.locator('script')).toHaveCount(0)
+  await expect(description.locator('img')).not.toHaveAttribute('onerror', /.+/)
+  await expect(description.locator('a')).not.toHaveAttribute('href', /^javascript:/)
+  await expect.poll(() => page.evaluate(() => (window as any).__descriptionXss)).toBeUndefined()
+})
+
 test('需求列表双击打开的新窗口详情页也接入真实接口数据', async ({ page }) => {
   await page.goto('/requirements')
 

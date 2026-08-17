@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CustomerContactRequest;
 import com.bu.management.entity.CustomerContact;
 import com.bu.management.service.CustomerContactService;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/customer-contacts")
 @RequiredArgsConstructor
+@RequirePermission({"customer-contact:view"})
 public class CustomerContactController {
 
     private final CustomerContactService customerContactService;
@@ -31,6 +33,7 @@ public class CustomerContactController {
      */
     @Operation(summary = "创建客户联系人", description = "创建新的客户联系人")
     @PostMapping
+    @RequirePermission({"org:edit"})
     public Result<CustomerContact> create(@Valid @RequestBody CustomerContactRequest request) {
         CustomerContact contact = customerContactService.create(request);
         return Result.success("创建成功", contact);
@@ -41,6 +44,7 @@ public class CustomerContactController {
      */
     @Operation(summary = "更新客户联系人", description = "更新客户联系人信息")
     @PutMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<CustomerContact> update(
             @Parameter(description = "联系人ID") @PathVariable Long id,
             @Valid @RequestBody CustomerContactRequest request) {
@@ -53,6 +57,7 @@ public class CustomerContactController {
      */
     @Operation(summary = "删除客户联系人", description = "删除指定客户联系人")
     @DeleteMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<Void> delete(@Parameter(description = "联系人ID") @PathVariable Long id) {
         customerContactService.delete(id);
         return Result.success("删除成功", null);

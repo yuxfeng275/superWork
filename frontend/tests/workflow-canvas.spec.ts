@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
 
 const mockWorkflowConfigs = [
-  { id: 1, requirementType: '项目需求', fromStatus: '待评估', toStatus: '评估中', conditionType: '开始评估', allowedRoles: '["项目经理"]', isActive: 1, sortOrder: 1 },
-  { id: 2, requirementType: '项目需求', fromStatus: '评估中', toStatus: '待设计', conditionType: '评估通过', allowedRoles: '["项目经理"]', isActive: 1, sortOrder: 2 },
-  { id: 3, requirementType: '项目需求', fromStatus: '评估中', toStatus: '已拒绝', conditionType: '评估拒绝', allowedRoles: '["项目经理"]', isActive: 1, sortOrder: 3 }
+  { id: 1, requirementType: '项目需求', fromStatus: '待评估', toStatus: '评估中', conditionType: '开始评估', allowedRoles: '["解决方案经理"]', isActive: 1, sortOrder: 1 },
+  { id: 2, requirementType: '项目需求', fromStatus: '评估中', toStatus: '待设计', conditionType: '评估通过', allowedRoles: '["解决方案经理"]', isActive: 1, sortOrder: 2 },
+  { id: 3, requirementType: '项目需求', fromStatus: '评估中', toStatus: '已拒绝', conditionType: '评估拒绝', allowedRoles: '["解决方案经理"]', isActive: 1, sortOrder: 3 }
 ]
 
 const mockStatusOptions = {
@@ -19,8 +19,21 @@ test.beforeEach(async ({ page }) => {
     localStorage.setItem('token', 'mock-token')
     localStorage.setItem(
       'user',
-      JSON.stringify({ id: 1, username: 'admin', realName: '系统管理员', role: 'BU_ADMIN' })
+      JSON.stringify({ id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' })
     )
+  })
+
+  await page.route('**/api/requirements**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: { records: [], total: 0 },
+        timestamp: new Date().toISOString()
+      })
+    })
   })
 
   await page.route('**/api/workflow-configs/meta/status-options', async route => {
@@ -126,7 +139,7 @@ test('编辑已有连线时可保存 payload 且支持删除', async ({ page }) 
   const dialog = page.locator('.el-dialog')
   await expect(dialog).toBeVisible()
   await dialog.locator('[data-testid="workflow-condition-field"] input').fill('评估通过并进入设计')
-  await dialog.locator('[data-testid="workflow-roles-field"]').getByText('BU负责人').click()
+  await dialog.locator('[data-testid="workflow-roles-field"]').getByText('经营负责人').click()
   await dialog.getByRole('button', { name: '保存' }).click()
   await expect(page.locator('.el-message--success')).toBeVisible()
 
@@ -134,14 +147,14 @@ test('编辑已有连线时可保存 payload 且支持删除', async ({ page }) 
   expect(stateAfterSave.updatePayload.fromStatus).toBe('评估中')
   expect(stateAfterSave.updatePayload.toStatus).toBe('待设计')
   expect(stateAfterSave.updatePayload.conditionType).toBe('评估通过并进入设计')
-  expect(stateAfterSave.updatePayload.allowedRoles).toContain('BU负责人')
+  expect(stateAfterSave.updatePayload.allowedRoles).toContain('经营负责人')
 
   await page.locator('.edge-badge', { hasText: '评估拒绝' }).click()
   await dialog.getByRole('button', { name: '删除' }).click()
   const confirmDialog = page.locator('.el-message-box')
   await expect(confirmDialog).toBeVisible()
   await confirmDialog.locator('.el-button--primary').click()
-  await expect(page.locator('.el-message--success')).toBeVisible()
+  await expect(page.locator('.el-message--success').last()).toBeVisible()
 
   const stateAfterDelete = await page.evaluate(() => (window as any).getWorkflowTestState())
   expect(stateAfterDelete.deleteUrl).toContain('/api/workflow-configs/3')

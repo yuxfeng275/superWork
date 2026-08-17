@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateRequirementDesignDTO;
 import com.bu.management.dto.UpdateRequirementDesignDTO;
 import com.bu.management.entity.RequirementDesign;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/requirement-designs")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list"})
 public class RequirementDesignController {
 
     private final RequirementDesignService designService;
@@ -30,6 +32,7 @@ public class RequirementDesignController {
      */
     @Operation(summary = "创建需求设计", description = "为需求创建设计记录，需求状态必须为待设计")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementDesign> createDesign(@RequestBody CreateRequirementDesignDTO dto) {
         RequirementDesign design = designService.createDesign(dto);
         return Result.success(design);
@@ -40,6 +43,7 @@ public class RequirementDesignController {
      */
     @Operation(summary = "更新需求设计", description = "更新需求设计状态，全部完成后自动流转到待确认")
     @PutMapping("/{requirementId}")
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementDesign> updateDesign(
             @Parameter(description = "需求ID") @PathVariable Long requirementId,
             @RequestBody UpdateRequirementDesignDTO dto) {

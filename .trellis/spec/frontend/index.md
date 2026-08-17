@@ -20,6 +20,12 @@ This directory contains guidelines for frontend development. Fill in each file w
 | [State Management](./state-management.md) | Local state, global state, server state | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
+| [Task Overview UI](./task-overview-ui.md) | Task dashboard UI/API consumption contract | Active |
+| [Role Position UI](./role-position-ui.md) | 2026 mid-year role catalog usage in frontend management pages | Active |
+| [BU Dashboard UI](./bu-dashboard-ui.md) | Management direction, capacity, worklog, and Yunxiao configuration views | Active |
+| [Key Matter Management UI](./key-matter-management-ui.md) | Key-matter register, weekly update, and meeting-mode UI contract | Active |
+| [Sales Opportunity Follow-Up UI](./sales-opportunity-follow-up-ui.md) | Append-only sales follow-up entry and timeline behavior | Active |
+| [Yunxiao Work Item UI](./yunxiao-workitem-ui.md) | Separate requirement/task/defect views with source-aware read-only behavior | Active |
 
 ---
 

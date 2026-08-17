@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { WORKFLOW_ROLE_OPTIONS } from '@/constants/roles'
 
 interface WorkflowConfig {
   id: number
@@ -50,7 +51,7 @@ const NODE_WIDTH = 180
 const NODE_HEIGHT = 88
 const LAYOUT_STORAGE_KEY = 'workflow-canvas-layouts-v1'
 
-const ROLE_OPTIONS = ['BU负责人', 'BU管理员', '项目经理', '技术经理', '产品经理', 'UI设计', '开发', '测试', '系统自动']
+const ROLE_OPTIONS = WORKFLOW_ROLE_OPTIONS
 
 const loading = ref(false)
 const activeRequirementType = ref('项目需求')
@@ -68,7 +69,7 @@ const form = ref({
   fromStatus: '',
   toStatus: '',
   conditionType: '',
-  allowedRoles: ['项目经理'] as string[],
+  allowedRoles: ['解决方案经理'] as string[],
   isActive: 1,
   sortOrder: 0
 })
@@ -247,7 +248,7 @@ const openCreateDialog = (fromStatus: string, toStatus: string) => {
     fromStatus,
     toStatus,
     conditionType: '',
-    allowedRoles: ['项目经理'],
+    allowedRoles: ['解决方案经理'],
     isActive: 1,
     sortOrder: activeTransitions.value.length + 1
   }
@@ -262,7 +263,7 @@ const openEditDialog = (transition: NormalizedWorkflowConfig) => {
     fromStatus: transition.currentStatus,
     toStatus: transition.nextStatus,
     conditionType: transition.conditionType || transition.transitionLabel,
-    allowedRoles: transition.allowedRolesList.length ? transition.allowedRolesList : ['项目经理'],
+    allowedRoles: transition.allowedRolesList.length ? transition.allowedRolesList : ['解决方案经理'],
     isActive: transition.isActive ?? 1,
     sortOrder: transition.sortOrder ?? 0
   }

@@ -6,6 +6,7 @@ import type { Requirement } from '@/types/requirement'
 import RequirementDesignPlannerDialog from '@/components/RequirementDesignPlannerDialog.vue'
 import { api } from '@/utils/api'
 import { getRequirementStageActions, type RequirementStageAction } from '@/utils/requirement-stage'
+import { sanitizeHtml } from '@/utils/sanitize-html'
 
 interface DesignWorkItem {
   id: number
@@ -78,6 +79,9 @@ const createEmptyRequirement = (): Requirement => ({
 })
 
 const requirement = ref<Requirement>(createEmptyRequirement())
+const safeRequirementDescription = computed(() =>
+  sanitizeHtml(requirement.value.description || '暂无描述')
+)
 
 const showEvaluationModal = ref(false)
 const evaluationForm = reactive({
@@ -907,7 +911,7 @@ watch(() => route.params.id, () => {
           <div class="content-section-header">
             <h3 class="content-section-title">需求描述</h3>
           </div>
-          <div class="description-content" v-html="requirement.description || '暂无描述'"></div>
+          <div class="description-content" v-html="safeRequirementDescription"></div>
         </div>
 
         <!-- 附件 -->

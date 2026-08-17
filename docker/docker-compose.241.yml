@@ -1,0 +1,129 @@
+name: superwork-bu
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: superwork-bu-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: bu_management
+      MYSQL_USER: bu_admin
+      MYSQL_PASSWORD: bu_admin123
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:13306:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/conf:/etc/mysql/conf.d:ro
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "bu_admin", "-pbu_admin123"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - bu-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: superwork-bu-redis
+    restart: unless-stopped
+    volumes:
+      - ./redis/data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - bu-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: superwork-bu-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "127.0.0.1:19000:9000"
+      - "127.0.0.1:19001:9001"
+    volumes:
+      - ./minio/data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - bu-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.runtime
+    container_name: superwork-bu-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/bu_management?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: bu_admin
+      SPRING_DATASOURCE_PASSWORD: bu_admin123
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: bu_management
+      MYSQL_USER: bu_admin
+      MYSQL_PASSWORD: bu_admin123
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ""
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      JWT_SECRET: ${JWT_SECRET:-superwork-bu-management-server-241-change-me}
+      YUNXIAO_ENABLED: ${YUNXIAO_ENABLED:-false}
+      YUNXIAO_EDITION: ${YUNXIAO_EDITION:-center}
+      YUNXIAO_BASE_URL: ${YUNXIAO_BASE_URL:-https://openapi-rdc.aliyuncs.com}
+      YUNXIAO_ORGANIZATION_ID: ${YUNXIAO_ORGANIZATION_ID:-}
+      YUNXIAO_TOKEN: ${YUNXIAO_TOKEN:-}
+      YUNXIAO_CONFIG_ENCRYPTION_KEY: ${YUNXIAO_CONFIG_ENCRYPTION_KEY:-}
+    ports:
+      - "18081:8081"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    networks:
+      - bu-network
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: superwork-bu-frontend
+    restart: unless-stopped
+    networks:
+      - bu-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: superwork-bu-nginx
+    restart: unless-stopped
+    ports:
+      - "18080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d/241.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - bu-network
+
+networks:
+  bu-network:
+    name: superwork-bu-network
+    driver: bridge

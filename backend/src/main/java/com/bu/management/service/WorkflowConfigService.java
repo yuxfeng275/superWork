@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.dto.WorkflowConfigRequest;
 import com.bu.management.entity.WorkflowConfig;
 import com.bu.management.exception.ResourceNotFoundException;
@@ -32,18 +33,7 @@ public class WorkflowConfigService {
             "PROJECT", "项目需求",
             "PRODUCT", "产品需求"
     );
-    private static final Map<String, String> ROLE_ALIASES = Map.ofEntries(
-            Map.entry("BU_ADMIN", "BU管理员"),
-            Map.entry("PM", "项目经理"),
-            Map.entry("TECH_MANAGER", "技术经理"),
-            Map.entry("PRODUCT", "产品经理"),
-            Map.entry("UI_DESIGN", "UI设计"),
-            Map.entry("DEVELOPER", "开发"),
-            Map.entry("TESTER", "测试")
-    );
-    private static final Set<String> ALLOWED_ROLES = Set.of(
-            "BU负责人", "BU管理员", "项目经理", "技术经理", "产品经理", "UI设计", "开发", "测试", "系统自动"
-    );
+    private static final Set<String> ALLOWED_ROLES = PositionRoles.WORKFLOW_ROLE_LABELS;
 
     private final WorkflowConfigMapper workflowConfigMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -139,7 +129,7 @@ public class WorkflowConfigService {
     private List<String> normalizeRoles(List<String> roles) {
         List<String> normalizedRoles = roles.stream()
                 .map(this::normalizeText)
-                .map(role -> ROLE_ALIASES.getOrDefault(role, role))
+                .map(PositionRoles::normalizeWorkflowRole)
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();

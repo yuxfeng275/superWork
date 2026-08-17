@@ -1,6 +1,7 @@
 package com.bu.management.security;
 
 import com.bu.management.annotation.RequirePermission;
+import com.bu.management.annotation.RequireUsername;
 import com.bu.management.service.SysRoleService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -12,6 +13,7 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.util.List;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -27,21 +29,40 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
         HandlerMethod handlerMethod = (HandlerMethod) handler;
         RequirePermission annotation = handlerMethod.getMethod().getAnnotation(RequirePermission.class);
+        RequireUsername usernameAnnotation = handlerMethod.getMethod().getAnnotation(RequireUsername.class);
 
         if (annotation == null) {
             annotation = handlerMethod.getBeanType().getAnnotation(RequirePermission.class);
         }
+        if (usernameAnnotation == null) {
+            usernameAnnotation = handlerMethod.getBeanType().getAnnotation(RequireUsername.class);
+        }
 
-        if (annotation == null) {
+        if (annotation == null && usernameAnnotation == null) {
             return true;
         }
 
-        String[] requiredPermissions = annotation.value();
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated()) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             return false;
+        }
+
+        if (usernameAnnotation != null) {
+            String username = (String) request.getAttribute("username");
+            if (username == null) {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return false;
+            }
+            if (!Set.of(usernameAnnotation.value()).contains(username)) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return false;
+            }
+        }
+
+        if (annotation == null) {
+            return true;
         }
 
         Long userId = (Long) request.getAttribute("userId");
@@ -52,7 +73,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
         List<String> userPermissions = sysRoleService.getPermissionCodesByUserId(userId);
 
-        for (String required : requiredPermissions) {
+        for (String required : annotation.value()) {
             if (userPermissions.contains(required)) {
                 return true;
             }

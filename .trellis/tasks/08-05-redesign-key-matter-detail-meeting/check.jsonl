@@ -1,0 +1,4 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": "frontend/tests/key-matters.spec.ts", "reason": "详情与周会端到端回归"}
+{"file": ".trellis/spec/frontend/key-matter-management-ui.md", "reason": "检查布局、状态和移动端契约"}

@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateAttachmentDTO;
 import com.bu.management.entity.Attachment;
 import com.bu.management.service.AttachmentService;
@@ -22,6 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/attachments")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list", "task:list", "issue:list"})
 public class AttachmentController {
 
     private final AttachmentService attachmentService;
@@ -31,6 +33,7 @@ public class AttachmentController {
      */
     @Operation(summary = "创建附件", description = "创建附件记录")
     @PostMapping
+    @RequirePermission({"requirement:edit", "task:edit", "issue:edit"})
     public Result<Attachment> createAttachment(@RequestBody CreateAttachmentDTO dto) {
         Attachment attachment = attachmentService.createAttachment(dto);
         return Result.success(attachment);
@@ -63,6 +66,7 @@ public class AttachmentController {
      */
     @Operation(summary = "删除附件", description = "删除附件记录")
     @DeleteMapping("/{id}")
+    @RequirePermission({"requirement:edit", "task:edit", "issue:edit"})
     public Result<Void> deleteAttachment(@Parameter(description = "附件ID") @PathVariable Long id) {
         attachmentService.deleteAttachment(id);
         return Result.success();

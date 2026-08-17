@@ -65,6 +65,19 @@ export interface ActivityLog {
 
 export interface Requirement {
   id: string
+  recordKey?: string
+  dataSource?: 'LOCAL' | 'YUNXIAO'
+  readOnly?: boolean
+  normalizedStatus?: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OTHER'
+  projectId?: number
+  assigneeId?: number
+  yunxiaoWorkitemId?: string
+  linkedYunxiaoWorkitemId?: string
+  linkedYunxiaoSerialNumber?: string
+  linkedYunxiaoStatus?: string
+  dueDate?: string
+  overdueIncomplete?: boolean
+  overdueDays?: number
   reqNo: string
   title: string
   project: string

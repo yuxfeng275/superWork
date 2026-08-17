@@ -6,13 +6,26 @@ const mockBusinessLines = [
 ]
 
 const mockProjects = [
-  { id: 1, businessLineId: 1, parentId: null, level: 1, name: '皇家项目', fullPath: '皇家项目', code: 'ROYAL', managerId: 1, status: 1 },
+  {
+    id: 1,
+    businessLineId: 1,
+    parentId: null,
+    level: 1,
+    name: '皇家项目',
+    fullPath: '皇家项目',
+    code: 'ROYAL',
+    managerId: 1,
+    status: 1,
+    children: [
+      { id: 12, businessLineId: 1, parentId: 1, level: 2, name: 'PMS', fullPath: '皇家项目/PMS', code: 'ROYAL-PMS', managerId: 1, status: 1 }
+    ]
+  },
   { id: 2, businessLineId: 2, parentId: null, level: 1, name: '会员通系统', fullPath: '会员通系统', code: 'MEMBER', managerId: 1, status: 1 }
 ]
 
 const mockUsers = [
-  { id: 1, username: 'pm_zhang', realName: '张项目经理', role: 'PM', status: 1 },
-  { id: 2, username: 'dev_zhao', realName: '赵开发', role: 'DEVELOPER', status: 1 }
+  { id: 1, username: 'pm_zhang', realName: '张解决方案', role: 'SOLUTION_MANAGER', status: 1 },
+  { id: 2, username: 'dev_zhao', realName: '赵全栈', role: 'FULL_STACK_ENGINEER', status: 1 }
 ]
 
 const mockContacts = [
@@ -28,7 +41,7 @@ test.beforeEach(async ({ page }) => {
         id: 999,
         username: 'admin',
         realName: '系统管理员',
-        role: 'BU_ADMIN',
+        role: 'DIRECTOR',
         email: 'admin@example.com',
         phone: '13800009999'
       })
@@ -48,27 +61,17 @@ test.beforeEach(async ({ page }) => {
     })
   })
 
-  await page.route('**/api/projects/tree**', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        code: 200,
-        message: 'success',
-        data: mockProjects,
-        timestamp: new Date().toISOString()
-      })
-    })
-  })
-
   await page.route('**/api/projects**', async route => {
+    const pathname = new URL(route.request().url()).pathname
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         code: 200,
         message: 'success',
-        data: { records: mockProjects },
+        data: pathname === '/api/projects/tree'
+          ? mockProjects
+          : { records: mockProjects },
         timestamp: new Date().toISOString()
       })
     })
@@ -82,6 +85,19 @@ test.beforeEach(async ({ page }) => {
         code: 200,
         message: 'success',
         data: { records: mockUsers },
+        timestamp: new Date().toISOString()
+      })
+    })
+  })
+
+  await page.route('**/api/requirements**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: { records: [], total: 0 },
         timestamp: new Date().toISOString()
       })
     })
@@ -120,16 +136,44 @@ test('基础分类导航与业务线路由可用', async ({ page }) => {
   await expect(page.locator('.el-table')).toHaveCount(0)
 })
 
-test('项目管理的项目经理下拉只展示 PM 用户', async ({ page }) => {
+test('项目管理的项目负责人下拉支持任意团队成员', async ({ page }) => {
   await page.goto('/projects')
   await page.getByRole('button', { name: '新增项目' }).click()
 
   const dialog = page.locator('.el-dialog').filter({ hasText: '新增项目' })
-  const managerSelect = dialog.locator('.el-form-item').filter({ hasText: '项目经理' }).locator('.el-select')
+  const managerSelect = dialog.locator('.el-form-item').filter({ hasText: '项目负责人' }).locator('.el-select')
   await managerSelect.click()
 
-  await expect(page.getByRole('option', { name: '张项目经理' })).toBeVisible()
-  await expect(page.getByRole('option', { name: '赵开发' })).toHaveCount(0)
+  await expect(page.getByRole('option', { name: '张解决方案' })).toBeVisible()
+  await expect(page.getByRole('option', { name: '赵全栈' })).toBeVisible()
+})
+
+test('项目管理支持直接编辑子项目', async ({ page }) => {
+  await page.goto('/projects')
+
+  await page.getByRole('button', { name: '编辑子项目 PMS' }).click()
+
+  const dialog = page.locator('.el-dialog').filter({ hasText: '编辑项目' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('.el-form-item').filter({ hasText: '名称' }).locator('input')).toHaveValue('PMS')
+  await expect(dialog.locator('.el-form-item').filter({ hasText: '编码' }).locator('input')).toHaveValue('ROYAL-PMS')
+  await expect(dialog.locator('.el-form-item').filter({ hasText: '父项目' }).locator('input')).toBeDisabled()
+
+  await dialog.locator('.el-form-item').filter({ hasText: '名称' }).locator('input').fill('PMS升级')
+  const updateRequest = page.waitForRequest(request =>
+    request.method() === 'PUT' && new URL(request.url()).pathname === '/api/projects/12'
+  )
+  await dialog.getByRole('button', { name: '确定' }).click()
+
+  const request = await updateRequest
+  expect(request.postDataJSON()).toEqual({
+    businessLineId: 1,
+    parentId: 1,
+    name: 'PMS升级',
+    code: 'ROYAL-PMS',
+    managerId: 1,
+    status: 1
+  })
 })
 
 test('客户信息管理页面展示联系人与关联项目', async ({ page }) => {

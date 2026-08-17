@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { hasRoleAccess, type RoleAccess } from '@/constants/roles'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -13,6 +14,12 @@ const routes: RouteRecordRaw[] = [
     name: 'RequirementDetailStandalone',
     component: () => import('@/views/RequirementDetailView.vue'),
     meta: { requiresAuth: true, standalone: true }
+  },
+  {
+    path: '/key-matters-meeting',
+    name: 'KeyMattersMeeting',
+    component: () => import('@/views/KeyMattersView.vue'),
+    meta: { requiresAuth: true, standalone: true, allowedUsernames: ['admin', 'yufeng'] }
   },
   {
     path: '/',
@@ -43,16 +50,28 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '任务管理' }
       },
       {
+        path: 'defects',
+        name: 'Defects',
+        component: () => import('@/views/DefectsView.vue'),
+        meta: { title: '缺陷管理' }
+      },
+      {
+        path: 'key-matters',
+        name: 'KeyMatters',
+        component: () => import('@/views/KeyMattersView.vue'),
+        meta: { title: '大事儿管理', allowedUsernames: ['admin', 'yufeng'] }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/StatisticsView.vue'),
-        meta: { title: '数据统计' }
+        meta: { title: 'BU驾驶舱', roleAccess: 'management' }
       },
       {
         path: 'projects',
         name: 'Projects',
         component: () => import('@/views/ProjectView.vue'),
-        meta: { title: '项目管理' }
+        meta: { title: '项目管理', roleAccess: 'project' }
       },
       {
         path: 'business-lines',
@@ -68,31 +87,37 @@ const routes: RouteRecordRaw[] = [
         path: 'customers',
         name: 'Customers',
         component: () => import('@/views/CustomerInfoView.vue'),
-        meta: { title: '客户信息管理' }
+        meta: { title: '客户信息管理', roleAccess: 'customer' }
+      },
+      {
+        path: 'opportunities',
+        name: 'Opportunities',
+        component: () => import('@/views/OpportunityView.vue'),
+        meta: { title: '线索商机管理' }
       },
       {
         path: 'system/users',
         name: 'SystemUsers',
         component: () => import('@/views/SystemUserView.vue'),
-        meta: { title: '用户管理' }
+        meta: { title: '用户管理', roleAccess: 'management' }
       },
       {
         path: 'system/roles',
         name: 'SystemRoles',
         component: () => import('@/views/SystemRoleView.vue'),
-        meta: { title: '角色管理' }
+        meta: { title: '角色管理', roleAccess: 'management' }
       },
       {
         path: 'system/menus',
         name: 'SystemMenus',
         component: () => import('@/views/SystemMenuView.vue'),
-        meta: { title: '菜单管理' }
+        meta: { title: '菜单管理', roleAccess: 'management' }
       },
       {
         path: 'system/workflow',
         name: 'SystemWorkflow',
         component: () => import('@/views/SystemWorkflowView.vue'),
-        meta: { title: '工作流配置' }
+        meta: { title: '工作流配置', roleAccess: 'management' }
       }
     ]
   }
@@ -104,16 +129,41 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(to => {
   const token = localStorage.getItem('token')
 
   if (to.meta.requiresAuth !== false && !token) {
-    next('/login')
-  } else if (to.path === '/login' && token) {
-    next('/')
-  } else {
-    next()
+    return '/login'
   }
+
+  if (to.path === '/login' && token) {
+    return '/'
+  }
+
+  if (to.meta.roleAccess) {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      if (!hasRoleAccess(user?.role, to.meta.roleAccess as RoleAccess)) {
+        return '/'
+      }
+    } catch {
+      return '/'
+    }
+  }
+
+  if (to.meta.allowedUsernames) {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      const allowedUsernames = to.meta.allowedUsernames as string[]
+      if (!allowedUsernames.includes(user?.username)) {
+        return '/'
+      }
+    } catch {
+      return '/'
+    }
+  }
+
+  return true
 })
 
 export default router

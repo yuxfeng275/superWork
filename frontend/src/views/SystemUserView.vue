@@ -2,6 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  POSITION_ROLE_BADGE_CLASS,
+  POSITION_ROLE_OPTIONS,
+  getRoleLabel
+} from '@/constants/roles'
 
 interface User {
   id: number
@@ -17,7 +22,10 @@ interface User {
 interface RoleOption {
   value: string
   label: string
+  category?: string
+  categoryLabel?: string
   description: string
+  legacyFrom?: string
 }
 
 const users = ref<User[]>([])
@@ -43,26 +51,8 @@ const rules = {
   role: [{ required: true, message: '请选择角色', trigger: 'change' }]
 }
 
-const roles: RoleOption[] = [
-  { value: 'BU_ADMIN', label: 'BU管理员', description: '负责业务线级配置与组织统筹' },
-  { value: 'PM', label: '项目经理', description: '负责推进项目排期、协同与交付' },
-  { value: 'TECH_MANAGER', label: '技术经理', description: '负责技术决策、资源协调与质量把控' },
-  { value: 'PRODUCT', label: '产品经理', description: '负责需求分析、优先级和产品方案' },
-  { value: 'UI_DESIGN', label: 'UI设计', description: '负责界面视觉、交互细节与设计交付' },
-  { value: 'DEVELOPER', label: '开发', description: '负责功能实现、联调和技术落地' },
-  { value: 'TESTER', label: '测试', description: '负责质量验证、回归与发布验收' }
-]
-
-const ROLE_BADGE_CLASS: Record<string, string> = {
-  BU_ADMIN: 'red',
-  PM: 'yellow',
-  TECH_MANAGER: 'green',
-  PRODUCT: 'blue',
-  UI_DESIGN: 'purple',
-  DEVELOPER: 'blue',
-  TESTER: 'yellow',
-  UNKNOWN: 'gray'
-}
+const roles: RoleOption[] = POSITION_ROLE_OPTIONS
+const ROLE_BADGE_CLASS = POSITION_ROLE_BADGE_CLASS
 
 const extractUsers = (payload: any): User[] => {
   if (Array.isArray(payload)) return payload
@@ -81,7 +71,7 @@ const sortUsers = (list: User[]) => {
 }
 
 const getRoleName = (code: string) => {
-  return roles.find(role => role.value === code)?.label ?? code
+  return getRoleLabel(code)
 }
 
 const getStatusMeta = (status: User['status']) => {
@@ -143,6 +133,23 @@ const roleSummaries = computed(() => {
       count: users.value.filter(user => user.role === role.value).length
     }))
     .filter(role => role.count > 0)
+})
+
+const roleCategorySummaries = computed(() => {
+  const categories = [
+    { value: 'management', label: '管理序列' },
+    { value: 'execution', label: '执行序列' }
+  ]
+
+  return categories.map(category => {
+    const categoryRoles = roles.filter(role => role.category === category.value)
+    const count = users.value.filter(user => categoryRoles.some(role => role.value === user.role)).length
+    return {
+      ...category,
+      roleCount: categoryRoles.length,
+      userCount: count
+    }
+  })
 })
 
 const activeUserCount = computed(() => {
@@ -267,6 +274,14 @@ onMounted(() => {
             <span class="stat-num">{{ roleGroups.length }}</span>
             <span class="stat-text">角色分组</span>
           </span>
+          <span
+            v-for="category in roleCategorySummaries"
+            :key="category.value"
+            class="inline-stat category-stat"
+          >
+            <span class="stat-num">{{ category.userCount }}</span>
+            <span class="stat-text">{{ category.label }}</span>
+          </span>
           <span class="inline-stat">
             <span class="stat-num">{{ activeUserCount }}</span>
             <span class="stat-text">启用中</span>
@@ -321,9 +336,11 @@ onMounted(() => {
               <div class="role-copy">
                 <div class="role-title-row">
                   <span class="role-title">{{ group.label }}</span>
+                  <span v-if="group.categoryLabel" class="role-sequence">{{ group.categoryLabel }}</span>
                   <span class="role-count">{{ group.users.length }} 人</span>
                 </div>
                 <p class="role-description">{{ group.description }}</p>
+                <p v-if="group.legacyFrom" class="role-legacy">原岗位：{{ group.legacyFrom }}</p>
               </div>
             </div>
           </div>
@@ -411,7 +428,12 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="角色" prop="role">
           <el-select v-model="form.role" placeholder="请选择角色" style="width: 100%">
-            <el-option v-for="item in roles" :key="item.value" :label="item.label" :value="item.value" />
+            <el-option v-for="item in roles" :key="item.value" :label="item.label" :value="item.value">
+              <div class="role-option-row">
+                <span>{{ item.label }}</span>
+                <span>{{ item.categoryLabel }}</span>
+              </div>
+            </el-option>
           </el-select>
         </el-form-item>
       </el-form>
@@ -424,6 +446,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.system-user-page {
+  width: 100%;
+  min-width: 0;
+}
+
 .content-header {
   display: flex;
   justify-content: space-between;
@@ -458,6 +485,12 @@ onMounted(() => {
   display: flex;
   align-items: baseline;
   gap: 6px;
+}
+
+.category-stat {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gray-50);
 }
 
 .stat-num {
@@ -542,6 +575,7 @@ onMounted(() => {
 }
 
 .role-section {
+  min-width: 0;
   background: #fff;
   border-radius: var(--radius-lg, 16px);
   border: 1px solid var(--gray-100);
@@ -591,21 +625,52 @@ onMounted(() => {
   color: var(--gray-500);
 }
 
+.role-sequence {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .role-description {
   margin: 0;
   font-size: 13px;
   color: var(--gray-500);
 }
 
+.role-legacy {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gray-400);
+}
+
+.role-option-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.role-option-row span:last-child {
+  color: var(--gray-400);
+  font-size: 12px;
+}
+
 .user-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 16px;
   padding: 20px;
 }
 
 .user-card {
   position: relative;
+  min-width: 0;
   min-height: 92px;
   background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
   border: 1px solid var(--gray-100);
@@ -870,6 +935,10 @@ onMounted(() => {
   .user-card-grid {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .user-card-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .user-card {

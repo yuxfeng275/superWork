@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Project deletion crosses service and database foreign-key boundaries"}
+{"file": ".trellis/spec/backend/access-control-contract.md", "reason": "Keep DELETE project authorization contract unchanged"}
+{"file": "backend/src/main/java/com/bu/management/service/UserService.java", "reason": "Existing transactional deletion fallback pattern"}

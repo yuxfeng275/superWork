@@ -1,3 +1,5 @@
+import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 interface ApiResponse<T> {
@@ -33,11 +35,225 @@ interface RegisterRequest {
   phone?: string
 }
 
+export interface BuDirectionPayload {
+  code: string
+  name: string
+  objective?: string
+  ownerId?: number
+  startDate: string
+  endDate: string
+  status: string
+  sortOrder: number
+  projectIds: number[]
+  milestones: Array<{
+    id?: number
+    name: string
+    dueDate: string
+    status: string
+    sortOrder: number
+  }>
+}
+
+export interface YunxiaoProjectMapping {
+  id: number
+  projectId: number
+  yunxiaoProjectId: string
+  workitemTypeId?: string
+  category: string
+  syncEnabled: number
+  lastSyncedAt?: string
+  lastSyncStatus?: string
+  lastSyncError?: string
+}
+
+export interface YunxiaoProjectOption {
+  id: string
+  name: string
+  customCode?: string
+  status?: string
+}
+
+export interface YunxiaoMemberOption {
+  userId: string
+  memberId?: string
+  name: string
+  email?: string
+  status?: string
+}
+
+export interface YunxiaoUserMapping {
+  id: number
+  userId: number
+  yunxiaoUserId: string
+  syncEnabled: number
+}
+
+export interface YunxiaoProjectMappingPayload {
+  projectId?: number
+  yunxiaoProjectId: string
+  workitemTypeId?: string
+  category: string
+  syncEnabled: number
+}
+
+export interface YunxiaoUserMappingPayload {
+  userId?: number
+  yunxiaoUserId: string
+  syncEnabled: number
+}
+
+export interface YunxiaoConfigPayload {
+  enabled: boolean
+  edition: 'center' | 'region'
+  baseUrl: string
+  organizationId?: string
+  token?: string
+}
+
+export interface YunxiaoConnectionTestResult {
+  success: boolean
+  userId?: string
+  userName?: string
+  email?: string
+  message: string
+  testedAt: string
+}
+
+// ==================== OA 集成 (Seeyon) 类型 ====================
+
+export interface SeeyonOaConfigPayload {
+  enabled: boolean
+  baseUrl: string
+  username?: string
+  password?: string
+  token?: string
+}
+
+export interface SeeyonOaConnectionTestResult {
+  success: boolean
+  userName?: string
+  memberName?: string
+  message: string
+  testedAt: string
+}
+
+export interface SeeyonOaMemberOption {
+  id: string
+  name: string
+  loginName: string
+  departmentName: string
+  email: string
+  mobile: string
+  enabled: boolean
+}
+
+export interface SeeyonOaDepartmentOption {
+  id: string
+  name: string
+  parentId: string
+  parentName: string
+  sortOrder: number
+  enabled: boolean
+}
+
+export interface BuKeyMatterWeeklyUpdate {
+  id: number
+  weekStartDate: string
+  status: string
+  progress: number
+  progressSummary: string
+  issues?: string
+  nextWeekPlan?: string
+  supportNeeded?: string
+  createdBy?: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface BuKeyMatter {
+  id: number
+  title: string
+  description?: string
+  projectId?: number
+  projectName?: string
+  projectRootId?: number
+  projectRootName?: string
+  ownerId: number
+  ownerName?: string
+  priority: string
+  status: string
+  progress: number
+  startDate: string
+  plannedCompletionDate: string
+  completedAt?: string
+  sortOrder: number
+  overdue: boolean
+  currentWeekUpdated: boolean
+  latestUpdate?: BuKeyMatterWeeklyUpdate
+  currentWeekUpdate?: BuKeyMatterWeeklyUpdate
+  weeklyUpdates: BuKeyMatterWeeklyUpdate[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface BuKeyMatterPayload {
+  title: string
+  description?: string
+  projectId?: number
+  ownerId: number
+  priority: string
+  status: string
+  progress: number
+  startDate: string
+  plannedCompletionDate: string
+  sortOrder: number
+}
+
+export interface BuKeyMatterWeeklyUpdatePayload {
+  status: string
+  progress: number
+  progressSummary: string
+  issues?: string
+  nextWeekPlan?: string
+  supportNeeded?: string
+}
+
+export interface SalesOpportunityFollowUp {
+  id: number
+  opportunityId: number
+  followUpAt: string
+  follower: string
+  content: string
+  status: string
+  probability: number
+  nextFollowUp?: string
+  createdAt?: string
+}
+
+export interface SalesOpportunityFollowUpPayload {
+  followUpAt: string
+  follower: string
+  content: string
+  status: string
+  probability: number
+  nextFollowUp?: string
+}
+
 class ApiService {
   private baseUrl = API_BASE_URL
 
   private getToken(): string | null {
     return localStorage.getItem('token')
+  }
+
+  private clearAuthAndRedirect(): void {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    localStorage.removeItem('refreshToken')
+
+    if (window.location.pathname !== '/login') {
+      window.location.replace('/login')
+    }
   }
 
   private async request<T>(
@@ -76,9 +292,7 @@ class ApiService {
       }
 
       if (response.status === 401) {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
+        this.clearAuthAndRedirect()
       }
       throw new Error(errorMessage)
     }
@@ -225,6 +439,11 @@ class ApiService {
 
     const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return this.request(`/api/requirements${query}`)
+  }
+
+  async getRequirementOverview(params?: WorkItemOverviewParams): Promise<WorkItemOverviewResponse> {
+    const query = this.buildWorkItemOverviewQuery(params)
+    return this.request(`/api/requirements/overview${query}`)
   }
 
   async getRequirementById(id: number): Promise<any> {
@@ -402,6 +621,50 @@ class ApiService {
 
   async getRequirementTasks(requirementId: number): Promise<any[]> {
     return this.request(`/api/tasks/requirement/${requirementId}`)
+  }
+
+  async getTaskOverview(params?: {
+    projectId?: number
+    assigneeId?: number
+    status?: string
+    keyword?: string
+  }): Promise<unknown> {
+    const searchParams = new URLSearchParams()
+    if (params?.projectId) searchParams.set('projectId', String(params.projectId))
+    if (params?.assigneeId) searchParams.set('assigneeId', String(params.assigneeId))
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.keyword) searchParams.set('keyword', params.keyword)
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.request(`/api/tasks/overview${query}`)
+  }
+
+  async getDefectOverview(params?: WorkItemOverviewParams): Promise<WorkItemOverviewResponse> {
+    const query = this.buildWorkItemOverviewQuery(params)
+    return this.request(`/api/defects/overview${query}`)
+  }
+
+  async getYunxiaoWorkItem(id: string): Promise<WorkItemOverviewItem> {
+    return this.request(`/api/yunxiao/workitems/${encodeURIComponent(id)}`)
+  }
+
+  private buildWorkItemOverviewQuery(params?: WorkItemOverviewParams): string {
+    const searchParams = new URLSearchParams()
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.size) searchParams.set('size', String(params.size))
+    if (params?.businessLineId) searchParams.set('businessLineId', String(params.businessLineId))
+    if (params?.projectId) searchParams.set('projectId', String(params.projectId))
+    if (params?.assigneeId) searchParams.set('assigneeId', String(params.assigneeId))
+    if (params?.dataSource) searchParams.set('dataSource', params.dataSource)
+    if (params?.normalizedStatus) searchParams.set('normalizedStatus', params.normalizedStatus)
+    if (params?.type) searchParams.set('type', params.type)
+    if (params?.priority) searchParams.set('priority', params.priority)
+    if (params?.keyword) searchParams.set('keyword', params.keyword)
+    const value = searchParams.toString()
+    return value ? `?${value}` : ''
+  }
+
+  async getTask(id: number): Promise<any> {
+    return this.request(`/api/tasks/${id}`)
   }
 
   async createTask(data: {
@@ -653,6 +916,34 @@ class ApiService {
     })
   }
 
+  async getSalesOpportunities(params?: { keyword?: string; type?: string; status?: string; owner?: string; businessLine?: string }): Promise<any[]> {
+    const query = new URLSearchParams()
+    Object.entries(params || {}).forEach(([key, value]) => { if (value) query.set(key, value) })
+    const result = await this.request<any>(`/api/sales-opportunities${query.toString() ? `?${query}` : ''}`)
+    return Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : []
+  }
+
+  async createSalesOpportunity(data: any): Promise<any> { return this.request('/api/sales-opportunities', { method: 'POST', body: JSON.stringify(data) }) }
+  async updateSalesOpportunity(id: number, data: any): Promise<any> { return this.request(`/api/sales-opportunities/${id}`, { method: 'PUT', body: JSON.stringify(data) }) }
+  async deleteSalesOpportunity(id: number): Promise<void> { return this.request(`/api/sales-opportunities/${id}`, { method: 'DELETE' }) }
+  async getSalesOpportunityFollowUps(id: number): Promise<SalesOpportunityFollowUp[]> {
+    const result = await this.request<any>(`/api/sales-opportunities/${id}/follow-ups`)
+    return Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : []
+  }
+  async createSalesOpportunityFollowUp(id: number, data: SalesOpportunityFollowUpPayload): Promise<SalesOpportunityFollowUp> {
+    return this.request<SalesOpportunityFollowUp>(`/api/sales-opportunities/${id}/follow-ups`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+  async getSalesOpportunitySupportWorklogs(id: number): Promise<any[]> {
+    const result = await this.request<any>(`/api/sales-opportunities/${id}/support-worklogs`)
+    return Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : []
+  }
+  async createSalesOpportunitySupportWorklog(id: number, data: any): Promise<any> {
+    return this.request(`/api/sales-opportunities/${id}/support-worklogs`, { method: 'POST', body: JSON.stringify(data) })
+  }
+
   // Project Member APIs
   async getProjectMembers(projectId: number): Promise<any[]> {
     return this.request(`/api/project-members/by-project?projectId=${projectId}`)
@@ -669,6 +960,225 @@ class ApiService {
     return this.request(`/api/project-members?projectId=${projectId}&userId=${userId}`, {
       method: 'DELETE'
     })
+  }
+
+  // BU execution dashboard
+  async getBuDashboard<T>(params?: {
+    startDate?: string
+    endDate?: string
+    planWindowWorkdays?: number
+  }): Promise<T> {
+    const searchParams = new URLSearchParams()
+    if (params?.startDate) searchParams.set('startDate', params.startDate)
+    if (params?.endDate) searchParams.set('endDate', params.endDate)
+    if (params?.planWindowWorkdays) {
+      searchParams.set('planWindowWorkdays', String(params.planWindowWorkdays))
+    }
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.request<T>(`/api/bu-dashboard${query}`)
+  }
+
+  async createBuDirection(data: BuDirectionPayload): Promise<unknown> {
+    return this.request<unknown>('/api/bu-directions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateBuDirection(id: number, data: BuDirectionPayload): Promise<unknown> {
+    return this.request<unknown>(`/api/bu-directions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteBuDirection(id: number): Promise<void> {
+    return this.request(`/api/bu-directions/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async getKeyMatters(params?: {
+    keyword?: string
+    status?: string
+    priority?: string
+    ownerId?: number
+    projectId?: number
+  }): Promise<BuKeyMatter[]> {
+    const searchParams = new URLSearchParams()
+    if (params?.keyword) searchParams.set('keyword', params.keyword)
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.priority) searchParams.set('priority', params.priority)
+    if (params?.ownerId) searchParams.set('ownerId', String(params.ownerId))
+    if (params?.projectId) searchParams.set('projectId', String(params.projectId))
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.request<BuKeyMatter[]>(`/api/key-matters${query}`)
+  }
+
+  async getKeyMatter(id: number): Promise<BuKeyMatter> {
+    return this.request<BuKeyMatter>(`/api/key-matters/${id}`)
+  }
+
+  async getKeyMatterMeeting(weekStartDate: string): Promise<BuKeyMatter[]> {
+    return this.request<BuKeyMatter[]>(
+      `/api/key-matters/meeting?weekStartDate=${encodeURIComponent(weekStartDate)}`
+    )
+  }
+
+  async createKeyMatter(data: BuKeyMatterPayload): Promise<BuKeyMatter> {
+    return this.request<BuKeyMatter>('/api/key-matters', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateKeyMatter(id: number, data: BuKeyMatterPayload): Promise<BuKeyMatter> {
+    return this.request<BuKeyMatter>(`/api/key-matters/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteKeyMatter(id: number): Promise<void> {
+    return this.request(`/api/key-matters/${id}`, { method: 'DELETE' })
+  }
+
+  async upsertKeyMatterWeeklyUpdate(
+    id: number,
+    weekStartDate: string,
+    data: BuKeyMatterWeeklyUpdatePayload
+  ): Promise<BuKeyMatterWeeklyUpdate> {
+    return this.request<BuKeyMatterWeeklyUpdate>(
+      `/api/key-matters/${id}/weekly-updates/${weekStartDate}`,
+      { method: 'PUT', body: JSON.stringify(data) }
+    )
+  }
+
+  async deleteKeyMatterWeeklyUpdate(id: number, weekStartDate: string): Promise<void> {
+    return this.request(
+      `/api/key-matters/${id}/weekly-updates/${weekStartDate}`,
+      { method: 'DELETE' }
+    )
+  }
+
+  async getYunxiaoStatus<T>(): Promise<T> {
+    return this.request<T>('/api/yunxiao/status')
+  }
+
+  async getYunxiaoAnalysis<T>(): Promise<T> {
+    return this.request<T>('/api/yunxiao/analysis')
+  }
+
+  async updateYunxiaoConfig<T>(data: YunxiaoConfigPayload): Promise<T> {
+    return this.request<T>('/api/yunxiao/config', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async testYunxiaoConnection(): Promise<YunxiaoConnectionTestResult> {
+    return this.request<YunxiaoConnectionTestResult>('/api/yunxiao/connection-test', {
+      method: 'POST'
+    })
+  }
+
+  async getYunxiaoProjectMappings(): Promise<YunxiaoProjectMapping[]> {
+    return this.request<YunxiaoProjectMapping[]>('/api/yunxiao/project-mappings')
+  }
+
+  async getYunxiaoProjects(): Promise<YunxiaoProjectOption[]> {
+    return this.request<YunxiaoProjectOption[]>('/api/yunxiao/projects')
+  }
+
+  async getYunxiaoMembers(): Promise<YunxiaoMemberOption[]> {
+    return this.request<YunxiaoMemberOption[]>('/api/yunxiao/members')
+  }
+
+  async saveYunxiaoProjectMapping(
+    data: YunxiaoProjectMappingPayload
+  ): Promise<YunxiaoProjectMapping> {
+    return this.request<YunxiaoProjectMapping>('/api/yunxiao/project-mappings', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteYunxiaoProjectMapping(id: number): Promise<void> {
+    return this.request(`/api/yunxiao/project-mappings/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async getYunxiaoUserMappings(): Promise<YunxiaoUserMapping[]> {
+    return this.request<YunxiaoUserMapping[]>('/api/yunxiao/user-mappings')
+  }
+
+  async saveYunxiaoUserMapping(data: YunxiaoUserMappingPayload): Promise<YunxiaoUserMapping> {
+    return this.request<YunxiaoUserMapping>('/api/yunxiao/user-mappings', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteYunxiaoUserMapping(id: number): Promise<void> {
+    return this.request(`/api/yunxiao/user-mappings/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async syncYunxiao(): Promise<string[]> {
+    return this.request('/api/yunxiao/sync', { method: 'POST' })
+  }
+
+  async saveYunxiaoWorklogExemption(data: {
+    userId: number
+    workDate: string
+    reason: string
+  }): Promise<unknown> {
+    return this.request<unknown>('/api/yunxiao/worklog-exemptions', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // ==================== OA 集成 (Seeyon) ====================
+
+  async getSeeyonOaStatus<T>(): Promise<T> {
+    return this.request<T>('/api/seeyon-oa/status')
+  }
+
+  async updateSeeyonOaConfig<T>(data: SeeyonOaConfigPayload): Promise<T> {
+    return this.request<T>('/api/seeyon-oa/config', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async testSeeyonOaConnection(): Promise<SeeyonOaConnectionTestResult> {
+    return this.request<SeeyonOaConnectionTestResult>('/api/seeyon-oa/connection-test', {
+      method: 'POST'
+    })
+  }
+
+  async getSeeyonOaMembers(departmentId?: string): Promise<SeeyonOaMemberOption[]> {
+    const query = departmentId ? `?departmentId=${encodeURIComponent(departmentId)}` : ''
+    return this.request<SeeyonOaMemberOption[]>(`/api/seeyon-oa/members${query}`)
+  }
+
+  async getSeeyonOaDepartments(): Promise<SeeyonOaDepartmentOption[]> {
+    return this.request<SeeyonOaDepartmentOption[]>('/api/seeyon-oa/departments')
+  }
+
+  async getSeeyonOaPendingAffairs(): Promise<any[]> {
+    return this.request<any[]>('/api/seeyon-oa/affairs/pending')
+  }
+
+  async getSeeyonOaDoneAffairs(): Promise<any[]> {
+    return this.request<any[]>('/api/seeyon-oa/affairs/done')
+  }
+
+  async syncSeeyonOa(): Promise<string[]> {
+    return this.request<string[]>('/api/seeyon-oa/sync', { method: 'POST' })
   }
 }
 

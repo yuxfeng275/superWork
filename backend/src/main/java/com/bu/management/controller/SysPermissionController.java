@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.entity.SysPermission;
 import com.bu.management.service.SysPermissionService;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/system/permissions")
 @RequiredArgsConstructor
+@RequirePermission({"system:permission:list"})
 public class SysPermissionController {
 
     private final SysPermissionService sysPermissionService;

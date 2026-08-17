@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const mockRoles = [
-  { id: 1, code: 'BU_ADMIN', name: 'BU管理员', description: '系统管理员', status: 1, createdAt: '2026-04-01' }
+  { id: 1, code: 'DIRECTOR', name: '总监', description: '部门第一负责人', status: 1, createdAt: '2026-04-01' }
 ]
 
 const mockMenus = [
@@ -27,16 +27,30 @@ const mockProjects = [
 test.beforeEach(async ({ page }) => {
   let lastAuthorizationPayload: unknown = null
 
-  await page.addInitScript(() => {
-    localStorage.setItem('token', 'mock-token')
-    localStorage.setItem(
-      'user',
-      JSON.stringify({ id: 1, username: 'admin', realName: '系统管理员', role: 'BU_ADMIN' })
-    )
-  })
+  await page.route('**/api/system/roles**', async route => {
+    const pathname = new URL(route.request().url()).pathname
 
-  await page.route('**/api/system/roles', async route => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockRoles) })
+    if (pathname === '/api/system/roles') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockRoles) })
+      return
+    }
+
+    if (pathname === '/api/system/roles/1/authorization') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ menuIds: [10, 11], permissionIds: [101], dataScope: 'BU_LINE', dataScopeValue: '1' })
+      })
+      return
+    }
+
+    if (pathname === '/api/system/roles/authorization/assign') {
+      lastAuthorizationPayload = JSON.parse(route.request().postData() || '{}')
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
+      return
+    }
+
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
   })
 
   await page.route('**/api/system/menus', async route => {
@@ -45,14 +59,6 @@ test.beforeEach(async ({ page }) => {
 
   await page.route('**/api/system/permissions', async route => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockPermissions) })
-  })
-
-  await page.route('**/api/system/roles/1/authorization', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ menuIds: [10, 11], permissionIds: [101], dataScope: 'BU_LINE', dataScopeValue: '1' })
-    })
   })
 
   await page.route('**/api/business-lines**', async route => {
@@ -71,16 +77,34 @@ test.beforeEach(async ({ page }) => {
     })
   })
 
-  await page.route('**/api/system/roles/authorization/assign', async route => {
-    lastAuthorizationPayload = JSON.parse(route.request().postData() || '{}')
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
+  await page.route('**/api/requirements**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, message: 'success', data: { records: [], total: 0 }, timestamp: new Date().toISOString() })
+    })
   })
 
   await page.exposeFunction('getLastAuthorizationPayload', () => lastAuthorizationPayload)
+
+  await page.goto('/login')
+  await page.evaluate(() => {
+    localStorage.setItem('token', 'mock-token')
+    localStorage.setItem(
+      'user',
+      JSON.stringify({ id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' })
+    )
+  })
 })
 
 test('角色管理授权弹窗按钮权限整行可点，数据范围使用选择控件', async ({ page }) => {
   await page.goto('/system/roles')
+  await expect(page.getByRole('button', { name: '新增角色' })).toHaveCount(0)
+  await expect(page.locator('.position-sequence')).toHaveCount(2)
+  await expect(page.locator('.position-sequence').first()).toContainText('管理序列')
+  await expect(page.locator('.position-sequence').nth(1)).toContainText('执行序列')
+  await expect(page.locator('.position-role-card')).toHaveCount(11)
+
   await page.locator('.action-link', { hasText: '配置授权' }).click()
 
   const dialog = page.locator('.el-dialog').filter({ hasText: '配置授权' })

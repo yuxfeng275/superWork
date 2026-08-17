@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateDesignWorkLogDTO;
 import com.bu.management.dto.UpdateDesignWorkLogDTO;
 import com.bu.management.entity.DesignWorkLog;
@@ -24,6 +25,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/design-work-logs")
 @RequiredArgsConstructor
+@RequirePermission({"requirement:list"})
 public class DesignWorkLogController {
 
     private final DesignWorkLogService workLogService;
@@ -33,6 +35,7 @@ public class DesignWorkLogController {
      */
     @Operation(summary = "创建设计工作记录", description = "创建设计工作记录")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<DesignWorkLog> createWorkLog(@RequestBody CreateDesignWorkLogDTO dto) {
         DesignWorkLog workLog = workLogService.createWorkLog(dto);
         return Result.success(workLog);
@@ -43,6 +46,7 @@ public class DesignWorkLogController {
      */
     @Operation(summary = "更新设计工作记录", description = "更新设计工作记录")
     @PutMapping("/{id}")
+    @RequirePermission({"requirement:edit"})
     public Result<DesignWorkLog> updateWorkLog(
             @Parameter(description = "工作记录ID") @PathVariable Long id,
             @RequestBody UpdateDesignWorkLogDTO dto) {
@@ -81,6 +85,7 @@ public class DesignWorkLogController {
      */
     @Operation(summary = "删除设计工作记录", description = "删除设计工作记录")
     @DeleteMapping("/{id}")
+    @RequirePermission({"requirement:edit"})
     public Result<Void> deleteWorkLog(@Parameter(description = "工作记录ID") @PathVariable Long id) {
         workLogService.deleteWorkLog(id);
         return Result.success();

@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.UserRequest;
 import com.bu.management.entity.User;
 import com.bu.management.service.UserService;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
+@RequirePermission({"system:user:list", "org:view"})
 public class UserController {
 
     private final UserService userService;
@@ -31,6 +33,7 @@ public class UserController {
      */
     @Operation(summary = "创建用户", description = "创建新用户")
     @PostMapping
+    @RequirePermission({"system:user:create"})
     public Result<User> create(@Valid @RequestBody UserRequest request) {
         User user = userService.create(request);
         return Result.success("创建成功", user);
@@ -41,6 +44,7 @@ public class UserController {
      */
     @Operation(summary = "更新用户", description = "更新用户信息")
     @PutMapping("/{id}")
+    @RequirePermission({"system:user:edit"})
     public Result<User> update(
             @Parameter(description = "用户ID") @PathVariable Long id,
             @Valid @RequestBody UserRequest request) {
@@ -53,6 +57,7 @@ public class UserController {
      */
     @Operation(summary = "禁用/启用用户", description = "更新用户状态")
     @PatchMapping("/{id}/status")
+    @RequirePermission({"system:user:edit"})
     public Result<Void> updateStatus(
             @Parameter(description = "用户ID") @PathVariable Long id,
             @Parameter(description = "状态：1=启用，0=禁用") @RequestParam Integer status) {
@@ -65,6 +70,7 @@ public class UserController {
      */
     @Operation(summary = "删除用户", description = "删除用户；若存在业务引用则自动停用")
     @DeleteMapping("/{id}")
+    @RequirePermission({"system:user:delete"})
     public Result<Void> delete(@Parameter(description = "用户ID") @PathVariable Long id) {
         boolean deleted = userService.delete(id);
         return Result.success(deleted ? "删除成功" : "用户存在关联业务数据，已停用", null);

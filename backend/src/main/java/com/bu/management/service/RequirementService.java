@@ -213,7 +213,7 @@ public class RequirementService {
         Page<Requirement> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<Requirement> wrapper = buildQueryWrapper(businessLineId, projectId, type, status, priority, title);
 
-        // 数据权限过滤：项目经理和技术经理只能看到其参与项目的需求
+        // 数据权限过滤：项目级岗位只能看到其参与项目的需求
         if (!dataPermissionService.isBuAdmin(role)) {
             if (dataPermissionService.isProjectRole(role)) {
                 List<Long> userProjectIds = dataPermissionService.getUserProjectIds(userId);
@@ -224,7 +224,7 @@ public class RequirementService {
                     wrapper.in(Requirement::getProjectId, userProjectIds);
                 }
             }
-            // 其他角色（产品、开发、测试等）暂时不做项目级别过滤，可以查看所有
+            // 其他执行岗位暂时不做项目级别过滤，可以查看所有
         }
 
         wrapper.orderByDesc(Requirement::getCreatedAt);

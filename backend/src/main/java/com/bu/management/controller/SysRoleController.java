@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.CreateRoleDTO;
 import com.bu.management.dto.RoleAuthorizationAssignRequest;
 import com.bu.management.dto.RolePermissionAssignRequest;
@@ -22,6 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/system/roles")
 @RequiredArgsConstructor
+@RequirePermission({"system:role:list"})
 public class SysRoleController {
 
     private final SysRoleService sysRoleService;
@@ -33,6 +35,7 @@ public class SysRoleController {
     }
 
     @PostMapping
+    @RequirePermission({"system:role:create"})
     public ResponseEntity<SysRole> createRole(@Valid @RequestBody CreateRoleDTO request) {
         sysRoleService.createRole(request.getCode(), request.getName(), request.getDescription(), request.getStatus());
         LambdaQueryWrapper<SysRole> wrapper = new LambdaQueryWrapper<>();
@@ -42,12 +45,14 @@ public class SysRoleController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission({"system:role:edit"})
     public ResponseEntity<Void> updateRole(@PathVariable Long id, @Valid @RequestBody UpdateRoleDTO request) {
         sysRoleService.updateRole(id, request.getName(), request.getDescription(), request.getStatus());
         return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission({"system:role:delete"})
     public ResponseEntity<Void> deleteRole(@PathVariable Long id) {
         sysRoleService.deleteRole(id);
         return ResponseEntity.ok().build();
@@ -69,12 +74,14 @@ public class SysRoleController {
     }
 
     @PostMapping("/permissions/assign")
+    @RequirePermission({"system:permission:assign"})
     public ResponseEntity<Void> assignPermissionsToRole(@RequestBody RolePermissionAssignRequest request) {
         sysRoleService.assignPermissionsToRole(request.getRoleId(), request.getPermissionIds());
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/authorization/assign")
+    @RequirePermission({"system:permission:assign"})
     public ResponseEntity<Void> assignAuthorizationToRole(@RequestBody RoleAuthorizationAssignRequest request) {
         sysRoleService.assignAuthorizationToRole(
                 request.getRoleId(),
@@ -87,6 +94,7 @@ public class SysRoleController {
     }
 
     @PostMapping("/user/assign")
+    @RequirePermission({"system:user:edit"})
     public ResponseEntity<Void> assignRolesToUser(@RequestBody UserRoleAssignRequest request) {
         // 先删除用户的所有角色
         LambdaQueryWrapper<SysUserRole> wrapper = new LambdaQueryWrapper<>();

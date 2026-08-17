@@ -7,6 +7,7 @@ import com.bu.management.entity.Requirement;
 import com.bu.management.exception.ResourceNotFoundException;
 import com.bu.management.exception.GlobalExceptionHandler;
 import com.bu.management.security.PermissionInterceptor;
+import com.bu.management.service.RequirementOverviewService;
 import com.bu.management.service.RequirementService;
 import com.bu.management.util.JwtUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -65,6 +67,9 @@ class RequirementControllerTest {
 
     @MockBean
     private RequirementService requirementService;
+
+    @MockBean
+    private RequirementOverviewService requirementOverviewService;
 
     @MockBean
     private PermissionInterceptor permissionInterceptor;
@@ -125,6 +130,7 @@ class RequirementControllerTest {
             // when & then
             mockMvc.perform(post("/api/requirements")
                             .with(csrf())
+                            .requestAttr("userId", 42L)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(validRequest)))
                     .andExpect(status().isOk())
@@ -132,6 +138,7 @@ class RequirementControllerTest {
                     .andExpect(jsonPath("$.data.id").value(1))
                     .andExpect(jsonPath("$.data.reqNo").value("REQ202604030001"))
                     .andExpect(jsonPath("$.message").value("创建成功"));
+            verify(requirementService).create(any(RequirementRequest.class), eq(42L));
         }
 
         @Test
@@ -145,6 +152,7 @@ class RequirementControllerTest {
             // when & then
             mockMvc.perform(post("/api/requirements")
                             .with(csrf())
+                            .requestAttr("userId", 42L)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(validRequest)))
                     .andExpect(status().isBadRequest())
@@ -159,6 +167,7 @@ class RequirementControllerTest {
             // when & then
             mockMvc.perform(post("/api/requirements")
                             .with(csrf())
+                            .requestAttr("userId", 42L)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isBadRequest());

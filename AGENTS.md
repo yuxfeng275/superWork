@@ -18,3 +18,6 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 
 <!-- TRELLIS:END -->
 
+## Project Delivery Preference
+
+- For development tasks, the default completion loop is: implement, test, deploy to the project environment, and verify the deployed URL. Do not stop after local tests unless the user explicitly asks not to deploy or deployment is blocked.

@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RoleMenuAssignRequest;
 import com.bu.management.entity.SysMenu;
 import com.bu.management.service.SysMenuService;
@@ -12,6 +13,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/system/menus")
 @RequiredArgsConstructor
+@RequirePermission({"system:menu:list"})
 public class SysMenuController {
 
     private final SysMenuService sysMenuService;
@@ -27,6 +29,7 @@ public class SysMenuController {
     }
 
     @PostMapping("/assign")
+    @RequirePermission({"system:menu:edit"})
     public ResponseEntity<Void> assignMenusToRole(@RequestBody RoleMenuAssignRequest request) {
         sysMenuService.assignMenusToRole(request.getRoleId(), request.getMenuIds());
         return ResponseEntity.ok().build();

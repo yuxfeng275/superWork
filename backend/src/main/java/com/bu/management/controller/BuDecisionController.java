@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.BuDecisionRequest;
 import com.bu.management.entity.RequirementEvaluation;
 import com.bu.management.service.BuDecisionService;
@@ -8,7 +9,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -30,11 +30,10 @@ public class BuDecisionController {
      */
     @Operation(summary = "提交BU决策", description = "BU负责人对需求评估进行决策（通过/拒绝/转产品需求）")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementEvaluation> makeDecision(
             @Valid @RequestBody BuDecisionRequest request,
-            Authentication authentication) {
-        // 从认证信息中获取当前用户ID（简化处理）
-        Long decisionBy = 1L; // TODO: 从 authentication 中获取真实用户ID
+            @RequestAttribute("userId") Long decisionBy) {
         RequirementEvaluation evaluation = buDecisionService.makeDecision(request, decisionBy);
         return Result.success("决策提交成功", evaluation);
     }

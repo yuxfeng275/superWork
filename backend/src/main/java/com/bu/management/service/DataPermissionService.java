@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.ProjectMember;
 import com.bu.management.mapper.ProjectMemberMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,17 +22,17 @@ public class DataPermissionService {
     private final ProjectMemberMapper projectMemberMapper;
 
     /**
-     * 检查用户是否为BU管理员
+     * 检查用户是否为管理序列角色
      */
     public boolean isBuAdmin(String role) {
-        return "BU_ADMIN".equals(role);
+        return PositionRoles.isAdminRole(role);
     }
 
     /**
-     * 检查用户是否为项目经理或技术经理
+     * 检查用户是否为项目级岗位
      */
     public boolean isProjectRole(String role) {
-        return "PM".equals(role) || "TECH_MANAGER".equals(role);
+        return PositionRoles.isProjectScopedRole(role);
     }
 
     /**

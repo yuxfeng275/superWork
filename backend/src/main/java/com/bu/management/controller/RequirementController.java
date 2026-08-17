@@ -5,15 +5,17 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RequirementRequest;
 import com.bu.management.dto.RequirementStageActionRequest;
 import com.bu.management.entity.Requirement;
+import com.bu.management.service.RequirementOverviewService;
 import com.bu.management.service.RequirementService;
 import com.bu.management.vo.Result;
+import com.bu.management.vo.WorkItemOverviewQuery;
+import com.bu.management.vo.WorkItemOverviewResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 public class RequirementController {
 
     private final RequirementService requirementService;
+    private final RequirementOverviewService requirementOverviewService;
 
     /**
      * 创建需求
@@ -37,9 +40,7 @@ public class RequirementController {
     @PostMapping
     @RequirePermission({"requirement:create"})
     public Result<Requirement> create(@Valid @RequestBody RequirementRequest request,
-                                      Authentication authentication) {
-        // 从认证信息中获取当前用户ID（简化处理，实际应从 UserDetails 中获取）
-        Long creatorId = 1L; // TODO: 从 authentication 中获取真实用户ID
+                                      @RequestAttribute("userId") Long creatorId) {
         Requirement requirement = requirementService.create(request, creatorId);
         return Result.success("创建成功", requirement);
     }
@@ -89,6 +90,37 @@ public class RequirementController {
         return Result.success(requirement);
     }
 
+    @Operation(summary = "查询统一需求概览", description = "合并本地需求与云效只读需求")
+    @GetMapping("/overview")
+    @RequirePermission({"requirement:list"})
+    public Result<WorkItemOverviewResponse> overview(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Long businessLineId,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) Long assigneeId,
+            @RequestParam(required = false) String dataSource,
+            @RequestParam(required = false) String normalizedStatus,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String priority,
+            @RequestParam(required = false) String keyword,
+            HttpServletRequest request) {
+        WorkItemOverviewQuery query = new WorkItemOverviewQuery();
+        query.setPage(page);
+        query.setSize(size);
+        query.setBusinessLineId(businessLineId);
+        query.setProjectId(projectId);
+        query.setAssigneeId(assigneeId);
+        query.setDataSource(dataSource);
+        query.setNormalizedStatus(normalizedStatus);
+        query.setType(type);
+        query.setPriority(priority);
+        query.setKeyword(keyword);
+        return Result.success(requirementOverviewService.getOverview(
+                (Long) request.getAttribute("userId"),
+                (String) request.getAttribute("role"), query));
+    }
+
     /**
      * 分页查询需求列表
      */
@@ -104,7 +136,6 @@ public class RequirementController {
             @Parameter(description = "状态") @RequestParam(required = false) String status,
             @Parameter(description = "优先级：高/中/低") @RequestParam(required = false) String priority,
             @Parameter(description = "标题（模糊查询）") @RequestParam(required = false) String title,
-            Authentication authentication,
             HttpServletRequest request) {
         // 获取当前用户ID和角色
         Long userId = (Long) request.getAttribute("userId");

@@ -19,6 +19,7 @@ import java.util.Map;
 @RequestMapping("/api/workflow-configs")
 @RequiredArgsConstructor
 @Tag(name = "工作流配置", description = "工作流配置管理接口")
+@RequirePermission({"system:workflow:list"})
 public class WorkflowConfigController {
 
     private final WorkflowConfigService workflowConfigService;

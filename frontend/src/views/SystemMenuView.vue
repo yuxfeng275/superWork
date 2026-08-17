@@ -227,6 +227,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.system-menu-page { width: 100%; min-width: 0; }
 /* ========== 页面头部 ========== */
 .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .title-with-stats { display: flex; align-items: center; gap: 16px; }
@@ -291,5 +292,54 @@ onMounted(() => {
 .orphan-perm-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .orphan-perm-tag { display: inline-flex; align-items: center; gap: 6px; background: white; border: 1px solid #fde68a; border-radius: 8px; padding: 4px 10px; }
 .orphan-name { font-size: 13px; font-weight: 500; color: var(--gray-700); }
-.orphan-code { font-size: 11px; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; font-family: monospace; }
+.orphan-code { min-width: 0; overflow: hidden; font-size: 11px; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; font-family: monospace; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 768px) {
+  .content-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .title-with-stats {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .inline-stats {
+    max-width: 100%;
+    flex-wrap: wrap;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .menu-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .menu-info,
+  .menu-row-right {
+    flex-wrap: wrap;
+  }
+
+  .menu-row-right,
+  .perm-tags {
+    max-width: 100%;
+  }
+
+  .route-tag {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .orphan-perm-tag {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
 </style>

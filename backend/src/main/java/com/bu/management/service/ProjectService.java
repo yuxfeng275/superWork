@@ -1,13 +1,20 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bu.management.dto.ProjectRequest;
 import com.bu.management.entity.BusinessLine;
+import com.bu.management.entity.CustomerContact;
+import com.bu.management.entity.Issue;
 import com.bu.management.entity.Project;
+import com.bu.management.entity.Requirement;
 import com.bu.management.entity.User;
 import com.bu.management.mapper.BusinessLineMapper;
+import com.bu.management.mapper.CustomerContactMapper;
+import com.bu.management.mapper.IssueMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.RequirementMapper;
 import com.bu.management.mapper.UserMapper;
 import com.bu.management.vo.ProjectTreeNode;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +41,9 @@ public class ProjectService {
     private final ProjectMapper projectMapper;
     private final BusinessLineMapper businessLineMapper;
     private final UserMapper userMapper;
+    private final RequirementMapper requirementMapper;
+    private final CustomerContactMapper customerContactMapper;
+    private final IssueMapper issueMapper;
 
     /**
      * 创建项目
@@ -116,6 +126,7 @@ public class ProjectService {
 
         validateProjectManager(request.getManagerId());
 
+        boolean nameChanged = !request.getName().equals(project.getName());
         project.setBusinessLineId(request.getBusinessLineId());
         project.setName(request.getName());
         project.setCode(request.getCode());
@@ -125,7 +136,7 @@ public class ProjectService {
         }
 
         // 如果名称改变，需要更新完整路径
-        if (!request.getName().equals(project.getName())) {
+        if (nameChanged) {
             updateFullPath(project, request.getName());
         }
 
@@ -178,7 +189,34 @@ public class ProjectService {
             throw new RuntimeException("存在子项目，无法删除");
         }
 
+        detachHistoricalRecords(id);
         projectMapper.deleteById(id);
+    }
+
+    private void detachHistoricalRecords(Long projectId) {
+        UpdateWrapper<Requirement> requirementProjectUpdate = new UpdateWrapper<>();
+        requirementProjectUpdate
+                .eq("project_id", projectId)
+                .set("project_id", null);
+        requirementMapper.update(null, requirementProjectUpdate);
+
+        UpdateWrapper<Requirement> requirementContactUpdate = new UpdateWrapper<>();
+        requirementContactUpdate
+                .inSql(
+                        "customer_contact_id",
+                        "SELECT id FROM customer_contact WHERE project_id = " + projectId)
+                .set("customer_contact_id", null);
+        requirementMapper.update(null, requirementContactUpdate);
+
+        UpdateWrapper<Issue> issueUpdate = new UpdateWrapper<>();
+        issueUpdate
+                .eq("project_id", projectId)
+                .set("project_id", null);
+        issueMapper.update(null, issueUpdate);
+
+        LambdaQueryWrapper<CustomerContact> contactQuery = new LambdaQueryWrapper<>();
+        contactQuery.eq(CustomerContact::getProjectId, projectId);
+        customerContactMapper.delete(contactQuery);
     }
 
     /**
@@ -275,11 +313,11 @@ public class ProjectService {
 
         User manager = userMapper.selectById(managerId);
         if (manager == null) {
-            throw new RuntimeException("项目经理不存在");
+            throw new RuntimeException("项目负责人不存在");
         }
 
-        if (!"PM".equals(manager.getRole())) {
-            throw new RuntimeException("项目经理必须选择项目经理角色用户");
+        if (!Integer.valueOf(1).equals(manager.getStatus())) {
+            throw new RuntimeException("项目负责人已停用");
         }
     }
 }

@@ -7,7 +7,7 @@ const mockUsers = [
     realName: '艾丽丝',
     email: 'alice@example.com',
     phone: '13800000001',
-    role: 'PM',
+    role: 'SOLUTION_MANAGER',
     status: 1,
     createTime: '2026-04-01T10:00:00Z'
   },
@@ -17,7 +17,7 @@ const mockUsers = [
     realName: '鲍勃',
     email: 'bob@example.com',
     phone: '13800000002',
-    role: 'DEVELOPER',
+    role: 'FULL_STACK_ENGINEER',
     status: 1,
     createTime: '2026-04-02T10:00:00Z'
   },
@@ -27,7 +27,7 @@ const mockUsers = [
     realName: '辛迪',
     email: '',
     phone: '',
-    role: 'DEVELOPER',
+    role: 'FULL_STACK_ENGINEER',
     status: 0,
     createTime: '2026-04-03T10:00:00Z'
   }
@@ -44,11 +44,24 @@ test.beforeEach(async ({ page }) => {
         id: 999,
         username: 'admin',
         realName: '系统管理员',
-        role: 'BU_ADMIN',
+        role: 'DIRECTOR',
         email: 'admin@example.com',
         phone: '13800009999'
       })
     )
+  })
+
+  await page.route('**/api/requirements**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: { records: [], total: 0 },
+        timestamp: new Date().toISOString()
+      })
+    })
   })
 
   await page.route('**/api/users**', async route => {
@@ -118,10 +131,10 @@ test('用户管理按角色展示卡片', async ({ page }) => {
   const groups = page.locator('[data-testid="user-role-group"]')
   await expect(groups).toHaveCount(2)
 
-  const pmGroup = groups.filter({ has: page.locator('.role-title', { hasText: '项目经理' }) })
+  const pmGroup = groups.filter({ has: page.locator('.role-title', { hasText: '解决方案经理' }) })
   await expect(pmGroup.locator('[data-testid="user-card"]')).toHaveCount(1)
 
-  const developerGroup = groups.filter({ has: page.locator('.role-title', { hasText: '开发' }) })
+  const developerGroup = groups.filter({ has: page.locator('.role-title', { hasText: '全栈工程师' }) })
   await expect(developerGroup.locator('[data-testid="user-card"]')).toHaveCount(2)
   const developerCard = developerGroup.locator('[data-testid="user-card"]').nth(1)
   await developerCard.hover()
@@ -149,10 +162,10 @@ test('顶部角色汇总点击后滚动到对应角色分组', async ({ page }) 
   })
   await page.goto('/system/users')
 
-  const developerSummary = page.locator('[data-role-summary="DEVELOPER"]')
+  const developerSummary = page.locator('[data-role-summary="FULL_STACK_ENGINEER"]')
   await developerSummary.click()
 
-  await expect.poll(() => page.evaluate(() => (window as any).__lastRoleScrollTarget)).toBe('DEVELOPER')
+  await expect.poll(() => page.evaluate(() => (window as any).__lastRoleScrollTarget)).toBe('FULL_STACK_ENGINEER')
 })
 
 test('用户卡片支持编辑弹窗与删除流程', async ({ page }) => {
@@ -171,7 +184,7 @@ test('用户卡片支持编辑弹窗与删除流程', async ({ page }) => {
   await expect(dialog).not.toBeVisible()
 
   const developerGroup = page.locator('[data-testid="user-role-group"]').filter({
-    has: page.locator('.role-title', { hasText: '开发' })
+    has: page.locator('.role-title', { hasText: '全栈工程师' })
   })
   await expect(developerGroup.locator('[data-testid="user-card"]')).toHaveCount(2)
 

@@ -24,6 +24,7 @@ public class RequirementConfirmationService {
 
     private final RequirementConfirmationMapper confirmationMapper;
     private final RequirementMapper requirementMapper;
+    private final YunxiaoHandoffService yunxiaoHandoffService;
 
     /**
      * 创建需求确认
@@ -65,6 +66,9 @@ public class RequirementConfirmationService {
         requirement.setStatus("开发中");
         requirement.setUpdatedAt(LocalDateTime.now());
         requirementMapper.updateById(requirement);
+
+        // 云效交接只写入本地待处理事件，外部接口失败不会回滚需求确认。
+        yunxiaoHandoffService.enqueue(requirement.getId());
 
         return confirmation;
     }

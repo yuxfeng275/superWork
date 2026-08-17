@@ -1,6 +1,7 @@
 package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.ProjectRequest;
 import com.bu.management.entity.Project;
 import com.bu.management.service.ProjectService;
@@ -25,6 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/projects")
 @RequiredArgsConstructor
+@RequirePermission({"project:view"})
 public class ProjectController {
 
     private final ProjectService projectService;
@@ -34,6 +36,7 @@ public class ProjectController {
      */
     @Operation(summary = "创建项目", description = "创建新的项目（支持主项目和子项目）")
     @PostMapping
+    @RequirePermission({"org:edit"})
     public Result<Project> create(@Valid @RequestBody ProjectRequest request) {
         Project project = projectService.create(request);
         return Result.success("创建成功", project);
@@ -44,6 +47,7 @@ public class ProjectController {
      */
     @Operation(summary = "更新项目", description = "更新项目信息")
     @PutMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<Project> update(
             @Parameter(description = "项目ID") @PathVariable Long id,
             @Valid @RequestBody ProjectRequest request) {
@@ -56,6 +60,7 @@ public class ProjectController {
      */
     @Operation(summary = "删除项目", description = "删除指定项目（不能有子项目）")
     @DeleteMapping("/{id}")
+    @RequirePermission({"org:edit"})
     public Result<Void> delete(@Parameter(description = "项目ID") @PathVariable Long id) {
         projectService.delete(id);
         return Result.success("删除成功", null);

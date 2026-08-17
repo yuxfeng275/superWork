@@ -1,5 +1,6 @@
 package com.bu.management.controller;
 
+import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RequirementEvaluationRequest;
 import com.bu.management.entity.RequirementEvaluation;
 import com.bu.management.service.RequirementEvaluationService;
@@ -9,7 +10,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -31,11 +31,10 @@ public class RequirementEvaluationController {
      */
     @Operation(summary = "提交需求评估", description = "提交或更新需求评估信息")
     @PostMapping
+    @RequirePermission({"requirement:edit"})
     public Result<RequirementEvaluation> submitEvaluation(
             @Valid @RequestBody RequirementEvaluationRequest request,
-            Authentication authentication) {
-        // 从认证信息中获取当前用户ID（简化处理）
-        Long evaluatorId = 1L; // TODO: 从 authentication 中获取真实用户ID
+            @RequestAttribute("userId") Long evaluatorId) {
         RequirementEvaluation evaluation = evaluationService.submitEvaluation(request, evaluatorId);
         return Result.success("评估提交成功", evaluation);
     }
@@ -45,6 +44,7 @@ public class RequirementEvaluationController {
      */
     @Operation(summary = "根据需求ID查询评估", description = "获取指定需求的评估信息")
     @GetMapping("/by-requirement/{requirementId}")
+    @RequirePermission({"requirement:list"})
     public Result<RequirementEvaluation> getByRequirementId(
             @Parameter(description = "需求ID") @PathVariable Long requirementId) {
         RequirementEvaluation evaluation = evaluationService.getByRequirementId(requirementId);
@@ -56,6 +56,7 @@ public class RequirementEvaluationController {
      */
     @Operation(summary = "获取评估详情", description = "根据评估ID获取评估详情")
     @GetMapping("/{id}")
+    @RequirePermission({"requirement:list"})
     public Result<RequirementEvaluation> getById(
             @Parameter(description = "评估ID") @PathVariable Long id) {
         RequirementEvaluation evaluation = evaluationService.getById(id);

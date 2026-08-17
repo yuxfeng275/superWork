@@ -2,6 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  POSITION_ROLE_BADGE_CLASS,
+  POSITION_ROLE_OPTIONS,
+  getPositionRole
+} from '@/constants/roles'
+import type { PositionRoleOption } from '@/constants/roles'
 
 interface Role {
   id: number
@@ -45,6 +51,11 @@ interface ProjectOption {
   businessLineId: number
 }
 
+interface DefaultRoleRow {
+  preset: PositionRoleOption
+  role?: Role
+}
+
 const DATA_SCOPE_OPTIONS = [
   { value: 'ALL', label: '全部数据可见' },
   { value: 'BU_LINE', label: '按业务线' },
@@ -52,10 +63,11 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'SELF', label: '仅本人数据' }
 ]
 
+const positionRoleOrder = new Map(POSITION_ROLE_OPTIONS.map((role, index) => [role.value, index]))
+
 const roles = ref<Role[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
-const isEdit = ref(false)
 const formRef = ref()
 
 const form = ref({
@@ -69,6 +81,47 @@ const form = ref({
 const rules = {
   code: [{ required: true, message: '请输入角色编码', trigger: 'blur' }],
   name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }]
+}
+
+const canonicalRoleCodes = new Set(POSITION_ROLE_OPTIONS.map(role => role.value))
+
+const roleByCode = computed(() => new Map(roles.value.map(role => [role.code, role])))
+
+const defaultRoleRows = computed<DefaultRoleRow[]>(() => {
+  return POSITION_ROLE_OPTIONS.map(preset => ({
+    preset,
+    role: roleByCode.value.get(preset.value)
+  }))
+})
+
+const legacyRoles = computed(() => roles.value.filter(role => !canonicalRoleCodes.has(role.code)))
+
+const rolePositionGroups = computed(() => {
+  return [
+    { value: 'management', label: '管理序列' },
+    { value: 'execution', label: '执行序列' }
+  ].map(group => {
+    const rows = defaultRoleRows.value.filter(row => row.preset.category === group.value)
+    return {
+      ...group,
+      rows,
+      activeCount: rows.filter(row => row.role?.status === 1).length
+    }
+  })
+})
+
+const defaultRoleStats = computed(() => ({
+  total: POSITION_ROLE_OPTIONS.length,
+  management: POSITION_ROLE_OPTIONS.filter(role => role.category === 'management').length,
+  execution: POSITION_ROLE_OPTIONS.filter(role => role.category === 'execution').length
+}))
+
+const getRoleCategoryLabel = (code: string) => {
+  return getPositionRole(code)?.categoryLabel ?? '自定义角色'
+}
+
+const getRoleBadgeClass = (code: string) => {
+  return POSITION_ROLE_BADGE_CLASS[code] ?? 'gray'
 }
 
 // ---- Authorization Dialog ----
@@ -193,7 +246,13 @@ const loadRoles = async () => {
   loading.value = true
   try {
     const data = await api.getRoles()
-    roles.value = Array.isArray(data) ? data : []
+    const list = Array.isArray(data) ? data : []
+    roles.value = [...list].sort((left, right) => {
+      const leftOrder = positionRoleOrder.get(left.code) ?? Number.MAX_SAFE_INTEGER
+      const rightOrder = positionRoleOrder.get(right.code) ?? Number.MAX_SAFE_INTEGER
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder
+      return left.id - right.id
+    })
   } catch (error) {
     console.error('加载角色失败:', error)
     ElMessage.error('加载角色失败')
@@ -202,16 +261,25 @@ const loadRoles = async () => {
   }
 }
 
-const handleAdd = () => {
-  form.value = { id: undefined, code: '', name: '', description: '', status: 1 }
-  isEdit.value = false
+const handleEdit = (row: Role) => {
+  form.value = { id: row.id, code: row.code, name: row.name, description: row.description || '', status: row.status }
   dialogVisible.value = true
 }
 
-const handleEdit = (row: Role) => {
-  form.value = { id: row.id, code: row.code, name: row.name, description: row.description || '', status: row.status }
-  isEdit.value = true
-  dialogVisible.value = true
+const handleInitializeDefaultRole = async (preset: PositionRoleOption) => {
+  try {
+    await api.createRole({
+      code: preset.value,
+      name: preset.label,
+      description: preset.description,
+      status: 1
+    })
+    ElMessage.success('默认角色已初始化')
+    loadRoles()
+  } catch (error) {
+    console.error('初始化默认角色失败:', error)
+    ElMessage.error('初始化失败')
+  }
 }
 
 const handleDelete = async (row: Role) => {
@@ -234,17 +302,12 @@ const handleSubmit = async () => {
   await formRef.value.validate(async (valid: boolean) => {
     if (!valid) return
     try {
-      if (isEdit.value) {
-        await api.updateRole(form.value.id!, { name: form.value.name, description: form.value.description, status: form.value.status })
-        ElMessage.success('更新成功')
-      } else {
-        await api.createRole({ code: form.value.code, name: form.value.name, description: form.value.description, status: form.value.status })
-        ElMessage.success('创建成功')
-      }
+      await api.updateRole(form.value.id!, { name: form.value.name, description: form.value.description, status: form.value.status })
+      ElMessage.success('更新成功')
       dialogVisible.value = false
       loadRoles()
     } catch (error) {
-      ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+      ElMessage.error('更新失败')
     }
   })
 }
@@ -401,29 +464,84 @@ watch(dataScope, scope => {
         <h2 class="page-title">角色管理</h2>
         <div class="inline-stats">
           <span class="inline-stat">
-            <span class="stat-num">{{ roles.length }}</span>
-            <span class="stat-text">个角色</span>
+            <span class="stat-num">{{ defaultRoleStats.total }}</span>
+            <span class="stat-text">个默认角色</span>
+          </span>
+          <span class="inline-stat">
+            <span class="stat-num">{{ defaultRoleStats.management }}</span>
+            <span class="stat-text">管理序列</span>
+          </span>
+          <span class="inline-stat">
+            <span class="stat-num">{{ defaultRoleStats.execution }}</span>
+            <span class="stat-text">执行序列</span>
           </span>
         </div>
       </div>
-      <div class="page-actions">
-        <button class="btn btn-primary" @click="handleAdd">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          新增角色
-        </button>
+    </div>
+
+    <div class="position-overview">
+      <div
+        v-for="group in rolePositionGroups"
+        :key="group.value"
+        class="position-sequence"
+      >
+        <div class="position-sequence-head">
+          <span class="sequence-title">{{ group.label }}</span>
+          <span class="sequence-count">{{ group.activeCount }}/{{ group.rows.length }} 已启用</span>
+        </div>
+        <div class="position-role-list">
+          <div
+            v-for="row in group.rows"
+            :key="row.preset.value"
+            class="position-role-card"
+            :class="{ inactive: row.role?.status === 0, pending: !row.role }"
+          >
+            <div class="position-role-main">
+              <div class="role-card-title">
+                <span :class="['status-badge', getRoleBadgeClass(row.preset.value)]">{{ row.preset.label }}</span>
+                <span class="role-code">{{ row.preset.value }}</span>
+              </div>
+              <p class="position-role-copy">{{ row.preset.description }}</p>
+            </div>
+            <div class="position-role-side">
+              <span :class="['status-badge', row.role ? (row.role.status === 1 ? 'green' : 'gray') : 'yellow']">
+                {{ row.role ? (row.role.status === 1 ? '启用' : '禁用') : '待初始化' }}
+              </span>
+              <div class="action-links role-card-actions">
+                <template v-if="row.role">
+                  <span class="action-link primary" @click="openAuthDialog(row.role)">配置授权</span>
+                  <span class="action-link primary" @click="handleEdit(row.role)">维护信息</span>
+                </template>
+                <span v-else class="action-link primary" @click="handleInitializeDefaultRole(row.preset)">初始化</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="table-card">
-      <el-table :data="roles" v-loading="loading" class="unified-table"
+    <div v-if="legacyRoles.length" class="legacy-role-panel table-card">
+      <div class="legacy-role-head">
+        <div>
+          <h3>历史兼容角色</h3>
+          <p>仅用于历史数据兼容，新建用户请使用上方默认岗位角色。</p>
+        </div>
+        <span class="sequence-count">{{ legacyRoles.length }} 个</span>
+      </div>
+      <el-table :data="legacyRoles" v-loading="loading" class="unified-table"
         :header-cell-style="{ background: 'var(--gray-50)', color: 'var(--gray-600)', fontWeight: 600, fontSize: '12px', borderBottom: '1px solid var(--gray-100)', padding: '10px 12px' }"
         :cell-style="{ fontSize: '13px', color: 'var(--gray-700)', padding: '10px 12px', borderBottom: '1px solid var(--gray-50)' }"
       >
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="code" label="角色编码" min-width="150" />
         <el-table-column prop="name" label="角色名称" min-width="150" />
+        <el-table-column label="岗位序列" width="120">
+          <template #default="{ row }">
+            <span :class="['status-badge', getRoleBadgeClass(row.code)]">
+              {{ getRoleCategoryLabel(row.code) }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column prop="description" label="描述" min-width="200" />
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
@@ -446,13 +564,13 @@ watch(dataScope, scope => {
     </div>
 
     <!-- Role CRUD Dialog -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="500px">
+    <el-dialog v-model="dialogVisible" title="维护默认角色" width="500px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="角色编码" prop="code">
-          <el-input v-model="form.code" :disabled="isEdit" placeholder="如: PM_MANAGER" />
+          <el-input v-model="form.code" disabled placeholder="如: SOLUTION_MANAGER" />
         </el-form-item>
         <el-form-item label="角色名称" prop="name">
-          <el-input v-model="form.name" placeholder="如: 项目经理" />
+          <el-input v-model="form.name" disabled placeholder="如: 解决方案经理" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="form.description" type="textarea" :rows="3" placeholder="角色描述" />
@@ -546,6 +664,7 @@ watch(dataScope, scope => {
 </template>
 
 <style scoped>
+.system-role-page { width: 100%; min-width: 0; }
 /* ========== 页面头部 ========== */
 .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .title-with-stats { display: flex; align-items: center; gap: 16px; }
@@ -554,7 +673,6 @@ watch(dataScope, scope => {
 .inline-stat { display: flex; align-items: center; gap: 4px; }
 .stat-num { font-size: 16px; font-weight: 700; color: var(--gray-800); }
 .stat-text { font-size: 13px; color: var(--gray-500); }
-.page-actions { display: flex; align-items: center; gap: 8px; }
 
 /* ========== 按钮 ========== */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius-md); font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s ease; }
@@ -562,8 +680,29 @@ watch(dataScope, scope => {
 .btn-primary { background: var(--primary); color: white; }
 .btn-primary:hover { background: var(--primary-dark); }
 
+/* ========== 岗位概览 ========== */
+.position-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.position-sequence { min-width: 0; background: #fff; border: 1px solid var(--gray-100); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 14px; }
+.position-sequence-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.sequence-title { font-size: 14px; font-weight: 700; color: var(--gray-800); }
+.sequence-count { font-size: 12px; color: var(--gray-500); }
+.position-role-list { min-width: 0; display: grid; grid-template-columns: 1fr; gap: 8px; }
+.position-role-card { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--gray-100); border-radius: var(--radius-sm); background: #fff; }
+.position-role-card.inactive { background: var(--gray-50); }
+.position-role-card.pending { border-style: dashed; background: var(--gray-50); }
+.position-role-main { min-width: 0; }
+.role-card-title { display: flex; min-width: 0; align-items: center; gap: 8px; margin-bottom: 6px; }
+.role-code { min-width: 0; flex: 1; overflow: hidden; color: var(--gray-400); font-size: 11px; font-family: monospace; text-overflow: ellipsis; white-space: nowrap; }
+.position-role-copy { min-width: 0; color: var(--gray-500); font-size: 12px; line-height: 1.45; margin: 0; }
+.position-role-side { display: flex; align-items: center; gap: 12px; }
+.role-card-actions { min-width: 120px; justify-content: flex-end; }
+
 /* ========== 表格 ========== */
 .table-card { background: #FFFFFF; border-radius: var(--radius-md); overflow: auto; box-shadow: var(--shadow-sm); max-height: calc(100vh - 240px); }
+.legacy-role-panel { margin-top: 16px; }
+.legacy-role-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border-bottom: 1px solid var(--gray-100); }
+.legacy-role-head h3 { margin: 0 0 4px; font-size: 14px; color: var(--gray-800); }
+.legacy-role-head p { margin: 0; color: var(--gray-500); font-size: 12px; }
 .unified-table :deep(.el-table__header-wrapper th) { background: var(--gray-50) !important; font-size: 12px !important; font-weight: 600 !important; color: var(--gray-600) !important; border-bottom: 1px solid var(--gray-100) !important; }
 .unified-table :deep(.el-table__body-wrapper td) { font-size: 13px !important; color: var(--gray-700) !important; border-bottom: 1px solid var(--gray-50) !important; }
 .unified-table :deep(.el-table__body-wrapper tr:hover > td) { background: var(--gray-50) !important; }
@@ -573,6 +712,10 @@ watch(dataScope, scope => {
 .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
 .status-badge.gray { background: var(--gray-100); color: var(--gray-600); }
 .status-badge.green { background: #d1fae5; color: #047857; }
+.status-badge.blue { background: #dbeafe; color: #1d4ed8; }
+.status-badge.yellow { background: #fef3c7; color: #b45309; }
+.status-badge.red { background: #fee2e2; color: #dc2626; }
+.status-badge.purple { background: #e9d5ff; color: #7c3aed; }
 
 /* ========== 操作链接 ========== */
 .action-links { display: flex; align-items: center; gap: 12px; }
@@ -615,6 +758,9 @@ watch(dataScope, scope => {
 .scope-choice.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 
 @media (max-width: 768px) {
+  .position-overview { grid-template-columns: minmax(0, 1fr); }
+  .position-role-card { grid-template-columns: 1fr; }
+  .position-role-side { justify-content: space-between; }
   .auth-columns { flex-direction: column; height: auto; }
   .auth-menu-col { flex: none; max-height: 280px; }
   .auth-right-col { max-height: 320px; }

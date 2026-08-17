@@ -50,7 +50,7 @@ class WorkflowConfigServiceTest {
             WorkflowConfig result = workflowConfigService.create(request);
 
             assertThat(result.getRequirementType()).isEqualTo("项目需求");
-            assertThat(result.getAllowedRoles()).isEqualTo("[\"项目经理\",\"技术经理\"]");
+            assertThat(result.getAllowedRoles()).isEqualTo("[\"解决方案经理\",\"技术架构师\"]");
             assertThat(result.getConditionType()).isNull();
 
             ArgumentCaptor<WorkflowConfig> captor = ArgumentCaptor.forClass(WorkflowConfig.class);
@@ -65,7 +65,7 @@ class WorkflowConfigServiceTest {
             request.setRequirementType("项目需求");
             request.setFromStatus("待评估");
             request.setToStatus("待评估");
-            request.setAllowedRoles(java.util.List.of("项目经理"));
+            request.setAllowedRoles(java.util.List.of("解决方案经理"));
             request.setConditionType("");
             request.setIsActive(1);
             request.setSortOrder(1);
@@ -82,7 +82,7 @@ class WorkflowConfigServiceTest {
             request.setRequirementType("产品需求");
             request.setFromStatus("已交付");
             request.setToStatus("已验收");
-            request.setAllowedRoles(java.util.List.of("产品经理"));
+            request.setAllowedRoles(java.util.List.of("解决方案经理"));
             request.setConditionType("");
             request.setIsActive(1);
             request.setSortOrder(1);
@@ -104,7 +104,7 @@ class WorkflowConfigServiceTest {
             request.setRequirementType("项目需求");
             request.setFromStatus("待评估");
             request.setToStatus("评估中");
-            request.setAllowedRoles(java.util.List.of("项目经理"));
+            request.setAllowedRoles(java.util.List.of("解决方案经理"));
             request.setConditionType("");
             request.setIsActive(1);
             request.setSortOrder(1);
