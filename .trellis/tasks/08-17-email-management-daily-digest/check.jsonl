@@ -1,0 +1,6 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check-backend.md", "reason": "Backend check spec"}
+{"file": ".claude/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": ".trellis/spec/backend/access-control-contract.md", "reason": "检查邮件接口权限"}
+{"file": ".trellis/spec/backend/email-management-contract.md", "reason": "检查后端契约"}
+{"file": ".trellis/spec/frontend/email-management-ui.md", "reason": "检查前端契约"}

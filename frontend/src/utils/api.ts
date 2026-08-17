@@ -1,4 +1,18 @@
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
+import type {
+  EmailAccount,
+  EmailAccountPayload,
+  EmailConnectionTestResult,
+  EmailDailyDigest,
+  EmailMessageDetail,
+  EmailMessagePage,
+  EmailMessageQuery,
+  EmailSyncStatus,
+  EmailWeComMapping,
+  EmailIntegrationConfig,
+  EmailIntegrationConfigPayload,
+  EmailIntegrationTestResult
+} from '@/types/email'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1139,6 +1153,91 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify(data)
     })
+  }
+
+  // Personal email management (all endpoints resolve ownership from JWT)
+  async getEmailAccount(): Promise<EmailAccount> {
+    return this.request<EmailAccount>('/api/emails/account')
+  }
+
+  async saveEmailAccount(data: EmailAccountPayload): Promise<EmailAccount> {
+    return this.request<EmailAccount>('/api/emails/account', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async testEmailAccount(): Promise<EmailConnectionTestResult> {
+    return this.request<EmailConnectionTestResult>('/api/emails/account/test', {
+      method: 'POST'
+    })
+  }
+
+  async removeEmailAccount(): Promise<void> {
+    return this.request<void>('/api/emails/account', { method: 'DELETE' })
+  }
+
+  async getEmailMessages(params?: EmailMessageQuery): Promise<EmailMessagePage> {
+    const searchParams = new URLSearchParams()
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.size) searchParams.set('size', String(params.size))
+    if (params?.date) searchParams.set('date', params.date)
+    if (params?.keyword) searchParams.set('keyword', params.keyword)
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.request<EmailMessagePage>(`/api/emails/messages${query}`)
+  }
+
+  async getEmailMessage(id: number): Promise<EmailMessageDetail> {
+    return this.request<EmailMessageDetail>(`/api/emails/messages/${id}`)
+  }
+
+  async getEmailDigest(date: string): Promise<EmailDailyDigest> {
+    return this.request<EmailDailyDigest>(`/api/emails/digests?date=${encodeURIComponent(date)}`)
+  }
+
+  async regenerateEmailDigest(date: string): Promise<EmailDailyDigest | EmailSyncStatus> {
+    return this.request<EmailDailyDigest | EmailSyncStatus>(
+      `/api/emails/digests/${encodeURIComponent(date)}/regenerate`,
+      { method: 'POST' }
+    )
+  }
+
+  async startEmailSync(): Promise<EmailSyncStatus> {
+    return this.request<EmailSyncStatus>('/api/emails/sync', { method: 'POST' })
+  }
+
+  async getEmailSyncStatus(): Promise<EmailSyncStatus> {
+    return this.request<EmailSyncStatus>('/api/emails/sync/status')
+  }
+
+  async getEmailWeComMapping(): Promise<EmailWeComMapping> {
+    return this.request<EmailWeComMapping>('/api/emails/wecom-mapping')
+  }
+
+  async saveEmailWeComMapping(weComUserId: string, enabled = true): Promise<EmailWeComMapping> {
+    return this.request<EmailWeComMapping>('/api/emails/wecom-mapping', {
+      method: 'PUT',
+      body: JSON.stringify({ weComUserId, enabled })
+    })
+  }
+
+  async getEmailIntegrationConfig(): Promise<EmailIntegrationConfig> {
+    return this.request<EmailIntegrationConfig>('/api/emails/integration-config')
+  }
+
+  async saveEmailIntegrationConfig(data: EmailIntegrationConfigPayload): Promise<EmailIntegrationConfig> {
+    return this.request<EmailIntegrationConfig>('/api/emails/integration-config', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async testEmailDeepSeek(): Promise<EmailIntegrationTestResult> {
+    return this.request<EmailIntegrationTestResult>('/api/emails/integration-config/deepseek/test', { method: 'POST' })
+  }
+
+  async testEmailWeCom(): Promise<EmailIntegrationTestResult> {
+    return this.request<EmailIntegrationTestResult>('/api/emails/integration-config/wecom/test', { method: 'POST' })
   }
 
   // ==================== OA 集成 (Seeyon) ====================

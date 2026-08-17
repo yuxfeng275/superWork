@@ -56,6 +56,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '缺陷管理' }
       },
       {
+        path: 'emails',
+        name: 'Emails',
+        component: () => import('@/views/EmailManagementView.vue'),
+        meta: { title: '邮件管理' }
+      },
+      {
         path: 'key-matters',
         name: 'KeyMatters',
         component: () => import('@/views/KeyMattersView.vue'),

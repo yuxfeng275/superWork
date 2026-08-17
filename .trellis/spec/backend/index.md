@@ -16,3 +16,4 @@
 | [Key Matter Management Contract](./key-matter-management-contract.md) | BU key-matter lifecycle, weekly updates, meeting query, and username boundary | Active |
 | [Sales Opportunity Follow-Up Contract](./sales-opportunity-follow-up-contract.md) | Append-only opportunity follow-up history and current snapshot synchronization | Active |
 | [Yunxiao Work Item Query Contract](./yunxiao-workitem-query-contract.md) | Read-only requirement/task/defect projection, deduplication, permissions, and full sync | Active |
+| [Email Management Contract](./email-management-contract.md) | Personal Alibaba Inbox sync, daily DeepSeek digest, and WeCom push | Active |

@@ -26,6 +26,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 | [Key Matter Management UI](./key-matter-management-ui.md) | Key-matter register, weekly update, and meeting-mode UI contract | Active |
 | [Sales Opportunity Follow-Up UI](./sales-opportunity-follow-up-ui.md) | Append-only sales follow-up entry and timeline behavior | Active |
 | [Yunxiao Work Item UI](./yunxiao-workitem-ui.md) | Separate requirement/task/defect views with source-aware read-only behavior | Active |
+| [Email Management UI](./email-management-ui.md) | Personal Inbox binding, digest overview, message reading, and sync UX | Active |
 
 ---
 

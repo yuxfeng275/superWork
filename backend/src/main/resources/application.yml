@@ -151,3 +151,11 @@ logging:
   pattern:
     console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n'
     file: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n'
+
+# Personal Alibaba Cloud Enterprise Mail
+email:
+  imap-host: ${EMAIL_IMAP_HOST:imap.qiye.aliyun.com}
+  imap-port: ${EMAIL_IMAP_PORT:993}
+  credential-encryption-key: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:}
+  sync-cron: ${EMAIL_SYNC_CRON:0 0 * * * *}
+  digest-cron: ${EMAIL_DIGEST_CRON:0 0 8 * * *}

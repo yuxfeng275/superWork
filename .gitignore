@@ -26,3 +26,12 @@ logs/
 .idea/
 .vscode/
 *.iml
+
+# Local test and agent artifacts
+.playwright-cli/
+.playwright-mcp/
+test-results/
+frontend/test-results/
+output/
+docker/.omc/
+.DS_Store

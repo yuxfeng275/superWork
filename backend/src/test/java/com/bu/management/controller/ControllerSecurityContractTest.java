@@ -27,6 +27,7 @@ class ControllerSecurityContractTest {
             BusinessLineController.class,
             CustomerContactController.class,
             DesignWorkLogController.class,
+            EmailController.class,
             IssueController.class,
             ProjectController.class,
             ProjectMemberController.class,
@@ -113,6 +114,15 @@ class ControllerSecurityContractTest {
         assertUserIdRequestAttribute(findMethod(RequirementController.class, "create"));
         assertUserIdRequestAttribute(findMethod(RequirementEvaluationController.class, "submitEvaluation"));
         assertUserIdRequestAttribute(findMethod(BuDecisionController.class, "makeDecision"));
+    }
+
+    @Test
+    void emailActionsReceiveAuthenticatedUserId() {
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "save"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "sync"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "message"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "regenerate"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "saveIntegrationConfig"));
     }
 
     private Method findMethod(Class<?> controller, String methodName) {
