@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Daily digest readability improved: overview metric strip/conclusion/meta, category cards with sender/deadline/action metadata and explicit mail links, responsive layout.",
+  "notes": "Daily digest readability updated with metrics, conclusion block, metadata, and readable category cards with sender/deadline/action details and mail links.",
   "meta": {}
 }
