@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Email smart grouping added via V31: AI batches title/body against active project candidates, validates IDs/confidence, persists project/reason/model, auto groups new mail, and filters UI including Ungrouped.",
+  "notes": "Smart project grouping deployed: left-side project groups, active project candidates, deterministic exact-term layer + DeepSeek batch classification, confidence/ID validation, ungrouped fallback, async regroup and filters.",
   "meta": {}
 }

@@ -19,6 +19,8 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -109,12 +111,18 @@ public class EmailProjectGroupingService {
                         "系统中暂无可用项目，邮件已归入未分组", startedAt, LocalDateTime.now()));
                 return;
             }
+            Map<Long, List<String>> projectTerms = projects.stream().collect(
+                    java.util.stream.Collectors.toMap(Project::getId, this::terms));
             for (int from = 0; from < messages.size(); from += BATCH_SIZE) {
                 List<EmailMessage> batch = messages.subList(from, Math.min(messages.size(), from + BATCH_SIZE));
                 Map<Long, EmailProjectAssignment> assignments = new HashMap<>();
+                for (EmailMessage message : batch) {
+                    deterministicAssignment(message, projectTerms).ifPresent(
+                            assignment -> assignments.put(message.getId(), assignment));
+                }
                 try {
                     deepSeekClient.groupByProjects(batch, projects, ownerUserId)
-                            .forEach(item -> assignments.put(item.messageId(), item));
+                            .forEach(item -> assignments.putIfAbsent(item.messageId(), item));
                 } catch (RuntimeException exception) {
                     for (EmailMessage message : batch) {
                         saveUngrouped(message, "智能分组失败：" + sanitize(exception.getMessage()));
@@ -159,6 +167,25 @@ public class EmailProjectGroupingService {
                     "FAILED", processed, processed, grouped, ungrouped,
                     sanitize(exception.getMessage()), startedAt, LocalDateTime.now()));
         }
+    }
+
+    private Optional<EmailProjectAssignment> deterministicAssignment(
+            EmailMessage message, Map<Long, List<String>> projectTerms) {
+        String text = ((message.getSubject() == null ? "" : message.getSubject()) + " "
+                + (message.getBodyText() == null ? "" : message.getBodyText())).toLowerCase(Locale.ROOT);
+        List<Long> matches = projectTerms.entrySet().stream()
+                .filter(entry -> entry.getValue().stream().anyMatch(term -> text.contains(term)))
+                .map(Map.Entry::getKey).distinct().toList();
+        if (matches.size() != 1) return Optional.empty();
+        return Optional.of(new EmailProjectAssignment(message.getId(), matches.get(0), 0.99,
+                "邮件标题或正文明确提及项目名称/编码"));
+    }
+
+    private List<String> terms(Project project) {
+        return java.util.stream.Stream.of(project.getName(), project.getFullPath(), project.getCode())
+                .filter(value -> value != null && value.trim().length() >= 2)
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .distinct().toList();
     }
 
     private LambdaQueryWrapper<EmailMessage> eligibleQuery(Long ownerUserId, boolean regroupAll) {
