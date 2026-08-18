@@ -144,6 +144,10 @@ const mockConfiguredPage = async (page: Page) => {
   await page.route('**/api/emails/grouping/status', route => fulfill(route, {
     status: 'IDLE', total: 0, processed: 0, grouped: 0, ungrouped: 0
   }))
+  await page.route('**/api/emails/sender-company-groups', route => fulfill(route, [
+    { domain: 'customer.example', companyName: 'customer.example', mailCount: 1 },
+    { domain: 'example.com', companyName: 'example.com', mailCount: 1 }
+  ]))
 }
 
 test.beforeEach(async ({ page }) => {
@@ -280,7 +284,7 @@ test('规则降级和空收件箱具有独立可用状态', async ({ page }) => 
   await page.goto('/emails')
   await expect(page.getByText('规则降级', { exact: true })).toBeVisible()
   await expect(page.getByText('未找到企业微信用户映射')).toBeVisible()
-  await expect(page.getByText('当前筛选条件下暂无邮件')).toBeVisible()
+  await expect(page.getByText('当前分组下暂无邮件')).toBeVisible()
   await expect(page.getByRole('button', { name: '立即同步' })).toBeEnabled()
 
   await page.setViewportSize({ width: 390, height: 844 })
@@ -323,4 +327,7 @@ test('智能分组批量归类邮件并支持按项目和未分组筛选', async
   await expect.poll(() => messageQueries.some(query => query.includes('projectId=11'))).toBe(true)
   await page.getByLabel('邮件项目分组').getByRole('button', { name: /未分组/ }).click()
   await expect.poll(() => messageQueries.some(query => query.includes('ungrouped=true'))).toBe(true)
+  await page.getByRole('tab', { name: '按发件人公司' }).click()
+  await page.getByLabel('发件人公司分组').getByRole('button', { name: /customer.example/ }).click()
+  await expect.poll(() => messageQueries.some(query => query.includes('senderDomain=customer.example'))).toBe(true)
 })

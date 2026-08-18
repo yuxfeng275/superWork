@@ -102,6 +102,12 @@ export interface EmailMessagePage {
 }
 
 
+export interface EmailSenderCompanyGroup {
+  domain: string
+  companyName: string
+  mailCount: number
+}
+
 export interface EmailProjectGroup {
   projectId?: number
   projectName: string
@@ -129,6 +135,7 @@ export interface EmailMessageQuery {
   keyword?: string
   projectId?: number
   ungrouped?: boolean
+  senderDomain?: string
 }
 
 export interface EmailDigestItem {

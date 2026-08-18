@@ -8,6 +8,7 @@ import com.bu.management.mapper.EmailMessageMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.vo.EmailGroupingJobStatus;
 import com.bu.management.vo.EmailProjectGroupView;
+import com.bu.management.vo.EmailSenderCompanyGroupView;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -85,6 +86,34 @@ public class EmailProjectGroupingService {
                             project.getFullPath(), entry.getValue()));
                 });
         return result;
+    }
+
+    public List<EmailSenderCompanyGroupView> senderCompanies(Long ownerUserId) {
+        List<EmailMessage> messages = messageMapper.selectList(new LambdaQueryWrapper<EmailMessage>()
+                .eq(EmailMessage::getOwnerUserId, ownerUserId));
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (EmailMessage message : messages) {
+            String domain = senderDomain(message.getSenderAddress());
+            counts.merge(domain, 1L, Long::sum);
+        }
+        return counts.entrySet().stream()
+                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+                .map(entry -> new EmailSenderCompanyGroupView(
+                        entry.getKey(), companyName(entry.getKey()), entry.getValue()))
+                .toList();
+    }
+
+    private String senderDomain(String address) {
+        if (address == null || !address.contains("@")) return "unknown";
+        String domain = address.substring(address.lastIndexOf('@') + 1)
+                .trim().toLowerCase(Locale.ROOT);
+        return domain.isBlank() ? "unknown" : domain;
+    }
+
+    private String companyName(String domain) {
+        if ("unknown".equals(domain)) return "未知发件人";
+        String name = domain.startsWith("mail.") ? domain.substring(5) : domain;
+        return name;
     }
 
     private void execute(Long ownerUserId, boolean regroupAll, LocalDateTime startedAt) {

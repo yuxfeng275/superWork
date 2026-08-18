@@ -34,7 +34,8 @@ public class EmailQueryService {
             LocalDate date,
             String keyword,
             Long projectId,
-            boolean ungrouped) {
+            boolean ungrouped,
+            String senderDomain) {
         int safePage = Math.max(1, page);
         int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
         LambdaQueryWrapper<EmailMessage> query = new LambdaQueryWrapper<EmailMessage>()
@@ -47,6 +48,18 @@ public class EmailQueryService {
             query.isNull(EmailMessage::getProjectId);
         } else if (projectId != null) {
             query.eq(EmailMessage::getProjectId, projectId);
+        }
+        if (StringUtils.hasText(senderDomain)) {
+            String normalizedDomain = senderDomain.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!normalizedDomain.matches("[a-z0-9.-]+") && !"unknown".equals(normalizedDomain)) {
+                throw new IllegalStateException("发件人公司域名格式不正确");
+            }
+            if ("unknown".equals(normalizedDomain)) {
+                query.and(wrapper -> wrapper.isNull(EmailMessage::getSenderAddress)
+                        .or().notLike(EmailMessage::getSenderAddress, "@"));
+            } else {
+                query.like(EmailMessage::getSenderAddress, "@" + normalizedDomain);
+            }
         }
         if (StringUtils.hasText(keyword)) {
             String trimmed = keyword.trim();

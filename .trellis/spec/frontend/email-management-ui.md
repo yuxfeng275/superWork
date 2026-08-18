@@ -40,6 +40,10 @@
 
 ## Project Grouping
 
+- Inbox grouping navigation is a real left sidebar on desktop, with a mode switch for `按项目` and `按发件人公司`.
+- Company grouping aggregates the authenticated user's mail by normalized sender email domain and filters through `senderDomain` on the backend.
+- On mobile, the left sidebar becomes a horizontally scrollable grouping area above the list.
+
 - Inbox provides horizontal project group filters, including `全部邮件` and `未分组`, with current-user mail counts.
 - Message rows and detail headers display the matched project; full headers show confidence and grouping reason.
 - `智能分组` runs asynchronously with progress, success counts, failure handling, and a separate full regroup action.

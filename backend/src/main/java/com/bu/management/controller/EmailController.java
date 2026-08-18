@@ -18,6 +18,7 @@ import com.bu.management.vo.EmailMessageListItem;
 import com.bu.management.vo.EmailInterpretationView;
 import com.bu.management.vo.EmailGroupingJobStatus;
 import com.bu.management.vo.EmailProjectGroupView;
+import com.bu.management.vo.EmailSenderCompanyGroupView;
 import com.bu.management.vo.EmailSyncStatus;
 import com.bu.management.vo.EmailWeComMappingStatus;
 import com.bu.management.vo.Result;
@@ -94,14 +95,22 @@ public class EmailController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Long projectId,
-            @RequestParam(defaultValue = "false") boolean ungrouped) {
-        return Result.success(queryService.list(userId, page, size, date, keyword, projectId, ungrouped));
+            @RequestParam(defaultValue = "false") boolean ungrouped,
+            @RequestParam(required = false) String senderDomain) {
+        return Result.success(queryService.list(userId, page, size, date, keyword,
+                projectId, ungrouped, senderDomain));
     }
 
     @GetMapping("/project-groups")
     public Result<java.util.List<EmailProjectGroupView>> projectGroups(
             @RequestAttribute("userId") Long userId) {
         return Result.success(groupingService.groups(userId));
+    }
+
+    @GetMapping("/sender-company-groups")
+    public Result<java.util.List<EmailSenderCompanyGroupView>> senderCompanyGroups(
+            @RequestAttribute("userId") Long userId) {
+        return Result.success(groupingService.senderCompanies(userId));
     }
 
     @PostMapping("/grouping")

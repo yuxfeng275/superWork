@@ -48,6 +48,8 @@ This contract covers personal Alibaba Cloud Enterprise Mail ingestion, per-user 
 
 ## Intelligent Project Grouping
 
+- `GET /api/emails/sender-company-groups` aggregates current-user mail by normalized sender domain; `senderDomain` filters the message query.
+
 - The candidate set is the current active rows in `project`; model output may only reference those project IDs.
 - Classification uses email subject, sender, and truncated plain-text body in batches of 15.
 - The backend verifies current-user message IDs, existing project IDs, and confidence >= 0.65. Invalid, low-confidence, or missing matches persist as `UNGROUPED` with no project ID.

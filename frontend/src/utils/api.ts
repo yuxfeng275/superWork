@@ -10,6 +10,7 @@ import type {
   EmailMessageQuery,
   EmailInterpretation,
   EmailProjectGroup,
+  EmailSenderCompanyGroup,
   EmailGroupingJobStatus,
   EmailSyncStatus,
   EmailWeComMapping,
@@ -1186,12 +1187,17 @@ class ApiService {
     if (params?.keyword) searchParams.set('keyword', params.keyword)
     if (params?.projectId) searchParams.set('projectId', String(params.projectId))
     if (params?.ungrouped) searchParams.set('ungrouped', 'true')
+    if (params?.senderDomain) searchParams.set('senderDomain', params.senderDomain)
     const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return this.request<EmailMessagePage>(`/api/emails/messages${query}`)
   }
 
   async getEmailProjectGroups(): Promise<EmailProjectGroup[]> {
     return this.request<EmailProjectGroup[]>('/api/emails/project-groups')
+  }
+
+  async getEmailSenderCompanyGroups(): Promise<EmailSenderCompanyGroup[]> {
+    return this.request<EmailSenderCompanyGroup[]>('/api/emails/sender-company-groups')
   }
 
   async startEmailGrouping(regroupAll = false): Promise<EmailGroupingJobStatus> {

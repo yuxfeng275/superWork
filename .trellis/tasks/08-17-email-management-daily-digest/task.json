@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Smart project grouping deployed: left-side project groups, active project candidates, deterministic exact-term layer + DeepSeek batch classification, confidence/ID validation, ungrouped fallback, async regroup and filters.",
+  "notes": "Email group navigation moved to a desktop left sidebar with Project/Company modes. Company mode aggregates sender domains server-side; mobile uses horizontal grouping navigation.",
   "meta": {}
 }
