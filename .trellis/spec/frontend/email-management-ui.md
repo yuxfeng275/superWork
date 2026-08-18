@@ -69,3 +69,9 @@
 - Configured page renders digest and Inbox, opens a referenced message, and renders body as text.
 - Manual sync calls the current-user endpoint and reflects running/success state.
 - Empty and DeepSeek-degraded states remain usable.
+
+## Daily Digest Readability
+
+- Overview uses a clear date header, status row, metric strip, conclusion block, and generation metadata.
+- Category tabs use vertically stacked cards with title, explanation, metadata (sender/deadline/action), and an explicit “查看邮件” affordance.
+- Empty states use category-specific copy and metrics remain visible above tabs.

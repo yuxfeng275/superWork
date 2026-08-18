@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Email group navigation moved to a desktop left sidebar with Project/Company modes. Company mode aggregates sender domains server-side; mobile uses horizontal grouping navigation.",
+  "notes": "Daily digest readability improved: overview metric strip/conclusion/meta, category cards with sender/deadline/action metadata and explicit mail links, responsive layout.",
   "meta": {}
 }

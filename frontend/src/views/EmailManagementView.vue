@@ -647,39 +647,50 @@ onBeforeUnmount(() => {
         <div v-else v-loading="digestLoading" class="digest-content">
           <el-tabs v-if="digest" v-model="digestActiveTab" class="digest-tabs">
             <el-tab-pane label="摘要总览" name="overview">
-              <section aria-label="摘要总览" class="digest-overview">
-                <div class="digest-status-row">
-                  <el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag>
-                  <el-tag v-if="pushLabel" type="info">企业微信 · {{ pushLabel }}</el-tag>
-                  <span>{{ digest.mailCount }} 封邮件</span>
-                  <span v-if="digest.generatedModel">模型 {{ digest.generatedModel }}</span>
-                  <span v-if="digest.generatedAt">生成于 {{ formatDateTime(digest.generatedAt) }}</span>
-                </div>
+              <section aria-label="摘要总览" class="digest-overview digest-overview-rich">
+                <div class="digest-overview-head"><div><span class="digest-date-label">{{ selectedDate }} · 昨日邮件总结</span><h3>今天先看这几件事</h3></div><div class="digest-status-row"><el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag><el-tag v-if="pushLabel" type="info">推送 · {{ pushLabel }}</el-tag></div></div>
+                <div class="digest-metrics"><div><strong>{{ digest.mailCount }}</strong><span>邮件总数</span></div><div class="metric-important"><strong>{{ digest.importantItems.length }}</strong><span>重要邮件</span></div><div class="metric-todo"><strong>{{ digest.todos.length }}</strong><span>待办事项</span></div><div class="metric-risk"><strong>{{ digest.risks.length }}</strong><span>风险提醒</span></div><div class="metric-reply"><strong>{{ digest.replySuggestions.length }}</strong><span>回复建议</span></div></div>
                 <p class="overview-copy">{{ digest.overview || (digest.status === 'EMPTY' ? '当天没有收到邮件。' : '摘要正在准备中。') }}</p>
-                <p v-if="digest.pushMessage" class="push-message">{{ digest.pushMessage }}</p>
+                <div class="digest-meta-line"><span v-if="digest.generatedModel">由 {{ digest.generatedModel }} 生成</span><span v-if="digest.generatedAt">{{ formatDateTime(digest.generatedAt) }} 更新</span><span v-if="digest.pushMessage">{{ digest.pushMessage }}</span></div>
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`重要邮件 ${digest.importantItems.length}`" name="important">
               <section aria-label="重要邮件" class="digest-tab-list important">
-                <button v-for="item in digest.importantItems" :key="`important-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <button v-for="item in digest.importantItems" :key="`important-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
                 <el-empty v-if="!digest.importantItems.length" description="暂无重要邮件" :image-size="70" />
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`待办事项 ${digest.todos.length}`" name="todos">
               <section aria-label="待办事项" class="digest-tab-list todo">
-                <button v-for="item in digest.todos" :key="`todo-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <button v-for="item in digest.todos" :key="`todo-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
                 <el-empty v-if="!digest.todos.length" description="暂无待办事项" :image-size="70" />
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`风险提醒 ${digest.risks.length}`" name="risks">
               <section aria-label="风险提醒" class="digest-tab-list risk">
-                <button v-for="item in digest.risks" :key="`risk-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <button v-for="item in digest.risks" :key="`risk-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
                 <el-empty v-if="!digest.risks.length" description="暂无风险提醒" :image-size="70" />
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`回复建议 ${digest.replySuggestions.length}`" name="replies">
               <section aria-label="回复建议" class="digest-tab-list reply">
-                <button v-for="item in digest.replySuggestions" :key="`reply-${item.messageId}`" type="button" class="digest-item" @click="openMessage(item.messageId)"><strong>{{ digestItemTitle(item) }}</strong><span>{{ digestItemContent(item) }}</span></button>
+                <button v-for="item in digest.replySuggestions" :key="`reply-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
                 <el-empty v-if="!digest.replySuggestions.length" description="暂无回复建议" :image-size="70" />
               </section>
             </el-tab-pane>
@@ -977,4 +988,7 @@ onBeforeUnmount(() => {
 .inbox-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 410px; border: 1px solid #e3e6ec; border-radius: 13px; overflow: hidden; }.mail-group-sidebar { min-width: 0; padding: 12px; border-right: 1px solid #e3e6ec; background: #f7f8fa; }.group-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 9px; background: #e9ecf2; }.group-mode-switch button { padding: 8px 5px; border: 0; border-radius: 7px; background: transparent; color: #707a8a; font-size: 11px; font-weight: 700; cursor: pointer; }.group-mode-switch button.active { background: #fff; box-shadow: 0 2px 7px rgba(30,41,59,.09); color: var(--primary); }.group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 11px; }.group-list-item { display: flex; align-items: center; justify-content: space-between; gap: 9px; width: 100%; min-width: 0; padding: 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #626d7d; text-align: left; cursor: pointer; transition: all .15s; }.group-list-item:hover { background: #fff; }.group-list-item.active { border-color: #ccd4f3; background: #eef1ff; color: #465cc0; }.group-list-item.ungrouped { border-style: dashed; }.group-list-item > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.group-list-item strong, .group-list-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.group-list-item strong { font-size: 12px; }.group-list-item small { color: #9098a5; font-size: 9px; }.group-list-item b { display: flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 5px; border-radius: 999px; background: #e8ebf0; color: #6c7685; font-size: 10px; }.group-list-item.active b { background: #dce2ff; color: #465cc0; }.sidebar-group-actions { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-top: 9px; padding-top: 10px; border-top: 1px solid #e3e6ec; }.sidebar-group-actions .el-button { margin-left: 0; }.inbox-main { min-width: 0; padding: 0 16px 16px; }.inbox-main .message-list { border-top: 0; }.grouping-progress { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 14px; margin: 12px 0; padding: 11px 14px; border-radius: 10px; background: #f0f4ff; color: #63708a; font-size: 11px; }.message-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }.message-title-line strong { flex: 1; }.message-title-line .el-tag { max-width: 105px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 820px) { .inbox-layout { grid-template-columns: 1fr; }.mail-group-sidebar { overflow-x: auto; border-right: 0; border-bottom: 1px solid #e3e6ec; }.group-mode-switch { width: 260px; }.group-list { flex-direction: row; width: max-content; }.group-list-item { width: 150px; }.sidebar-group-actions { display: flex; margin-top: 0; padding: 0; border: 0; }.inbox-main { padding: 0 12px 12px; } }
 @media (max-width: 700px) { .grouping-progress { grid-template-columns: 1fr; }.message-title-line { align-items: flex-start; }.message-title-line .el-tag { max-width: 90px; } }
+
+.digest-overview-rich { padding: 24px; border: 1px solid #dfe4ee; background: linear-gradient(135deg, #f6f8ff 0%, #fff 58%); }.digest-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }.digest-date-label { color: #75809a; font-size: 11px; font-weight: 700; letter-spacing: .08em; }.digest-overview-head h3 { margin: 7px 0 0; color: #283346; font-size: 21px; }.digest-overview-head .digest-status-row { justify-content: flex-end; }.digest-metrics { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); gap: 10px; margin-top: 23px; }.digest-metrics > div { display: flex; flex-direction: column; gap: 5px; padding: 13px 14px; border: 1px solid #e3e7ef; border-radius: 10px; background: rgba(255,255,255,.8); }.digest-metrics strong { color: #303b50; font-size: 25px; line-height: 1; }.digest-metrics span { color: #8490a1; font-size: 11px; }.digest-metrics .metric-important { border-bottom: 3px solid #6366f1; }.digest-metrics .metric-todo { border-bottom: 3px solid #0ea5e9; }.digest-metrics .metric-risk { border-bottom: 3px solid #f97316; }.digest-metrics .metric-reply { border-bottom: 3px solid #10b981; }.digest-overview-rich .overview-copy { max-width: 860px; margin: 22px 0 0; padding-top: 18px; border-top: 1px solid #e5e8f0; font-size: 16px; line-height: 1.85; }.digest-meta-line { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 17px; color: #8a93a2; font-size: 11px; }.digest-tab-list { padding: 8px 14px 14px; border: 1px solid #e1e5ec; border-radius: 12px; background: #fff; }.digest-tab-list.important { border-top: 3px solid #6366f1; }.digest-tab-list.todo { border-top: 3px solid #0ea5e9; }.digest-tab-list.risk { border-top: 3px solid #f97316; }.digest-tab-list.reply { border-top: 3px solid #10b981; }.digest-item-rich { display: block; width: 100%; padding: 16px 8px; border: 0; border-top: 1px solid #edf0f4; background: transparent; color: #586477; text-align: left; cursor: pointer; }.digest-item-rich:first-of-type { border-top: 0; }.digest-item-rich:hover { background: #fafbfe; }.digest-item-rich-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.digest-item-rich-head strong { color: #354052; font-size: 14px; }.digest-item-rich-head .el-tag { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; color: #6977b9; }.digest-item-rich p { margin: 8px 0 0; color: #5d687a; font-size: 13px; line-height: 1.7; }.digest-item-rich-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 9px; color: #919aaa; font-size: 11px; }.digest-item-rich-meta span + span { padding-left: 12px; border-left: 1px solid #e0e4eb; }
+@media (max-width: 700px) { .digest-overview-rich { padding: 18px; }.digest-overview-head { flex-direction: column; }.digest-overview-head .digest-status-row { justify-content: flex-start; }.digest-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.digest-metrics > div:first-child { grid-column: 1 / -1; }.digest-item-rich-head strong { line-height: 1.5; }.digest-item-rich-meta span + span { padding-left: 0; border-left: 0; } }
 </style>
