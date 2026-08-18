@@ -58,7 +58,7 @@ public class EmailQueryService {
                 query.and(wrapper -> wrapper.isNull(EmailMessage::getSenderAddress)
                         .or().notLike(EmailMessage::getSenderAddress, "@"));
             } else {
-                query.like(EmailMessage::getSenderAddress, "@" + normalizedDomain);
+                query.apply("LOWER(SUBSTRING_INDEX(sender_address, '@', -1)) = {0}", normalizedDomain);
             }
         }
         if (StringUtils.hasText(keyword)) {
@@ -69,8 +69,9 @@ public class EmailQueryService {
                     .or().like(EmailMessage::getBodyPreview, trimmed));
         }
         query.orderByDesc(EmailMessage::getReceivedAt).orderByDesc(EmailMessage::getId);
-        Page<EmailMessage> source = mapper.selectPage(new Page<>(safePage, safeSize), query);
-        Page<EmailMessageListItem> result = new Page<>(source.getCurrent(), source.getSize(), source.getTotal());
+        long total = mapper.selectCount(query);
+        Page<EmailMessage> source = mapper.selectPage(new Page<>(safePage, safeSize, false), query);
+        Page<EmailMessageListItem> result = new Page<>(source.getCurrent(), source.getSize(), total);
         java.util.Set<Long> projectIds = source.getRecords().stream()
                 .map(EmailMessage::getProjectId).filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toSet());
