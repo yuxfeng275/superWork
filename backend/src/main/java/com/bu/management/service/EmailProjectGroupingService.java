@@ -182,9 +182,11 @@ public class EmailProjectGroupingService {
     }
 
     private List<String> terms(Project project) {
+        Set<String> generic = Set.of("ai", "crm", "项目", "产品", "数据", "系统", "平台", "研发", "业务");
         return java.util.stream.Stream.of(project.getName(), project.getFullPath(), project.getCode())
-                .filter(value -> value != null && value.trim().length() >= 2)
+                .filter(value -> value != null && value.trim().length() >= 3)
                 .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> !generic.contains(value))
                 .distinct().toList();
     }
 
