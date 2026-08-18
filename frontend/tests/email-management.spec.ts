@@ -200,7 +200,7 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
   await page.goto('/emails')
   await expect(page.getByRole('link', { name: '邮件管理' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '摘要总览' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('共收到 2 封邮件，1 封需要今天处理。')).toBeVisible()
+  await expect(page.getByRole('region', { name: '摘要总览' })).toContainText('共收到 2 封邮件，1 封需要今天处理。')
   await page.getByRole('tab', { name: /重要邮件 1/ }).click()
   await expect(page.getByRole('region', { name: '重要邮件' })).toContainText('合同确认')
   await page.getByRole('tab', { name: /待办事项 1/ }).click()
