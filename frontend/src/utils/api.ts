@@ -9,6 +9,8 @@ import type {
   EmailMessagePage,
   EmailMessageQuery,
   EmailInterpretation,
+  EmailProjectGroup,
+  EmailGroupingJobStatus,
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
@@ -1182,8 +1184,22 @@ class ApiService {
     if (params?.size) searchParams.set('size', String(params.size))
     if (params?.date) searchParams.set('date', params.date)
     if (params?.keyword) searchParams.set('keyword', params.keyword)
+    if (params?.projectId) searchParams.set('projectId', String(params.projectId))
+    if (params?.ungrouped) searchParams.set('ungrouped', 'true')
     const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return this.request<EmailMessagePage>(`/api/emails/messages${query}`)
+  }
+
+  async getEmailProjectGroups(): Promise<EmailProjectGroup[]> {
+    return this.request<EmailProjectGroup[]>('/api/emails/project-groups')
+  }
+
+  async startEmailGrouping(regroupAll = false): Promise<EmailGroupingJobStatus> {
+    return this.request<EmailGroupingJobStatus>(`/api/emails/grouping?regroupAll=${regroupAll}`, { method: 'POST' })
+  }
+
+  async getEmailGroupingStatus(): Promise<EmailGroupingJobStatus> {
+    return this.request<EmailGroupingJobStatus>('/api/emails/grouping/status')
   }
 
   async getEmailMessage(id: number): Promise<EmailMessageDetail> {

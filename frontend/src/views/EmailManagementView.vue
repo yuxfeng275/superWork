@@ -11,7 +11,9 @@ import type {
   EmailMessagePage,
   EmailMessageSummary,
   EmailSyncStatus,
-  EmailWeComMapping
+  EmailWeComMapping,
+  EmailProjectGroup,
+  EmailGroupingJobStatus
 } from '@/types/email'
 
 const pageSize = 20
@@ -35,6 +37,10 @@ const messages = ref<EmailMessagePage>(emptyMessagePage())
 const messagesLoading = ref(false)
 const messagesError = ref('')
 const inboxFilters = reactive({ date: '', keyword: '', page: 1 })
+const projectGroups = ref<EmailProjectGroup[]>([])
+const selectedProjectGroup = ref('all')
+const groupingStatus = ref<EmailGroupingJobStatus>({ status: 'IDLE', total: 0, processed: 0, grouped: 0, ungrouped: 0 })
+let groupingPollTimer: number | undefined
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -50,6 +56,8 @@ let syncPollTimer: number | undefined
 
 const configured = computed(() => Boolean(account.value?.configured))
 const syncRunning = computed(() => ['QUEUED', 'RUNNING'].includes(syncStatus.value.status))
+const groupingRunning = computed(() => groupingStatus.value.status === 'RUNNING')
+const allProjectMailCount = computed(() => projectGroups.value.reduce((sum, group) => sum + group.mailCount, 0))
 const maskedAddress = computed(() => maskEmail(account.value?.emailAddress))
 const accountStatusText = computed(() => {
   if (syncRunning.value) return '正在同步'
@@ -171,7 +179,7 @@ async function loadAccount() {
     account.value = await api.getEmailAccount()
     if (account.value.configured) {
       bindForm.emailAddress = account.value.emailAddress || ''
-      await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false)])
+      await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false), loadProjectGroups(), loadGroupingStatus(false)])
       void loadWeComMapping()
     }
   } catch (error: unknown) {
@@ -315,12 +323,70 @@ async function loadMessages() {
       page: inboxFilters.page,
       size: pageSize,
       date: inboxFilters.date || undefined,
-      keyword: inboxFilters.keyword.trim() || undefined
+      keyword: inboxFilters.keyword.trim() || undefined,
+      projectId: selectedProjectGroup.value.startsWith('project:')
+        ? Number(selectedProjectGroup.value.slice(8)) : undefined,
+      ungrouped: selectedProjectGroup.value === 'ungrouped'
     })
   } catch (error: unknown) {
     messagesError.value = errorText(error, '收件箱加载失败，请重试')
   } finally {
     messagesLoading.value = false
+  }
+}
+
+async function loadProjectGroups() {
+  try {
+    projectGroups.value = await api.getEmailProjectGroups()
+  } catch {
+    projectGroups.value = []
+  }
+}
+
+function selectProjectGroup(group: string) {
+  selectedProjectGroup.value = group
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+async function startSmartGrouping(regroupAll = false) {
+  if (groupingRunning.value) return
+  try {
+    groupingStatus.value = await api.startEmailGrouping(regroupAll)
+    startGroupingPolling()
+  } catch (error: unknown) {
+    groupingStatus.value = { status: 'FAILED', total: 0, processed: 0, grouped: 0, ungrouped: 0, message: errorText(error, '智能分组启动失败') }
+    ElMessage.error(groupingStatus.value.message)
+  }
+}
+
+async function loadGroupingStatus(refreshOnSuccess: boolean) {
+  try {
+    const previous = groupingStatus.value.status
+    groupingStatus.value = await api.getEmailGroupingStatus()
+    if (groupingStatus.value.status === 'RUNNING') {
+      startGroupingPolling()
+    } else {
+      stopGroupingPolling()
+      if (refreshOnSuccess && previous === 'RUNNING' && groupingStatus.value.status === 'SUCCESS') {
+        await Promise.all([loadProjectGroups(), loadMessages()])
+        ElMessage.success(`智能分组完成：${groupingStatus.value.grouped} 封已归入项目，${groupingStatus.value.ungrouped} 封未分组`)
+      }
+    }
+  } catch {
+    stopGroupingPolling()
+  }
+}
+
+function startGroupingPolling() {
+  stopGroupingPolling()
+  groupingPollTimer = window.setInterval(() => void loadGroupingStatus(true), 600)
+}
+
+function stopGroupingPolling() {
+  if (groupingPollTimer !== undefined) {
+    window.clearInterval(groupingPollTimer)
+    groupingPollTimer = undefined
   }
 }
 
@@ -443,7 +509,7 @@ async function loadSyncStatus(refreshOnSuccess: boolean) {
       startSyncPolling()
     } else if (previous === 'RUNNING' && next.status === 'SUCCESS' && refreshOnSuccess) {
       stopSyncPolling()
-      await Promise.all([loadMessages(), loadDigest()])
+      await Promise.all([loadMessages(), loadDigest(), loadProjectGroups(), loadGroupingStatus(false)])
     } else {
       stopSyncPolling()
     }
@@ -474,7 +540,10 @@ function digestItemContent(item: EmailDigestItem) {
 }
 
 onMounted(loadAccount)
-onBeforeUnmount(stopSyncPolling)
+onBeforeUnmount(() => {
+  stopSyncPolling()
+  stopGroupingPolling()
+})
 </script>
 
 <template>
@@ -594,19 +663,27 @@ onBeforeUnmount(stopSyncPolling)
 
       <section class="inbox-panel">
         <div class="section-heading inbox-heading">
-          <div><span class="eyebrow">INBOX</span><h2>收件箱</h2></div>
+          <div><span class="eyebrow">INBOX · PROJECT GROUPING</span><h2>项目邮件</h2></div>
           <div class="inbox-filters">
+            <el-button type="primary" plain :loading="groupingRunning" @click="startSmartGrouping(false)">{{ groupingRunning ? `分组中 ${groupingStatus.processed}/${groupingStatus.total}` : '智能分组' }}</el-button>
             <el-date-picker v-model="inboxFilters.date" type="date" value-format="YYYY-MM-DD" clearable placeholder="收件日期" aria-label="收件日期" />
             <el-input v-model="inboxFilters.keyword" clearable placeholder="搜索发件人或主题" aria-label="搜索邮件" :prefix-icon="Search" @keyup.enter="searchMessages" />
             <el-button type="primary" @click="searchMessages">筛选</el-button>
             <el-button @click="resetMessageFilters">重置</el-button>
           </div>
         </div>
+        <section class="project-group-bar" aria-label="邮件项目分组">
+          <button type="button" class="project-group-chip" :class="{ active: selectedProjectGroup === 'all' }" @click="selectProjectGroup('all')"><strong>全部邮件</strong><span>{{ allProjectMailCount || messages.total }}</span></button>
+          <button v-for="group in projectGroups" :key="group.projectId || 'ungrouped'" type="button" class="project-group-chip" :class="{ active: selectedProjectGroup === (group.projectId ? `project:${group.projectId}` : 'ungrouped'), ungrouped: !group.projectId }" @click="selectProjectGroup(group.projectId ? `project:${group.projectId}` : 'ungrouped')"><strong>{{ group.projectName }}</strong><small v-if="group.projectId">{{ group.projectFullPath }}</small><span>{{ group.mailCount }}</span></button>
+          <el-button v-if="projectGroups.length" text size="small" @click="startSmartGrouping(true)">重新分组全部邮件</el-button>
+        </section>
+        <div v-if="groupingRunning" class="grouping-progress"><el-progress :percentage="groupingStatus.total ? Math.round(groupingStatus.processed * 100 / groupingStatus.total) : 0" :stroke-width="6" /><span>AI 正在根据邮件标题和正文匹配系统项目</span></div>
+        <el-alert v-else-if="groupingStatus.status === 'FAILED'" :title="groupingStatus.message || '智能分组失败'" type="error" :closable="false" show-icon />
         <el-alert v-if="messagesError" :title="messagesError" type="error" :closable="false" show-icon />
         <div v-else aria-label="收件箱列表" class="message-list" v-loading="messagesLoading">
           <button v-for="message in messages.records" :key="message.id" type="button" class="message-row" @click="openMessage(message)">
             <div class="sender-cell"><strong>{{ message.fromName || message.fromAddress }}</strong><span>{{ message.fromAddress }}</span></div>
-            <div class="message-copy"><strong>{{ message.subject || '（无主题）' }}</strong><span>{{ message.preview || '暂无正文预览' }}</span></div>
+            <div class="message-copy"><div class="message-title-line"><strong>{{ message.subject || '（无主题）' }}</strong><el-tag size="small" :type="message.projectId ? 'success' : 'info'" effect="plain">{{ message.projectName || '未分组' }}</el-tag></div><span>{{ message.preview || '暂无正文预览' }}</span></div>
             <div class="message-meta"><span>{{ formatDateTime(message.receivedAt) }}</span><span v-if="message.hasAttachments">📎 {{ message.attachmentCount }} 个附件</span></div>
           </button>
           <el-empty v-if="!messagesLoading && !messages.records.length" description="当前筛选条件下暂无邮件" />
@@ -685,6 +762,7 @@ onBeforeUnmount(stopSyncPolling)
               <div>
                 <div class="reader-badges">
                   <el-tag type="info" effect="plain">收件箱</el-tag>
+                  <el-tag :type="selectedMessage.projectId ? 'success' : 'info'" effect="plain">{{ selectedMessage.projectName || '未分组' }}</el-tag>
                   <el-tag v-if="selectedMessage.attachments.length" type="warning" effect="plain">
                     <el-icon><Paperclip /></el-icon>{{ selectedMessage.attachments.length }} 个附件
                   </el-tag>
@@ -716,6 +794,8 @@ onBeforeUnmount(stopSyncPolling)
                 <div><dt>收件人</dt><dd>{{ selectedMessage.toAddresses.join('、') || '—' }}</dd></div>
                 <div v-if="selectedMessage.ccAddresses.length"><dt>抄送</dt><dd>{{ selectedMessage.ccAddresses.join('、') }}</dd></div>
                 <div><dt>接收时间</dt><dd>{{ formatFullDateTime(selectedMessage.receivedAt) }}</dd></div>
+                <div><dt>所属项目</dt><dd>{{ selectedMessage.projectFullPath || '未分组' }}<span v-if="selectedMessage.groupingConfidence"> · 置信度 {{ Math.round(selectedMessage.groupingConfidence * 100) }}%</span></dd></div>
+                <div v-if="selectedMessage.groupingReason"><dt>分组依据</dt><dd>{{ selectedMessage.groupingReason }}</dd></div>
                 <div v-if="selectedMessage.messageId"><dt>Message-ID</dt><dd class="message-id">{{ selectedMessage.messageId }}</dd></div>
               </dl>
             </details>
@@ -843,4 +923,7 @@ onBeforeUnmount(stopSyncPolling)
 .ai-result { display: flex; flex-direction: column; gap: 14px; }.ai-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }.ai-result-head h2 { margin: 5px 0 0; color: #293344; font-size: 22px; }.ai-result-actions { display: flex; align-items: center; gap: 8px; }.ai-summary-card { padding: 20px 22px; border: 1px solid #d9ddf5; border-radius: 14px; background: linear-gradient(135deg, #f0f2ff, #fbfbff); }.ai-summary-card span { color: #6170b5; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.ai-summary-card p { margin: 8px 0 0; color: #303b50; font-size: 17px; font-weight: 600; line-height: 1.65; }.ai-intent-card { display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 16px 20px; border-left: 4px solid #7081cf; border-radius: 10px; background: #fff; box-shadow: 0 5px 18px rgba(30,41,59,.04); }.ai-intent-card strong { color: #596579; }.ai-intent-card p { margin: 0; color: #3e4858; line-height: 1.65; }
 .ai-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }.ai-analysis-card { min-height: 150px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 13px; background: #fff; }.ai-analysis-card h3 { margin: 0 0 12px; color: #3d4859; font-size: 14px; }.ai-analysis-card ul { margin: 0; padding-left: 19px; }.ai-analysis-card li { margin: 7px 0; color: #596579; line-height: 1.55; }.ai-analysis-card > p { color: #8a93a2; font-size: 12px; }.ai-analysis-card.points { border-top: 3px solid #6366f1; }.ai-analysis-card.actions { border-top: 3px solid #0ea5e9; }.ai-analysis-card.risks { border-top: 3px solid #f97316; }.ai-analysis-card.reply { border-top: 3px solid #10b981; }.ai-action-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid #f0f1f4; }.ai-action-item div { display: flex; flex-direction: column; gap: 4px; }.ai-action-item strong { color: #4a5567; font-size: 13px; }.ai-action-item span { color: #8a93a2; font-size: 11px; }.ai-analysis-card.reply pre { margin: 0; color: #465365; font-family: inherit; line-height: 1.7; white-space: pre-wrap; }.ai-result-foot { color: #9098a6; font-size: 11px; text-align: right; }
 @media (max-width: 700px) { .reader-tabs :deep(.el-tabs__header) { top: 59px; padding: 0 18px; }.ai-interpretation { padding: 20px 18px 30px; }.ai-analysis-grid { grid-template-columns: 1fr; }.ai-result-head { flex-direction: column; }.ai-result-actions { width: 100%; justify-content: space-between; }.ai-intent-card { grid-template-columns: 1fr; gap: 5px; }.ai-empty-state, .ai-generating { min-height: 350px; padding: 26px 18px; }.digest-tabs :deep(.el-tabs__nav) { white-space: nowrap; }.digest-tabs :deep(.el-tabs__nav-scroll) { overflow-x: auto; } }
+
+.project-group-bar { display: flex; align-items: stretch; gap: 8px; margin: -2px 0 16px; padding: 12px; overflow-x: auto; border: 1px solid #e5e8ef; border-radius: 12px; background: #f8f9fb; }.project-group-chip { position: relative; display: grid; grid-template-columns: minmax(80px, 1fr) auto; grid-template-rows: auto auto; gap: 2px 10px; min-width: 130px; max-width: 230px; padding: 10px 12px; border: 1px solid transparent; border-radius: 9px; background: #fff; color: #5b6576; text-align: left; cursor: pointer; transition: all .16s; }.project-group-chip:hover { border-color: #cfd6e7; transform: translateY(-1px); }.project-group-chip.active { border-color: #8190d5; background: #eef1ff; color: #4459bc; box-shadow: 0 5px 14px rgba(70,88,180,.1); }.project-group-chip.ungrouped { border-style: dashed; }.project-group-chip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }.project-group-chip small { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8a93a2; font-size: 10px; }.project-group-chip > span { grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 25px; padding: 3px 6px; border-radius: 999px; background: #edf0f5; color: #6e7889; font-size: 10px; font-weight: 700; text-align: center; }.project-group-chip.active > span { background: #dce2ff; color: #4459bc; }.grouping-progress { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 14px; margin-bottom: 14px; padding: 11px 14px; border-radius: 10px; background: #f0f4ff; color: #63708a; font-size: 11px; }.message-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }.message-title-line strong { flex: 1; }.message-title-line .el-tag { max-width: 105px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 700px) { .project-group-bar { margin-right: -4px; margin-left: -4px; }.project-group-chip { min-width: 122px; }.grouping-progress { grid-template-columns: 1fr; }.message-title-line { align-items: flex-start; }.message-title-line .el-tag { max-width: 90px; } }
 </style>

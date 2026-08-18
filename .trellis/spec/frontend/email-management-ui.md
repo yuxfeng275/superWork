@@ -37,6 +37,14 @@
 - The reader becomes full-width on mobile and keeps close/navigation actions accessible.
 
 
+
+## Project Grouping
+
+- Inbox provides horizontal project group filters, including `全部邮件` and `未分组`, with current-user mail counts.
+- Message rows and detail headers display the matched project; full headers show confidence and grouping reason.
+- `智能分组` runs asynchronously with progress, success counts, failure handling, and a separate full regroup action.
+- Selecting a group filters the server query by `projectId`; selecting `未分组` sends `ungrouped=true`.
+
 ## AI Interpretation and Digest Tabs
 
 - The message reader has `邮件原文` and `AI 解读` tabs. First activation of AI interpretation generates automatically when no saved result exists.

@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Email AI: per-message interpretation persisted via V30 and displayed in Original/AI tabs. Daily persisted digest optimized into overview/important/todo/risk/reply tabs with model metadata.",
+  "notes": "Email smart grouping added via V31: AI batches title/body against active project candidates, validates IDs/confidence, persists project/reason/model, auto groups new mail, and filters UI including Ungrouped.",
   "meta": {}
 }

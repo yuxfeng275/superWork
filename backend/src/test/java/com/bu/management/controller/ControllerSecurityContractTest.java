@@ -124,6 +124,7 @@ class ControllerSecurityContractTest {
         assertUserIdRequestAttribute(findMethod(EmailController.class, "message"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "regenerate"));
         assertUserIdRequestAttribute(findMethod(EmailController.class, "generateInterpretation"));
+        assertUserIdRequestAttribute(findMethod(EmailController.class, "startGrouping"));
     }
 
     @Test

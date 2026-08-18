@@ -69,6 +69,11 @@ const messages = {
       fromAddress: 'zhang@customer.example',
       receivedAt: '2026-08-16T15:20:00',
       preview: '请确认最终合同版本',
+      projectId: 11,
+      projectName: 'CRM项目',
+      projectFullPath: '客户体验/CRM项目',
+      groupingStatus: 'GROUPED',
+      groupingConfidence: 0.92,
       hasAttachments: true,
       attachmentCount: 1
     },
@@ -80,6 +85,7 @@ const messages = {
       fromAddress: 'pm@example.com',
       receivedAt: '2026-08-16T10:00:00',
       preview: '上线窗口待确认',
+      groupingStatus: 'UNGROUPED',
       hasAttachments: false,
       attachmentCount: 0
     }
@@ -131,6 +137,13 @@ const mockConfiguredPage = async (page: Page) => {
     return fulfill(route, messages)
   })
   await page.route('**/api/emails/sync/status', route => fulfill(route, { status: 'IDLE' }))
+  await page.route('**/api/emails/project-groups', route => fulfill(route, [
+    { projectName: '未分组', projectFullPath: '未分组', mailCount: 1 },
+    { projectId: 11, projectName: 'CRM项目', projectFullPath: '客户体验/CRM项目', mailCount: 1 }
+  ]))
+  await page.route('**/api/emails/grouping/status', route => fulfill(route, {
+    status: 'IDLE', total: 0, processed: 0, grouped: 0, ungrouped: 0
+  }))
 }
 
 test.beforeEach(async ({ page }) => {
@@ -193,6 +206,9 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
   await page.getByRole('tab', { name: /回复建议 1/ }).click()
   await expect(page.getByRole('region', { name: '回复建议' })).toContainText('已收到，我们将在今天确认。')
   await expect(page.getByLabel('收件箱列表')).toContainText('张经理')
+  await expect(page.getByLabel('邮件项目分组')).toContainText('CRM项目')
+  await expect(page.getByLabel('邮件项目分组')).toContainText('未分组')
+  await expect(page.getByLabel('收件箱列表').getByText('CRM项目')).toBeVisible()
 
   await page.getByLabel('收件箱列表').getByText('合同确认').click()
   const drawer = page.getByRole('dialog', { name: '邮件详情' })
@@ -270,4 +286,41 @@ test('规则降级和空收件箱具有独立可用状态', async ({ page }) => 
   await page.setViewportSize({ width: 390, height: 844 })
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
   expect(overflow).toBe(false)
+})
+
+test('智能分组批量归类邮件并支持按项目和未分组筛选', async ({ page }) => {
+  await mockConfiguredPage(page)
+  let groupingPosts = 0
+  let statusReads = 0
+  const messageQueries: string[] = []
+  await page.unroute('**/api/emails/grouping/status')
+  await page.unroute('**/api/emails/project-groups')
+  await page.route('**/api/emails/grouping?**', route => {
+    groupingPosts += 1
+    expect(new URL(route.request().url()).searchParams.get('regroupAll')).toBe('false')
+    return fulfill(route, { status: 'RUNNING', total: 2, processed: 0, grouped: 0, ungrouped: 0 })
+  })
+  await page.route('**/api/emails/grouping/status', route => {
+    statusReads += 1
+    return fulfill(route, statusReads < 2
+      ? { status: 'RUNNING', total: 2, processed: 1, grouped: 1, ungrouped: 0 }
+      : { status: 'SUCCESS', total: 2, processed: 2, grouped: 1, ungrouped: 1 })
+  })
+  await page.route('**/api/emails/project-groups', route => fulfill(route, [
+    { projectName: '未分组', projectFullPath: '未分组', mailCount: 1 },
+    { projectId: 11, projectName: 'CRM项目', projectFullPath: '客户体验/CRM项目', mailCount: 1 }
+  ]))
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname === '/api/emails/messages') messageQueries.push(url.search)
+  })
+
+  await page.goto('/emails')
+  await page.getByRole('button', { name: '智能分组' }).click()
+  await expect.poll(() => groupingPosts).toBe(1)
+  await expect.poll(() => statusReads).toBeGreaterThanOrEqual(2)
+  await page.getByLabel('邮件项目分组').getByRole('button', { name: /CRM项目/ }).click()
+  await expect.poll(() => messageQueries.some(query => query.includes('projectId=11'))).toBe(true)
+  await page.getByLabel('邮件项目分组').getByRole('button', { name: /未分组/ }).click()
+  await expect.poll(() => messageQueries.some(query => query.includes('ungrouped=true'))).toBe(true)
 })

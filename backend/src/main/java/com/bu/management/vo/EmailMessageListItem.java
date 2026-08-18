@@ -10,5 +10,10 @@ public record EmailMessageListItem(
     String fromAddress,
     LocalDateTime receivedAt,
     String preview,
+    Long projectId,
+    String projectName,
+    String projectFullPath,
+    String groupingStatus,
+    java.math.BigDecimal groupingConfidence,
     boolean hasAttachments,
     int attachmentCount) {}

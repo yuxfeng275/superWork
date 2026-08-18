@@ -8,6 +8,7 @@ import com.bu.management.service.EmailAccountService;
 import com.bu.management.service.EmailDigestService;
 import com.bu.management.service.EmailQueryService;
 import com.bu.management.service.EmailInterpretationService;
+import com.bu.management.service.EmailProjectGroupingService;
 import com.bu.management.service.EmailSyncService;
 import com.bu.management.vo.EmailAccountStatus;
 import com.bu.management.vo.EmailConnectionTestResponse;
@@ -15,6 +16,8 @@ import com.bu.management.vo.EmailDigestResponse;
 import com.bu.management.vo.EmailMessageDetail;
 import com.bu.management.vo.EmailMessageListItem;
 import com.bu.management.vo.EmailInterpretationView;
+import com.bu.management.vo.EmailGroupingJobStatus;
+import com.bu.management.vo.EmailProjectGroupView;
 import com.bu.management.vo.EmailSyncStatus;
 import com.bu.management.vo.EmailWeComMappingStatus;
 import com.bu.management.vo.Result;
@@ -44,6 +47,7 @@ public class EmailController {
     private final EmailQueryService queryService;
     private final EmailDigestService digestService;
     private final EmailInterpretationService interpretationService;
+    private final EmailProjectGroupingService groupingService;
 
     @GetMapping("/account")
     public Result<EmailAccountStatus> account(@RequestAttribute("userId") Long userId) {
@@ -88,8 +92,30 @@ public class EmailController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam(required = false) String keyword) {
-        return Result.success(queryService.list(userId, page, size, date, keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(defaultValue = "false") boolean ungrouped) {
+        return Result.success(queryService.list(userId, page, size, date, keyword, projectId, ungrouped));
+    }
+
+    @GetMapping("/project-groups")
+    public Result<java.util.List<EmailProjectGroupView>> projectGroups(
+            @RequestAttribute("userId") Long userId) {
+        return Result.success(groupingService.groups(userId));
+    }
+
+    @PostMapping("/grouping")
+    @RequirePermission({"email:sync"})
+    public Result<EmailGroupingJobStatus> startGrouping(
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "false") boolean regroupAll) {
+        return Result.success(groupingService.startAsync(userId, regroupAll));
+    }
+
+    @GetMapping("/grouping/status")
+    public Result<EmailGroupingJobStatus> groupingStatus(
+            @RequestAttribute("userId") Long userId) {
+        return Result.success(groupingService.status(userId));
     }
 
     @GetMapping("/messages/{id}")

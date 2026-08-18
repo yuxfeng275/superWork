@@ -3,6 +3,8 @@ package com.bu.management.integration;
 import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.service.EmailIntegrationConfigService;
 import com.bu.management.entity.EmailMessage;
+import com.bu.management.entity.Project;
+import com.bu.management.service.EmailProjectAssignment;
 import com.bu.management.service.DigestContent;
 import com.bu.management.service.EmailInterpretationContent;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -127,6 +129,58 @@ public class DeepSeekDigestClient {
     }
   }
 
+  public List<EmailProjectAssignment> groupByProjects(
+      List<EmailMessage> messages, List<Project> projects, Long ownerUserId) {
+    EmailIntegrationRuntimeConfig config = configService.getRuntimeConfig();
+    if (!config.isDeepSeekConfigured()) {
+      throw new IllegalStateException("DeepSeek 未配置或未启用");
+    }
+    try {
+      List<Map<String, Object>> candidates = projects.stream().map(project -> {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("projectId", project.getId());
+        value.put("name", project.getName());
+        value.put("fullPath", project.getFullPath());
+        value.put("code", project.getCode() == null ? "" : project.getCode());
+        return value;
+      }).toList();
+      List<Map<String, Object>> mails = new ArrayList<>();
+      for (EmailMessage message : messages) {
+        if (!ownerUserId.equals(message.getOwnerUserId())) {
+          throw new IllegalStateException("分组输入包含其他用户邮件");
+        }
+        Map<String, Object> mail = new LinkedHashMap<>();
+        mail.put("messageId", message.getId());
+        mail.put("subject", message.getSubject() == null ? "" : message.getSubject());
+        mail.put("sender", message.getSenderAddress() == null ? "" : message.getSenderAddress());
+        String body = message.getBodyText() == null ? "" : message.getBodyText();
+        mail.put("content", body.substring(0, Math.min(body.length(), 4_000)));
+        mails.add(mail);
+      }
+      JsonNode result = callJson(config, groupingPrompt(), objectMapper.writeValueAsString(Map.of(
+          "projects", candidates, "emails", mails)));
+      JsonNode assignments = result.path("assignments");
+      if (!assignments.isArray()) throw new IllegalStateException("智能分组响应格式错误");
+      List<EmailProjectAssignment> output = new ArrayList<>();
+      for (JsonNode assignment : assignments) {
+        Long projectId = assignment.path("projectId").isNull()
+            || assignment.path("projectId").isMissingNode()
+            ? null : assignment.path("projectId").asLong();
+        output.add(new EmailProjectAssignment(
+            assignment.path("messageId").asLong(), projectId,
+            assignment.path("confidence").asDouble(0),
+            assignment.path("reason").asText("无法判断所属项目")));
+      }
+      return output;
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("智能分组被中断", exception);
+    } catch (Exception exception) {
+      if (exception instanceof IllegalStateException stateException) throw stateException;
+      throw new IllegalStateException("智能分组响应无效", exception);
+    }
+  }
+
   public void testConnection() {
     EmailIntegrationRuntimeConfig config = configService.getRuntimeConfig();
     if (!config.isDeepSeekConfigured()) {
@@ -193,6 +247,14 @@ public class DeepSeekDigestClient {
         || !result.path("replySuggestion").isTextual()) {
       throw new IllegalStateException("AI 解读 JSON 字段格式错误");
     }
+  }
+
+  private String groupingPrompt() {
+    return "你是企业邮件项目归档助手。根据邮件标题、正文、发件人以及项目名称、编码、完整路径，"
+        + "将每封邮件分配到最匹配的一个真实项目。输出严格 JSON："
+        + "{assignments:[{messageId,projectId,confidence,reason}]}。"
+        + "projectId只能取候选项目ID；若无法可靠判断，projectId必须为null。"
+        + "confidence为0到1，低于0.65时必须使用null。不得臆造项目。";
   }
 
   private String interpretationPrompt() {

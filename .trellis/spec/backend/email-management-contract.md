@@ -45,6 +45,15 @@ This contract covers personal Alibaba Cloud Enterprise Mail ingestion, per-user 
 - Every structured item contains only a stored message ID belonging to the same user. Invalid model references are rejected.
 
 
+
+## Intelligent Project Grouping
+
+- The candidate set is the current active rows in `project`; model output may only reference those project IDs.
+- Classification uses email subject, sender, and truncated plain-text body in batches of 15.
+- The backend verifies current-user message IDs, existing project IDs, and confidence >= 0.65. Invalid, low-confidence, or missing matches persist as `UNGROUPED` with no project ID.
+- New synchronized mail automatically starts grouping. `POST /api/emails/grouping` backfills ungrouped mail or regroups all; status and project-group counts are current-user scoped.
+- Stored metadata includes project ID, status, method, confidence, reason, model, and grouped time. Project deletion sets the project ID to null.
+
 ## Per-message AI Interpretation
 
 - `GET /api/emails/messages/{id}/interpretation` returns the stored current-user interpretation state.

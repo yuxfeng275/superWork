@@ -54,6 +54,11 @@ export interface EmailMessageSummary {
   fromAddress: string
   receivedAt: string
   preview?: string
+  projectId?: number
+  projectName?: string
+  projectFullPath?: string
+  groupingStatus?: string
+  groupingConfidence?: number
   hasAttachments: boolean
   attachmentCount: number
 }
@@ -80,6 +85,7 @@ export interface EmailInterpretation {
 }
 
 export interface EmailMessageDetail extends EmailMessageSummary {
+  groupingReason?: string
   toAddresses: string[]
   ccAddresses: string[]
   textBody: string
@@ -95,11 +101,34 @@ export interface EmailMessagePage {
   pages?: number
 }
 
+
+export interface EmailProjectGroup {
+  projectId?: number
+  projectName: string
+  projectFullPath: string
+  mailCount: number
+}
+
+export type EmailGroupingJobState = 'IDLE' | 'RUNNING' | 'SUCCESS' | 'FAILED'
+
+export interface EmailGroupingJobStatus {
+  status: EmailGroupingJobState
+  total: number
+  processed: number
+  grouped: number
+  ungrouped: number
+  message?: string
+  startedAt?: string
+  finishedAt?: string
+}
+
 export interface EmailMessageQuery {
   page?: number
   size?: number
   date?: string
   keyword?: string
+  projectId?: number
+  ungrouped?: boolean
 }
 
 export interface EmailDigestItem {

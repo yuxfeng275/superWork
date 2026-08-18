@@ -14,6 +14,7 @@ public class EmailMessage {
 
   private Long ownerUserId;
   private Long accountId;
+  private Long projectId;
   private String folder;
   private Long uidValidity;
   private Long uid;
@@ -32,5 +33,11 @@ public class EmailMessage {
   private String aiInterpretationModel;
   private String aiInterpretationError;
   private LocalDateTime aiInterpretedAt;
+  private String groupingStatus;
+  private String groupingMethod;
+  private java.math.BigDecimal groupingConfidence;
+  private String groupingReason;
+  private String groupingModel;
+  private LocalDateTime groupedAt;
   private LocalDateTime createdAt;
 }
