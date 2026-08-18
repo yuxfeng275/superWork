@@ -12,6 +12,8 @@ public record EmailDigestResponse(
     String generatedModel,
     String overview,
     int mailCount,
+    JsonNode topics,
+    JsonNode progressItems,
     JsonNode importantItems,
     JsonNode todos,
     JsonNode risks,

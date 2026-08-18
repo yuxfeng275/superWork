@@ -39,6 +39,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Daily digest redesigned as visual report: metric cards, flow diagram, one-line conclusion, priority focus, expandable full AI summary, and readable category cards.",
+  "notes": "Daily digest upgraded to DingTalk-style AI minutes via V32: persisted topics/progress, source message IDs, status cards, vertical progress timeline, plus existing actionable tabs.",
   "meta": {}
 }

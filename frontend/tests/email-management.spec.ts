@@ -50,6 +50,13 @@ const digest = {
   generationMode: 'AI',
   overview: '共收到 2 封邮件，1 封需要今天处理。',
   mailCount: 2,
+  topics: [
+    { title: '合同确认与交付风险', summary: '客户等待最终合同确认，同时项目上线窗口尚未锁定。', status: '推进中', messageIds: [101, 102] }
+  ],
+  progressItems: [
+    { title: '合同版本已发送', status: '已完成', detail: '客户已提供最终合同版本。', messageIds: [101] },
+    { title: '上线窗口待确认', status: '待确认', detail: '项目组尚未确认具体上线窗口。', messageIds: [102] }
+  ],
   importantItems: [{ messageId: 101, title: '合同确认', content: '客户等待最终确认' }],
   todos: [{ messageId: 101, title: '回复合同', content: '今天 18:00 前回复' }],
   risks: [{ messageId: 102, title: '交付风险', content: '上线窗口尚未确认' }],
@@ -201,6 +208,10 @@ test('配置后展示摘要与收件箱，并仅以纯文本打开当前列表�
   await expect(page.getByRole('link', { name: '邮件管理' })).toBeVisible()
   await expect(page.getByRole('tab', { name: '摘要总览' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: '摘要总览' })).toContainText('共收到 2 封邮件，1 封需要今天处理。')
+  await page.getByRole('tab', { name: /议题归纳 1/ }).click()
+  await expect(page.getByRole('region', { name: '议题归纳' })).toContainText('合同确认与交付风险')
+  await page.getByRole('tab', { name: /决策进展 2/ }).click()
+  await expect(page.getByRole('region', { name: '决策与进展' })).toContainText('上线窗口待确认')
   await page.getByRole('tab', { name: /重要邮件 1/ }).click()
   await expect(page.getByRole('region', { name: '重要邮件' })).toContainText('合同确认')
   await page.getByRole('tab', { name: /待办事项 1/ }).click()

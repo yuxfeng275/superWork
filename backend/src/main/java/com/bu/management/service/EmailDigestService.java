@@ -88,6 +88,8 @@ public class EmailDigestService {
         digest.setGenerationMode(messages.isEmpty() ? "NONE" : content.fallback() ? "RULES" : "AI");
         digest.setGeneratedModel(content.fallback() ? null : deepSeekClient.configuredModel());
         digest.setOverview(content.overview());
+        digest.setTopicItems(content.topicItems());
+        digest.setProgressItems(content.progressItems());
         digest.setImportantItems(content.importantItems());
         digest.setTodoItems(content.todoItems());
         digest.setRiskItems(content.riskItems());
@@ -125,6 +127,8 @@ public class EmailDigestService {
         digest.setGenerationMode("NONE");
         digest.setGeneratedModel(null);
         digest.setOverview("");
+        digest.setTopicItems("[]");
+        digest.setProgressItems("[]");
         digest.setImportantItems("[]");
         digest.setTodoItems("[]");
         digest.setRiskItems("[]");
@@ -252,13 +256,14 @@ public class EmailDigestService {
 
     private EmailDigestResponse pendingResponse(LocalDate date, int count) {
         return new EmailDigestResponse(null, date, "PENDING", "NONE", null, null, count,
-                emptyArray(), emptyArray(), emptyArray(), emptyArray(), null, "PENDING", null);
+                emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(), null, "PENDING", null);
     }
 
     private EmailDigestResponse toResponse(EmailDailyDigest digest) {
         return new EmailDigestResponse(
                 digest.getId(), digest.getDigestDate(), digest.getStatus(), digest.getGenerationMode(),
                 digest.getGeneratedModel(), digest.getOverview(), digest.getMessageCount() == null ? 0 : digest.getMessageCount(),
+                parseArray(digest.getTopicItems()), parseArray(digest.getProgressItems()),
                 parseArray(digest.getImportantItems()), parseArray(digest.getTodoItems()),
                 parseArray(digest.getRiskItems()), parseArray(digest.getReplyItems()),
                 digest.getUpdatedAt(), digest.getPushStatus(), digest.getPushError());

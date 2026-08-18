@@ -74,6 +74,8 @@ public class DeepSeekDigestClient {
       validate(digest, messages);
       return new DigestContent(
           digest.path("overview").asText(),
+          objectMapper.writeValueAsString(digest.path("topics")),
+          objectMapper.writeValueAsString(digest.path("progressItems")),
           objectMapper.writeValueAsString(digest.path("importantItems")),
           objectMapper.writeValueAsString(digest.path("todoItems")),
           objectMapper.writeValueAsString(digest.path("riskItems")),
@@ -300,8 +302,21 @@ public class DeepSeekDigestClient {
         || !digest.path("overview").isTextual()) {
       throw new IllegalStateException("DeepSeek 摘要 JSON 缺少必填字段");
     }
+    if (!digest.path("topics").isArray() || !digest.path("progressItems").isArray()) {
+      throw new IllegalStateException("DeepSeek 纪要 JSON 缺少议题或进展字段");
+    }
     Set<Long> ids =
         messages.stream().map(EmailMessage::getId).collect(java.util.stream.Collectors.toSet());
+    for (String field : List.of("topics", "progressItems")) {
+      for (JsonNode item : digest.path(field)) {
+        if (!item.path("messageIds").isArray()) {
+          throw new IllegalStateException("DeepSeek 纪要缺少邮件引用");
+        }
+        for (JsonNode id : item.path("messageIds")) {
+          if (!ids.contains(id.asLong())) throw new IllegalStateException("DeepSeek 纪要引用了未知邮件");
+        }
+      }
+    }
     for (String field : REQUIRED.stream().filter(name -> !"overview".equals(name)).toList()) {
       if (!digest.path(field).isArray()) {
         throw new IllegalStateException("DeepSeek 摘要 JSON 字段格式错误");
@@ -315,11 +330,13 @@ public class DeepSeekDigestClient {
   }
 
   private String systemPrompt() {
-    return "你是企业邮件日报分析助手。请跨邮件去重、按业务影响排序，并忠于原文。"
-        + "输出严格 JSON：overview(string，包含总量、主题趋势与最重要结论)、"
+    return "你是企业邮件AI纪要助手，请参照钉钉AI会议纪要的结构，跨邮件去重、合并同一议题并忠于原文。"
+        + "输出严格JSON：overview(string，3句话内的高层总结)，"
+        + "topics([{title,summary,status,messageIds}])，status只能是已完成/推进中/待确认；"
+        + "progressItems([{title,status,detail,messageIds}])，"
         + "importantItems、todoItems、riskItems、replyItems(array)。"
-        + "每个数组项目必须含真实 messageId、title、content；待办尽量提取负责人、截止时间和优先级，"
-        + "风险说明影响，回复建议给出可执行草稿。不得引用不存在的邮件或臆造事实。";
+        + "important/todo/risk/reply每项必须含真实messageId、title、content；todo尽量给出sender、deadline、action。"
+        + "topics/progressItems每项必须含真实messageIds数组。按业务影响排序，不得臆造。";
   }
 
   private String trimSlash(String value) {

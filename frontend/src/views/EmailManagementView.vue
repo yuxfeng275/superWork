@@ -293,7 +293,10 @@ async function loadDigest() {
   digestLoading.value = true
   digestError.value = ''
   try {
-    digest.value = await api.getEmailDigest(selectedDate.value)
+    const result = await api.getEmailDigest(selectedDate.value)
+    result.topics ||= []
+    result.progressItems ||= []
+    digest.value = result
   } catch (error: unknown) {
     digestError.value = errorText(error, '邮件摘要加载失败，收件箱仍可正常使用')
   } finally {
@@ -566,6 +569,16 @@ function digestItemContent(item: EmailDigestItem) {
   return item.content || item.summary || item.action || item.sender || '点击查看邮件详情'
 }
 
+function digestStatusType(status?: string) {
+  if (status === '已完成') return 'success'
+  if (status === '推进中') return 'warning'
+  return 'info'
+}
+
+function openDigestSource(messageIds?: number[]) {
+  if (messageIds?.length) void openMessage(messageIds[0])
+}
+
 onMounted(loadAccount)
 onBeforeUnmount(() => {
   stopSyncPolling()
@@ -651,13 +664,13 @@ onBeforeUnmount(() => {
                 <div class="digest-overview-head"><div><span class="digest-date-label">{{ selectedDate }} · 昨日邮件总结</span><h3>今天先看这几件事</h3></div><div class="digest-status-row"><el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag><el-tag v-if="pushLabel" type="info">推送 · {{ pushLabel }}</el-tag></div></div>
                 <div class="digest-metrics"><div><strong>{{ digest.mailCount }}</strong><span>邮件总数</span></div><div class="metric-important"><strong>{{ digest.importantItems.length }}</strong><span>重要邮件</span></div><div class="metric-todo"><strong>{{ digest.todos.length }}</strong><span>待办事项</span></div><div class="metric-risk"><strong>{{ digest.risks.length }}</strong><span>风险提醒</span></div><div class="metric-reply"><strong>{{ digest.replySuggestions.length }}</strong><span>回复建议</span></div></div>
                 <div class="digest-flow" aria-label="邮件处理脉络">
-                  <div class="flow-node received"><span class="flow-icon">✉</span><strong>收到邮件</strong><small>{{ digest.mailCount }} 封</small></div>
+                  <div class="flow-node received"><span class="flow-icon">✉</span><strong>邮件输入</strong><small>{{ digest.mailCount }} 封</small></div>
                   <span class="flow-arrow">→</span>
-                  <div class="flow-node analyzed"><span class="flow-icon">✦</span><strong>AI 归纳</strong><small>{{ digest.importantItems.length }} 个重点</small></div>
+                  <div class="flow-node analyzed"><span class="flow-icon">✦</span><strong>议题提炼</strong><small>{{ digest.topics.length }} 个议题</small></div>
                   <span class="flow-arrow">→</span>
-                  <div class="flow-node action"><span class="flow-icon">✓</span><strong>推进事项</strong><small>{{ digest.todos.length }} 个待办</small></div>
+                  <div class="flow-node action"><span class="flow-icon">✓</span><strong>决策进展</strong><small>{{ digest.progressItems.length }} 项进展</small></div>
                   <span class="flow-arrow">→</span>
-                  <div class="flow-node risk"><span class="flow-icon">!</span><strong>关注风险</strong><small>{{ digest.risks.length }} 个提醒</small></div>
+                  <div class="flow-node risk"><span class="flow-icon">!</span><strong>行动闭环</strong><small>{{ digest.todos.length }} 个待办</small></div>
                 </div>
                 <div class="digest-insight-grid">
                   <section class="digest-insight conclusion"><span class="insight-label">一句话结论</span><p>{{ digest.overview || (digest.status === 'EMPTY' ? '当天没有收到邮件。' : '摘要正在准备中。') }}</p></section>
@@ -665,6 +678,23 @@ onBeforeUnmount(() => {
                 </div>
                 <details class="digest-full-summary"><summary>查看 AI 完整总结</summary><p>{{ digest.overview || '暂无完整总结' }}</p></details>
                 <div class="digest-meta-line"><span v-if="digest.generatedModel">由 {{ digest.generatedModel }} 生成</span><span v-if="digest.generatedAt">{{ formatDateTime(digest.generatedAt) }} 更新</span><span v-if="digest.pushMessage">{{ digest.pushMessage }}</span></div>
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`议题归纳 ${digest.topics.length}`" name="topics">
+              <section aria-label="议题归纳" class="minutes-topic-list">
+                <article v-for="(topic, index) in digest.topics" :key="`topic-${index}`" class="minutes-topic-card">
+                  <div class="topic-index">{{ String(index + 1).padStart(2, '0') }}</div>
+                  <div class="topic-copy"><div class="topic-head"><h3>{{ topic.title }}</h3><el-tag :type="digestStatusType(topic.status)" effect="light">{{ topic.status }}</el-tag></div><p>{{ topic.summary }}</p><button v-if="topic.messageIds?.length" type="button" @click="openDigestSource(topic.messageIds)">查看 {{ topic.messageIds.length }} 封相关邮件 <el-icon><ArrowRight /></el-icon></button></div>
+                </article>
+                <el-empty v-if="!digest.topics.length" description="暂无议题归纳，请重新生成摘要" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`决策进展 ${digest.progressItems.length}`" name="progress">
+              <section aria-label="决策与进展" class="minutes-progress-list">
+                <article v-for="(progress, index) in digest.progressItems" :key="`progress-${index}`" class="minutes-progress-item" :class="progress.status === '已完成' ? 'done' : progress.status === '推进中' ? 'doing' : 'pending'">
+                  <span class="progress-dot"></span><div><div class="topic-head"><h3>{{ progress.title }}</h3><el-tag :type="digestStatusType(progress.status)" effect="plain">{{ progress.status }}</el-tag></div><p>{{ progress.detail }}</p><button v-if="progress.messageIds?.length" type="button" @click="openDigestSource(progress.messageIds)">查看依据邮件</button></div>
+                </article>
+                <el-empty v-if="!digest.progressItems.length" description="暂无决策或进展记录" :image-size="70" />
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`重要邮件 ${digest.importantItems.length}`" name="important">
@@ -1007,4 +1037,7 @@ onBeforeUnmount(() => {
 
 .digest-flow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 24px 0 18px; padding: 16px 10px; border-radius: 14px; background: #f8f9fc; }.flow-node { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid #e2e6ef; border-radius: 10px; background: #fff; }.flow-node .flow-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-weight: 800; }.flow-node.received .flow-icon { background: #7085df; }.flow-node.analyzed .flow-icon { background: #8a62d9; }.flow-node.action .flow-icon { background: #27a879; }.flow-node.risk .flow-icon { background: #e58b47; }.flow-node strong { color: #374154; font-size: 12px; white-space: nowrap; }.flow-node small { color: #8a93a2; font-size: 10px; white-space: nowrap; }.flow-arrow { flex-shrink: 0; color: #aab3c2; font-size: 20px; font-weight: 700; }.digest-insight-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; }.digest-insight { min-width: 0; padding: 17px 19px; border-radius: 12px; background: #fff; border: 1px solid #e1e5ed; }.digest-insight.conclusion { border-left: 4px solid #687bd2; }.digest-insight.focus { border-left: 4px solid #e58b47; }.insight-label { color: #78849a; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.digest-insight p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; color: #394456; font-size: 14px; line-height: 1.75; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }.digest-insight ul { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 0; padding: 0; list-style: none; }.digest-insight li { position: relative; padding-left: 14px; color: #727e90; font-size: 12px; line-height: 1.45; }.digest-insight li::before { position: absolute; top: 7px; left: 0; width: 5px; height: 5px; border-radius: 50%; background: #e58b47; content: ''; }.digest-insight li button { display: block; max-width: 100%; padding: 0; overflow: hidden; border: 0; background: transparent; color: #3d4a61; font-size: 12px; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }.digest-insight li button:hover { color: var(--primary); }.digest-insight li small { display: block; overflow: hidden; color: #8a93a2; text-overflow: ellipsis; white-space: nowrap; }.digest-full-summary { margin-top: 14px; border-top: 1px solid #e5e8ef; }.digest-full-summary summary { padding-top: 12px; color: #6473b4; font-size: 12px; cursor: pointer; }.digest-full-summary p { margin: 10px 0 0; color: #778193; font-size: 13px; line-height: 1.8; }
 @media (max-width: 700px) { .digest-flow { align-items: stretch; flex-direction: column; gap: 6px; padding: 10px; }.flow-node { justify-content: flex-start; }.flow-arrow { align-self: center; transform: rotate(90deg); font-size: 16px; }.digest-insight-grid { grid-template-columns: 1fr; }.digest-insight p { -webkit-line-clamp: 5; } }
+
+.minutes-topic-list { display: flex; flex-direction: column; gap: 12px; }.minutes-topic-card { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 15px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 12px; background: #fff; }.topic-index { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg,#e9edff,#f5f2ff); color: #6272c3; font-size: 13px; font-weight: 800; }.topic-copy, .minutes-progress-item > div { min-width: 0; }.topic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.topic-head h3 { margin: 0; color: #354052; font-size: 15px; line-height: 1.5; }.topic-copy p, .minutes-progress-item p { margin: 8px 0 0; color: #657084; font-size: 13px; line-height: 1.75; }.topic-copy button, .minutes-progress-item button { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 0; border: 0; background: transparent; color: #6475c4; font-size: 11px; cursor: pointer; }.minutes-progress-list { position: relative; display: flex; flex-direction: column; gap: 0; padding-left: 18px; }.minutes-progress-list::before { position: absolute; top: 12px; bottom: 12px; left: 24px; width: 2px; background: #e3e7ee; content: ''; }.minutes-progress-item { position: relative; display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 14px; padding: 0 0 24px; }.progress-dot { z-index: 1; width: 14px; height: 14px; margin-top: 4px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #aab4c5; background: #aab4c5; }.minutes-progress-item.done .progress-dot { box-shadow: 0 0 0 2px #37a678; background: #37a678; }.minutes-progress-item.doing .progress-dot { box-shadow: 0 0 0 2px #e6a24d; background: #e6a24d; }.minutes-progress-item.pending .progress-dot { box-shadow: 0 0 0 2px #8190a6; background: #fff; }
+@media (max-width:700px) { .minutes-topic-card { grid-template-columns: 38px minmax(0,1fr); padding: 14px; }.topic-index { width: 34px; height: 34px; }.topic-head { flex-direction: column; gap: 6px; } }
 </style>

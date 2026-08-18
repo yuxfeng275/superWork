@@ -64,6 +64,13 @@ This contract covers personal Alibaba Cloud Enterprise Mail ingestion, per-user 
 - Structure: core summary, sender intent, key points, action items with deadline/priority, risks, and reply suggestion.
 - A failed interpretation is persisted as `FAILED`; it never replaces the original body or pretends to be an AI result.
 
+
+## AI Minutes Structure
+
+- V32 persists `topic_items` and `progress_items` in each user/date daily digest.
+- DeepSeek output follows meeting-minutes semantics: short overview, merged topics with status and source `messageIds`, decision/progress timeline, important mail, action items, risks, and reply suggestions.
+- Topic/progress references are validated against current-user messages before persistence. Legacy digests receive empty arrays and become fully structured on regeneration.
+
 ## Digest and Provider Failure Matrix
 
 | Case | Mail ingestion | Digest | UI state |

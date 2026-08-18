@@ -70,6 +70,14 @@
 - Manual sync calls the current-user endpoint and reflects running/success state.
 - Empty and DeepSeek-degraded states remain usable.
 
+
+## DingTalk-style AI Minutes
+
+- Daily digest adds `议题归纳` and `决策进展` tabs alongside overview, important mail, todos, risks, and replies.
+- Topic cards merge related emails, show `已完成/推进中/待确认`, summarize the topic, and link to source mail.
+- Progress uses a vertical timeline with status-colored nodes and source evidence.
+- Overview remains a visual executive summary; the full narrative is collapsed by default.
+
 ## Daily Digest Readability
 
 - Overview uses a clear date header, status row, metric strip, conclusion block, and generation metadata.

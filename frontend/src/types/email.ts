@@ -138,6 +138,22 @@ export interface EmailMessageQuery {
   senderDomain?: string
 }
 
+export type EmailDigestProgressStatus = '已完成' | '推进中' | '待确认'
+
+export interface EmailDigestTopic {
+  title: string
+  summary: string
+  status: EmailDigestProgressStatus
+  messageIds: number[]
+}
+
+export interface EmailDigestProgressItem {
+  title: string
+  status: EmailDigestProgressStatus
+  detail: string
+  messageIds: number[]
+}
+
 export interface EmailDigestItem {
   messageId: number
   title?: string
@@ -157,6 +173,8 @@ export interface EmailDailyDigest {
   generatedModel?: string
   overview?: string
   mailCount: number
+  topics: EmailDigestTopic[]
+  progressItems: EmailDigestProgressItem[]
   importantItems: EmailDigestItem[]
   todos: EmailDigestItem[]
   risks: EmailDigestItem[]

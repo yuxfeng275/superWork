@@ -22,10 +22,12 @@ public class RuleEmailDigestGenerator {
 
   public DigestContent generate(List<EmailMessage> messages) {
     if (messages.isEmpty()) {
-      return new DigestContent("昨日无邮件。", "[]", "[]", "[]", "[]", true);
+      return new DigestContent("昨日无邮件。", "[]", "[]", "[]", "[]", "[]", "[]", true);
     }
     return new DigestContent(
         "昨日共收到 " + messages.size() + " 封邮件；当前展示规则摘要。",
+        "[]",
+        "[]",
         items(messages, message -> matches(message, IMPORTANT)),
         items(messages, message -> matches(message, TODO)),
         items(messages, message -> matches(message, RISK)),

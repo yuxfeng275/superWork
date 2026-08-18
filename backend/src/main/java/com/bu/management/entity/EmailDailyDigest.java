@@ -20,6 +20,8 @@ public class EmailDailyDigest {
   private String generationMode;
   private String generatedModel;
   private String overview;
+  private String topicItems;
+  private String progressItems;
   private String importantItems;
   private String todoItems;
   private String riskItems;
