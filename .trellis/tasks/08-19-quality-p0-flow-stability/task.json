@@ -1,0 +1,44 @@
+{
+  "id": "quality-p0-flow-stability",
+  "name": "quality-p0-flow-stability",
+  "title": "P0 核心流程竞态与E2E稳定",
+  "description": "",
+  "status": "planning",
+  "dev_type": "fullstack",
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-08-19",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-27-project-quality-audit",
+  "relatedFiles": [],
+  "notes": "Sequenced under full-system quality governance. Do not start before predecessor gates pass.",
+  "meta": {}
+}

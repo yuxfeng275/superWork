@@ -1,0 +1,44 @@
+{
+  "id": "quality-p0-integration-health",
+  "name": "quality-p0-integration-health",
+  "title": "P0 云效调度恢复与业务健康",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-08-19",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 1,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-27-project-quality-audit",
+  "relatedFiles": [],
+  "notes": "Implementing safe unreadable-token degradation, scheduler quiet failure, production key recovery, dashboard/status verification.",
+  "meta": {}
+}

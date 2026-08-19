@@ -1,28 +1,64 @@
-# Project Quality Audit and Fixes
+# 全系统质量治理与体验重构
 
-## Goal
+## 目标
 
-Audit the current full-stack application, fix reproducible quality issues, and verify the running system end to end.
+对 superWork 当前前端、后端、数据/API、安全、业务闭环、测试与生产运维进行统一审计，形成可追踪问题台账，并按照依赖顺序逐阶段调整、重构、优化、测试和发布，最终建立一致、完整、可持续演进的产品与工程基线。
 
-## Requirements
+## 治理原则
 
-- Preserve existing uncommitted work and current business data.
-- Run the repository's available frontend and backend checks.
-- Inspect critical authentication, authorization, project, task, user, and workflow paths.
-- Fix confirmed functional, security, or data-consistency defects with focused changes.
-- Add regression coverage for every behavior changed.
+- 先建立事实基线和可执行标准，再改页面和业务逻辑。
+- P0 安全/数据错误/主流程中断优先；P1 可用性与闭环其次；P2 一致性、性能、可维护性随后。
+- 共享基础能力优先于逐页修补：设计令牌、页面壳、列表/详情/状态组件、API 类型、错误处理、权限与观测。
+- 每个子任务必须包含：问题证据、验收标准、自动化回归、生产发布、回滚说明。
+- 不破坏生产数据；数据库变更使用 Flyway；敏感配置不得明文。
 
-## Acceptance Criteria
+## 审计范围
 
-- [ ] Frontend production build passes.
-- [ ] Frontend Playwright suite passes.
-- [ ] Backend Maven test suite passes.
-- [ ] Running frontend and backend return successful HTTP responses.
-- [ ] Fixed critical workflows are verified in a real browser or through real APIs.
-- [ ] Remaining risks are documented with evidence.
+1. 前端视觉系统与响应式一致性
+2. 导航、权限与页面信息架构
+3. 关键业务流程端到端闭环
+4. 后端 API、事务、并发、调度与数据隔离
+5. 数据库约束、迁移与历史数据兼容
+6. 安全、敏感配置与输入输出边界
+7. 测试、构建、部署、日志、健康检查与回滚
+8. 文档、规格、任务台账与代码一致性
 
-## Technical Notes
+## 分阶段计划
 
-- Treat the dirty worktree as the baseline and do not revert unrelated changes.
-- Prefer small root-cause fixes over broad refactors.
-- Do not change database schema unless a confirmed defect requires it.
+### Phase 0：基线与治理标准
+- 全量构建/测试/生产健康基线
+- 问题台账、流程矩阵、页面矩阵、API/权限矩阵
+- 统一设计系统、页面状态、错误响应和质量门禁标准
+
+### Phase 1：P0 正确性与安全
+- 修复认证授权、数据越权、事务/并发、敏感信息、主流程中断和错误数据
+- 增加回归测试并逐项发布
+
+### Phase 2：共享前端与 API 基础
+- 设计令牌、页面壳、表单、筛选、列表、详情、空/错/加载状态统一
+- API 客户端模块化、类型收敛、状态与错误语义统一
+
+### Phase 3：核心业务闭环
+- 需求 → 评估 → 设计 → 任务 → 缺陷 → 交付
+- 项目/客户/商机/工作记录
+- 大事儿/周进展/会议视图
+- 邮件/AI摘要/项目分组/推送
+
+### Phase 4：管理与集成闭环
+- BU驾驶舱与统计口径
+- 用户、角色、菜单、权限、工作流、配置管理
+- 云效/OA同步、映射、失败恢复与可观测性
+
+### Phase 5：性能、可维护性与上线回归
+- 大文件拆分、查询优化、调度可靠性、日志与告警
+- 全量 E2E、视觉回归、生产冒烟与任务收口
+
+## 总体验收标准
+
+- [ ] P0 问题清零且有自动化回归
+- [ ] 所有一级菜单页面遵循统一视觉和状态规范
+- [ ] 关键业务流程具备创建、查看、修改、推进、失败恢复和可追溯闭环
+- [ ] 后端权限、所有者隔离、事务、幂等和错误契约一致
+- [ ] 前端构建、后端测试、关键 E2E、迁移验证全部通过
+- [ ] 生产环境健康，关键页面/API 冒烟通过，可回滚
+- [ ] 剩余 P1/P2 有明确负责人、依赖和排期，不存在未记录风险
