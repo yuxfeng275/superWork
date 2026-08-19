@@ -222,3 +222,9 @@ Configuration cases:
 - `frontend/tests/bu-dashboard.spec.ts`: direction, capacity, worklog, config,
   editor, project/member mapping, stable user-ID submission, and overflow
   checks.
+## Unreadable Credential Recovery
+
+- A stored encrypted token with a missing/wrong root key must not make dashboard/status/scheduled reads throw.
+- Runtime status reports `tokenSource=UNREADABLE`, `configured=false`, `lastTestStatus=CONFIG_ERROR`, and a safe re-entry message.
+- Scheduled sync and handoff retry skip while configuration is unreadable. Saving an enabled configuration requires a newly supplied token and a configured root key.
+

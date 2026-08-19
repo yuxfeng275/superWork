@@ -91,6 +91,68 @@ class YunxiaoConfigServiceTest {
                 .hasMessageContaining("根地址");
     }
 
+
+    @Test
+    void unreadableStoredTokenDegradesToRecoverableConfigError() {
+        YunxiaoProperties encryptedProperties = new YunxiaoProperties();
+        byte[] originalKey = new byte[32];
+        java.util.Arrays.fill(originalKey, (byte) 3);
+        encryptedProperties.setConfigEncryptionKey(Base64.getEncoder().encodeToString(originalKey));
+        YunxiaoIntegrationConfig config = new YunxiaoIntegrationConfig();
+        config.setId(1L);
+        config.setEnabled(1);
+        config.setEdition("center");
+        config.setBaseUrl("https://openapi-rdc.aliyuncs.com");
+        config.setOrganizationId("org-1");
+        config.setEncryptedToken(new YunxiaoTokenCipher(encryptedProperties).encrypt("lost-token"));
+        stored.set(config);
+
+        YunxiaoProperties missingKey = new YunxiaoProperties();
+        YunxiaoIntegrationConfigMapper mapper = mock(YunxiaoIntegrationConfigMapper.class);
+        when(mapper.selectById(1L)).thenReturn(config);
+        YunxiaoConfigService recoveryService = new YunxiaoConfigService(
+                mapper, missingKey, new YunxiaoTokenCipher(missingKey));
+
+        YunxiaoRuntimeConfig runtime = recoveryService.getRuntimeConfig();
+
+        assertThat(runtime.enabled()).isTrue();
+        assertThat(runtime.isConfigured()).isFalse();
+        assertThat(runtime.token()).isNull();
+        assertThat(runtime.tokenSource()).isEqualTo("UNREADABLE");
+        assertThat(runtime.lastTestStatus()).isEqualTo("CONFIG_ERROR");
+        assertThat(runtime.lastTestMessage()).contains("重新录入");
+    }
+
+    @Test
+    void unreadableStoredTokenRequiresReplacementBeforeSavingEnabledConfig() {
+        YunxiaoProperties encryptedProperties = new YunxiaoProperties();
+        byte[] originalKey = new byte[32];
+        java.util.Arrays.fill(originalKey, (byte) 4);
+        encryptedProperties.setConfigEncryptionKey(Base64.getEncoder().encodeToString(originalKey));
+        YunxiaoIntegrationConfig config = new YunxiaoIntegrationConfig();
+        config.setId(1L);
+        config.setEnabled(1);
+        config.setEdition("center");
+        config.setBaseUrl("https://openapi-rdc.aliyuncs.com");
+        config.setOrganizationId("org-1");
+        config.setEncryptedToken(new YunxiaoTokenCipher(encryptedProperties).encrypt("lost-token"));
+        stored.set(config);
+
+        YunxiaoProperties replacementProperties = new YunxiaoProperties();
+        byte[] replacementKey = new byte[32];
+        java.util.Arrays.fill(replacementKey, (byte) 5);
+        replacementProperties.setConfigEncryptionKey(Base64.getEncoder().encodeToString(replacementKey));
+        YunxiaoIntegrationConfigMapper mapper = mock(YunxiaoIntegrationConfigMapper.class);
+        when(mapper.selectById(1L)).thenReturn(config);
+        YunxiaoConfigService recoveryService = new YunxiaoConfigService(
+                mapper, replacementProperties, new YunxiaoTokenCipher(replacementProperties));
+
+        YunxiaoConfigRequest update = request(null);
+        assertThatThrownBy(() -> recoveryService.save(update, 16L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("重新录入");
+    }
+
     private YunxiaoConfigRequest request(String token) {
         YunxiaoConfigRequest request = new YunxiaoConfigRequest();
         request.setEnabled(true);

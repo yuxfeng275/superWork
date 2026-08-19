@@ -44,12 +44,21 @@ public class YunxiaoConfigService {
             );
         }
 
-        String token = StringUtils.hasText(stored.getEncryptedToken())
-                ? tokenCipher.decrypt(stored.getEncryptedToken())
-                : environment.getToken();
-        String tokenSource = StringUtils.hasText(stored.getEncryptedToken())
-                ? "PAGE"
-                : StringUtils.hasText(environment.getToken()) ? "ENVIRONMENT" : "NONE";
+        String token = environment.getToken();
+        String tokenSource = StringUtils.hasText(token) ? "ENVIRONMENT" : "NONE";
+        String lastTestStatus = stored.getLastTestStatus();
+        String lastTestMessage = stored.getLastTestMessage();
+        if (StringUtils.hasText(stored.getEncryptedToken())) {
+            try {
+                token = tokenCipher.decrypt(stored.getEncryptedToken());
+                tokenSource = "PAGE";
+            } catch (IllegalStateException exception) {
+                token = null;
+                tokenSource = "UNREADABLE";
+                lastTestStatus = "CONFIG_ERROR";
+                lastTestMessage = "云效令牌无法解密，请在云效配置中重新录入个人访问令牌";
+            }
+        }
         return new YunxiaoRuntimeConfig(
                 Integer.valueOf(1).equals(stored.getEnabled()),
                 normalizeEdition(stored.getEdition()),
@@ -58,8 +67,8 @@ public class YunxiaoConfigService {
                 token,
                 tokenSource,
                 stored.getLastTestedAt(),
-                stored.getLastTestStatus(),
-                stored.getLastTestMessage()
+                lastTestStatus,
+                lastTestMessage
         );
     }
 
@@ -80,8 +89,17 @@ public class YunxiaoConfigService {
             encryptedToken = tokenCipher.encrypt(request.getToken().trim());
         }
 
-        boolean tokenAvailable = StringUtils.hasText(encryptedToken)
-                || StringUtils.hasText(environment.getToken());
+        boolean tokenAvailable = StringUtils.hasText(environment.getToken());
+        if (StringUtils.hasText(encryptedToken)) {
+            try {
+                tokenCipher.decrypt(encryptedToken);
+                tokenAvailable = true;
+            } catch (IllegalStateException exception) {
+                if (!StringUtils.hasText(request.getToken())) {
+                    throw new RuntimeException("现有云效令牌无法解密，请重新录入个人访问令牌");
+                }
+            }
+        }
         if (enabled && !tokenAvailable) {
             throw new RuntimeException("启用云效集成前必须配置个人访问令牌");
         }

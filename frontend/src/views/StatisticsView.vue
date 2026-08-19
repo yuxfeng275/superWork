@@ -1071,9 +1071,19 @@ onMounted(refresh)
               :type="dashboard.integration.lastTestStatus === 'SUCCESS' ? 'success' : 'danger'"
               effect="light"
             >
-              {{ dashboard.integration.lastTestStatus === 'SUCCESS' ? '连接测试通过' : '连接测试失败' }}
+              {{ dashboard.integration.lastTestStatus === 'SUCCESS' ? '连接测试通过' : dashboard.integration.lastTestStatus === 'CONFIG_ERROR' ? '配置需要恢复' : '连接测试失败' }}
             </el-tag>
           </div>
+
+          <el-alert
+            v-if="dashboard.integration.tokenSource === 'UNREADABLE'"
+            title="现有云效令牌无法解密"
+            description="服务器解密密钥已缺失。请在下方重新输入个人访问令牌并保存，后台同步会在恢复前安全暂停。"
+            type="error"
+            :closable="false"
+            show-icon
+            class="connection-recovery-alert"
+          />
 
           <el-form label-position="top" class="connection-form">
             <div class="connection-grid">
@@ -1107,7 +1117,7 @@ onMounted(refresh)
                   type="password"
                   show-password
                   autocomplete="new-password"
-                  :placeholder="dashboard.integration.tokenConfigured ? '已配置，留空保持不变' : '输入个人访问令牌'"
+                  :placeholder="dashboard.integration.tokenSource === 'UNREADABLE' ? '必须重新输入个人访问令牌' : dashboard.integration.tokenConfigured ? '已配置，留空保持不变' : '输入个人访问令牌'"
                 />
                 <span v-if="dashboard.integration.tokenConfigured" class="field-note">
                   {{ dashboard.integration.tokenSource === 'PAGE' ? '已由页面安全保存' : '当前使用服务器环境变量' }}
