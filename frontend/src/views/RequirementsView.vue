@@ -297,15 +297,7 @@ const loadData = async () => {
 }
 
 const getProjectLogo = (name: string): string => {
-  const logos: Record<string, string> = {
-    '皇家宠物': '🐾',
-    '飞鹤': '🐄',
-    'speedo': '🏊',
-    '佳贝艾特': '🐑',
-    '逢时': '🌊',
-    '黄天鹅': '🥚'
-  }
-  return logos[name] || '📦'
+  return (name || '项').charAt(0).toUpperCase()
 }
 
 const getStatusClass = (status: string): string => {
@@ -866,11 +858,11 @@ const submitEvaluation = async () => {
 
 const createRequirement = async () => {
   if (!newRequirement.title) {
-    alert('请输入需求标题')
+    ElMessage.warning('请输入需求标题')
     return
   }
   if (!newRequirement.project) {
-    alert('请选择所属项目')
+    ElMessage.warning('请选择所属项目')
     return
   }
 
@@ -884,7 +876,7 @@ const createRequirement = async () => {
 
     // 项目需求验证客户联系人
     if (newRequirement.type === '项目需求' && !newRequirement.customerContactId) {
-      alert('项目需求必须选择客户联系人')
+      ElMessage.warning('项目需求必须选择客户联系人')
       return
     }
 
@@ -928,7 +920,7 @@ const createRequirement = async () => {
     await loadData()
   } catch (error) {
     console.error('创建需求失败:', error)
-    alert('创建需求失败，请重试')
+    ElMessage.error('创建需求失败，请重试')
   }
 }
 

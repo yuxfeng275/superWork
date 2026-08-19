@@ -129,7 +129,13 @@ onMounted(loadRequirementBadge)
       <!-- Logo -->
       <div class="sidebar-header">
         <a href="/" class="sidebar-logo">
-          <div class="sidebar-logo-icon">📋</div>
+          <div class="sidebar-logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="8" y="2" width="8" height="4" rx="1" />
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+          </div>
           <span class="sidebar-logo-text">BU管理系统</span>
         </a>
         <button class="sidebar-toggle" type="button" :aria-label="isCollapsed ? '展开侧边栏' : '收起侧边栏'" @click="isCollapsed = !isCollapsed">
@@ -257,7 +263,11 @@ onMounted(loadRequirementBadge)
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+}
+
+.sidebar-logo-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-logo-text {

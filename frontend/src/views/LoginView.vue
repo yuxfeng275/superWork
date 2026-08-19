@@ -1,32 +1,35 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const loginMethod = ref<'account' | 'sms'>('account')
 const loading = ref(false)
-const smsCooldown = ref(0)
 const loginError = ref('')
+
+const REMEMBER_USERNAME_KEY = 'bu-remembered-username'
 
 const form = reactive({
   username: '',
   password: '',
-  remember: false,
-  phone: '',
-  code: ''
+  remember: false
 })
 
 const errors = reactive({
   username: '',
-  password: '',
-  phone: '',
-  code: ''
+  password: ''
 })
 
-let smsTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  const remembered = localStorage.getItem(REMEMBER_USERNAME_KEY)
+  if (remembered) {
+    form.username = remembered
+    form.remember = true
+  }
+})
 
 const validateAccount = () => {
   let valid = true
@@ -44,25 +47,6 @@ const validateAccount = () => {
   return valid
 }
 
-const validateSms = () => {
-  let valid = true
-  errors.phone = ''
-  errors.code = ''
-
-  if (!form.phone) {
-    errors.phone = '请输入手机号'
-    valid = false
-  } else if (!/^1[3-9]\d{9}$/.test(form.phone)) {
-    errors.phone = '手机号格式不正确'
-    valid = false
-  }
-  if (!form.code) {
-    errors.code = '请输入验证码'
-    valid = false
-  }
-  return valid
-}
-
 const handleLogin = async () => {
   if (!validateAccount()) return
 
@@ -74,50 +58,19 @@ const handleLogin = async () => {
   loading.value = false
 
   if (result.success) {
+    if (form.remember) {
+      localStorage.setItem(REMEMBER_USERNAME_KEY, form.username)
+    } else {
+      localStorage.removeItem(REMEMBER_USERNAME_KEY)
+    }
     router.push('/requirements')
   } else {
     errors.password = result.error || '用户名或密码错误'
   }
 }
 
-const sendSms = () => {
-  if (smsCooldown.value > 0) return
-
-  errors.phone = ''
-  if (!form.phone) {
-    errors.phone = '请输入手机号'
-    return
-  }
-  if (!/^1[3-9]\d{9}$/.test(form.phone)) {
-    errors.phone = '手机号格式不正确'
-    return
-  }
-
-  smsCooldown.value = 60
-  smsTimer = setInterval(() => {
-    smsCooldown.value--
-    if (smsCooldown.value <= 0) {
-      if (smsTimer) clearInterval(smsTimer)
-    }
-  }, 1000)
-}
-
-const handleSmsLogin = async () => {
-  if (!validateSms()) return
-
-  loading.value = true
-  setTimeout(() => {
-    loading.value = false
-    router.push('/requirements')
-  }, 1500)
-}
-
-const handleWechatWork = () => {
-  alert('企微登录功能开发中...')
-}
-
-const handleWechatScan = () => {
-  alert('微信扫码登录功能开发中...')
+const handleForgotPassword = () => {
+  ElMessage.info('请联系系统管理员重置密码')
 }
 </script>
 
@@ -128,7 +81,13 @@ const handleWechatScan = () => {
       <div class="brand-section">
         <div class="brand-content">
           <div class="brand-logo">
-            <div class="brand-logo-icon">📋</div>
+            <div class="brand-logo-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <path d="m9 12 2 2 4-4" />
+              </svg>
+            </div>
             <span class="brand-logo-text">电商BU管理系统</span>
           </div>
 
@@ -139,15 +98,21 @@ const handleWechatScan = () => {
 
           <div class="brand-features">
             <div class="brand-feature">
-              <div class="brand-feature-icon">✓</div>
+              <div class="brand-feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </div>
               <span>需求全生命周期追踪</span>
             </div>
             <div class="brand-feature">
-              <div class="brand-feature-icon">✓</div>
+              <div class="brand-feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </div>
               <span>项目与任务协同管理</span>
             </div>
             <div class="brand-feature">
-              <div class="brand-feature-icon">✓</div>
+              <div class="brand-feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+              </div>
               <span>多维度数据统计看板</span>
             </div>
           </div>
@@ -162,165 +127,48 @@ const handleWechatScan = () => {
       <div class="form-section">
         <div class="form-header">
           <h2>欢迎回来</h2>
-          <p>请选择登录方式</p>
+          <p>使用账号密码登录系统</p>
         </div>
 
-        <!-- 登录方式切换 -->
-        <div class="login-tabs">
-          <button
-            class="login-tab"
-            :class="{ active: loginMethod === 'account' }"
-            @click="loginMethod = 'account'"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
-            </svg>
-            账号密码
-          </button>
-          <button
-            class="login-tab"
-            :class="{ active: loginMethod === 'sms' }"
-            @click="loginMethod = 'sms'"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-            </svg>
-            手机验证码
-          </button>
-        </div>
-
-        <!-- 账号密码登录 -->
-        <div class="login-form-wrap">
-          <form
-            class="login-form"
-            :class="{ active: loginMethod === 'account' }"
-            @submit.prevent="handleLogin"
-          >
-            <div class="form-content">
-              <div class="form-item" :class="{ error: errors.username }">
-                <label>用户名</label>
-                <input
-                  v-model="form.username"
-                  type="text"
-                  placeholder="请输入用户名"
-                  autocomplete="username"
-                >
-                <div v-if="errors.username" class="error-text">
-                  <span>⚠</span> {{ errors.username }}
-                </div>
-              </div>
-
-              <div class="form-item" :class="{ error: errors.password || loginError }">
-                <label>密码</label>
-                <input
-                  v-model="form.password"
-                  type="password"
-                  placeholder="请输入密码"
-                  autocomplete="current-password"
-                >
-                <div v-if="errors.password || loginError" class="error-text">
-                  <span>⚠</span> {{ errors.password || loginError }}
-                </div>
-              </div>
-
-              <div class="form-footer">
-                <label class="remember-label">
-                  <input v-model="form.remember" type="checkbox">
-                  <span>记住我</span>
-                </label>
-                <a href="#" class="forgot-link">忘记密码？</a>
-              </div>
-
-              <button type="submit" class="submit-btn" :disabled="loading">
-                {{ loading ? '登录中...' : '登 录' }}
-              </button>
+        <form class="login-form" @submit.prevent="handleLogin">
+          <div class="form-item" :class="{ error: errors.username }">
+            <label>用户名</label>
+            <input
+              v-model="form.username"
+              type="text"
+              placeholder="请输入用户名"
+              autocomplete="username"
+            >
+            <div v-if="errors.username" class="error-text">
+              <span>⚠</span> {{ errors.username }}
             </div>
-          </form>
-
-          <!-- 手机验证码登录 -->
-          <form
-            class="login-form"
-            :class="{ active: loginMethod === 'sms' }"
-            @submit.prevent="handleSmsLogin"
-          >
-            <div class="form-content">
-              <div class="form-item" :class="{ error: errors.phone }">
-                <label>手机号</label>
-                <input
-                  v-model="form.phone"
-                  type="tel"
-                  placeholder="请输入手机号"
-                  maxlength="11"
-                >
-                <div v-if="errors.phone" class="error-text">
-                  <span>⚠</span> {{ errors.phone }}
-                </div>
-              </div>
-
-              <div class="sms-row" :class="{ error: errors.code }">
-                <div class="form-item">
-                  <label>验证码</label>
-                  <input
-                    v-model="form.code"
-                    type="text"
-                    placeholder="请输入验证码"
-                    maxlength="6"
-                  >
-                </div>
-                <button
-                  type="button"
-                  class="sms-btn"
-                  @click="sendSms"
-                  :disabled="smsCooldown > 0"
-                >
-                  {{ smsCooldown > 0 ? smsCooldown + 's' : '获取验证码' }}
-                </button>
-              </div>
-              <div v-if="errors.code" class="error-text" style="margin-top: -12px; margin-bottom: 12px;">
-                <span>⚠</span> {{ errors.code }}
-              </div>
-
-              <div class="form-footer" style="visibility: hidden;">
-                <label class="remember-label">
-                  <input type="checkbox" disabled>
-                  <span>记住我</span>
-                </label>
-                <a href="#" class="forgot-link">忘记密码？</a>
-              </div>
-
-              <button type="submit" class="submit-btn" :disabled="loading">
-                {{ loading ? '登录中...' : '登 录' }}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <!-- 微信登录分隔线 -->
-        <div class="wechat-section">
-          <div class="divider">
-            <span>其他登录方式</span>
           </div>
 
-          <div class="wechat-btns">
-            <button type="button" class="wechat-btn enterprise" @click="handleWechatWork">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm5 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
-                <path d="M12 2C6.477 2 2 6.026 2 11c0 2.824 1.373 5.343 3.535 7.042l-.622 2.79a.5.5 0 0 0 .694.552l3.016-1.506C9.252 20.465 10.582 21 12 21c5.523 0 10-4.026 10-9s-4.477-10-10-10zm-4.5 14.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm9 0a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-              </svg>
-              企微登录
-            </button>
-            <button type="button" class="wechat-btn scan" @click="handleWechatScan">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="7" height="7"/>
-                <rect x="14" y="3" width="7" height="7"/>
-                <rect x="3" y="14" width="7" height="7"/>
-                <rect x="14" y="14" width="7" height="7"/>
-              </svg>
-              微信扫码
-            </button>
+          <div class="form-item" :class="{ error: errors.password || loginError }">
+            <label>密码</label>
+            <input
+              v-model="form.password"
+              type="password"
+              placeholder="请输入密码"
+              autocomplete="current-password"
+            >
+            <div v-if="errors.password || loginError" class="error-text">
+              <span>⚠</span> {{ errors.password || loginError }}
+            </div>
           </div>
-        </div>
+
+          <div class="form-footer">
+            <label class="remember-label">
+              <input v-model="form.remember" type="checkbox">
+              <span>记住用户名</span>
+            </label>
+            <button type="button" class="forgot-link" @click="handleForgotPassword">忘记密码？</button>
+          </div>
+
+          <button type="submit" class="submit-btn" :disabled="loading">
+            {{ loading ? '登录中...' : '登 录' }}
+          </button>
+        </form>
       </div>
     </div>
   </div>
@@ -350,6 +198,7 @@ const handleWechatScan = () => {
 .login-layout {
   display: flex;
   width: 1000px;
+  max-width: calc(100vw - 32px);
   min-height: 600px;
   background: #FFFFFF;
   border-radius: 24px;
@@ -403,7 +252,11 @@ const handleWechatScan = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+}
+
+.brand-logo-icon svg {
+  width: 24px;
+  height: 24px;
 }
 
 .brand-logo-text {
@@ -449,6 +302,11 @@ const handleWechatScan = () => {
   justify-content: center;
 }
 
+.brand-feature-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .brand-footer {
   font-size: 12px;
   opacity: 0.6;
@@ -483,72 +341,8 @@ const handleWechatScan = () => {
   color: #64748B;
 }
 
-/* 登录表单容器 */
-.form-content {
-  min-height: 240px;
-}
-
-.login-form-wrap {
-  position: relative;
-  width: 100%;
-}
-
 .login-form {
   width: 100%;
-  position: absolute;
-  top: 0;
-  left: 0;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
-}
-
-.login-form.active {
-  position: relative;
-  opacity: 1;
-  visibility: visible;
-}
-
-/* 登录方式切换 */
-.login-tabs {
-  display: flex;
-  background: #F1F5F9;
-  border-radius: 12px;
-  padding: 4px;
-  margin-bottom: 32px;
-}
-
-.login-tab {
-  flex: 1;
-  padding: 12px 16px;
-  text-align: center;
-  font-size: 14px;
-  font-weight: 500;
-  color: #64748B;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.login-tab:hover {
-  color: #2563EB;
-}
-
-.login-tab.active {
-  background: #FFFFFF;
-  color: #2563EB;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.login-tab svg {
-  width: 18px;
-  height: 18px;
 }
 
 /* 表单样式 */
@@ -574,6 +368,7 @@ const handleWechatScan = () => {
   color: #1E293B;
   transition: all 0.2s ease;
   background: #FFFFFF;
+  box-sizing: border-box;
 }
 
 .form-item input::placeholder {
@@ -598,107 +393,6 @@ const handleWechatScan = () => {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-/* 手机号登录 */
-.sms-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-}
-
-.sms-row .form-item {
-  flex: 1;
-  margin-bottom: 0;
-}
-
-.sms-btn {
-  height: 48px;
-  padding: 0 20px;
-  background: #F1F5F9;
-  border: 1.5px solid #E2E8F0;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #2563EB;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.sms-btn:hover {
-  background: #E2E8F0;
-}
-
-.sms-btn:disabled {
-  color: #94A3B8;
-  cursor: not-allowed;
-}
-
-/* 微信登录选项 */
-.wechat-section {
-  margin-bottom: 24px;
-}
-
-.divider {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin: 24px 0;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: #E2E8F0;
-}
-
-.divider span {
-  font-size: 13px;
-  color: #94A3B8;
-}
-
-.wechat-btns {
-  display: flex;
-  gap: 12px;
-}
-
-.wechat-btn {
-  flex: 1;
-  height: 48px;
-  background: #FFFFFF;
-  border: 1.5px solid #E2E8F0;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-}
-
-.wechat-btn:hover {
-  border-color: #2563EB;
-  color: #2563EB;
-  background: #F8FAFC;
-}
-
-.wechat-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-.wechat-btn.enterprise svg {
-  color: #07C160;
-}
-
-.wechat-btn.scan svg {
-  color: #07C160;
 }
 
 /* 提交按钮 */
@@ -760,6 +454,10 @@ const handleWechatScan = () => {
   color: #2563EB;
   text-decoration: none;
   font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
 .forgot-link:hover {

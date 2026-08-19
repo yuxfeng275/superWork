@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 
 interface DesignPlanDraft {
   workType: string
@@ -70,21 +71,21 @@ const close = () => emit('update:modelValue', false)
 const submit = () => {
   const selected = options.value.filter(option => option.selected)
   if (!selected.length) {
-    window.alert('请至少选择一个设计环节')
+    ElMessage.warning('请至少选择一个设计环节')
     return
   }
 
   for (const item of selected) {
     if (!item.designerId) {
-      window.alert(`请为${item.label}选择负责人`)
+      ElMessage.warning(`请为${item.label}选择负责人`)
       return
     }
     if (!item.estimatedHours) {
-      window.alert(`请填写${item.label}的预估工作量`)
+      ElMessage.warning(`请填写${item.label}的预估工作量`)
       return
     }
     if (!item.plannedCompletedAt) {
-      window.alert(`请填写${item.label}的计划完成时间`)
+      ElMessage.warning(`请填写${item.label}的计划完成时间`)
       return
     }
   }
