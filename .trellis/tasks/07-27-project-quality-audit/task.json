@@ -50,6 +50,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Baseline audit complete: P0 scheduled Yunxiao failure, actor spoofing/horizontal authorization, key-matter E2E race; P1 design/data/test/deploy gaps. 10 sequenced subtasks created; executing P0 integration health first.",
+  "notes": "P0 integration health deployed 239b111 and verified. Actor identity work in progress; direct actor-bearing writes now derive JWT userId in task/issue/attachment/worklog/confirmation/design-worklog.",
   "meta": {}
 }

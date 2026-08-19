@@ -29,8 +29,12 @@ public class RequirementConfirmationService {
     /**
      * 创建需求确认
      */
+    /** Creates a confirmation using the authenticated actor, never a body actor. */
     @Transactional
-    public RequirementConfirmation createConfirmation(CreateRequirementConfirmationDTO dto) {
+    public RequirementConfirmation createConfirmation(CreateRequirementConfirmationDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         // 验证需求存在
         Requirement requirement = requirementMapper.selectById(dto.getRequirementId());
         if (requirement == null) {
@@ -54,7 +58,7 @@ public class RequirementConfirmationService {
         RequirementConfirmation confirmation = new RequirementConfirmation();
         confirmation.setRequirementId(dto.getRequirementId());
         confirmation.setConfirmationType(dto.getConfirmationType());
-        confirmation.setConfirmedBy(dto.getConfirmedBy());
+        confirmation.setConfirmedBy(actorId);
         confirmation.setConfirmedAt(LocalDateTime.now());
         confirmation.setConfirmationNotes(dto.getConfirmationNotes());
         confirmation.setCreatedAt(LocalDateTime.now());

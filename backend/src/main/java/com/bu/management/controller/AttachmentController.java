@@ -34,8 +34,9 @@ public class AttachmentController {
     @Operation(summary = "创建附件", description = "创建附件记录")
     @PostMapping
     @RequirePermission({"requirement:edit", "task:edit", "issue:edit"})
-    public Result<Attachment> createAttachment(@RequestBody CreateAttachmentDTO dto) {
-        Attachment attachment = attachmentService.createAttachment(dto);
+    public Result<Attachment> createAttachment(@RequestBody CreateAttachmentDTO dto,
+                                                   @RequestAttribute("userId") Long actorId) {
+        Attachment attachment = attachmentService.createAttachment(dto, actorId);
         return Result.success(attachment);
     }
 

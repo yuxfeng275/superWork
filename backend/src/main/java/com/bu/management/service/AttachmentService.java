@@ -26,8 +26,12 @@ public class AttachmentService {
     /**
      * 创建附件
      */
+    /** Creates an attachment using the authenticated actor, never a body actor. */
     @Transactional
-    public Attachment createAttachment(CreateAttachmentDTO dto) {
+    public Attachment createAttachment(CreateAttachmentDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         Attachment attachment = new Attachment();
         attachment.setRelatedType(dto.getRelatedType());
         attachment.setRelatedId(dto.getRelatedId());
@@ -35,7 +39,7 @@ public class AttachmentService {
         attachment.setFilePath(dto.getFilePath());
         attachment.setFileSize(dto.getFileSize());
         attachment.setFileType(dto.getFileType());
-        attachment.setUploadedBy(dto.getUploadedBy());
+        attachment.setUploadedBy(actorId);
         attachment.setCreatedAt(LocalDateTime.now());
 
         attachmentMapper.insert(attachment);

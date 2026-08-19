@@ -32,8 +32,9 @@ public class RequirementConfirmationController {
     @Operation(summary = "创建需求确认", description = "确认需求，需求状态必须为待确认，确认后自动流转到开发中")
     @PostMapping
     @RequirePermission({"requirement:edit"})
-    public Result<RequirementConfirmation> createConfirmation(@RequestBody CreateRequirementConfirmationDTO dto) {
-        RequirementConfirmation confirmation = confirmationService.createConfirmation(dto);
+    public Result<RequirementConfirmation> createConfirmation(@RequestBody CreateRequirementConfirmationDTO dto,
+                                                                 @RequestAttribute("userId") Long actorId) {
+        RequirementConfirmation confirmation = confirmationService.createConfirmation(dto, actorId);
         return Result.success(confirmation);
     }
 

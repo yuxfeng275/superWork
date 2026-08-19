@@ -2,16 +2,19 @@
 
 ## Goal
 
-作为全系统质量治理的有序子任务，完成 `quality-p0-actor-security` 范围的问题修复、自动化回归、生产发布和证据记录。
+所有创建型审计字段必须来自认证请求的 JWT `userId`，禁止客户端通过 JSON body 伪造确认人、任务创建人、事项创建人、附件上传人、工时人员或设计人。
 
-## Entry Gate
+## Scope implemented
 
-必须遵循 `.trellis/tasks/07-27-project-quality-audit/audit-report.md` 中的依赖顺序。
+- 任务、事项、附件、普通工时、需求确认、设计工时控制器从 `@RequestAttribute("userId")` 传入 actor。
+- 服务层在写入前校验 actor 非空并覆盖 DTO 中的 legacy actor 字段。
+- 删除直接信任 actor 的无认证服务重载，避免内部调用绕过身份契约。
+- 保留 DTO 字段仅用于兼容已有客户端 payload，不读取其值作为审计身份。
 
-## Definition of Done
+## Acceptance
 
-- [ ] 问题证据与根因明确
-- [ ] 代码与规格同步
-- [ ] 自动化测试通过
-- [ ] 生产发布及真实 URL 验收
-- [ ] 回滚与剩余风险记录
+- [x] Java 17 编译通过。
+- [x] 后端 153 tests 通过。
+- [x] 任务与需求确认回归测试证明 body actor 被忽略。
+- [ ] 补充所有直接 ID 读写的项目级数据权限矩阵（后续安全基础任务）。
+- [ ] 生产发布并验证恶意 actor payload 不改变审计字段。

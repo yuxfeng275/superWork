@@ -28,8 +28,12 @@ public class IssueService {
     /**
      * 创建事项
      */
+    /** Creates an issue using the authenticated actor, never a body actor. */
     @Transactional
-    public Issue createIssue(CreateIssueDTO dto) {
+    public Issue createIssue(CreateIssueDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         Issue issue = new Issue();
         issue.setRelatedType(dto.getRelatedType());
         issue.setRelatedId(dto.getRelatedId());
@@ -39,7 +43,7 @@ public class IssueService {
         issue.setSeverity(dto.getSeverity() != null ? dto.getSeverity() : "中");
         issue.setStatus("待处理");
         issue.setAssigneeId(dto.getAssigneeId());
-        issue.setCreatedBy(dto.getCreatedBy());
+        issue.setCreatedBy(actorId);
         issue.setCreatedAt(LocalDateTime.now());
         issue.setUpdatedAt(LocalDateTime.now());
 

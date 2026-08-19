@@ -38,8 +38,9 @@ public class WorkLogController {
     @Operation(summary = "创建工时记录", description = "创建工时记录，自动汇总更新任务实际工时")
     @PostMapping
     @RequirePermission({"task:edit"})
-    public Result<WorkLog> createWorkLog(@RequestBody CreateWorkLogDTO dto) {
-        WorkLog workLog = workLogService.createWorkLog(dto);
+    public Result<WorkLog> createWorkLog(@RequestBody CreateWorkLogDTO dto,
+                                          @RequestAttribute("userId") Long actorId) {
+        WorkLog workLog = workLogService.createWorkLog(dto, actorId);
         return Result.success(workLog);
     }
 

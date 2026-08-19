@@ -59,8 +59,12 @@ public class TaskService {
     /**
      * 创建任务
      */
+    /** Creates a task with the authenticated actor; body createdBy is ignored. */
     @Transactional
-    public Task createTask(CreateTaskDTO dto) {
+    public Task createTask(CreateTaskDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         // 验证需求存在
         Requirement requirement = requirementMapper.selectById(dto.getRequirementId());
         if (requirement == null) {
@@ -76,7 +80,7 @@ public class TaskService {
         task.setTaskType(resolveTaskType(dto.getTaskType()));
         task.setEstimatedHours(dto.getEstimatedHours());
         task.setStatus("待开始");
-        task.setCreatedBy(resolveCreatedBy(dto));
+        task.setCreatedBy(actorId);
         task.setCreatedAt(LocalDateTime.now());
         task.setUpdatedAt(LocalDateTime.now());
 
@@ -232,16 +236,6 @@ public class TaskService {
 
     private String resolveTaskType(String taskType) {
         return StringUtils.hasText(taskType) ? taskType.trim() : "开发任务";
-    }
-
-    private Long resolveCreatedBy(CreateTaskDTO dto) {
-        if (dto.getCreatedBy() != null) {
-            return dto.getCreatedBy();
-        }
-        if (dto.getAssigneeId() != null) {
-            return dto.getAssigneeId();
-        }
-        return 1L;
     }
 
     private Set<Long> resolveProjectScope(Long projectId) {

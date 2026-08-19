@@ -63,13 +63,13 @@ class TaskServiceTest {
         when(requirementMapper.selectById(1L)).thenReturn(requirement);
         when(taskMapper.insert(any(Task.class))).thenReturn(1);
 
-        Task result = taskService.createTask(dto);
+        Task result = taskService.createTask(dto, 42L);
 
         assertThat(result).isNotNull();
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskMapper).insert(captor.capture());
         assertThat(captor.getValue().getTaskType()).isEqualTo("开发任务");
-        assertThat(captor.getValue().getCreatedBy()).isEqualTo(9L);
+        assertThat(captor.getValue().getCreatedBy()).isEqualTo(42L);
         assertThat(captor.getValue().getStatus()).isEqualTo("待开始");
     }
 
@@ -158,7 +158,7 @@ class TaskServiceTest {
 
         when(requirementMapper.selectById(99L)).thenReturn(null);
 
-        assertThatThrownBy(() -> taskService.createTask(dto))
+        assertThatThrownBy(() -> taskService.createTask(dto, 42L))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("需求不存在");
     }

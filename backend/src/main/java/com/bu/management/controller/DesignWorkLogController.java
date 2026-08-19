@@ -36,8 +36,9 @@ public class DesignWorkLogController {
     @Operation(summary = "创建设计工作记录", description = "创建设计工作记录")
     @PostMapping
     @RequirePermission({"requirement:edit"})
-    public Result<DesignWorkLog> createWorkLog(@RequestBody CreateDesignWorkLogDTO dto) {
-        DesignWorkLog workLog = workLogService.createWorkLog(dto);
+    public Result<DesignWorkLog> createWorkLog(@RequestBody CreateDesignWorkLogDTO dto,
+                                                    @RequestAttribute("userId") Long actorId) {
+        DesignWorkLog workLog = workLogService.createWorkLog(dto, actorId);
         return Result.success(workLog);
     }
 
@@ -49,8 +50,9 @@ public class DesignWorkLogController {
     @RequirePermission({"requirement:edit"})
     public Result<DesignWorkLog> updateWorkLog(
             @Parameter(description = "工作记录ID") @PathVariable Long id,
-            @RequestBody UpdateDesignWorkLogDTO dto) {
-        DesignWorkLog workLog = workLogService.updateWorkLog(id, dto);
+            @RequestBody UpdateDesignWorkLogDTO dto,
+            @RequestAttribute("userId") Long actorId) {
+        DesignWorkLog workLog = workLogService.updateWorkLog(id, dto, actorId);
         return Result.success(workLog);
     }
 

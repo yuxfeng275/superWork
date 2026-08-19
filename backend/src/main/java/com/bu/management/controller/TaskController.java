@@ -38,8 +38,9 @@ public class TaskController {
     @Operation(summary = "创建任务", description = "创建任务")
     @PostMapping
     @RequirePermission({"task:create"})
-    public Result<Task> createTask(@RequestBody CreateTaskDTO dto) {
-        Task task = taskService.createTask(dto);
+    public Result<Task> createTask(@RequestBody CreateTaskDTO dto,
+                                    @RequestAttribute("userId") Long actorId) {
+        Task task = taskService.createTask(dto, actorId);
         return Result.success(task);
     }
 

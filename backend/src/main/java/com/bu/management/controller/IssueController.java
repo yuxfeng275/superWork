@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+
 import java.util.List;
 
 /**
@@ -36,8 +37,9 @@ public class IssueController {
     @Operation(summary = "创建事项", description = "创建事项")
     @PostMapping
     @RequirePermission({"issue:create"})
-    public Result<Issue> createIssue(@RequestBody CreateIssueDTO dto) {
-        Issue issue = issueService.createIssue(dto);
+    public Result<Issue> createIssue(@RequestBody CreateIssueDTO dto,
+                                      @RequestAttribute("userId") Long actorId) {
+        Issue issue = issueService.createIssue(dto, actorId);
         return Result.success(issue);
     }
 

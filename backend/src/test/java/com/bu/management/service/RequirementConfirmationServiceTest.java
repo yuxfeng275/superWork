@@ -36,16 +36,17 @@ class RequirementConfirmationServiceTest {
         CreateRequirementConfirmationDTO dto = new CreateRequirementConfirmationDTO();
         dto.setRequirementId(8L);
         dto.setConfirmationType("客户确认");
-        dto.setConfirmedBy(16L);
+        dto.setConfirmedBy(999L);
 
         when(requirementMapper.selectById(8L)).thenReturn(requirement);
         when(confirmationMapper.selectOne(any(Wrapper.class))).thenReturn(null);
 
         RequirementConfirmationService service = new RequirementConfirmationService(
                 confirmationMapper, requirementMapper, handoffService);
-        RequirementConfirmation confirmation = service.createConfirmation(dto);
+        RequirementConfirmation confirmation = service.createConfirmation(dto, 16L);
 
         assertThat(confirmation.getRequirementId()).isEqualTo(8L);
+        assertThat(confirmation.getConfirmedBy()).isEqualTo(16L);
         assertThat(requirement.getStatus()).isEqualTo("开发中");
         verify(requirementMapper).updateById(requirement);
         verify(handoffService).enqueue(8L);

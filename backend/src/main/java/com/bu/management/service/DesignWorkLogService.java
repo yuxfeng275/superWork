@@ -39,8 +39,12 @@ public class DesignWorkLogService {
     /**
      * 创建设计工作记录
      */
+    /** Creates a design log with the authenticated actor as designer. */
     @Transactional
-    public DesignWorkLog createWorkLog(CreateDesignWorkLogDTO dto) {
+    public DesignWorkLog createWorkLog(CreateDesignWorkLogDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         // 验证需求存在
         Requirement requirement = requirementMapper.selectById(dto.getRequirementId());
         if (requirement == null) {
@@ -50,7 +54,7 @@ public class DesignWorkLogService {
         if (!StringUtils.hasText(dto.getWorkType())) {
             throw new RuntimeException("设计环节不能为空");
         }
-        if (dto.getDesignerId() == null) {
+        if (actorId == null) {
             throw new RuntimeException("设计负责人不能为空");
         }
 
@@ -66,7 +70,7 @@ public class DesignWorkLogService {
             workLog.setCreatedAt(LocalDateTime.now());
         }
 
-        applyWorkLog(workLog, dto.getDesignerId(), dto.getEstimatedHours(), dto.getWorkContent(), dto.getPlannedCompletedAt(), dto.getStatus());
+        applyWorkLog(workLog, actorId, dto.getEstimatedHours(), dto.getWorkContent(), dto.getPlannedCompletedAt(), dto.getStatus());
         if (workLog.getId() == null) {
             workLogMapper.insert(workLog);
         } else {
@@ -79,8 +83,12 @@ public class DesignWorkLogService {
     /**
      * 更新设计工作记录
      */
+    /** Updates a design log without permitting a body to forge its designer. */
     @Transactional
-    public DesignWorkLog updateWorkLog(Long id, UpdateDesignWorkLogDTO dto) {
+    public DesignWorkLog updateWorkLog(Long id, UpdateDesignWorkLogDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         DesignWorkLog workLog = workLogMapper.selectById(id);
         if (workLog == null) {
             throw new RuntimeException("工作记录不存在");
@@ -89,9 +97,8 @@ public class DesignWorkLogService {
         if (dto.getActualHours() != null) {
             workLog.setActualHours(dto.getActualHours());
         }
-        if (dto.getDesignerId() != null) {
-            workLog.setDesignerId(dto.getDesignerId());
-        }
+        // designerId is an audit actor and must remain the authenticated user.
+        workLog.setDesignerId(actorId);
         if (dto.getEstimatedHours() != null) {
             workLog.setEstimatedHours(dto.getEstimatedHours());
         }

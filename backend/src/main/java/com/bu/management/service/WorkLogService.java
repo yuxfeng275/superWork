@@ -33,8 +33,15 @@ public class WorkLogService {
     /**
      * 创建工时记录
      */
+    /**
+     * Creates a work log with the authenticated actor. The request userId is
+     * intentionally ignored; it is a legacy field retained for compatibility.
+     */
     @Transactional
-    public WorkLog createWorkLog(CreateWorkLogDTO dto) {
+    public WorkLog createWorkLog(CreateWorkLogDTO dto, Long actorId) {
+        if (actorId == null) {
+            throw new RuntimeException("当前登录用户不存在");
+        }
         // 验证任务存在
         Task task = taskMapper.selectById(dto.getTaskId());
         if (task == null) {
@@ -44,7 +51,7 @@ public class WorkLogService {
         // 创建工时记录
         WorkLog workLog = new WorkLog();
         workLog.setTaskId(dto.getTaskId());
-        workLog.setUserId(dto.getUserId());
+        workLog.setUserId(actorId);
         workLog.setWorkDate(dto.getWorkDate() != null ? dto.getWorkDate() : LocalDate.now());
         workLog.setHours(dto.getHours());
         workLog.setWorkContent(dto.getWorkContent());
