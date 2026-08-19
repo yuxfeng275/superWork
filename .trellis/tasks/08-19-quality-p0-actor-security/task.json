@@ -3,7 +3,7 @@
   "name": "quality-p0-actor-security",
   "title": "P0 操作者身份与权限边界",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": "fullstack",
   "scope": null,
   "priority": "P0",
@@ -14,7 +14,7 @@
   "branch": null,
   "base_branch": "master",
   "worktree_path": null,
-  "current_phase": 0,
+  "current_phase": 2,
   "next_action": [
     {
       "phase": 1,
@@ -39,6 +39,6 @@
   "children": [],
   "parent": "07-27-project-quality-audit",
   "relatedFiles": [],
-  "notes": "Sequenced under full-system quality governance. Do not start before predecessor gates pass.",
+  "notes": "Implementation committed fdf83d5 and pushed/deployed at 2026-08-19 12:12 CST; actor-bearing create endpoints now require JWT userId and ignore body actor. Backend package/tests pass (153 tests). Remaining: add controller/JWT adversarial tests and complete central project-scope authorization.",
   "meta": {}
 }
