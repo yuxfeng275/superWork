@@ -966,7 +966,8 @@ function weekComparison(matter: BuKeyMatter) {
   const current = reportUpdate(matter)
   if (!current) {
     if (isCompletedMatter(matter)) return { label: '本周已完成，无需更新', tone: 'complete' }
-    return { label: '本周待更新', tone: 'missing' }
+    if (canFeedbackMatter(matter)) return { label: '本周待更新', tone: 'missing' }
+    return { label: '待负责人反馈', tone: 'muted' }
   }
   const previousWeek = previousWeekStart(selectedWeek.value)
   const previous = matter.weeklyUpdates?.find(update => update.weekStartDate === previousWeek)
@@ -1679,7 +1680,8 @@ onBeforeUnmount(() => {
                 <el-icon><CircleCheck /></el-icon>已更新
               </span>
               <span v-else-if="isCompletedMatter(row)" class="completed-update-state">无需更新</span>
-              <span v-else class="pending-state">本周待更新</span>
+              <span v-else-if="canFeedbackMatter(row)" class="pending-state">本周待更新</span>
+              <span v-else class="feedback-waiting-state">待负责人反馈</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="126" fixed="right" align="center">
@@ -1834,8 +1836,7 @@ onBeforeUnmount(() => {
                         size="small"
                         @click="openPresentation(presentationIndexOf(matter.id))"
                       >立即更新</el-button>
-                      <span v-else-if="!reportUpdate(matter)" class="feedback-waiting-state">待负责人反馈</span>
-                      <el-button v-else-if="canFeedbackMatter(matter)" link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
+                      <el-button v-else-if="reportUpdate(matter) && canFeedbackMatter(matter)" link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
                     </template>
                   </div>
                 </header>
