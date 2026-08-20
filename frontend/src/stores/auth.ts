@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api } from '@/utils/api'
+import { api, type KeyMatterAccess } from '@/utils/api'
 
 export interface User {
   id: number
@@ -15,6 +15,45 @@ export interface User {
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
   const user = ref<User | null>(null)
+  const keyMatterAccess = ref<KeyMatterAccess | null>(null)
+  let keyMatterAccessRequest: Promise<KeyMatterAccess> | null = null
+  let keyMatterAccessGeneration = 0
+
+  const deniedKeyMatterAccess = (): KeyMatterAccess => ({
+    canAccess: false,
+    canManageAll: false,
+    canFeedbackOwn: false
+  })
+
+  const resetKeyMatterAccess = () => {
+    keyMatterAccessGeneration += 1
+    keyMatterAccess.value = null
+    keyMatterAccessRequest = null
+  }
+
+  const loadKeyMatterAccess = (force = false): Promise<KeyMatterAccess> => {
+    if (keyMatterAccessRequest) return keyMatterAccessRequest
+    if (!force && keyMatterAccess.value) return Promise.resolve(keyMatterAccess.value)
+
+    const generation = keyMatterAccessGeneration
+    const request = api.getKeyMatterAccess()
+      .then(access => {
+        if (generation !== keyMatterAccessGeneration) return deniedKeyMatterAccess()
+        keyMatterAccess.value = access
+        return access
+      })
+      .catch(() => {
+        const denied = deniedKeyMatterAccess()
+        if (generation === keyMatterAccessGeneration) keyMatterAccess.value = denied
+        return denied
+      })
+      .finally(() => {
+        if (keyMatterAccessRequest === request) keyMatterAccessRequest = null
+      })
+
+    keyMatterAccessRequest = request
+    return request
+  }
 
   const isLoggedIn = () => !!token.value
 
@@ -22,6 +61,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await api.login(username, password)
 
+      resetKeyMatterAccess()
       token.value = response.accessToken
       user.value = {
         id: response.userInfo.id,
@@ -53,6 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await api.register(data)
 
+      resetKeyMatterAccess()
       token.value = response.accessToken
       user.value = {
         id: response.userInfo.id,
@@ -74,6 +115,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const logout = () => {
+    resetKeyMatterAccess()
     token.value = null
     user.value = null
     localStorage.removeItem('token')
@@ -84,16 +126,17 @@ export const useAuthStore = defineStore('auth', () => {
   const initAuth = () => {
     const storedToken = localStorage.getItem('token')
     const storedUser = localStorage.getItem('user')
-    if (storedToken && storedUser) {
-      token.value = storedToken
-      user.value = JSON.parse(storedUser)
-    }
+    if (storedToken !== token.value) resetKeyMatterAccess()
+    token.value = storedToken
+    user.value = storedToken && storedUser ? JSON.parse(storedUser) : null
   }
 
   return {
     token,
     user,
+    keyMatterAccess,
     isLoggedIn,
+    loadKeyMatterAccess,
     login,
     register,
     logout,

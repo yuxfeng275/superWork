@@ -8,6 +8,7 @@ import com.bu.management.entity.BuKeyMatterWeeklyUpdate;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.User;
 import com.bu.management.mapper.BuKeyMatterMapper;
+import com.bu.management.mapper.BuKeyMatterParticipantMapper;
 import com.bu.management.mapper.BuKeyMatterWeeklyUpdateMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.UserMapper;
@@ -36,12 +37,16 @@ class BuKeyMatterServiceTest {
     @Mock private BuKeyMatterWeeklyUpdateMapper weeklyUpdateMapper;
     @Mock private UserMapper userMapper;
     @Mock private ProjectMapper projectMapper;
+    @Mock private BuKeyMatterParticipantMapper participantMapper;
+    @Mock private BuKeyMatterAccessService accessService;
 
     private BuKeyMatterService service;
 
     @BeforeEach
     void setUp() {
-        service = new BuKeyMatterService(matterMapper, weeklyUpdateMapper, userMapper, projectMapper);
+        service = new BuKeyMatterService(
+                matterMapper, weeklyUpdateMapper, userMapper, projectMapper,
+                participantMapper, accessService);
     }
 
     @Test
@@ -116,7 +121,7 @@ class BuKeyMatterServiceTest {
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
         BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("有风险", 60, "核心链路联调完成");
 
-        BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(11L, week, request, 16L);
+        BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng");
 
         assertThat(saved.getId()).isEqualTo(21L);
         assertThat(saved.getProgress()).isEqualTo(60);
@@ -125,6 +130,19 @@ class BuKeyMatterServiceTest {
         assertThat(matter.getProgress()).isEqualTo(60);
         verify(weeklyUpdateMapper).updateById(existing);
         verify(matterMapper).updateById(matter);
+    }
+
+    @Test
+    void weeklyUpsertAuthorizesCurrentUserAfterLockingMatter() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+
+        service.upsertWeeklyUpdate(11L, week, weeklyRequest("推进中", 40, "进展正常"), 7L, "shijiale");
+
+        verify(accessService).requireFeedback(matter, 7L, "shijiale");
     }
 
     @Test
@@ -138,7 +156,7 @@ class BuKeyMatterServiceTest {
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(latest));
 
         service.upsertWeeklyUpdate(
-                11L, olderWeek, weeklyRequest("有风险", 50, "补录历史进展"), 16L);
+                11L, olderWeek, weeklyRequest("有风险", 50, "补录历史进展"), 16L, "yufeng");
 
         assertThat(matter.getStatus()).isEqualTo("推进中");
         assertThat(matter.getProgress()).isEqualTo(80);
@@ -156,7 +174,7 @@ class BuKeyMatterServiceTest {
         // Blank summary would fail request validation; the guard must reject first.
         BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("已完成", 100, "");
 
-        assertThatThrownBy(() -> service.upsertWeeklyUpdate(11L, week, request, 16L))
+        assertThatThrownBy(() -> service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("已完成事项无需新增周进展");
 
@@ -177,7 +195,7 @@ class BuKeyMatterServiceTest {
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
 
         BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
-                11L, week, weeklyRequest("推进中", 90, "补充交付说明"), 16L);
+                11L, week, weeklyRequest("推进中", 90, "补充交付说明"), 16L, "yufeng");
 
         assertThat(saved.getId()).isEqualTo(21L);
         assertThat(saved.getStatus()).isEqualTo("推进中");
@@ -203,7 +221,7 @@ class BuKeyMatterServiceTest {
         });
 
         BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
-                11L, week, weeklyRequest("有风险", 60, "核心链路联调完成"), 16L);
+                11L, week, weeklyRequest("有风险", 60, "核心链路联调完成"), 16L, "yufeng");
 
         assertThat(saved.getId()).isEqualTo(31L);
         assertThat(saved.getKeyMatterId()).isEqualTo(11L);

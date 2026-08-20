@@ -14,6 +14,19 @@ test.beforeEach(async ({ page }) => {
     )
   })
 
+  await page.route('**/api/key-matters/access', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: { canAccess: false, canManageAll: false, canFeedbackOwn: false },
+        timestamp: new Date().toISOString()
+      })
+    })
+  })
+
   await page.route('**/api/requirements**', async route => {
     await route.fulfill({
       status: 200,

@@ -11,4 +11,7 @@ public interface BuKeyMatterMapper extends BaseMapper<BuKeyMatter> {
 
     @Select("SELECT * FROM bu_key_matter WHERE id = #{id} FOR UPDATE")
     BuKeyMatter selectByIdForUpdate(@Param("id") Long id);
+
+    @Select("SELECT COUNT(1) > 0 FROM bu_key_matter WHERE owner_id = #{userId}")
+    boolean existsByOwnerId(@Param("userId") Long userId);
 }

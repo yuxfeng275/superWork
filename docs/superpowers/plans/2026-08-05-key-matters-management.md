@@ -6,6 +6,8 @@
 
 **Architecture:** Add two purpose-built MySQL tables behind a focused Spring service and controller. Enforce `admin/yufeng` at both the backend interceptor and Vue route/menu boundary, then expose a single Vue workbench with register and meeting views.
 
+> **Superseded access contract:** The fixed `admin/yufeng` access design below is archival. Participant relationships, RBAC capabilities, and owner feedback rules are defined by the [2026-08-20 participant/owner feedback plan](2026-08-20-key-matter-participant-owner-feedback.md). Historical implementation steps remain here for reference.
+
 **Tech Stack:** Spring Boot 3.2, MyBatis-Plus, Flyway, JUnit 5/Mockito, Vue 3 TypeScript, Element Plus, Playwright.
 
 ---

@@ -1,4 +1,18 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
+
+const adminKeyMatterAccess = {
+  canAccess: true,
+  canManageAll: true,
+  canFeedbackOwn: true
+}
+
+function fulfillAdminKeyMatterAccess(route: Route) {
+  return route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: adminKeyMatterAccess })
+  })
+}
 
 const coreMatters = [
   {
@@ -9,6 +23,10 @@ const coreMatters = [
     projectName: '皇家全渠道定制项目',
     ownerId: 7,
     ownerName: '石家乐',
+    participants: [
+      { userId: 7, username: 'shijiale', realName: '石家乐' },
+      { userId: 16, username: 'yufeng', realName: '于峰' }
+    ],
     priority: 'P0',
     status: '有风险',
     progress: 60,
@@ -63,6 +81,10 @@ const coreMatters = [
     projectId: null,
     ownerId: 16,
     ownerName: '于峰',
+    participants: [
+      { userId: 16, username: 'yufeng', realName: '于峰' },
+      { userId: 7, username: 'shijiale', realName: '石家乐' }
+    ],
     priority: 'P1',
     status: '推进中',
     progress: 35,
@@ -87,6 +109,9 @@ const matters = [
     projectName: index % 2 === 0 ? '皇家全渠道定制项目' : undefined,
     ownerId: index % 2 === 0 ? 7 : 16,
     ownerName: index % 2 === 0 ? '石家乐' : '于峰',
+    participants: index % 2 === 0
+      ? [{ userId: 7, username: 'shijiale', realName: '石家乐' }]
+      : [{ userId: 16, username: 'yufeng', realName: '于峰' }],
     priority: index % 3 === 0 ? 'P1' : 'P2',
     status: '推进中',
     progress: 10 + index,
@@ -176,6 +201,7 @@ async function installCompletedMatterRoutes(page: Page) {
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() !== 'GET') {
       return route.fulfill({
         status: 405,
@@ -232,6 +258,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'POST' || request.method() === 'PUT') {
       return route.fulfill({
         status: 200,
@@ -388,6 +415,7 @@ test('周会首次访问等待数据完成后再显示事项内容', async ({ pa
   await page.unroute('**/api/key-matters**')
   await page.route('**/api/key-matters**', async route => {
     const path = new URL(route.request().url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (path === '/api/key-matters/meeting') await meetingGate
     await route.fulfill({
       status: 200,
@@ -645,11 +673,15 @@ test('周会快速导航内容超出时在卡片内部滚动', async ({ page }) 
     sortOrder: index
   }))
   await page.unroute('**/api/key-matters**')
-  await page.route('**/api/key-matters**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ code: 200, data: groupedMatters })
-  }))
+  await page.route('**/api/key-matters**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: groupedMatters })
+    })
+  })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/key-matters-meeting')
 
@@ -678,11 +710,15 @@ test('指定女性负责人在列表与周会中使用独立配色', async ({ pa
     ownerName: '丛宁'
   }
   await page.unroute('**/api/key-matters**')
-  await page.route('**/api/key-matters**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ code: 200, data: [femaleMatter] })
-  }))
+  await page.route('**/api/key-matters**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [femaleMatter] })
+    })
+  })
 
   await page.goto('/key-matters')
   await expect(page.locator('.owner-name.female')).toHaveText('丛宁')
@@ -733,7 +769,7 @@ test('新增事项提交完整负责人和计划周期', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: '新增大事儿' })
 
   await dialog.getByLabel('事项标题').fill('客户体验专项治理')
-  await dialog.locator('.el-form-item', { hasText: '负责人' }).locator('.el-select').click()
+  await dialog.getByLabel('负责人').press('ArrowDown')
   await page.getByRole('option', { name: '石家乐' }).click()
   await dialog.getByLabel('开始日期').fill('2026-08-05')
   await dialog.getByLabel('计划完成').fill('2026-08-31')
@@ -796,6 +832,7 @@ test('已完成事项保留历史修正入口且周会只读', async ({ page }) 
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() !== 'GET') {
       return route.fulfill({
         status: 405,
@@ -857,6 +894,7 @@ test('填写期间事项被完成后关闭新增表单并刷新状态', async ({
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
       matter12 = {
         ...matter12,
@@ -934,6 +972,7 @@ test('演示填写期间事项被完成后仍定位原事项', async ({ page }) 
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
       targetCompleted = true
       return route.fulfill({

@@ -4,7 +4,7 @@
 
 **Goal:** 增加大事儿多参与人关系和动态访问授权，让负责人可反馈本人事项周进度、参与人可查看全部事项但保持只读，管理员继续拥有全部管理权限。
 
-**Architecture:** 通过 Flyway V33 建立 `bu_key_matter_participant` 关系表，并在事项事务中维护负责人必在参与人集合的不变量。后端新增能力服务和领域授权：管理员依赖用户名 + `bu:key-matter:manage`，负责人/参与人依赖当前关系；周进度写路径继续在事项行锁内判断当前 `ownerId`，负责人变化立即转移写权限。前端通过 `/api/key-matters/access` 控制菜单和路由，并在大事儿页面按 `canManageAll` 与 `matter.ownerId === currentUser.id` 控制操作入口。
+**Architecture:** 通过 Flyway V33 建立 `bu_key_matter_participant` 关系表，并在事项事务中维护负责人必在参与人集合的不变量。读取和反馈能力将当前参与人/负责人关系分别与 `bu:key-matter:view` / `bu:key-matter:feedback` RBAC 权限组合；管理员管理权限必须同时满足用户名为 `admin` 或 `yufeng` 以及 `bu:key-matter:manage`。周进度写路径继续在事项行锁内判断当前 `ownerId`，负责人变化立即转移写权限。前端通过 `/api/key-matters/access` 控制菜单和路由，并在大事儿页面按 `canManageAll` 与 `matter.ownerId === currentUser.id` 控制操作入口。
 
 **Tech Stack:** Spring Boot 3.2、MyBatis Plus、MySQL/Flyway、JUnit 5/Mockito/H2、Vue 3、Pinia、Vue Router、Element Plus、Playwright
 
@@ -389,20 +389,37 @@ The tests must assert mapper delete/insert calls and returned participant view d
 
 Extend `BuKeyMatterService` constructor with `BuKeyMatterParticipantMapper` and `BuKeyMatterAccessService`.
 
-Implement normalization:
+Implement create/update-specific normalization. Create treats a missing or empty list as owner-only. Update preserves existing relations when the field is omitted, but an explicit empty list replaces them with owner-only:
 
 ```java
-private List<Long> normalizeParticipantIds(BuKeyMatterRequest request) {
-    LinkedHashSet<Long> ids = new LinkedHashSet<>();
+private List<Long> normalizeCreateParticipantIds(BuKeyMatterRequest request) {
+    return normalizeSubmittedParticipantIds(request.getParticipantIds(), request.getOwnerId());
+}
+
+private List<Long> normalizeUpdateParticipantIds(
+        Long matterId, BuKeyMatterRequest request) {
     if (request.getParticipantIds() != null) {
-        request.getParticipantIds().stream().filter(Objects::nonNull).forEach(ids::add);
+        return normalizeSubmittedParticipantIds(request.getParticipantIds(), request.getOwnerId());
     }
+    LinkedHashSet<Long> ids = participantMapper.selectList(
+            new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                    .eq(BuKeyMatterParticipant::getKeyMatterId, matterId)
+                    .orderByAsc(BuKeyMatterParticipant::getId)).stream()
+            .map(BuKeyMatterParticipant::getUserId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
     ids.add(request.getOwnerId());
+    return List.copyOf(ids);
+}
+
+private List<Long> normalizeSubmittedParticipantIds(List<Long> submitted, Long ownerId) {
+    LinkedHashSet<Long> ids = new LinkedHashSet<>();
+    if (submitted != null) submitted.stream().filter(Objects::nonNull).forEach(ids::add);
+    ids.add(ownerId);
     return List.copyOf(ids);
 }
 ```
 
-Validate each selected user with `userMapper.selectBatchIds`; reject missing/disabled with exact `参与人不存在或已停用`. Keep owner validation and project validation unchanged.
+Validate each newly submitted user with `userMapper.selectBatchIds`; reject missing/disabled with exact `参与人不存在或已停用`. Keep owner validation and project validation unchanged. Existing persisted relations on an omitted-field update are preserved for stale-client safety.
 
 After `matterMapper.insert/updateById`, synchronize relation rows in the same `@Transactional` method:
 
@@ -767,7 +784,7 @@ git commit -m "feat(key-matters): add participants and owner feedback controls"
 Add executable entries for:
 
 ```markdown
-GET /api/key-matters/access -> KeyMatterAccessView
+GET /api/key-matters/access -> BuKeyMatterAccessView
 GET/list/detail/meeting -> view/manage plus participant relationship
 POST/PUT/DELETE matter -> manage plus admin username
 PUT/DELETE weekly -> feedback/manage plus current owner after row lock
@@ -794,7 +811,7 @@ cd backend
 mvn test
 ```
 
-Expected: `BUILD SUCCESS`, including Flyway/migration integration checks, access tests, participant tests, lock tests, and all previous 157+ tests.
+Expected: `BUILD SUCCESS`, including access tests, participant compatibility tests, lock tests, controller contracts, and all previous tests. The unit profile disables Flyway, so real MySQL migration execution is verified separately in Step 5.
 
 - [ ] **Step 4: Run full frontend regression**
 

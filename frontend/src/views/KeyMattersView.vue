@@ -4,11 +4,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Calendar, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '@/utils/api'
+import { ApiRequestError, api } from '@/utils/api'
+import { useAuthStore } from '@/stores/auth'
 import type {
   BuKeyMatter,
+  BuKeyMatterParticipant,
   BuKeyMatterPayload,
   BuKeyMatterWeeklyUpdate,
+  KeyMatterAccess,
   BuKeyMatterWeeklyUpdatePayload
 } from '@/utils/api'
 
@@ -36,6 +39,7 @@ interface MatterFormState {
   description: string
   projectId?: number
   ownerId?: number
+  participantIds: number[]
   priority: string
   status: string
   progress: number
@@ -101,6 +105,9 @@ interface PresentationGroup {
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const currentUserId = computed(() => authStore.user?.id)
+const canManageAll = computed(() => authStore.keyMatterAccess?.canManageAll === true)
 const isMeetingStandalone = computed(() => route.name === 'KeyMattersMeeting')
 const statusOptions = ['未开始', '推进中', '有风险', '已阻塞', '已完成', '已暂停']
 const priorityOptions = ['P0', 'P1', 'P2']
@@ -114,6 +121,18 @@ function requiresWeeklyUpdate(matter: BuKeyMatter) {
 function isCompletedWeeklyUpdateError(error: unknown) {
   return error instanceof Error
     && error.message.includes('已完成事项无需新增周进展')
+}
+const ownerFeedbackForbiddenMessage = '仅事项负责人可反馈周进度'
+function isOwnerFeedbackForbiddenError(error: unknown) {
+  return error instanceof ApiRequestError
+    && error.status === 403
+    && error.message === ownerFeedbackForbiddenMessage
+}
+function canFeedbackMatter(matter: BuKeyMatter) {
+  return canManageAll.value || (
+    authStore.keyMatterAccess?.canFeedbackOwn === true
+    && matter.ownerId === currentUserId.value
+  )
 }
 const matters = ref<BuKeyMatter[]>([])
 const allMatters = ref<BuKeyMatter[]>([])
@@ -436,6 +455,7 @@ function emptyMatterForm(): MatterFormState {
     description: '',
     projectId: undefined,
     ownerId: undefined,
+    participantIds: [],
     priority: 'P1',
     status: '未开始',
     progress: 0,
@@ -458,6 +478,97 @@ function normalizeRecords<T>(payload: unknown): T[] {
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
 }
+
+function isForbiddenError(error: unknown) {
+  return error instanceof ApiRequestError && error.status === 403
+}
+
+let keyMatterPageActive = true
+let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+const inactiveKeyMatterAccess: KeyMatterAccess = {
+  canAccess: false,
+  canManageAll: false,
+  canFeedbackOwn: false
+}
+function isKeyMatterRoute(path: string) {
+  return path === '/key-matters' || path === '/key-matters-meeting'
+}
+function canRecoverKeyMatterPage() {
+  return keyMatterPageActive && isKeyMatterRoute(route.path)
+}
+
+async function refreshAccessAfterForbidden(error: unknown) {
+  if (!isForbiddenError(error)) return null
+  if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
+  if (forbiddenAccessRefresh) return forbiddenAccessRefresh
+
+  ElMessage.error(errorMessage(error, '无权操作大事儿'))
+  const recovery = (async () => {
+    const access = await authStore.loadKeyMatterAccess(true)
+    if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
+    if (!access.canAccess) await router.push('/')
+    return access
+  })()
+  forbiddenAccessRefresh = recovery
+  try {
+    return await recovery
+  } finally {
+    if (forbiddenAccessRefresh === recovery) forbiddenAccessRefresh = null
+  }
+}
+
+function denyManageAction() {
+  ElMessage.warning('仅管理员可维护大事儿')
+}
+
+function denyFeedbackAction() {
+  ElMessage.warning('仅事项负责人可反馈周进度')
+}
+
+function findMatterById(matterId: number) {
+  return [...meetingMatters.value, ...matters.value, ...allMatters.value, ...milestoneMatters.value]
+    .find(matter => matter.id === matterId)
+    || (selectedMatter.value?.id === matterId ? selectedMatter.value : undefined)
+}
+
+function matterParticipants(matter: BuKeyMatter): BuKeyMatterParticipant[] {
+  const byUserId = new Map<number, BuKeyMatterParticipant>()
+  for (const participant of matter.participants || []) {
+    byUserId.set(participant.userId, participant)
+  }
+  if (!byUserId.has(matter.ownerId)) {
+    byUserId.set(matter.ownerId, {
+      userId: matter.ownerId,
+      username: '',
+      realName: matter.ownerName || '未指定负责人'
+    })
+  }
+  return Array.from(byUserId.values())
+}
+
+function participantName(participant: BuKeyMatterParticipant) {
+  return participant.realName || participant.username || `用户 ${participant.userId}`
+}
+
+function compactParticipantText(matter: BuKeyMatter) {
+  const participants = matterParticipants(matter)
+  const names = participants.slice(0, 2).map(participantName)
+  return `${names.join('、')}${participants.length > 2 ? ` +${participants.length - 2}` : ''}`
+}
+
+function ensureOwnerParticipant() {
+  const ownerId = matterForm.ownerId
+  if (ownerId !== undefined && !matterForm.participantIds.includes(ownerId)) {
+    matterForm.participantIds.push(ownerId)
+  }
+}
+
+function handleMatterOwnerChange() {
+  ensureOwnerParticipant()
+}
+
+watch(() => matterForm.ownerId, ensureOwnerParticipant)
+watch(() => matterForm.participantIds, ensureOwnerParticipant, { deep: true })
 
 async function loadBaseData() {
   try {
@@ -495,7 +606,10 @@ async function loadMatters() {
     allMatters.value = completeResult ?? result
     clampCurrentPage()
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '大事儿台账加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '大事儿台账加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -507,7 +621,10 @@ async function loadMeeting() {
   try {
     meetingMatters.value = await api.getKeyMatterMeeting(selectedWeek.value)
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '周会数据加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '周会数据加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -519,7 +636,10 @@ async function loadMilestones() {
   try {
     milestoneMatters.value = await api.getKeyMatters()
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '里程碑数据加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '里程碑数据加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -596,18 +716,31 @@ function applyQuickListFilter(type: 'project' | 'owner', id?: number) {
 }
 
 function openCreate() {
+  if (!canManageAll.value) {
+    denyManageAction()
+    return
+  }
   editingMatterId.value = undefined
   Object.assign(matterForm, emptyMatterForm())
   matterDrawer.value = true
 }
 
 function openEdit(matter: BuKeyMatter) {
+  if (!canManageAll.value) {
+    denyManageAction()
+    return
+  }
   editingMatterId.value = matter.id
   Object.assign(matterForm, {
     title: matter.title,
     description: matter.description || '',
     projectId: matter.projectId,
     ownerId: matter.ownerId,
+    participantIds: Array.from(new Set(
+      matter.participants?.length
+        ? matter.participants.map(participant => participant.userId)
+        : [matter.ownerId]
+    )),
     priority: matter.priority,
     status: matter.status,
     progress: matter.progress,
@@ -625,6 +758,10 @@ function handleMatterStatusChange(status: string | number | boolean | undefined)
 }
 
 async function saveMatter() {
+  if (!canManageAll.value) {
+    denyManageAction()
+    return
+  }
   if (!matterFormRef.value) return
   const valid = await matterFormRef.value.validate().catch(() => false)
   if (!valid || matterForm.ownerId === undefined) return
@@ -637,6 +774,7 @@ async function saveMatter() {
     description: matterForm.description.trim() || undefined,
     projectId: matterForm.projectId,
     ownerId: matterForm.ownerId,
+    participantIds: Array.from(new Set([...matterForm.participantIds, matterForm.ownerId])),
     priority: matterForm.priority,
     status: matterForm.status,
     progress: matterForm.status === '已完成' ? 100 : matterForm.progress,
@@ -656,13 +794,23 @@ async function saveMatter() {
     matterDrawer.value = false
     await refreshActiveMode()
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '事项保存失败'))
+    const access = await refreshAccessAfterForbidden(error)
+    if (access) {
+      matterDrawer.value = false
+      if (access.canAccess) await refreshActiveMode()
+    } else {
+      ElMessage.error(errorMessage(error, '事项保存失败'))
+    }
   } finally {
     matterSaving.value = false
   }
 }
 
 async function confirmDeleteMatter(matter: BuKeyMatter) {
+  if (!canManageAll.value) {
+    denyManageAction()
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确定删除「${matter.title}」吗？其全部周进展也会删除。`,
@@ -674,7 +822,12 @@ async function confirmDeleteMatter(matter: BuKeyMatter) {
     detailDrawer.value = false
     await refreshActiveMode()
   } catch (error: unknown) {
-    if (error instanceof Error) ElMessage.error(errorMessage(error, '事项删除失败'))
+    const access = await refreshAccessAfterForbidden(error)
+    if (access?.canAccess) {
+      await refreshActiveMode()
+    } else if (!access && error instanceof Error) {
+      ElMessage.error(errorMessage(error, '事项删除失败'))
+    }
   }
 }
 
@@ -688,13 +841,20 @@ async function openDetail(matter: BuKeyMatter) {
       selectedMatter.value = detail
     }
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '事项详情加载失败'))
+    if (isForbiddenError(error)) detailDrawer.value = false
+    if (!await refreshAccessAfterForbidden(error)) {
+      ElMessage.error(errorMessage(error, '事项详情加载失败'))
+    }
   } finally {
     detailLoading.value = false
   }
 }
 
 function openWeekly(matter: BuKeyMatter, week = selectedWeek.value) {
+  if (!canFeedbackMatter(matter)) {
+    denyFeedbackAction()
+    return
+  }
   const update = matter.weeklyUpdates?.find(item => item.weekStartDate === week)
     || (matter.currentWeekUpdate?.weekStartDate === week ? matter.currentWeekUpdate : undefined)
   if (isCompletedMatter(matter) && !update) {
@@ -741,8 +901,50 @@ function selectPresentationStatus(status: string) {
   handlePresentationStatusChange(status)
 }
 
+async function refreshMatterState(matterId: number) {
+  if (mode.value === 'meeting') {
+    await loadMeeting()
+    const refreshedIndex = presentationOrderedMatters.value.findIndex(matter => matter.id === matterId)
+    presentationIndex.value = refreshedIndex >= 0
+      ? refreshedIndex
+      : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
+    hydratePresentationForm()
+    return
+  }
+
+  await refreshActiveMode()
+  if (selectedMatter.value?.id === matterId) {
+    selectedMatter.value = findMatterById(matterId)
+  }
+}
+
+async function recoverOwnerFeedbackForbidden(error: unknown, matterId: number) {
+  if (!isOwnerFeedbackForbiddenError(error)) return false
+  if (!canRecoverKeyMatterPage()) return true
+
+  ElMessage.error(ownerFeedbackForbiddenMessage)
+  const access = await authStore.loadKeyMatterAccess(true)
+  if (!canRecoverKeyMatterPage()) return true
+
+  weeklyDrawer.value = false
+  presentationEditing.value = false
+  presentationDrafts.delete(matterId)
+  if (!access.canAccess) {
+    await router.push('/')
+    return true
+  }
+
+  await refreshMatterState(matterId)
+  return true
+}
+
 async function saveWeeklyUpdate() {
   if (!weeklyFormRef.value || weeklyMatterId.value === undefined) return
+  const matter = findMatterById(weeklyMatterId.value)
+  if (!matter || !canFeedbackMatter(matter)) {
+    denyFeedbackAction()
+    return
+  }
   const valid = await weeklyFormRef.value.validate().catch(() => false)
   if (!valid) return
   weeklySaving.value = true
@@ -759,10 +961,18 @@ async function saveWeeklyUpdate() {
     weeklyDrawer.value = false
     await refreshActiveMode()
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '周进展保存失败'))
-    if (!weeklyEditingExisting.value && isCompletedWeeklyUpdateError(error)) {
-      weeklyDrawer.value = false
-      await refreshActiveMode()
+    if (!await recoverOwnerFeedbackForbidden(error, weeklyMatterId.value)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access) {
+        weeklyDrawer.value = false
+        if (access.canAccess) await refreshMatterState(weeklyMatterId.value)
+      } else {
+        ElMessage.error(errorMessage(error, '周进展保存失败'))
+        if (!weeklyEditingExisting.value && isCompletedWeeklyUpdateError(error)) {
+          weeklyDrawer.value = false
+          await refreshActiveMode()
+        }
+      }
     }
   } finally {
     weeklySaving.value = false
@@ -770,6 +980,10 @@ async function saveWeeklyUpdate() {
 }
 
 async function confirmDeleteWeekly(matter: BuKeyMatter, update: BuKeyMatterWeeklyUpdate) {
+  if (!canFeedbackMatter(matter)) {
+    denyFeedbackAction()
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确定删除 ${update.weekStartDate} 这一周的进展吗？`,
@@ -781,7 +995,14 @@ async function confirmDeleteWeekly(matter: BuKeyMatter, update: BuKeyMatterWeekl
     await openDetail(matter)
     await loadMatters()
   } catch (error: unknown) {
-    if (error instanceof Error) ElMessage.error(errorMessage(error, '周进展删除失败'))
+    if (!await recoverOwnerFeedbackForbidden(error, matter.id)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access?.canAccess) {
+        await refreshMatterState(matter.id)
+      } else if (!access && error instanceof Error) {
+        ElMessage.error(errorMessage(error, '周进展删除失败'))
+      }
+    }
   }
 }
 
@@ -825,7 +1046,8 @@ function weekComparison(matter: BuKeyMatter) {
   const current = reportUpdate(matter)
   if (!current) {
     if (isCompletedMatter(matter)) return { label: '本周已完成，无需更新', tone: 'complete' }
-    return { label: '本周待更新', tone: 'missing' }
+    if (canFeedbackMatter(matter)) return { label: '本周待更新', tone: 'missing' }
+    return { label: '待负责人反馈', tone: 'muted' }
   }
   const previousWeek = previousWeekStart(selectedWeek.value)
   const previous = matter.weeklyUpdates?.find(update => update.weekStartDate === previousWeek)
@@ -1008,7 +1230,7 @@ function hydratePresentationForm(forceEdit = false) {
     nextWeekPlan: draft.nextWeekPlan,
     supportNeeded: draft.supportNeeded
   })
-  if (isCompletedMatter(matter)) {
+  if (isCompletedMatter(matter) || !canFeedbackMatter(matter)) {
     presentationEditing.value = false
     return
   }
@@ -1078,6 +1300,10 @@ function presentationIndexOf(matterId: number) {
 function startPresentationEdit() {
   const matter = presentationMatter.value
   if (!matter || isCompletedMatter(matter)) return
+  if (!canFeedbackMatter(matter)) {
+    denyFeedbackAction()
+    return
+  }
   hydratePresentationForm(true)
 }
 
@@ -1090,6 +1316,10 @@ async function savePresentationAndNext() {
   const matter = presentationMatter.value
   if (!matter) return
   if (isCompletedMatter(matter)) return
+  if (!canFeedbackMatter(matter)) {
+    denyFeedbackAction()
+    return
+  }
   const progressSummary = presentationForm.progressSummary.trim()
   if (!progressSummary) {
     ElMessage.warning('请至少填写一项本周进展')
@@ -1116,15 +1346,24 @@ async function savePresentationAndNext() {
       : Math.min(nextIndex, Math.max(presentationOrderedMatters.value.length - 1, 0))
     hydratePresentationForm()
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '周报保存失败'))
-    if (isCompletedWeeklyUpdateError(error)) {
-      presentationDrafts.delete(matter.id)
-      await loadMeeting()
-      const refreshedIndex = presentationOrderedMatters.value.findIndex(item => item.id === matter.id)
-      presentationIndex.value = refreshedIndex >= 0
-        ? refreshedIndex
-        : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
-      hydratePresentationForm()
+    if (!await recoverOwnerFeedbackForbidden(error, matter.id)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access) {
+        presentationEditing.value = false
+        presentationDrafts.delete(matter.id)
+        if (access.canAccess) await refreshMatterState(matter.id)
+      } else {
+        ElMessage.error(errorMessage(error, '周报保存失败'))
+        if (isCompletedWeeklyUpdateError(error)) {
+          presentationDrafts.delete(matter.id)
+          await loadMeeting()
+          const refreshedIndex = presentationOrderedMatters.value.findIndex(item => item.id === matter.id)
+          presentationIndex.value = refreshedIndex >= 0
+            ? refreshedIndex
+            : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
+          hydratePresentationForm()
+        }
+      }
     }
   } finally {
     presentationSaving.value = false
@@ -1204,6 +1443,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  keyMatterPageActive = false
   window.removeEventListener('keydown', handlePresentationKeydown)
   window.removeEventListener('resize', updateMilestoneScrollState)
   document.removeEventListener('fullscreenchange', handlePresentationFullscreenChange)
@@ -1275,7 +1515,7 @@ onBeforeUnmount(() => {
           aria-label="刷新"
           @click="refreshActiveMode"
         />
-        <el-button type="primary" :icon="Plus" @click="openCreate">新增事项</el-button>
+        <el-button v-if="canManageAll" type="primary" :icon="Plus" @click="openCreate">新增事项</el-button>
       </div>
     </section>
 
@@ -1491,6 +1731,12 @@ onBeforeUnmount(() => {
             <template #default="{ row }">
               <div class="matter-title">{{ row.title }}</div>
               <div class="matter-subline">{{ projectPresentation(row).displayName }}</div>
+              <div class="matter-participants" :aria-label="`${row.title}参与人`">
+                <span v-for="participant in matterParticipants(row).slice(0, 2)" :key="participant.userId">
+                  {{ participantName(participant) }}<b v-if="participant.userId === row.ownerId">负责人</b>
+                </span>
+                <em v-if="matterParticipants(row).length > 2">+{{ matterParticipants(row).length - 2 }}</em>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="负责人" width="90">
@@ -1522,12 +1768,13 @@ onBeforeUnmount(() => {
                 <el-icon><CircleCheck /></el-icon>已更新
               </span>
               <span v-else-if="isCompletedMatter(row)" class="completed-update-state">无需更新</span>
-              <span v-else class="pending-state">本周待更新</span>
+              <span v-else-if="canFeedbackMatter(row)" class="pending-state">本周待更新</span>
+              <span v-else class="feedback-waiting-state">待负责人反馈</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="126" fixed="right" align="center">
             <template #default="{ row }">
-              <el-tooltip v-if="!isCompletedMatter(row)" content="更新周进展" placement="top">
+              <el-tooltip v-if="!isCompletedMatter(row) && canFeedbackMatter(row)" content="更新周进展" placement="top">
                 <el-button
                   link
                   size="small"
@@ -1537,10 +1784,10 @@ onBeforeUnmount(() => {
                   @click.stop="openWeekly(row)"
                 />
               </el-tooltip>
-              <el-tooltip content="编辑事项" placement="top">
+              <el-tooltip v-if="canManageAll" content="编辑事项" placement="top">
                 <el-button link size="small" type="primary" :icon="Edit" aria-label="编辑事项" @click.stop="openEdit(row)" />
               </el-tooltip>
-              <el-tooltip content="删除事项" placement="top">
+              <el-tooltip v-if="canManageAll" content="删除事项" placement="top">
                 <el-button link size="small" type="danger" :icon="Delete" aria-label="删除事项" @click.stop="confirmDeleteMatter(row)" />
               </el-tooltip>
             </template>
@@ -1658,8 +1905,9 @@ onBeforeUnmount(() => {
                   <div class="meeting-title-group">
                     <span class="priority-mark" :class="matter.priority.toLowerCase()">{{ matter.priority }}</span>
                     <div>
-                      <p class="meeting-kicker">{{ projectPresentation(matter).displayName }} · {{ matter.ownerName || '未指定负责人' }}</p>
+                      <p class="meeting-kicker">{{ projectPresentation(matter).displayName }} · {{ matter.ownerName || '未指定负责人' }}负责</p>
                       <h3>{{ matter.title }}</h3>
+                      <p class="meeting-participants"><el-icon><User /></el-icon>参与人 {{ compactParticipantText(matter) }}</p>
                     </div>
                   </div>
                   <div class="meeting-status">
@@ -1671,12 +1919,12 @@ onBeforeUnmount(() => {
                     <template v-else>
                       <span class="week-delta" :class="`tone-${weekComparison(matter).tone}`">{{ weekComparison(matter).label }}</span>
                       <el-button
-                        v-if="!reportUpdate(matter)"
+                        v-if="!reportUpdate(matter) && canFeedbackMatter(matter)"
                         type="warning"
                         size="small"
                         @click="openPresentation(presentationIndexOf(matter.id))"
                       >立即更新</el-button>
-                      <el-button v-else link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
+                      <el-button v-else-if="reportUpdate(matter) && canFeedbackMatter(matter)" link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
                     </template>
                   </div>
                 </header>
@@ -1707,7 +1955,7 @@ onBeforeUnmount(() => {
                   <small>该事项已完成，无需继续提交周进展</small>
                 </div>
                 <button
-                  v-else
+                  v-else-if="canFeedbackMatter(matter)"
                   class="missing-update"
                   type="button"
                   @click="openPresentation(presentationIndexOf(matter.id))"
@@ -1716,6 +1964,10 @@ onBeforeUnmount(() => {
                   <strong>本周待更新</strong>
                   <small>请及时填写本周进展、风险及下一步计划</small>
                 </button>
+                <div v-else class="missing-update read-only" aria-label="待负责人反馈">
+                  <strong>待负责人反馈</strong>
+                  <small>该事项仅可由负责人维护周进展</small>
+                </div>
 
                 <footer class="meeting-item-footer">
                   <span><el-icon><User /></el-icon>{{ matter.ownerName || '未指定负责人' }}负责</span>
@@ -1783,7 +2035,10 @@ onBeforeUnmount(() => {
                   :class="{ active: matter.id === presentationMatter?.id }"
                   @click="jumpPresentation(presentationIndexOf(matter.id))"
                 >
-                  <i :class="{ pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) }" />
+                  <i :class="{
+                    pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter),
+                    waiting: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && !canFeedbackMatter(matter)
+                  }" />
                   <span>{{ matter.title }}</span>
                 </button>
               </div>
@@ -1818,7 +2073,7 @@ onBeforeUnmount(() => {
                 <div class="presentation-tags">
                   <span v-if="!presentationRequiresUpdate" class="completed-update-state">无需更新</span>
                   <span v-else-if="presentationUpdate && !presentationEditing" class="updated-chip"><el-icon><Select /></el-icon>已更新</span>
-                  <span v-else class="presentation-pending-label">本周待更新</span>
+                  <span v-else class="presentation-pending-label">{{ canFeedbackMatter(presentationMatter) ? '本周待更新' : '待负责人反馈' }}</span>
                   <span class="presentation-status-chip" :class="`status-${meetingStatus(presentationMatter)}`">
                     <i />{{ meetingStatus(presentationMatter) }}
                   </span>
@@ -1843,6 +2098,8 @@ onBeforeUnmount(() => {
                   </template>
                   <span class="presentation-avatar" :class="{ female: isFemaleOwner(presentationMatter.ownerName) }">{{ (presentationMatter.ownerName || '未').slice(0, 1) }}</span>
                   <strong>{{ presentationMatter.ownerName || '未指定负责人' }}</strong>
+                  <i />
+                  <span class="presentation-participants"><el-icon><User /></el-icon>参与人 {{ compactParticipantText(presentationMatter) }}</span>
                   <i />
                   <span><el-icon><Calendar /></el-icon>计划完成 {{ presentationMatter.plannedCompletionDate }}</span>
                   <i />
@@ -1890,6 +2147,11 @@ onBeforeUnmount(() => {
               <div v-else-if="!presentationRequiresUpdate" class="presentation-complete-view" aria-label="已完成事项无需更新">
                 <strong>本周已完成，无需更新</strong>
                 <p>该事项已完成，无需继续提交周进展；历史周报可在大事儿详情中查看。</p>
+              </div>
+
+              <div v-else-if="!canFeedbackMatter(presentationMatter)" class="presentation-complete-view presentation-feedback-waiting" aria-label="待负责人反馈">
+                <strong>待负责人反馈</strong>
+                <p>该事项当前没有本周周报，仅事项负责人可以填写和保存。</p>
               </div>
 
               <div v-else class="presentation-edit-view" aria-label="演示中更新周报">
@@ -1952,7 +2214,10 @@ onBeforeUnmount(() => {
                   <el-button type="primary" @click="openDetail(presentationMatter)">查看详情 <el-icon><Right /></el-icon></el-button>
                 </div>
                 <div v-else-if="presentationUpdate && !presentationEditing" class="presentation-actions">
-                  <el-button @click="startPresentationEdit"><el-icon><EditPen /></el-icon>编辑周报</el-button>
+                  <el-button v-if="canFeedbackMatter(presentationMatter)" @click="startPresentationEdit"><el-icon><EditPen /></el-icon>编辑周报</el-button>
+                  <el-button type="primary" @click="openDetail(presentationMatter)">查看详情 <el-icon><Right /></el-icon></el-button>
+                </div>
+                <div v-else-if="!canFeedbackMatter(presentationMatter)" class="presentation-actions">
                   <el-button type="primary" @click="openDetail(presentationMatter)">查看详情 <el-icon><Right /></el-icon></el-button>
                 </div>
                 <div v-else class="presentation-actions">
@@ -1982,13 +2247,14 @@ onBeforeUnmount(() => {
               :class="{
                 active: index === presentationIndex,
                 complete: (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter))) && index !== presentationIndex,
-                pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter)
+                pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter),
+                waiting: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && !canFeedbackMatter(matter)
               }"
               :aria-label="`跳转到第 ${index + 1} 项`"
               @click="jumpPresentation(index)"
             >
               <el-icon v-if="index !== presentationIndex && (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter)))"><Select /></el-icon>
-              <el-icon v-else-if="index === presentationIndex && requiresWeeklyUpdate(matter) && !reportUpdate(matter)"><EditPen /></el-icon>
+              <el-icon v-else-if="index === presentationIndex && requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter)"><EditPen /></el-icon>
               <span v-else>{{ index + 1 }}</span>
             </button>
           </nav>
@@ -1998,6 +2264,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
     <el-drawer
+      v-if="canManageAll"
       v-model="matterDrawer"
       :title="editingMatterId ? '编辑大事儿' : '新增大事儿'"
       size="min(560px, 96vw)"
@@ -2018,7 +2285,7 @@ onBeforeUnmount(() => {
         </el-form-item>
         <div class="form-grid two-columns">
           <el-form-item label="负责人" prop="ownerId">
-            <el-select v-model="matterForm.ownerId" filterable placeholder="选择负责人">
+            <el-select v-model="matterForm.ownerId" filterable aria-label="负责人" placeholder="选择负责人" @change="handleMatterOwnerChange">
               <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
             </el-select>
           </el-form-item>
@@ -2028,6 +2295,26 @@ onBeforeUnmount(() => {
             </el-select>
           </el-form-item>
         </div>
+        <el-form-item v-if="canManageAll" label="参与人">
+          <el-select
+            v-model="matterForm.participantIds"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="2"
+            aria-label="参与人"
+            placeholder="选择参与人"
+          >
+            <el-option
+              v-for="user in users"
+              :key="user.id"
+              :label="user.realName || user.username"
+              :value="user.id"
+            />
+          </el-select>
+          <small class="participant-helper">负责人会自动保留在参与人中；更换负责人不会移除原负责人。</small>
+        </el-form-item>
         <div class="form-grid three-columns">
           <el-form-item label="优先级">
             <el-radio-group v-model="matterForm.priority">
@@ -2112,8 +2399,8 @@ onBeforeUnmount(() => {
               <p>{{ selectedMatter.description || '暂无事项说明' }}</p>
             </div>
             <div class="detail-clean-actions" aria-label="详情快捷操作">
-              <el-button v-if="!isCompletedMatter(selectedMatter)" type="primary" :icon="Calendar" @click="openWeekly(selectedMatter)">更新周进展</el-button>
-              <el-button :icon="Edit" @click="openEdit(selectedMatter)">编辑事项</el-button>
+              <el-button v-if="!isCompletedMatter(selectedMatter) && canFeedbackMatter(selectedMatter)" type="primary" :icon="Calendar" @click="openWeekly(selectedMatter)">更新周进展</el-button>
+              <el-button v-if="canManageAll" :icon="Edit" @click="openEdit(selectedMatter)">编辑事项</el-button>
             </div>
           </div>
 
@@ -2124,6 +2411,16 @@ onBeforeUnmount(() => {
             <div><dt>计划完成</dt><dd :class="{ 'date-overdue': selectedMatter.overdue }">{{ selectedMatter.plannedCompletionDate }}</dd></div>
             <div><dt>交付窗口</dt><dd>{{ milestoneTiming(selectedMatter).label }}</dd></div>
           </dl>
+
+          <section class="detail-participants" aria-label="事项参与人">
+            <span>参与人</span>
+            <div>
+              <span v-for="participant in matterParticipants(selectedMatter)" :key="participant.userId">
+                {{ participantName(participant) }}
+                <b v-if="participant.userId === selectedMatter.ownerId">负责人</b>
+              </span>
+            </div>
+          </section>
 
           <section class="detail-clean-progress" aria-label="事项总进度">
             <div>
@@ -2189,7 +2486,7 @@ onBeforeUnmount(() => {
                       </span>
                       <span v-if="index === 0" class="latest-pill">最新</span>
                     </div>
-                    <div class="history-actions">
+                    <div v-if="canFeedbackMatter(selectedMatter)" class="history-actions">
                       <el-button link type="primary" :icon="Edit" aria-label="编辑周进展" @click="openWeekly(selectedMatter, update.weekStartDate)" />
                       <el-button link type="danger" :icon="Delete" aria-label="删除周进展" @click="confirmDeleteWeekly(selectedMatter, update)" />
                     </div>
@@ -2203,7 +2500,7 @@ onBeforeUnmount(() => {
         </main>
       </div>
       <template #footer>
-        <el-button v-if="selectedMatter" type="danger" plain :icon="Delete" @click="confirmDeleteMatter(selectedMatter)">删除</el-button>
+        <el-button v-if="selectedMatter && canManageAll" type="danger" plain :icon="Delete" @click="confirmDeleteMatter(selectedMatter)">删除</el-button>
       </template>
     </el-drawer>
 
@@ -2739,6 +3036,42 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.matter-participants {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--gray-500);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.matter-participants span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.matter-participants b,
+.detail-participants b {
+  margin-left: 3px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.matter-participants em {
+  flex: 0 0 auto;
+  color: var(--gray-600);
+  font-style: normal;
+  font-weight: 700;
+}
+
 .priority-mark {
   display: inline-flex;
   align-items: center;
@@ -2987,6 +3320,15 @@ onBeforeUnmount(() => {
   margin: 0 0 4px;
 }
 
+.meeting-participants {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 5px 0 0;
+  color: var(--gray-500);
+  font-size: 11px;
+}
+
 .meeting-status {
   flex-shrink: 0;
 }
@@ -3196,6 +3538,23 @@ onBeforeUnmount(() => {
 
 .missing-update small {
   color: #B45309;
+}
+
+.missing-update.read-only {
+  border-color: var(--gray-300);
+  color: var(--gray-700);
+  background: var(--gray-50);
+  cursor: default;
+}
+
+.missing-update.read-only small {
+  color: var(--gray-500);
+}
+
+.feedback-waiting-state {
+  color: var(--gray-600);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .completed-no-update {
@@ -4263,6 +4622,14 @@ button:focus-visible {
 
 .weekly-section :deep(.el-textarea__inner) {
   resize: vertical;
+}
+
+.participant-helper {
+  display: block;
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 :global(.key-matter-weekly-drawer .el-drawer__body) {
@@ -5417,6 +5784,10 @@ button:focus-visible {
   background: var(--km-warning);
 }
 
+.presentation-group-matters button i.waiting {
+  background: #cbd5e1;
+}
+
 .presentation-stage {
   position: relative;
   min-width: 0;
@@ -5864,6 +6235,10 @@ button:focus-visible {
   line-height: 1.6;
 }
 
+.presentation-feedback-waiting strong {
+  color: var(--km-warning);
+}
+
 .weekly-workspace-compact {
   gap: 8px;
 }
@@ -5981,6 +6356,12 @@ button:focus-visible {
   background: var(--km-warning-soft);
 }
 
+.presentation-thumbnails button.waiting {
+  color: #64748b;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
 .detail-clean {
   display: grid;
   gap: 16px;
@@ -6072,6 +6453,34 @@ button:focus-visible {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.detail-participants {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.detail-participants > span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.detail-participants > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.detail-participants > div > span {
+  display: inline-flex;
+  align-items: center;
 }
 
 .detail-clean-progress {
@@ -6358,6 +6767,35 @@ button:focus-visible {
 
   .presentation-arrow {
     display: none;
+  }
+
+  .presentation-meta {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .presentation-meta-status {
+    flex: 1 0 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .presentation-meta-divider {
+    display: none;
+  }
+
+  .presentation-inline-progress,
+  .presentation-inline-progress.is-editable {
+    min-width: 0;
+    flex: 1 1 220px;
+  }
+
+  .presentation-progress-slider {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }
 

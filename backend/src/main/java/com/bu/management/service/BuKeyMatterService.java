@@ -4,14 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.dto.BuKeyMatterRequest;
 import com.bu.management.dto.BuKeyMatterWeeklyUpdateRequest;
 import com.bu.management.entity.BuKeyMatter;
+import com.bu.management.entity.BuKeyMatterParticipant;
 import com.bu.management.entity.BuKeyMatterWeeklyUpdate;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.User;
 import com.bu.management.exception.ResourceNotFoundException;
 import com.bu.management.mapper.BuKeyMatterMapper;
+import com.bu.management.mapper.BuKeyMatterParticipantMapper;
 import com.bu.management.mapper.BuKeyMatterWeeklyUpdateMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.UserMapper;
+import com.bu.management.vo.BuKeyMatterParticipantView;
 import com.bu.management.vo.BuKeyMatterView;
 import com.bu.management.vo.BuKeyMatterWeeklyUpdateView;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +28,10 @@ import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -42,16 +47,21 @@ public class BuKeyMatterService {
     private final BuKeyMatterWeeklyUpdateMapper weeklyUpdateMapper;
     private final UserMapper userMapper;
     private final ProjectMapper projectMapper;
+    private final BuKeyMatterParticipantMapper participantMapper;
+    private final BuKeyMatterAccessService accessService;
 
     @Transactional
     public BuKeyMatter create(BuKeyMatterRequest request, Long userId) {
         NormalizedMatter normalized = validate(request);
+        List<Long> participantIds = normalizeParticipantIds(request);
+        validateParticipantIds(participantIds, request.getOwnerId());
         BuKeyMatter matter = new BuKeyMatter();
         apply(matter, request, normalized);
         matter.setCreatedBy(userId);
         matter.setCreatedAt(LocalDateTime.now());
         matter.setUpdatedAt(LocalDateTime.now());
         matterMapper.insert(matter);
+        syncParticipants(matter.getId(), participantIds);
         return matter;
     }
 
@@ -89,27 +99,35 @@ public class BuKeyMatterService {
         boolean wasCompleted = "已完成".equals(matter.getStatus());
         LocalDateTime originalCompletedAt = matter.getCompletedAt();
         NormalizedMatter normalized = validate(request);
+        List<Long> participantIds = normalizeUpdateParticipantIds(matter.getId(), request);
+        if (request.getParticipantIds() != null) {
+            validateParticipantIds(participantIds, request.getOwnerId());
+        }
         apply(matter, request, normalized);
         if ("已完成".equals(normalized.status()) && wasCompleted) {
             matter.setCompletedAt(originalCompletedAt == null ? LocalDateTime.now() : originalCompletedAt);
         }
         matter.setUpdatedAt(LocalDateTime.now());
         matterMapper.updateById(matter);
+        syncParticipants(matter.getId(), participantIds);
         return matter;
     }
 
     @Transactional
     public void delete(Long id) {
-        findMatter(id);
+        findMatterForUpdate(id);
+        participantMapper.delete(new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                .eq(BuKeyMatterParticipant::getKeyMatterId, id));
         matterMapper.deleteById(id);
     }
 
     @Transactional
     public BuKeyMatterWeeklyUpdate upsertWeeklyUpdate(Long matterId, LocalDate weekStartDate,
                                                        BuKeyMatterWeeklyUpdateRequest request,
-                                                       Long userId) {
+                                                       Long userId, String username) {
         validateWeekStart(weekStartDate);
         BuKeyMatter matter = findMatterForUpdate(matterId);
+        accessService.requireFeedback(matter, userId, username);
         List<BuKeyMatterWeeklyUpdate> existingUpdates = weeklyUpdateMapper.selectList(
                 new LambdaQueryWrapper<BuKeyMatterWeeklyUpdate>()
                         .eq(BuKeyMatterWeeklyUpdate::getKeyMatterId, matterId)
@@ -159,9 +177,11 @@ public class BuKeyMatterService {
     }
 
     @Transactional
-    public void deleteWeeklyUpdate(Long matterId, LocalDate weekStartDate) {
+    public void deleteWeeklyUpdate(Long matterId, LocalDate weekStartDate,
+                                   Long userId, String username) {
         validateWeekStart(weekStartDate);
-        findMatter(matterId);
+        BuKeyMatter matter = findMatterForUpdate(matterId);
+        accessService.requireFeedback(matter, userId, username);
         weeklyUpdateMapper.delete(new LambdaQueryWrapper<BuKeyMatterWeeklyUpdate>()
                 .eq(BuKeyMatterWeeklyUpdate::getKeyMatterId, matterId)
                 .eq(BuKeyMatterWeeklyUpdate::getWeekStartDate, weekStartDate));
@@ -299,10 +319,21 @@ public class BuKeyMatterService {
                 .collect(Collectors.groupingBy(BuKeyMatterWeeklyUpdate::getKeyMatterId));
         Map<Long, User> owners = loadOwners(matters);
         Map<Long, Project> projects = loadProjects(matters);
+        List<BuKeyMatterParticipant> participantRelations = participantMapper.selectList(
+                new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                        .in(BuKeyMatterParticipant::getKeyMatterId, matterIds)
+                        .orderByAsc(BuKeyMatterParticipant::getId));
+        if (participantRelations == null) {
+            participantRelations = List.of();
+        }
+        Map<Long, List<BuKeyMatterParticipant>> participantsByMatter = participantRelations.stream()
+                .collect(Collectors.groupingBy(BuKeyMatterParticipant::getKeyMatterId));
+        Map<Long, User> participantUsers = loadParticipantUsers(participantRelations);
         LocalDate today = LocalDate.now();
         List<BuKeyMatterView> views = new ArrayList<>();
         for (BuKeyMatter matter : matters) {
             BuKeyMatterView view = toView(matter);
+            view.setParticipants(toParticipantViews(matter.getId(), participantsByMatter, participantUsers));
             User owner = owners.get(matter.getOwnerId());
             if (owner != null) {
                 view.setOwnerName(owner.getRealName());
@@ -381,6 +412,104 @@ public class BuKeyMatterService {
             loaded.forEach(project -> result.put(project.getId(), project));
         }
         return result;
+    }
+
+    private Map<Long, User> loadParticipantUsers(List<BuKeyMatterParticipant> relations) {
+        List<Long> userIds = relations.stream()
+                .map(BuKeyMatterParticipant::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        List<User> users = userMapper.selectBatchIds(userIds);
+        if (users == null) {
+            return Map.of();
+        }
+        return users.stream().collect(Collectors.toMap(User::getId, user -> user));
+    }
+
+    private List<BuKeyMatterParticipantView> toParticipantViews(
+            Long matterId,
+            Map<Long, List<BuKeyMatterParticipant>> participantsByMatter,
+            Map<Long, User> participantUsers) {
+        List<BuKeyMatterParticipantView> views = new ArrayList<>();
+        for (BuKeyMatterParticipant relation : participantsByMatter.getOrDefault(matterId, List.of())) {
+            User user = participantUsers.get(relation.getUserId());
+            if (user == null) {
+                continue;
+            }
+            BuKeyMatterParticipantView view = new BuKeyMatterParticipantView();
+            view.setUserId(user.getId());
+            view.setUsername(user.getUsername());
+            view.setRealName(user.getRealName());
+            views.add(view);
+        }
+        return views;
+    }
+
+    private List<Long> normalizeParticipantIds(BuKeyMatterRequest request) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        if (request.getParticipantIds() != null) {
+            request.getParticipantIds().stream()
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        ids.add(request.getOwnerId());
+        return List.copyOf(ids);
+    }
+
+    private List<Long> normalizeUpdateParticipantIds(Long matterId, BuKeyMatterRequest request) {
+        if (request.getParticipantIds() != null) {
+            return normalizeParticipantIds(request);
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        List<BuKeyMatterParticipant> existingRelations = participantMapper.selectList(
+                new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                        .eq(BuKeyMatterParticipant::getKeyMatterId, matterId));
+        if (existingRelations != null) {
+            existingRelations.stream()
+                    .map(BuKeyMatterParticipant::getUserId)
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        ids.add(request.getOwnerId());
+        return List.copyOf(ids);
+    }
+
+    private void validateParticipantIds(List<Long> participantIds, Long ownerId) {
+        List<Long> nonOwnerIds = participantIds.stream()
+                .filter(id -> !id.equals(ownerId))
+                .distinct()
+                .toList();
+        if (nonOwnerIds.isEmpty()) {
+            return;
+        }
+        List<User> users = userMapper.selectBatchIds(nonOwnerIds);
+        if (users == null) {
+            users = List.of();
+        }
+        Set<Long> activeIds = users.stream()
+                .filter(user -> Integer.valueOf(1).equals(user.getStatus()))
+                .map(User::getId)
+                .collect(Collectors.toSet());
+        for (Long id : nonOwnerIds) {
+            if (!activeIds.contains(id)) {
+                throw new RuntimeException("参与人不存在或已停用");
+            }
+        }
+    }
+
+    private void syncParticipants(Long matterId, List<Long> participantIds) {
+        participantMapper.delete(new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                .eq(BuKeyMatterParticipant::getKeyMatterId, matterId));
+        for (Long userId : participantIds) {
+            BuKeyMatterParticipant participant = new BuKeyMatterParticipant();
+            participant.setKeyMatterId(matterId);
+            participant.setUserId(userId);
+            participantMapper.insert(participant);
+        }
     }
 
     private BuKeyMatterView toView(BuKeyMatter matter) {

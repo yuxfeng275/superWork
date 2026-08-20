@@ -25,6 +25,18 @@ interface ApiResponse<T> {
   timestamp: string
 }
 
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code?: number
+
+  constructor(message: string, status: number, code?: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+  }
+}
+
 type ApiPayload<T> = ApiResponse<T> | T
 
 interface LoginResponse {
@@ -172,6 +184,43 @@ export interface SeeyonOaDepartmentOption {
   enabled: boolean
 }
 
+export interface KeyMatterAccess {
+  canAccess: boolean
+  canManageAll: boolean
+  canFeedbackOwn: boolean
+}
+
+const DENIED_KEY_MATTER_ACCESS: KeyMatterAccess = {
+  canAccess: false,
+  canManageAll: false,
+  canFeedbackOwn: false
+}
+
+function normalizeKeyMatterAccess(value: unknown): KeyMatterAccess {
+  if (!value || typeof value !== 'object') return { ...DENIED_KEY_MATTER_ACCESS }
+
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.canAccess !== 'boolean'
+    || typeof record.canManageAll !== 'boolean'
+    || typeof record.canFeedbackOwn !== 'boolean'
+  ) {
+    return { ...DENIED_KEY_MATTER_ACCESS }
+  }
+
+  return {
+    canAccess: record.canAccess,
+    canManageAll: record.canManageAll,
+    canFeedbackOwn: record.canFeedbackOwn
+  }
+}
+
+export interface BuKeyMatterParticipant {
+  userId: number
+  username: string
+  realName: string
+}
+
 export interface BuKeyMatterWeeklyUpdate {
   id: number
   weekStartDate: string
@@ -196,6 +245,7 @@ export interface BuKeyMatter {
   projectRootName?: string
   ownerId: number
   ownerName?: string
+  participants?: BuKeyMatterParticipant[]
   priority: string
   status: string
   progress: number
@@ -217,6 +267,7 @@ export interface BuKeyMatterPayload {
   description?: string
   projectId?: number
   ownerId: number
+  participantIds?: number[]
   priority: string
   status: string
   progress: number
@@ -296,21 +347,24 @@ class ApiService {
     if (!response.ok) {
       const errorText = await response.text()
       let errorMessage = `HTTP error! status: ${response.status}`
+      let errorCode: number | undefined
       try {
-        const parsed = errorText ? JSON.parse(errorText) : null
-        if (parsed?.message) {
-          errorMessage = parsed.message
+        const parsed: unknown = errorText ? JSON.parse(errorText) : null
+        if (parsed && typeof parsed === 'object') {
+          const errorBody = parsed as { message?: unknown; code?: unknown }
+          if (typeof errorBody.message === 'string' && errorBody.message) {
+            errorMessage = errorBody.message
+          }
+          if (typeof errorBody.code === 'number') errorCode = errorBody.code
         }
       } catch {
-        if (errorText) {
-          errorMessage = errorText
-        }
+        if (errorText) errorMessage = errorText
       }
 
       if (response.status === 401) {
         this.clearAuthAndRedirect()
       }
-      throw new Error(errorMessage)
+      throw new ApiRequestError(errorMessage, response.status, errorCode)
     }
 
     const text = await response.text()
@@ -328,7 +382,8 @@ class ApiService {
     if (result && typeof result === 'object' && 'code' in result) {
       const wrapped = result as ApiResponse<T>
       if (wrapped.code !== 200) {
-        throw new Error(wrapped.message || 'Request failed')
+        if (wrapped.code === 401) this.clearAuthAndRedirect()
+        throw new ApiRequestError(wrapped.message || 'Request failed', wrapped.code, wrapped.code)
       }
       return wrapped.data
     }
@@ -1012,6 +1067,11 @@ class ApiService {
     return this.request(`/api/bu-directions/${id}`, {
       method: 'DELETE'
     })
+  }
+
+  async getKeyMatterAccess(): Promise<KeyMatterAccess> {
+    const access = await this.request<unknown>('/api/key-matters/access')
+    return normalizeKeyMatterAccess(access)
   }
 
   async getKeyMatters(params?: {
