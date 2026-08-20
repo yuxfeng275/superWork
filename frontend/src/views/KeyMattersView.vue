@@ -54,6 +54,7 @@ interface MeetingGroup {
   matters: BuKeyMatter[]
   riskCount: number
   updatedCount: number
+  updateRequiredCount: number
   averageProgress: number
 }
 
@@ -94,6 +95,7 @@ interface PresentationGroup {
   matters: BuKeyMatter[]
   riskCount: number
   updatedCount: number
+  updateRequiredCount: number
   averageProgress: number
 }
 
@@ -103,6 +105,16 @@ const isMeetingStandalone = computed(() => route.name === 'KeyMattersMeeting')
 const statusOptions = ['未开始', '推进中', '有风险', '已阻塞', '已完成', '已暂停']
 const priorityOptions = ['P0', 'P1', 'P2']
 const femaleOwnerNames = new Set(['丛宁', '姜涛', '小刘洋', '黄金玲', '李芳晨'])
+function isCompletedMatter(matter: BuKeyMatter) {
+  return matter.status === '已完成'
+}
+function requiresWeeklyUpdate(matter: BuKeyMatter) {
+  return !isCompletedMatter(matter)
+}
+function isCompletedWeeklyUpdateError(error: unknown) {
+  return error instanceof Error
+    && error.message.includes('已完成事项无需新增周进展')
+}
 const matters = ref<BuKeyMatter[]>([])
 const allMatters = ref<BuKeyMatter[]>([])
 const currentPage = ref(1)
@@ -170,6 +182,7 @@ const weeklyFormRef = ref<FormInstance>()
 const weeklyMatterId = ref<number>()
 const weeklyDate = ref(selectedWeek.value)
 const weeklySaving = ref(false)
+const weeklyEditingExisting = ref(false)
 const weeklyForm = reactive<BuKeyMatterWeeklyUpdatePayload>({
   status: '推进中',
   progress: 0,
@@ -187,15 +200,16 @@ const summary = computed(() => {
   const total = allMatters.value.length
   const progressing = allMatters.value.filter(item => item.status === '推进中').length
   const risks = allMatters.value.filter(item => ['有风险', '已阻塞'].includes(item.status)).length
-  const pendingUpdate = allMatters.value.filter(item => item.status !== '已完成' && !item.currentWeekUpdated).length
+  const updateRequired = allMatters.value.filter(requiresWeeklyUpdate)
   return {
     total,
     progressing,
     risks,
-    pendingUpdate,
+    pendingUpdate: updateRequired.filter(item => !item.currentWeekUpdated).length,
+    updateRequiredCount: updateRequired.length,
+    updatedCount: updateRequired.filter(item => item.currentWeekUpdated).length,
     progressingRate: total ? Math.round(progressing / total * 100) : 0,
-    riskRate: total ? Math.round(risks / total * 100) : 0,
-    updatedCount: allMatters.value.filter(item => item.currentWeekUpdated).length
+    riskRate: total ? Math.round(risks / total * 100) : 0
   }
 })
 
@@ -275,7 +289,8 @@ const meetingGroups = computed<MeetingGroup[]>(() => {
       subtitle: `${meetingGroupBy.value === 'owner' ? '事项负责人' : '关联成员'} · ${contextLabels.slice(0, 2).join('、')}`,
       matters: group.matters,
       riskCount: group.matters.filter(matter => ['有风险', '已阻塞'].includes(meetingStatus(matter))).length,
-      updatedCount: group.matters.filter(matter => Boolean(reportUpdate(matter))).length,
+      updatedCount: group.matters.filter(matter => requiresWeeklyUpdate(matter) && Boolean(reportUpdate(matter))).length,
+      updateRequiredCount: group.matters.filter(requiresWeeklyUpdate).length,
       averageProgress: Math.round(
         group.matters.reduce((total, matter) => total + meetingProgress(matter), 0) / group.matters.length
       )
@@ -285,7 +300,9 @@ const meetingGroups = computed<MeetingGroup[]>(() => {
 
 const meetingSummary = computed(() => {
   const total = meetingMatters.value.length
-  const updated = meetingMatters.value.filter(matter => Boolean(reportUpdate(matter))).length
+  const updateRequiredCount = meetingMatters.value.filter(requiresWeeklyUpdate).length
+  const updated = meetingMatters.value
+    .filter(matter => requiresWeeklyUpdate(matter) && Boolean(reportUpdate(matter))).length
   const risks = meetingMatters.value.filter(matter => ['有风险', '已阻塞'].includes(meetingStatus(matter))).length
   const averageProgress = total
     ? Math.round(meetingMatters.value.reduce((sum, matter) => sum + meetingProgress(matter), 0) / total)
@@ -293,11 +310,11 @@ const meetingSummary = computed(() => {
   return {
     total,
     updated,
-    pending: Math.max(total - updated, 0),
+    pending: Math.max(updateRequiredCount - updated, 0),
     risks,
     averageProgress,
-    updatedRate: total ? Math.round(updated / total * 100) : 0,
-    pendingRate: total ? Math.round((total - updated) / total * 100) : 0
+    updatedRate: updateRequiredCount ? Math.round(updated / updateRequiredCount * 100) : 100,
+    pendingRate: updateRequiredCount ? Math.round((updateRequiredCount - updated) / updateRequiredCount * 100) : 0
   }
 })
 
@@ -316,7 +333,8 @@ const presentationGroups = computed<PresentationGroup[]>(() => {
       : (groupedMatters[0].ownerName || '未指定负责人'),
     matters: groupedMatters,
     riskCount: groupedMatters.filter(matter => ['有风险', '已阻塞'].includes(meetingStatus(matter))).length,
-    updatedCount: groupedMatters.filter(matter => Boolean(reportUpdate(matter))).length,
+    updatedCount: groupedMatters.filter(matter => requiresWeeklyUpdate(matter) && Boolean(reportUpdate(matter))).length,
+    updateRequiredCount: groupedMatters.filter(requiresWeeklyUpdate).length,
     averageProgress: Math.round(
       groupedMatters.reduce((total, matter) => total + meetingProgress(matter), 0) / groupedMatters.length
     )
@@ -327,6 +345,7 @@ const presentationGroups = computed<PresentationGroup[]>(() => {
 const presentationOrderedMatters = computed(() => presentationGroups.value.flatMap(group => group.matters))
 const presentationMatter = computed(() => presentationOrderedMatters.value[presentationIndex.value])
 const presentationUpdate = computed(() => presentationMatter.value ? reportUpdate(presentationMatter.value) : undefined)
+const presentationRequiresUpdate = computed(() => presentationMatter.value ? requiresWeeklyUpdate(presentationMatter.value) : false)
 
 const currentPresentationGroupKey = computed(() => {
   const matter = presentationMatter.value
@@ -676,10 +695,15 @@ async function openDetail(matter: BuKeyMatter) {
 }
 
 function openWeekly(matter: BuKeyMatter, week = selectedWeek.value) {
-  weeklyMatterId.value = matter.id
-  weeklyDate.value = week
   const update = matter.weeklyUpdates?.find(item => item.weekStartDate === week)
     || (matter.currentWeekUpdate?.weekStartDate === week ? matter.currentWeekUpdate : undefined)
+  if (isCompletedMatter(matter) && !update) {
+    ElMessage.info('本周已完成，无需更新')
+    return
+  }
+  weeklyMatterId.value = matter.id
+  weeklyDate.value = week
+  weeklyEditingExisting.value = Boolean(update)
   Object.assign(weeklyForm, {
     status: update?.status || matter.status,
     progress: update?.progress ?? matter.progress,
@@ -736,6 +760,10 @@ async function saveWeeklyUpdate() {
     await refreshActiveMode()
   } catch (error: unknown) {
     ElMessage.error(errorMessage(error, '周进展保存失败'))
+    if (!weeklyEditingExisting.value && isCompletedWeeklyUpdateError(error)) {
+      weeklyDrawer.value = false
+      await refreshActiveMode()
+    }
   } finally {
     weeklySaving.value = false
   }
@@ -795,7 +823,10 @@ function meetingProgress(matter: BuKeyMatter) {
 
 function weekComparison(matter: BuKeyMatter) {
   const current = reportUpdate(matter)
-  if (!current) return { label: '本周待更新', tone: 'missing' }
+  if (!current) {
+    if (isCompletedMatter(matter)) return { label: '本周已完成，无需更新', tone: 'complete' }
+    return { label: '本周待更新', tone: 'missing' }
+  }
   const previousWeek = previousWeekStart(selectedWeek.value)
   const previous = matter.weeklyUpdates?.find(update => update.weekStartDate === previousWeek)
   return progressComparison(current.progress, previous?.progress, '上周无数据')
@@ -977,6 +1008,10 @@ function hydratePresentationForm(forceEdit = false) {
     nextWeekPlan: draft.nextWeekPlan,
     supportNeeded: draft.supportNeeded
   })
+  if (isCompletedMatter(matter)) {
+    presentationEditing.value = false
+    return
+  }
   presentationEditing.value = forceEdit || !reportUpdate(matter) || presentationDrafts.has(matter.id)
 }
 
@@ -1041,6 +1076,8 @@ function presentationIndexOf(matterId: number) {
 }
 
 function startPresentationEdit() {
+  const matter = presentationMatter.value
+  if (!matter || isCompletedMatter(matter)) return
   hydratePresentationForm(true)
 }
 
@@ -1052,6 +1089,7 @@ function stashPresentationDraft() {
 async function savePresentationAndNext() {
   const matter = presentationMatter.value
   if (!matter) return
+  if (isCompletedMatter(matter)) return
   const progressSummary = presentationForm.progressSummary.trim()
   if (!progressSummary) {
     ElMessage.warning('请至少填写一项本周进展')
@@ -1079,6 +1117,11 @@ async function savePresentationAndNext() {
     hydratePresentationForm()
   } catch (error: unknown) {
     ElMessage.error(errorMessage(error, '周报保存失败'))
+    if (isCompletedWeeklyUpdateError(error)) {
+      presentationDrafts.delete(matter.id)
+      await loadMeeting()
+      hydratePresentationForm()
+    }
   } finally {
     presentationSaving.value = false
   }
@@ -1197,8 +1240,8 @@ onBeforeUnmount(() => {
         </div>
         <div class="summary-cell pending">
           <div class="summary-label"><span><el-icon><Calendar /></el-icon></span>待更新</div>
-          <div class="summary-value"><strong>{{ summary.pendingUpdate }}</strong><small>{{ summary.updatedCount }}/{{ summary.total }}</small></div>
-          <div class="summary-meter"><i :style="{ width: `${summary.total ? summary.updatedCount / summary.total * 100 : 0}%` }" /></div>
+          <div class="summary-value"><strong>{{ summary.pendingUpdate }}</strong><small>{{ summary.updatedCount }}/{{ summary.updateRequiredCount }}</small></div>
+          <div class="summary-meter"><i :style="{ width: `${summary.updateRequiredCount ? summary.updatedCount / summary.updateRequiredCount * 100 : 100}%` }" /></div>
         </div>
       </section>
       <div class="toolbar-actions">
@@ -1474,12 +1517,13 @@ onBeforeUnmount(() => {
               <span v-if="row.currentWeekUpdated" class="updated-state">
                 <el-icon><CircleCheck /></el-icon>已更新
               </span>
+              <span v-else-if="isCompletedMatter(row)" class="completed-update-state">无需更新</span>
               <span v-else class="pending-state">本周待更新</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="126" fixed="right" align="center">
             <template #default="{ row }">
-              <el-tooltip content="更新周进展" placement="top">
+              <el-tooltip v-if="!isCompletedMatter(row)" content="更新周进展" placement="top">
                 <el-button
                   link
                   size="small"
@@ -1593,7 +1637,7 @@ onBeforeUnmount(() => {
               </div>
               <dl class="group-summary">
                 <div><dd>{{ group.matters.length }}</dd><dt>事项</dt></div>
-                <div><dd>{{ group.updatedCount }}/{{ group.matters.length }}</dd><dt>已更新</dt></div>
+                <div><dd v-if="group.updateRequiredCount > 0">{{ group.updatedCount }}/{{ group.updateRequiredCount }}</dd><dd v-else>无需更新</dd><dt>已更新</dt></div>
                 <div :class="{ risk: group.riskCount > 0 }"><dd>{{ group.riskCount }}</dd><dt>风险</dt></div>
                 <div><dd>{{ group.averageProgress }}%</dd><dt>平均进度</dt></div>
               </dl>
@@ -1617,14 +1661,19 @@ onBeforeUnmount(() => {
                   <div class="meeting-status">
                     <el-tag :type="statusType(meetingStatus(matter))" effect="light">{{ meetingStatus(matter) }}</el-tag>
                     <span class="matter-progress-inline"><i><b :style="{ width: `${meetingProgress(matter)}%` }" /></i>{{ meetingProgress(matter) }}%</span>
-                    <span class="week-delta" :class="`tone-${weekComparison(matter).tone}`">{{ weekComparison(matter).label }}</span>
-                    <el-button
-                      v-if="!reportUpdate(matter)"
-                      type="warning"
-                      size="small"
-                      @click="openPresentation(presentationIndexOf(matter.id))"
-                    >立即更新</el-button>
-                    <el-button v-else link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
+                    <template v-if="isCompletedMatter(matter)">
+                      <span class="week-delta tone-complete">本周已完成，无需更新</span>
+                    </template>
+                    <template v-else>
+                      <span class="week-delta" :class="`tone-${weekComparison(matter).tone}`">{{ weekComparison(matter).label }}</span>
+                      <el-button
+                        v-if="!reportUpdate(matter)"
+                        type="warning"
+                        size="small"
+                        @click="openPresentation(presentationIndexOf(matter.id))"
+                      >立即更新</el-button>
+                      <el-button v-else link type="primary" :icon="Calendar" @click="openWeekly(matter)">更新周报</el-button>
+                    </template>
                   </div>
                 </header>
 
@@ -1648,6 +1697,10 @@ onBeforeUnmount(() => {
                     <p>{{ reportUpdate(matter)?.nextWeekPlan || '待补充下一步行动' }}</p>
                     <time :datetime="matter.plannedCompletionDate">目标 {{ matter.plannedCompletionDate }}</time>
                   </section>
+                </div>
+                <div v-else-if="isCompletedMatter(matter)" class="completed-no-update" aria-label="已完成事项无需更新">
+                  <strong>本周已完成，无需更新</strong>
+                  <small>该事项已完成，无需继续提交周进展</small>
                 </div>
                 <button
                   v-else
@@ -1714,7 +1767,8 @@ onBeforeUnmount(() => {
               </button>
               <div class="presentation-group-meter" aria-hidden="true"><i :style="{ width: `${group.averageProgress}%` }" /></div>
               <div class="presentation-group-stats">
-                <span>{{ group.updatedCount }}/{{ group.matters.length }} 已更新</span>
+                <span v-if="group.updateRequiredCount > 0">{{ group.updatedCount }}/{{ group.updateRequiredCount }} 已更新</span>
+                <span v-else>无需更新</span>
                 <span v-if="group.riskCount" class="has-risk">{{ group.riskCount }} 风险</span>
               </div>
               <div class="presentation-group-matters">
@@ -1750,7 +1804,7 @@ onBeforeUnmount(() => {
               <el-icon><ArrowLeft /></el-icon>
             </button>
 
-            <article class="presentation-card" :class="{ 'is-pending': !presentationUpdate || presentationEditing }">
+            <article class="presentation-card" :class="{ 'is-pending': presentationRequiresUpdate && (!presentationUpdate || presentationEditing) }">
               <div class="presentation-accent" />
               <header class="presentation-card-header">
                 <div class="presentation-tags">
@@ -1758,7 +1812,8 @@ onBeforeUnmount(() => {
                   <span class="project-chip"><el-icon><Folder /></el-icon>{{ projectPresentation(presentationMatter).displayName }}</span>
                 </div>
                 <div class="presentation-tags">
-                  <span v-if="presentationUpdate && !presentationEditing" class="updated-chip"><el-icon><Select /></el-icon>已更新</span>
+                  <span v-if="!presentationRequiresUpdate" class="completed-update-state">无需更新</span>
+                  <span v-else-if="presentationUpdate && !presentationEditing" class="updated-chip"><el-icon><Select /></el-icon>已更新</span>
                   <span v-else class="presentation-pending-label">本周待更新</span>
                   <span class="presentation-status-chip" :class="`status-${meetingStatus(presentationMatter)}`">
                     <i />{{ meetingStatus(presentationMatter) }}
@@ -1828,6 +1883,11 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
+              <div v-else-if="!presentationRequiresUpdate" class="presentation-complete-view" aria-label="已完成事项无需更新">
+                <strong>本周已完成，无需更新</strong>
+                <p>该事项已完成，无需继续提交周进展；历史周报可在大事儿详情中查看。</p>
+              </div>
+
               <div v-else class="presentation-edit-view" aria-label="演示中更新周报">
                 <div class="weekly-workspace weekly-workspace-compact">
                   <header class="weekly-workspace-header">
@@ -1884,7 +1944,10 @@ onBeforeUnmount(() => {
                   <button type="button" @click="movePresentation(-1)"><el-icon><ArrowLeft /></el-icon></button>上一项
                   <button type="button" @click="movePresentation(1)"><el-icon><ArrowRight /></el-icon></button>下一项
                 </div>
-                <div v-if="presentationUpdate && !presentationEditing" class="presentation-actions">
+                <div v-if="!presentationRequiresUpdate" class="presentation-actions">
+                  <el-button type="primary" @click="openDetail(presentationMatter)">查看详情 <el-icon><Right /></el-icon></el-button>
+                </div>
+                <div v-else-if="presentationUpdate && !presentationEditing" class="presentation-actions">
                   <el-button @click="startPresentationEdit"><el-icon><EditPen /></el-icon>编辑周报</el-button>
                   <el-button type="primary" @click="openDetail(presentationMatter)">查看详情 <el-icon><Right /></el-icon></el-button>
                 </div>
@@ -2045,7 +2108,7 @@ onBeforeUnmount(() => {
               <p>{{ selectedMatter.description || '暂无事项说明' }}</p>
             </div>
             <div class="detail-clean-actions" aria-label="详情快捷操作">
-              <el-button type="primary" :icon="Calendar" @click="openWeekly(selectedMatter)">更新周进展</el-button>
+              <el-button v-if="!isCompletedMatter(selectedMatter)" type="primary" :icon="Calendar" @click="openWeekly(selectedMatter)">更新周进展</el-button>
               <el-button :icon="Edit" @click="openEdit(selectedMatter)">编辑事项</el-button>
             </div>
           </div>
@@ -2719,6 +2782,15 @@ onBeforeUnmount(() => {
   color: var(--success);
 }
 
+.completed-update-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .pending-state,
 .date-overdue {
   color: var(--danger);
@@ -2952,6 +3024,11 @@ onBeforeUnmount(() => {
   background: #FEF3C7;
 }
 
+.week-delta.tone-complete {
+  color: var(--success);
+  background: var(--km-success-soft);
+}
+
 .meeting-progress-track {
   height: 3px;
   margin: 0 20px 0 24px;
@@ -3115,6 +3192,32 @@ onBeforeUnmount(() => {
 
 .missing-update small {
   color: #B45309;
+}
+
+.completed-no-update {
+  width: auto;
+  min-height: 74px;
+  padding: 16px;
+  border: 1px solid #bbf7d0;
+  background: var(--km-success-soft);
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  margin: 18px 20px 18px 24px;
+  border-radius: 6px;
+  font: inherit;
+  text-align: center;
+}
+
+.completed-no-update strong {
+  font-size: 13px;
+}
+
+.completed-no-update small {
+  color: #047857;
 }
 
 .missing-update:focus-visible,
@@ -5731,6 +5834,30 @@ button:focus-visible {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+}
+
+.presentation-complete-view {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px 32px;
+  text-align: center;
+}
+
+.presentation-complete-view strong {
+  color: var(--success);
+  font-size: 20px;
+}
+
+.presentation-complete-view p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--km-muted);
+  line-height: 1.6;
 }
 
 .weekly-workspace-compact {
