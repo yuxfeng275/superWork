@@ -154,6 +154,9 @@ async function installCompletedMatterRoutes(page: Page) {
 }
 
 test.beforeEach(async ({ page }) => {
+  // 冻结浏览器时钟：夹具周为 2026-08-03 起的一周，当前真实日期已进入 8 月下旬，
+  // 直接使用 `new Date()` 会让「本周」偏移到 2026-08-17 周，导致台账/周会断言失败。
+  await page.clock.setFixedTime(new Date('2026-08-05T09:00:00+08:00'))
   await page.addInitScript(() => {
     localStorage.setItem('token', 'mock-token')
     localStorage.setItem('user', JSON.stringify({
