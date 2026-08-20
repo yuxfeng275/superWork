@@ -2,12 +2,14 @@ package com.bu.management.service;
 
 import com.bu.management.dto.BuKeyMatterWeeklyUpdateRequest;
 import com.bu.management.entity.BuKeyMatter;
+import com.bu.management.exception.ForbiddenOperationException;
 import com.bu.management.mapper.BuKeyMatterMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -23,6 +25,10 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -42,6 +48,9 @@ class BuKeyMatterLockIntegrationTest {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @MockBean
+    private BuKeyMatterAccessService accessService;
 
     private TransactionTemplate transactionTemplate;
     private ExecutorService executor;
@@ -72,7 +81,7 @@ class BuKeyMatterLockIntegrationTest {
                 """);
         jdbcTemplate.execute("""
                 CREATE TABLE bu_key_matter_weekly_update (
-                    id BIGINT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
                     key_matter_id BIGINT NOT NULL,
                     week_start_date DATE NOT NULL,
                     status VARCHAR(20) NOT NULL,
@@ -136,7 +145,7 @@ class BuKeyMatterLockIntegrationTest {
             started.countDown();
             try {
                 buKeyMatterService.upsertWeeklyUpdate(
-                        MATTER_ID, MONDAY, weeklyRequest("推进中", 90, "推进中进展"), 16L);
+                        MATTER_ID, MONDAY, weeklyRequest("推进中", 90, "推进中进展"), 16L, "yufeng");
                 return null;
             } catch (Throwable t) {
                 return t;
@@ -176,6 +185,74 @@ class BuKeyMatterLockIntegrationTest {
                         ? null : rs.getTimestamp("completed_at").toLocalDateTime(),
                 MATTER_ID);
         assertThat(committedAt).isEqualTo(LocalDateTime.of(2026, 8, 2, 10, 0));
+    }
+
+    @Test
+    void ownerChangeRaceRejectsOldOwnerAfterCommitAndAllowsNewOwner() throws Exception {
+        doThrow(new ForbiddenOperationException("仅事项负责人可反馈周进度"))
+                .when(accessService)
+                .requireFeedback(any(BuKeyMatter.class), eq(7L), anyString());
+
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        Future<Throwable> ownerChange = executor.submit(() -> {
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    BuKeyMatter matter = matterMapper.selectByIdForUpdate(MATTER_ID);
+                    matter.setOwnerId(21L);
+                    matter.setUpdatedAt(LocalDateTime.of(2026, 8, 2, 10, 0));
+                    matterMapper.updateById(matter);
+                    lockHeld.countDown();
+                    await(release);
+                });
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+
+        assertThat(lockHeld.await(10, TimeUnit.SECONDS))
+                .as("owner change transaction must acquire the row lock before proceeding")
+                .isTrue();
+
+        CountDownLatch started = new CountDownLatch(1);
+        Future<Throwable> oldOwnerWrite = executor.submit(() -> {
+            started.countDown();
+            try {
+                buKeyMatterService.upsertWeeklyUpdate(
+                        MATTER_ID, MONDAY, weeklyRequest("推进中", 60, "旧负责人进展"), 7L, "shijiale");
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        });
+
+        assertThat(started.await(10, TimeUnit.SECONDS))
+                .as("old owner weekly write must start")
+                .isTrue();
+
+        assertBlocked(oldOwnerWrite, 2000);
+        assertThat(countWeeklyUpdates())
+                .as("no weekly row may be written before the owner change commits")
+                .isZero();
+
+        release.countDown();
+
+        Throwable oldOwnerError = oldOwnerWrite.get(10, TimeUnit.SECONDS);
+        assertThat(oldOwnerError)
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅事项负责人可反馈周进度");
+
+        assertThat(ownerChange.get(10, TimeUnit.SECONDS))
+                .as("owner change transaction must commit cleanly")
+                .isNull();
+
+        assertThat(countWeeklyUpdates()).isZero();
+
+        buKeyMatterService.upsertWeeklyUpdate(
+                MATTER_ID, MONDAY, weeklyRequest("推进中", 60, "新负责人进展"), 21L, "newowner");
+        assertThat(countWeeklyUpdates()).isEqualTo(1);
     }
 
     private BuKeyMatterWeeklyUpdateRequest weeklyRequest(

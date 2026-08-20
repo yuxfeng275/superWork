@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -122,13 +123,56 @@ class ControllerSecurityContractTest {
     }
 
     @Test
-    void keyMattersAreRestrictedToAdminAndYufeng() {
-        RequireUsername usernames = BuKeyMatterController.class.getAnnotation(RequireUsername.class);
+    void keyMattersHaveNoClassLevelUsernameWhitelistOrPermission() {
+        assertThat(BuKeyMatterController.class.getAnnotation(RequireUsername.class)).isNull();
+        assertThat(BuKeyMatterController.class.getAnnotation(RequirePermission.class)).isNull();
+    }
 
-        assertThat(usernames)
+    @Test
+    void keyMatterAccessEndpointUsesViewFeedbackOrManagePermission() throws Exception {
+        Method access = BuKeyMatterController.class.getMethod("access", Long.class, String.class);
+
+        assertThat(access.getAnnotation(GetMapping.class)).isNotNull();
+        assertThat(access.getAnnotation(RequirePermission.class))
                 .isNotNull()
-                .extracting(RequireUsername::value)
-                .isEqualTo(new String[]{"admin", "yufeng"});
+                .extracting(RequirePermission::value)
+                .isEqualTo(new String[]{"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"});
+    }
+
+    @Test
+    void keyMatterReadEndpointsAllowViewFeedbackOrManage() {
+        for (String name : new String[]{"list", "meeting", "get"}) {
+            Method method = findMethod(BuKeyMatterController.class, name);
+            assertThat(method.getAnnotation(RequirePermission.class))
+                    .as("GET %s 权限", name)
+                    .isNotNull()
+                    .extracting(RequirePermission::value)
+                    .isEqualTo(new String[]{"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"});
+        }
+    }
+
+    @Test
+    void keyMatterWriteEndpointsRequireManagePermission() {
+        for (String name : new String[]{"create", "update", "delete"}) {
+            Method method = findMethod(BuKeyMatterController.class, name);
+            assertThat(method.getAnnotation(RequirePermission.class))
+                    .as("%s 权限", name)
+                    .isNotNull()
+                    .extracting(RequirePermission::value)
+                    .isEqualTo(new String[]{"bu:key-matter:manage"});
+        }
+    }
+
+    @Test
+    void keyMatterWeeklyEndpointsRequireFeedbackOrManagePermission() {
+        for (String name : new String[]{"upsertWeeklyUpdate", "deleteWeeklyUpdate"}) {
+            Method method = findMethod(BuKeyMatterController.class, name);
+            assertThat(method.getAnnotation(RequirePermission.class))
+                    .as("%s 权限", name)
+                    .isNotNull()
+                    .extracting(RequirePermission::value)
+                    .isEqualTo(new String[]{"bu:key-matter:feedback", "bu:key-matter:manage"});
+        }
     }
 
     @Test

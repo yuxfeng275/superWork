@@ -1,12 +1,13 @@
 package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
-import com.bu.management.annotation.RequireUsername;
 import com.bu.management.dto.BuKeyMatterRequest;
 import com.bu.management.dto.BuKeyMatterWeeklyUpdateRequest;
 import com.bu.management.entity.BuKeyMatter;
 import com.bu.management.entity.BuKeyMatterWeeklyUpdate;
+import com.bu.management.service.BuKeyMatterAccessService;
 import com.bu.management.service.BuKeyMatterService;
+import com.bu.management.vo.BuKeyMatterAccessView;
 import com.bu.management.vo.BuKeyMatterView;
 import com.bu.management.vo.Result;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,73 +32,109 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/key-matters")
 @RequiredArgsConstructor
-@RequirePermission({"bu:key-matter:manage"})
-@RequireUsername({"admin", "yufeng"})
 public class BuKeyMatterController {
 
     private final BuKeyMatterService service;
+    private final BuKeyMatterAccessService accessService;
+
+    @GetMapping("/access")
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
+    @Operation(summary = "查询当前用户大事儿访问能力")
+    public Result<BuKeyMatterAccessView> access(
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("username") String username) {
+        return Result.success(accessService.resolveAccess(userId, username));
+    }
 
     @GetMapping
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "查询大事儿台账")
     public Result<List<BuKeyMatterView>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String priority,
             @RequestParam(required = false) Long ownerId,
-            @RequestParam(required = false) Long projectId) {
+            @RequestParam(required = false) Long projectId,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("username") String username) {
+        accessService.requireReadAccess(userId, username);
         return Result.success(service.list(keyword, status, priority, ownerId, projectId));
     }
 
     @GetMapping("/meeting")
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "查询指定周的周会视图")
     public Result<List<BuKeyMatterView>> meeting(
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate) {
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("username") String username) {
+        accessService.requireReadAccess(userId, username);
         return Result.success(service.meeting(weekStartDate));
     }
 
     @GetMapping("/{id}")
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "查询大事儿详情")
-    public Result<BuKeyMatterView> get(@PathVariable Long id) {
+    public Result<BuKeyMatterView> get(@PathVariable Long id,
+                                       @RequestAttribute("userId") Long userId,
+                                       @RequestAttribute("username") String username) {
+        accessService.requireReadAccess(userId, username);
         return Result.success(service.get(id));
     }
 
     @PostMapping
+    @RequirePermission({"bu:key-matter:manage"})
     @Operation(summary = "创建大事儿")
     public Result<BuKeyMatter> create(@RequestBody BuKeyMatterRequest request,
-                                      @RequestAttribute("userId") Long userId) {
+                                      @RequestAttribute("userId") Long userId,
+                                      @RequestAttribute("username") String username) {
+        accessService.requireManageAll(userId, username);
         return Result.success(service.create(request, userId));
     }
 
     @PutMapping("/{id}")
+    @RequirePermission({"bu:key-matter:manage"})
     @Operation(summary = "更新大事儿")
     public Result<BuKeyMatter> update(@PathVariable Long id,
-                                      @RequestBody BuKeyMatterRequest request) {
+                                      @RequestBody BuKeyMatterRequest request,
+                                      @RequestAttribute("userId") Long userId,
+                                      @RequestAttribute("username") String username) {
+        accessService.requireManageAll(userId, username);
         return Result.success(service.update(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @RequirePermission({"bu:key-matter:manage"})
     @Operation(summary = "删除大事儿")
-    public Result<Void> delete(@PathVariable Long id) {
+    public Result<Void> delete(@PathVariable Long id,
+                               @RequestAttribute("userId") Long userId,
+                               @RequestAttribute("username") String username) {
+        accessService.requireManageAll(userId, username);
         service.delete(id);
         return Result.success();
     }
 
     @PutMapping("/{id}/weekly-updates/{weekStartDate}")
+    @RequirePermission({"bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "新增或更新指定周进展")
     public Result<BuKeyMatterWeeklyUpdate> upsertWeeklyUpdate(
             @PathVariable Long id,
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate,
             @RequestBody BuKeyMatterWeeklyUpdateRequest request,
-            @RequestAttribute("userId") Long userId) {
-        return Result.success(service.upsertWeeklyUpdate(id, weekStartDate, request, userId));
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("username") String username) {
+        return Result.success(service.upsertWeeklyUpdate(id, weekStartDate, request, userId, username));
     }
 
     @DeleteMapping("/{id}/weekly-updates/{weekStartDate}")
+    @RequirePermission({"bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "删除指定周进展")
     public Result<Void> deleteWeeklyUpdate(
             @PathVariable Long id,
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate) {
-        service.deleteWeeklyUpdate(id, weekStartDate);
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("username") String username) {
+        service.deleteWeeklyUpdate(id, weekStartDate, userId, username);
         return Result.success();
     }
 }
