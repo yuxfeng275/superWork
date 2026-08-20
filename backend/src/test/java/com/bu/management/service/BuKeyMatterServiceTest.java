@@ -177,9 +177,11 @@ class BuKeyMatterServiceTest {
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
 
         BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
-                11L, week, weeklyRequest("已完成", 100, "补充交付说明"), 16L);
+                11L, week, weeklyRequest("推进中", 90, "补充交付说明"), 16L);
 
         assertThat(saved.getId()).isEqualTo(21L);
+        assertThat(saved.getStatus()).isEqualTo("推进中");
+        assertThat(saved.getProgress()).isEqualTo(90);
         assertThat(saved.getProgressSummary()).isEqualTo("补充交付说明");
         assertThat(matter.getStatus()).isEqualTo("已完成");
         assertThat(matter.getProgress()).isEqualTo(100);
