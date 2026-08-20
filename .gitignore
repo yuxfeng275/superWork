@@ -28,6 +28,8 @@ logs/
 *.iml
 
 # Local test and agent artifacts
+.worktrees/
+.superpowers/
 .playwright-cli/
 .playwright-mcp/
 test-results/
