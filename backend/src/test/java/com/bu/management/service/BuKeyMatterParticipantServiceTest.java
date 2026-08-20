@@ -94,6 +94,25 @@ class BuKeyMatterParticipantServiceTest {
     }
 
     @Test
+    void createWithExplicitEmptyParticipantIdsDefaultsToOwnerOnly() {
+        when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
+        when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
+        when(matterMapper.insert(any(BuKeyMatter.class))).thenAnswer(invocation -> {
+            invocation.<BuKeyMatter>getArgument(0).setId(11L);
+            return 1;
+        });
+        BuKeyMatterRequest request = request();
+        request.setParticipantIds(List.of());
+
+        service.create(request, 16L);
+
+        ArgumentCaptor<BuKeyMatterParticipant> captor =
+                ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
+        verify(participantMapper, times(1)).insert(captor.capture());
+        assertThat(captor.getValue().getUserId()).isEqualTo(7L);
+    }
+
+    @Test
     void updateRemovesOldParticipantsAndAddsNewOwner() {
         BuKeyMatter matter = matter(11L, 7L);
         when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
@@ -132,6 +151,27 @@ class BuKeyMatterParticipantServiceTest {
         assertThat(captor.getAllValues())
                 .extracting(BuKeyMatterParticipant::getUserId)
                 .containsExactly(7L, 16L);
+    }
+
+    @Test
+    void updateExplicitListDeduplicatesParticipantAndAddsOmittedOwner() {
+        BuKeyMatter matter = matter(11L, 7L);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
+        when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
+        when(userMapper.selectBatchIds(List.of(16L))).thenReturn(List.of(activeUser(16L, "于峰")));
+        BuKeyMatterRequest request = request();
+        request.setParticipantIds(List.of(16L, 16L));
+
+        service.update(11L, request);
+
+        verify(participantMapper, never()).selectList(any(Wrapper.class));
+        ArgumentCaptor<BuKeyMatterParticipant> captor =
+                ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
+        verify(participantMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(BuKeyMatterParticipant::getUserId)
+                .containsExactly(16L, 7L);
     }
 
     @Test
