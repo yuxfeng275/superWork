@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 interface TestUser {
   id: number
@@ -183,9 +183,18 @@ test('空权限响应按拒绝处理且不会产生未捕获导航错误', async
 })
 
 test('退出登录后忽略仍在请求中的权限成功响应', async ({ page }) => {
-  let resolveAccessRoute: ((route: Route) => void) | null = null
-  const accessRouteStarted = new Promise<Route>(resolve => {
-    resolveAccessRoute = resolve
+  let accessRequestCount = 0
+  let markFirstAccessStarted = () => {}
+  let releaseFirstAccessResponse = () => {}
+  let markFirstAccessSettled = () => {}
+  const firstAccessStarted = new Promise<void>(resolve => {
+    markFirstAccessStarted = resolve
+  })
+  const firstAccessRelease = new Promise<void>(resolve => {
+    releaseFirstAccessResponse = resolve
+  })
+  const firstAccessSettled = new Promise<void>(resolve => {
+    markFirstAccessSettled = resolve
   })
 
   await page.addInitScript(() => {
@@ -199,28 +208,63 @@ test('退出登录后忽略仍在请求中的权限成功响应', async ({ page 
   })
 
   await page.route('**/api/key-matters/access', async route => {
-    resolveAccessRoute?.(route)
+    accessRequestCount += 1
+
+    if (accessRequestCount === 1) {
+      markFirstAccessStarted()
+      await firstAccessRelease
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          message: 'success',
+          data: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
+          timestamp: '2026-03-20T00:00:00.000Z'
+        })
+      })
+      markFirstAccessSettled()
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 200,
+        message: 'success',
+        data: { canAccess: false, canManageAll: false, canFeedbackOwn: false },
+        timestamp: '2026-03-20T00:00:00.000Z'
+      })
+    })
   })
 
   await page.goto('/')
-  const delayedAccessRoute = await accessRouteStarted
+  await firstAccessStarted
   await page.getByRole('button', { name: '退出登录' }).click()
-
-  await delayedAccessRoute.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      code: 200,
-      message: 'success',
-      data: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
-      timestamp: '2026-03-20T00:00:00.000Z'
-    })
-  })
 
   await expect(page).toHaveURL('/login')
   await expect.poll(() => page.evaluate(() => ({
     token: localStorage.getItem('token'),
     user: localStorage.getItem('user')
   }))).toEqual({ token: null, user: null })
+
+  releaseFirstAccessResponse()
+  await firstAccessSettled
+
+  await page.evaluate(() => {
+    localStorage.setItem('token', 'unrelated-token')
+    localStorage.setItem('user', JSON.stringify({
+      id: 9,
+      username: 'unrelated',
+      realName: '无关用户',
+      role: 'FULL_STACK_ENGINEER'
+    }))
+  })
+  await page.goBack()
+
+  await expect(page).toHaveURL('/')
+  await expect.poll(() => accessRequestCount).toBe(2)
   await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+  expect(accessRequestCount).toBe(2)
 })
