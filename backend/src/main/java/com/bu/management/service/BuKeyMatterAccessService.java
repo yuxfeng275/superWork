@@ -1,9 +1,11 @@
 package com.bu.management.service;
 
 import com.bu.management.entity.BuKeyMatter;
+import com.bu.management.entity.User;
 import com.bu.management.exception.ForbiddenOperationException;
 import com.bu.management.mapper.BuKeyMatterMapper;
 import com.bu.management.mapper.BuKeyMatterParticipantMapper;
+import com.bu.management.mapper.UserMapper;
 import com.bu.management.vo.BuKeyMatterAccessView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,8 +27,12 @@ public class BuKeyMatterAccessService {
     private final SysRoleService sysRoleService;
     private final BuKeyMatterParticipantMapper participantMapper;
     private final BuKeyMatterMapper matterMapper;
+    private final UserMapper userMapper;
 
     public BuKeyMatterAccessView resolveAccess(Long userId, String username) {
+        if (!isActiveUser(userId)) {
+            return new BuKeyMatterAccessView(false, false, false);
+        }
         List<String> permissionCodes = permissionCodes(userId);
         boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
         boolean canView = canManageAll || permissionCodes.contains(PERMISSION_VIEW);
@@ -52,6 +58,9 @@ public class BuKeyMatterAccessService {
     }
 
     public void requireFeedback(BuKeyMatter matter, Long userId, String username) {
+        if (!isActiveUser(userId)) {
+            throw new ForbiddenOperationException("无权访问大事儿");
+        }
         List<String> permissionCodes = permissionCodes(userId);
         boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
         if (canManageAll) {
@@ -68,6 +77,11 @@ public class BuKeyMatterAccessService {
 
     private boolean isAdmin(String username) {
         return "admin".equals(username) || "yufeng".equals(username);
+    }
+
+    private boolean isActiveUser(Long userId) {
+        User user = userId == null ? null : userMapper.selectById(userId);
+        return user != null && Integer.valueOf(1).equals(user.getStatus());
     }
 
     private List<String> permissionCodes(Long userId) {
