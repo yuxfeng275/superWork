@@ -85,7 +85,7 @@ class BuKeyMatterServiceTest {
     void updateSetsAndClearsCompletedAt() {
         BuKeyMatter matter = matter(11L, "P1", "推进中", 70,
                 LocalDate.of(2026, 8, 28));
-        when(matterMapper.selectById(11L)).thenReturn(matter);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
         when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
         when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
         BuKeyMatterRequest completed = request();
@@ -112,7 +112,7 @@ class BuKeyMatterServiceTest {
         BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
                 LocalDate.of(2026, 8, 28));
         BuKeyMatterWeeklyUpdate existing = weekly(21L, 11L, week, "推进中", 40);
-        when(matterMapper.selectById(11L)).thenReturn(matter);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
         BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("有风险", 60, "核心链路联调完成");
 
@@ -134,7 +134,7 @@ class BuKeyMatterServiceTest {
                 LocalDate.of(2026, 8, 28));
         BuKeyMatterWeeklyUpdate latest = weekly(
                 22L, 11L, LocalDate.of(2026, 8, 3), "推进中", 80);
-        when(matterMapper.selectById(11L)).thenReturn(matter);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
         when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(latest));
 
         service.upsertWeeklyUpdate(
@@ -143,6 +143,73 @@ class BuKeyMatterServiceTest {
         assertThat(matter.getStatus()).isEqualTo("推进中");
         assertThat(matter.getProgress()).isEqualTo(80);
         verify(matterMapper, never()).updateById(any(BuKeyMatter.class));
+    }
+
+    @Test
+    void completedMatterRejectsCreatingWeeklyUpdate() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "已完成", 100,
+                LocalDate.of(2026, 8, 28));
+        matter.setCompletedAt(LocalDateTime.of(2026, 8, 2, 10, 0));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        // Blank summary would fail request validation; the guard must reject first.
+        BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("已完成", 100, "");
+
+        assertThatThrownBy(() -> service.upsertWeeklyUpdate(11L, week, request, 16L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("已完成事项无需新增周进展");
+
+        verify(weeklyUpdateMapper, never()).insert(any(BuKeyMatterWeeklyUpdate.class));
+        verify(weeklyUpdateMapper, never()).updateById(any(BuKeyMatterWeeklyUpdate.class));
+        verify(matterMapper, never()).updateById(any(BuKeyMatter.class));
+    }
+
+    @Test
+    void completedMatterAllowsExistingWeeklyCorrectionWithoutReopeningMatter() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "已完成", 100,
+                LocalDate.of(2026, 8, 28));
+        LocalDateTime completedAt = LocalDateTime.of(2026, 8, 2, 10, 0);
+        matter.setCompletedAt(completedAt);
+        BuKeyMatterWeeklyUpdate existing = weekly(21L, 11L, week, "已完成", 100);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
+
+        BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
+                11L, week, weeklyRequest("已完成", 100, "补充交付说明"), 16L);
+
+        assertThat(saved.getId()).isEqualTo(21L);
+        assertThat(saved.getProgressSummary()).isEqualTo("补充交付说明");
+        assertThat(matter.getStatus()).isEqualTo("已完成");
+        assertThat(matter.getProgress()).isEqualTo(100);
+        assertThat(matter.getCompletedAt()).isEqualTo(completedAt);
+        verify(weeklyUpdateMapper).updateById(existing);
+        verify(matterMapper, never()).updateById(any(BuKeyMatter.class));
+    }
+
+    @Test
+    void reopenedMatterCanCreateWeeklyUpdate() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(weeklyUpdateMapper.insert(any(BuKeyMatterWeeklyUpdate.class))).thenAnswer(invocation -> {
+            invocation.<BuKeyMatterWeeklyUpdate>getArgument(0).setId(31L);
+            return 1;
+        });
+
+        BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
+                11L, week, weeklyRequest("有风险", 60, "核心链路联调完成"), 16L);
+
+        assertThat(saved.getId()).isEqualTo(31L);
+        assertThat(saved.getKeyMatterId()).isEqualTo(11L);
+        assertThat(saved.getProgress()).isEqualTo(60);
+        assertThat(matter.getStatus()).isEqualTo("有风险");
+        assertThat(matter.getProgress()).isEqualTo(60);
+        verify(weeklyUpdateMapper).insert(any(BuKeyMatterWeeklyUpdate.class));
+        verify(matterMapper).updateById(matter);
     }
 
     @Test

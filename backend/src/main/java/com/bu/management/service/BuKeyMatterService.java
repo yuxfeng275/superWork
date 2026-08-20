@@ -85,7 +85,7 @@ public class BuKeyMatterService {
 
     @Transactional
     public BuKeyMatter update(Long id, BuKeyMatterRequest request) {
-        BuKeyMatter matter = findMatter(id);
+        BuKeyMatter matter = findMatterForUpdate(id);
         boolean wasCompleted = "已完成".equals(matter.getStatus());
         LocalDateTime originalCompletedAt = matter.getCompletedAt();
         NormalizedMatter normalized = validate(request);
@@ -109,8 +109,7 @@ public class BuKeyMatterService {
                                                        BuKeyMatterWeeklyUpdateRequest request,
                                                        Long userId) {
         validateWeekStart(weekStartDate);
-        BuKeyMatter matter = findMatter(matterId);
-        NormalizedWeeklyUpdate normalized = validate(request);
+        BuKeyMatter matter = findMatterForUpdate(matterId);
         List<BuKeyMatterWeeklyUpdate> existingUpdates = weeklyUpdateMapper.selectList(
                 new LambdaQueryWrapper<BuKeyMatterWeeklyUpdate>()
                         .eq(BuKeyMatterWeeklyUpdate::getKeyMatterId, matterId)
@@ -118,8 +117,15 @@ public class BuKeyMatterService {
         BuKeyMatterWeeklyUpdate update = existingUpdates.stream()
                 .filter(item -> weekStartDate.equals(item.getWeekStartDate()))
                 .findFirst()
-                .orElseGet(BuKeyMatterWeeklyUpdate::new);
-        boolean creating = update.getId() == null;
+                .orElse(null);
+        boolean creating = update == null;
+        if (creating && "已完成".equals(matter.getStatus())) {
+            throw new RuntimeException("已完成事项无需新增周进展");
+        }
+        NormalizedWeeklyUpdate normalized = validate(request);
+        if (creating) {
+            update = new BuKeyMatterWeeklyUpdate();
+        }
         LocalDateTime now = LocalDateTime.now();
         update.setKeyMatterId(matterId);
         update.setWeekStartDate(weekStartDate);
@@ -138,14 +144,16 @@ public class BuKeyMatterService {
             weeklyUpdateMapper.updateById(update);
         }
 
-        LocalDate latestWeek = existingUpdates.stream()
-                .map(BuKeyMatterWeeklyUpdate::getWeekStartDate)
-                .filter(date -> date != null)
-                .max(LocalDate::compareTo)
-                .orElse(null);
-        if (latestWeek == null || !weekStartDate.isBefore(latestWeek)) {
-            synchronizeMatter(matter, normalized.status(), normalized.progress(), now);
-            matterMapper.updateById(matter);
+        if (!"已完成".equals(matter.getStatus())) {
+            LocalDate latestWeek = existingUpdates.stream()
+                    .map(BuKeyMatterWeeklyUpdate::getWeekStartDate)
+                    .filter(date -> date != null)
+                    .max(LocalDate::compareTo)
+                    .orElse(null);
+            if (latestWeek == null || !weekStartDate.isBefore(latestWeek)) {
+                synchronizeMatter(matter, normalized.status(), normalized.progress(), now);
+                matterMapper.updateById(matter);
+            }
         }
         return update;
     }
@@ -261,6 +269,14 @@ public class BuKeyMatterService {
 
     private BuKeyMatter findMatter(Long id) {
         BuKeyMatter matter = id == null ? null : matterMapper.selectById(id);
+        if (matter == null) {
+            throw new ResourceNotFoundException("大事儿不存在");
+        }
+        return matter;
+    }
+
+    private BuKeyMatter findMatterForUpdate(Long id) {
+        BuKeyMatter matter = id == null ? null : matterMapper.selectByIdForUpdate(id);
         if (matter == null) {
             throw new ResourceNotFoundException("大事儿不存在");
         }
