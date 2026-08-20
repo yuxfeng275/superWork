@@ -11,6 +11,7 @@ import type {
   BuKeyMatterParticipant,
   BuKeyMatterPayload,
   BuKeyMatterWeeklyUpdate,
+  KeyMatterAccess,
   BuKeyMatterWeeklyUpdatePayload
 } from '@/utils/api'
 
@@ -478,6 +479,29 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+function isForbiddenError(error: unknown) {
+  return error instanceof ApiRequestError && error.status === 403
+}
+
+let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+async function refreshAccessAfterForbidden(error: unknown) {
+  if (!isForbiddenError(error)) return null
+  if (forbiddenAccessRefresh) return forbiddenAccessRefresh
+
+  ElMessage.error(errorMessage(error, '无权操作大事儿'))
+  const recovery = (async () => {
+    const access = await authStore.loadKeyMatterAccess(true)
+    if (!access.canAccess) await router.push('/')
+    return access
+  })()
+  forbiddenAccessRefresh = recovery
+  try {
+    return await recovery
+  } finally {
+    if (forbiddenAccessRefresh === recovery) forbiddenAccessRefresh = null
+  }
+}
+
 function denyManageAction() {
   ElMessage.warning('仅管理员可维护大事儿')
 }
@@ -567,7 +591,10 @@ async function loadMatters() {
     allMatters.value = completeResult ?? result
     clampCurrentPage()
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '大事儿台账加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '大事儿台账加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -579,7 +606,10 @@ async function loadMeeting() {
   try {
     meetingMatters.value = await api.getKeyMatterMeeting(selectedWeek.value)
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '周会数据加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '周会数据加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -591,7 +621,10 @@ async function loadMilestones() {
   try {
     milestoneMatters.value = await api.getKeyMatters()
   } catch (error: unknown) {
-    loadError.value = errorMessage(error, '里程碑数据加载失败')
+    const access = await refreshAccessAfterForbidden(error)
+    if (!access || access.canAccess) {
+      loadError.value = errorMessage(error, '里程碑数据加载失败')
+    }
   } finally {
     loading.value = false
   }
@@ -746,7 +779,13 @@ async function saveMatter() {
     matterDrawer.value = false
     await refreshActiveMode()
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '事项保存失败'))
+    const access = await refreshAccessAfterForbidden(error)
+    if (access) {
+      matterDrawer.value = false
+      if (access.canAccess) await refreshActiveMode()
+    } else {
+      ElMessage.error(errorMessage(error, '事项保存失败'))
+    }
   } finally {
     matterSaving.value = false
   }
@@ -768,7 +807,12 @@ async function confirmDeleteMatter(matter: BuKeyMatter) {
     detailDrawer.value = false
     await refreshActiveMode()
   } catch (error: unknown) {
-    if (error instanceof Error) ElMessage.error(errorMessage(error, '事项删除失败'))
+    const access = await refreshAccessAfterForbidden(error)
+    if (access?.canAccess) {
+      await refreshActiveMode()
+    } else if (!access && error instanceof Error) {
+      ElMessage.error(errorMessage(error, '事项删除失败'))
+    }
   }
 }
 
@@ -782,7 +826,10 @@ async function openDetail(matter: BuKeyMatter) {
       selectedMatter.value = detail
     }
   } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '事项详情加载失败'))
+    if (isForbiddenError(error)) detailDrawer.value = false
+    if (!await refreshAccessAfterForbidden(error)) {
+      ElMessage.error(errorMessage(error, '事项详情加载失败'))
+    }
   } finally {
     detailLoading.value = false
   }
@@ -839,6 +886,23 @@ function selectPresentationStatus(status: string) {
   handlePresentationStatusChange(status)
 }
 
+async function refreshMatterState(matterId: number) {
+  if (mode.value === 'meeting') {
+    await loadMeeting()
+    const refreshedIndex = presentationOrderedMatters.value.findIndex(matter => matter.id === matterId)
+    presentationIndex.value = refreshedIndex >= 0
+      ? refreshedIndex
+      : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
+    hydratePresentationForm()
+    return
+  }
+
+  await refreshActiveMode()
+  if (selectedMatter.value?.id === matterId) {
+    selectedMatter.value = findMatterById(matterId)
+  }
+}
+
 async function recoverOwnerFeedbackForbidden(error: unknown, matterId: number) {
   if (!isOwnerFeedbackForbiddenError(error)) return false
 
@@ -853,19 +917,7 @@ async function recoverOwnerFeedbackForbidden(error: unknown, matterId: number) {
     return true
   }
 
-  if (mode.value === 'meeting') {
-    await loadMeeting()
-    const refreshedIndex = presentationOrderedMatters.value.findIndex(matter => matter.id === matterId)
-    presentationIndex.value = refreshedIndex >= 0
-      ? refreshedIndex
-      : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
-    hydratePresentationForm()
-  } else {
-    await refreshActiveMode()
-    if (selectedMatter.value?.id === matterId) {
-      selectedMatter.value = findMatterById(matterId)
-    }
-  }
+  await refreshMatterState(matterId)
   return true
 }
 
@@ -893,10 +945,16 @@ async function saveWeeklyUpdate() {
     await refreshActiveMode()
   } catch (error: unknown) {
     if (!await recoverOwnerFeedbackForbidden(error, weeklyMatterId.value)) {
-      ElMessage.error(errorMessage(error, '周进展保存失败'))
-      if (!weeklyEditingExisting.value && isCompletedWeeklyUpdateError(error)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access) {
         weeklyDrawer.value = false
-        await refreshActiveMode()
+        if (access.canAccess) await refreshMatterState(weeklyMatterId.value)
+      } else {
+        ElMessage.error(errorMessage(error, '周进展保存失败'))
+        if (!weeklyEditingExisting.value && isCompletedWeeklyUpdateError(error)) {
+          weeklyDrawer.value = false
+          await refreshActiveMode()
+        }
       }
     }
   } finally {
@@ -920,8 +978,13 @@ async function confirmDeleteWeekly(matter: BuKeyMatter, update: BuKeyMatterWeekl
     await openDetail(matter)
     await loadMatters()
   } catch (error: unknown) {
-    if (!await recoverOwnerFeedbackForbidden(error, matter.id) && error instanceof Error) {
-      ElMessage.error(errorMessage(error, '周进展删除失败'))
+    if (!await recoverOwnerFeedbackForbidden(error, matter.id)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access?.canAccess) {
+        await refreshMatterState(matter.id)
+      } else if (!access && error instanceof Error) {
+        ElMessage.error(errorMessage(error, '周进展删除失败'))
+      }
     }
   }
 }
@@ -1267,15 +1330,22 @@ async function savePresentationAndNext() {
     hydratePresentationForm()
   } catch (error: unknown) {
     if (!await recoverOwnerFeedbackForbidden(error, matter.id)) {
-      ElMessage.error(errorMessage(error, '周报保存失败'))
-      if (isCompletedWeeklyUpdateError(error)) {
+      const access = await refreshAccessAfterForbidden(error)
+      if (access) {
+        presentationEditing.value = false
         presentationDrafts.delete(matter.id)
-        await loadMeeting()
-        const refreshedIndex = presentationOrderedMatters.value.findIndex(item => item.id === matter.id)
-        presentationIndex.value = refreshedIndex >= 0
-          ? refreshedIndex
-          : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
-        hydratePresentationForm()
+        if (access.canAccess) await refreshMatterState(matter.id)
+      } else {
+        ElMessage.error(errorMessage(error, '周报保存失败'))
+        if (isCompletedWeeklyUpdateError(error)) {
+          presentationDrafts.delete(matter.id)
+          await loadMeeting()
+          const refreshedIndex = presentationOrderedMatters.value.findIndex(item => item.id === matter.id)
+          presentationIndex.value = refreshedIndex >= 0
+            ? refreshedIndex
+            : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
+          hydratePresentationForm()
+        }
       }
     }
   } finally {

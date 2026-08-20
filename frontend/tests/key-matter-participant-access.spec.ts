@@ -88,13 +88,15 @@ function featureMatter(options: {
 
 interface FeatureSessionOptions {
   user: TestUser
-  access: KeyMatterAccessFixture
+  access: KeyMatterAccessFixture | (() => KeyMatterAccessFixture)
   matters: ReturnType<typeof featureMatter>[]
+  onMatterListGet?: (requestCount: number) => { status: number; body: unknown } | undefined
+  onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
   onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
 }
 
 async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
-  const requestCounts = { access: 0, weeklyPut: 0 }
+  const requestCounts = { access: 0, matterListGet: 0, matterPut: 0, weeklyPut: 0 }
 
   await page.clock.setFixedTime(new Date('2026-03-20T09:00:00+08:00'))
   await page.addInitScript(({ currentUser }) => {
@@ -122,10 +124,11 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
     const path = new URL(request.url()).pathname
     if (path === '/api/key-matters/access') {
       requestCounts.access += 1
+      const access = typeof options.access === 'function' ? options.access() : options.access
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ code: 200, message: 'success', data: options.access })
+        body: JSON.stringify({ code: 200, message: 'success', data: access })
       })
       return
     }
@@ -142,7 +145,19 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
       return
     }
 
-    if (request.method() === 'PUT' || request.method() === 'POST') {
+    const detailMatch = path.match(/^\/api\/key-matters\/(\d+)$/)
+    if (request.method() === 'PUT' && detailMatch) {
+      requestCounts.matterPut += 1
+      const response = options.onMatterPut?.(Number(detailMatch[1]))
+      await route.fulfill({
+        status: response?.status ?? 200,
+        contentType: 'application/json',
+        body: JSON.stringify(response?.body ?? { code: 200, data: request.postDataJSON() })
+      })
+      return
+    }
+
+    if (request.method() === 'POST') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -151,7 +166,6 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
       return
     }
 
-    const detailMatch = path.match(/^\/api\/key-matters\/(\d+)$/)
     if (detailMatch) {
       const matter = options.matters.find(item => item.id === Number(detailMatch[1]))
       await route.fulfill({
@@ -162,6 +176,19 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
           : { code: 404, message: '事项不存在' })
       })
       return
+    }
+
+    if (request.method() === 'GET' && path === '/api/key-matters') {
+      requestCounts.matterListGet += 1
+      const response = options.onMatterListGet?.(requestCounts.matterListGet)
+      if (response) {
+        await route.fulfill({
+          status: response.status,
+          contentType: 'application/json',
+          body: JSON.stringify(response.body)
+        })
+        return
+      }
     }
 
     await route.fulfill({
@@ -517,6 +544,70 @@ test('负责人变更后保存周进度刷新为只读', async ({ page }) => {
   const detail = page.locator('.detail-content')
   await expect(detail).toContainText(matter.title)
   await expect(detail.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
+})
+
+test('参与关系被移除后读取403自动退出大事儿', async ({ page }) => {
+  const matter = featureMatter({ id: 41, title: '参与关系撤销事项', ownerId: 7, projectId: 31 })
+  let accessRevoked = false
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[2],
+    access: () => accessRevoked
+      ? { canAccess: false, canManageAll: false, canFeedbackOwn: false }
+      : { canAccess: true, canManageAll: false, canFeedbackOwn: false },
+    matters: [matter],
+    onMatterListGet: () => {
+      accessRevoked = true
+      return {
+        status: 403,
+        body: { code: 403, message: '无权访问大事儿' }
+      }
+    }
+  })
+
+  await page.goto('/key-matters')
+
+  await expect(page.locator('.el-message__content', { hasText: '无权访问大事儿' })).toHaveCount(1)
+  await expect.poll(() => requestCounts.access).toBeGreaterThanOrEqual(2)
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+})
+
+test('管理员权限撤销后保存事项刷新为只读', async ({ page }) => {
+  const matter = featureMatter({ id: 41, title: '管理员权限撤销事项', ownerId: 7, projectId: 31 })
+  let manageRevoked = false
+  const requestCounts = await mockFeatureSession(page, {
+    user: { id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' },
+    access: () => manageRevoked
+      ? { canAccess: true, canManageAll: false, canFeedbackOwn: false }
+      : { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    matters: [matter],
+    onMatterPut: matterId => {
+      if (matterId !== matter.id) return undefined
+      manageRevoked = true
+      return {
+        status: 403,
+        body: { code: 403, message: '仅管理员可管理大事儿' }
+      }
+    }
+  })
+
+  await page.goto('/key-matters')
+  const table = page.getByLabel('大事儿列表')
+  const row = table.locator('tr', { hasText: matter.title })
+  await row.getByRole('button', { name: '编辑事项' }).click()
+  const dialog = page.getByRole('dialog', { name: '编辑大事儿' })
+  await dialog.getByRole('button', { name: '保存' }).click()
+
+  await expect.poll(() => requestCounts.matterPut).toBe(1)
+  await expect(page.getByText('仅管理员可管理大事儿', { exact: true })).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => requestCounts.access).toBeGreaterThanOrEqual(2)
+  await expect(page).toHaveURL('/key-matters')
+  await expect(row.getByText(matter.title)).toBeVisible()
+  await expect(page.getByRole('button', { name: '新增事项' })).toHaveCount(0)
+  await expect(table.getByRole('button', { name: '编辑事项' })).toHaveCount(0)
+  await expect(table.getByRole('button', { name: '删除事项' })).toHaveCount(0)
+  expect(requestCounts.matterListGet).toBeGreaterThanOrEqual(4)
 })
 
 test('退出登录后忽略仍在请求中的权限成功响应', async ({ page }) => {
