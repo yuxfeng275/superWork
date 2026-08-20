@@ -701,6 +701,66 @@ test('离开页面后迟到403不会改写当前路由', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => (window as Window & { __deniedToastCount: number }).__deniedToastCount)).toBe(0)
 })
 
+test('重新进入大事儿后403仍会刷新权限并退出', async ({ page }) => {
+  const matter = featureMatter({ id: 41, title: '重新进入权限撤销事项', ownerId: 7, projectId: 31 })
+  let accessRevoked = false
+  await page.addInitScript(() => {
+    let deniedToastCount = 0
+    const seen = new WeakSet<Element>()
+    const countDeniedToasts = () => {
+      document.querySelectorAll('.el-message__content').forEach(element => {
+        if (element.textContent?.trim() === '无权访问大事儿' && !seen.has(element)) {
+          seen.add(element)
+          deniedToastCount += 1
+        }
+      })
+    }
+    new MutationObserver(countDeniedToasts).observe(document, { childList: true, subtree: true })
+    Object.defineProperty(window, '__deniedToastCount', {
+      configurable: true,
+      get: () => deniedToastCount
+    })
+  })
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[2],
+    access: () => accessRevoked
+      ? { canAccess: false, canManageAll: false, canFeedbackOwn: false }
+      : { canAccess: true, canManageAll: false, canFeedbackOwn: false },
+    matters: [matter],
+    onMatterListGet: requestCount => {
+      if (requestCount <= 2) {
+        return {
+          status: 200,
+          body: { code: 200, message: 'success', data: [matter] }
+        }
+      }
+      accessRevoked = true
+      return {
+        status: 403,
+        body: { code: 403, message: '无权访问大事儿' }
+      }
+    }
+  })
+
+  await page.goto('/key-matters')
+  await expect(page).toHaveURL('/key-matters')
+  await expect(page.getByLabel('大事儿列表').getByText(matter.title)).toBeVisible()
+  await expect.poll(() => requestCounts.matterListGet).toBe(2)
+  expect(requestCounts.access).toBe(1)
+
+  await page.getByRole('link', { name: '项目管理' }).click()
+  await expect(page).toHaveURL('/projects')
+  await expect(page.locator('.page-title')).toHaveText('项目管理')
+
+  await page.getByRole('link', { name: '大事儿管理' }).click()
+
+  await expect(page).toHaveURL('/')
+  await expect.poll(() => requestCounts.matterListGet).toBe(4)
+  await expect.poll(() => requestCounts.access).toBe(3)
+  await expect.poll(() => page.evaluate(() => (window as Window & { __deniedToastCount: number }).__deniedToastCount)).toBe(1)
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+})
+
 test('管理员权限撤销后保存事项刷新为只读', async ({ page }) => {
   const matter = featureMatter({ id: 41, title: '管理员权限撤销事项', ownerId: 7, projectId: 31 })
   let manageRevoked = false
