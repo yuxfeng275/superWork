@@ -3,6 +3,7 @@ package com.bu.management.dto;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 public class BuKeyMatterRequest {
@@ -16,4 +17,5 @@ public class BuKeyMatterRequest {
     private LocalDate startDate;
     private LocalDate plannedCompletionDate;
     private Integer sortOrder;
+    private List<Long> participantIds;
 }

@@ -41,6 +41,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理业务权限拒绝异常
+     */
+    @ExceptionHandler(ForbiddenOperationException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<Void> handleForbiddenOperationException(ForbiddenOperationException e) {
+        log.warn("业务权限拒绝: {}", e.getMessage());
+        return Result.error(403, e.getMessage());
+    }
+
+    /**
      * 处理运行时异常
      */
     @ExceptionHandler(RuntimeException.class)

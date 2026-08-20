@@ -27,6 +27,7 @@ public class BuKeyMatterView {
     private Integer sortOrder;
     private boolean overdue;
     private boolean currentWeekUpdated;
+    private List<BuKeyMatterParticipantView> participants = new ArrayList<>();
     private BuKeyMatterWeeklyUpdateView latestUpdate;
     private BuKeyMatterWeeklyUpdateView currentWeekUpdate;
     private List<BuKeyMatterWeeklyUpdateView> weeklyUpdates = new ArrayList<>();
