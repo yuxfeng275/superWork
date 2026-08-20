@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 
 interface TestUser {
   id: number
@@ -23,7 +23,7 @@ const emptyKeyMatterResponse = {
 async function mockSession(
   page: Page,
   user: TestUser,
-  access: KeyMatterAccessFixture
+  access: unknown
 ) {
   const requestCounts = { access: 0, requirements: 0 }
 
@@ -152,4 +152,75 @@ test('无关用户看不到菜单且直达台账和周会均返回首页', async
   await expect(page).toHaveURL('/')
   await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
   await expect.poll(() => requestCounts.access).toBe(3)
+})
+
+test('畸形字符串权限按拒绝处理且直达台账返回首页', async ({ page }) => {
+  await mockSession(
+    page,
+    { id: 9, username: 'malformed', realName: '畸形权限用户', role: 'FULL_STACK_ENGINEER' },
+    { canAccess: 'false', canManageAll: false, canFeedbackOwn: false }
+  )
+
+  await page.goto('/key-matters')
+
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+})
+
+test('空权限响应按拒绝处理且不会产生未捕获导航错误', async ({ page }) => {
+  const pageErrors: Error[] = []
+  page.on('pageerror', error => pageErrors.push(error))
+  await mockSession(
+    page,
+    { id: 9, username: 'null-access', realName: '空权限用户', role: 'FULL_STACK_ENGINEER' },
+    null
+  )
+
+  await page.goto('/key-matters')
+
+  await expect(page).toHaveURL('/')
+  expect(pageErrors).toEqual([])
+})
+
+test('退出登录后忽略仍在请求中的权限成功响应', async ({ page }) => {
+  let resolveAccessRoute: ((route: Route) => void) | null = null
+  const accessRouteStarted = new Promise<Route>(resolve => {
+    resolveAccessRoute = resolve
+  })
+
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'mock-token')
+    localStorage.setItem('user', JSON.stringify({
+      id: 8,
+      username: 'participant',
+      realName: '参与人',
+      role: 'FULL_STACK_ENGINEER'
+    }))
+  })
+
+  await page.route('**/api/key-matters/access', async route => {
+    resolveAccessRoute?.(route)
+  })
+
+  await page.goto('/')
+  const delayedAccessRoute = await accessRouteStarted
+  await page.getByRole('button', { name: '退出登录' }).click()
+
+  await delayedAccessRoute.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      code: 200,
+      message: 'success',
+      data: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
+      timestamp: '2026-03-20T00:00:00.000Z'
+    })
+  })
+
+  await expect(page).toHaveURL('/login')
+  await expect.poll(() => page.evaluate(() => ({
+    token: localStorage.getItem('token'),
+    user: localStorage.getItem('user')
+  }))).toEqual({ token: null, user: null })
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
 })

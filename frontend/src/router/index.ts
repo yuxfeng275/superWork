@@ -166,19 +166,7 @@ router.beforeEach(async to => {
 
   if (to.meta.requiresKeyMatterAccess) {
     const access = await useAuthStore().loadKeyMatterAccess(true)
-    if (!access.canAccess) {
-      return '/'
-    }
-  }
-
-  if (to.meta.allowedUsernames) {
-    try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}')
-      const allowedUsernames = to.meta.allowedUsernames as string[]
-      if (!allowedUsernames.includes(user?.username)) {
-        return '/'
-      }
-    } catch {
+    if (access?.canAccess !== true) {
       return '/'
     }
   }

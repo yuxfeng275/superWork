@@ -178,6 +178,31 @@ export interface KeyMatterAccess {
   canFeedbackOwn: boolean
 }
 
+const DENIED_KEY_MATTER_ACCESS: KeyMatterAccess = {
+  canAccess: false,
+  canManageAll: false,
+  canFeedbackOwn: false
+}
+
+function normalizeKeyMatterAccess(value: unknown): KeyMatterAccess {
+  if (!value || typeof value !== 'object') return { ...DENIED_KEY_MATTER_ACCESS }
+
+  const record = value as Record<string, unknown>
+  if (
+    typeof record.canAccess !== 'boolean'
+    || typeof record.canManageAll !== 'boolean'
+    || typeof record.canFeedbackOwn !== 'boolean'
+  ) {
+    return { ...DENIED_KEY_MATTER_ACCESS }
+  }
+
+  return {
+    canAccess: record.canAccess,
+    canManageAll: record.canManageAll,
+    canFeedbackOwn: record.canFeedbackOwn
+  }
+}
+
 export interface BuKeyMatterParticipant {
   userId: number
   username: string
@@ -1029,7 +1054,8 @@ class ApiService {
   }
 
   async getKeyMatterAccess(): Promise<KeyMatterAccess> {
-    return this.request<KeyMatterAccess>('/api/key-matters/access')
+    const access = await this.request<unknown>('/api/key-matters/access')
+    return normalizeKeyMatterAccess(access)
   }
 
   async getKeyMatters(params?: {
