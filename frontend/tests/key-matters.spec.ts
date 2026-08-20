@@ -131,7 +131,14 @@ async function installCompletedMatterRoutes(page: Page) {
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (request.method() === 'GET' && path === '/api/key-matters/13') {
+    if (request.method() !== 'GET') {
+      return route.fulfill({
+        status: 405,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 405, message: '只读用例不支持写入 key-matters' })
+      })
+    }
+    if (path === '/api/key-matters/13') {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -709,6 +716,7 @@ test('已完成事项不再要求新增周进展', async ({ page }) => {
   await expect(completedRow.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
 
   const overview = page.getByLabel('大事儿操作栏').getByLabel('事项概览')
+  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('2')
   await expect(overview.locator('.summary-cell.pending .summary-value strong')).toHaveText('0')
   await expect(overview.locator('.summary-cell.pending .summary-value small')).toHaveText('1/1')
 
@@ -779,5 +787,6 @@ test('填写期间事项被完成后关闭新增表单并刷新状态', async ({
   await expect(row.getByText('已完成')).toBeVisible()
   await expect(row.getByText('无需更新')).toBeVisible()
   await expect(row.getByText('本周待更新')).toHaveCount(0)
+  // 回归断言：保留服务端返回的原因文案；抽屉关闭并刷新为「已完成/无需更新」行是新恢复行为
   await expect(page.getByText('已完成事项无需新增周进展')).toBeVisible()
 })
