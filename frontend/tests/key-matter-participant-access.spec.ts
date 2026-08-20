@@ -90,7 +90,7 @@ interface FeatureSessionOptions {
   user: TestUser
   access: KeyMatterAccessFixture | (() => KeyMatterAccessFixture)
   matters: ReturnType<typeof featureMatter>[]
-  onMatterListGet?: (requestCount: number) => { status: number; body: unknown } | undefined
+  onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number } | undefined
   onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
   onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
 }
@@ -182,6 +182,7 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
       requestCounts.matterListGet += 1
       const response = options.onMatterListGet?.(requestCounts.matterListGet)
       if (response) {
+        if (response.delayMs) await new Promise(resolve => setTimeout(resolve, response.delayMs))
         await route.fulfill({
           status: response.status,
           contentType: 'application/json',
@@ -546,29 +547,52 @@ test('负责人变更后保存周进度刷新为只读', async ({ page }) => {
   await expect(detail.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
 })
 
-test('参与关系被移除后读取403自动退出大事儿', async ({ page }) => {
+test('参与关系被移除后读取403自动退出大事儿且忽略延迟重复错误', async ({ page }) => {
   const matter = featureMatter({ id: 41, title: '参与关系撤销事项', ownerId: 7, projectId: 31 })
   let accessRevoked = false
+  await page.addInitScript(() => {
+    let deniedToastCount = 0
+    const seen = new WeakSet<Element>()
+    const countDeniedToasts = () => {
+      document.querySelectorAll('.el-message__content').forEach(element => {
+        if (element.textContent?.trim() === '无权访问大事儿' && !seen.has(element)) {
+          seen.add(element)
+          deniedToastCount += 1
+        }
+      })
+    }
+    new MutationObserver(countDeniedToasts).observe(document, {
+      childList: true,
+      subtree: true
+    })
+    Object.defineProperty(window, '__deniedToastCount', {
+      configurable: true,
+      get: () => deniedToastCount
+    })
+  })
   const requestCounts = await mockFeatureSession(page, {
     user: featureUsers[2],
     access: () => accessRevoked
       ? { canAccess: false, canManageAll: false, canFeedbackOwn: false }
       : { canAccess: true, canManageAll: false, canFeedbackOwn: false },
     matters: [matter],
-    onMatterListGet: () => {
+    onMatterListGet: requestCount => {
       accessRevoked = true
       return {
         status: 403,
-        body: { code: 403, message: '无权访问大事儿' }
+        body: { code: 403, message: '无权访问大事儿' },
+        delayMs: requestCount === 2 ? 700 : undefined
       }
     }
   })
 
   await page.goto('/key-matters')
 
-  await expect(page.locator('.el-message__content', { hasText: '无权访问大事儿' })).toHaveCount(1)
-  await expect.poll(() => requestCounts.access).toBeGreaterThanOrEqual(2)
   await expect(page).toHaveURL('/')
+  await page.waitForTimeout(800)
+  await expect.poll(() => requestCounts.matterListGet).toBe(2)
+  await expect.poll(() => requestCounts.access).toBe(2)
+  await expect.poll(() => page.evaluate(() => (window as Window & { __deniedToastCount: number }).__deniedToastCount)).toBe(1)
   await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
 })
 

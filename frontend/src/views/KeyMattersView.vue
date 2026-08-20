@@ -484,8 +484,14 @@ function isForbiddenError(error: unknown) {
 }
 
 let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+function isKeyMatterRoute(path: string) {
+  return path === '/key-matters' || path === '/key-matters-meeting'
+}
+
 async function refreshAccessAfterForbidden(error: unknown) {
   if (!isForbiddenError(error)) return null
+  const cachedAccess = authStore.keyMatterAccess
+  if (!isKeyMatterRoute(route.path) && cachedAccess?.canAccess === false) return cachedAccess
   if (forbiddenAccessRefresh) return forbiddenAccessRefresh
 
   ElMessage.error(errorMessage(error, '无权操作大事儿'))
