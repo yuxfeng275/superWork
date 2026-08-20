@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const coreMatters = [
   {
@@ -100,6 +100,51 @@ const matters = [
     weeklyUpdates: []
   }))
 ]
+
+// 已完成的重点事项：无需再提交周进展。该夹具只用于专属用例，不混入默认台账/分页夹具。
+const completedMatterWithoutWeeklyUpdate = {
+  id: 13,
+  title: '完成事项无需周报',
+  description: '已闭环的重点事项，无需继续提交周进展',
+  projectId: null,
+  ownerId: 16,
+  ownerName: '于峰',
+  priority: 'P2',
+  status: '已完成',
+  progress: 100,
+  startDate: '2026-08-03',
+  plannedCompletionDate: '2026-08-21',
+  completedAt: '2026-08-21',
+  sortOrder: 2,
+  overdue: false,
+  currentWeekUpdated: false,
+  latestUpdate: null,
+  currentWeekUpdate: null,
+  weeklyUpdates: []
+}
+
+// 列表与会演示使用同一数组：保留一条已更新事项，用于校验完成事项不会拉低更新占比。
+const completedMatterList = [coreMatters[0], completedMatterWithoutWeeklyUpdate]
+
+async function installCompletedMatterRoutes(page: Page) {
+  await page.unroute('**/api/key-matters**')
+  await page.route('**/api/key-matters**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'GET' && path === '/api/key-matters/13') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: completedMatterWithoutWeeklyUpdate })
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: completedMatterList })
+    })
+  })
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -649,4 +694,90 @@ test('新增事项提交完整负责人和计划周期', async ({ page }) => {
     startDate: '2026-08-05',
     plannedCompletionDate: '2026-08-31'
   })
+})
+
+test('已完成事项不再要求新增周进展', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await installCompletedMatterRoutes(page)
+
+  await page.goto('/key-matters')
+  const table = page.getByLabel('大事儿列表')
+  const completedRow = table.locator('tr', { hasText: '完成事项无需周报' })
+  await expect(completedRow).toBeVisible()
+  await expect(completedRow.getByText('无需更新')).toBeVisible()
+  await expect(completedRow.getByText('本周待更新')).toHaveCount(0)
+  await expect(completedRow.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
+
+  const overview = page.getByLabel('大事儿操作栏').getByLabel('事项概览')
+  await expect(overview.locator('.summary-cell.pending .summary-value strong')).toHaveText('0')
+  await expect(overview.locator('.summary-cell.pending .summary-value small')).toHaveText('1/1')
+
+  await completedRow.getByText('完成事项无需周报').click()
+  const detail = page.locator('.detail-content')
+  await expect(detail.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
+
+  await page.goto('/key-matters-meeting')
+  const stage = page.getByLabel('周会演示模式')
+  await expect(stage).toBeVisible()
+  await stage.getByRole('button', { name: '跳转到第 2 项' }).click()
+  await expect(stage.getByRole('heading', { name: '完成事项无需周报' })).toBeVisible()
+  await expect(stage.getByText('本周已完成，无需更新')).toBeVisible()
+  await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
+  await expect(stage.getByRole('button', { name: /保存并下一项/ })).toHaveCount(0)
+})
+
+test('填写期间事项被完成后关闭新增表单并刷新状态', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  let matter12 = { ...coreMatters[1] }
+  await page.unroute('**/api/key-matters**')
+  await page.route('**/api/key-matters**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
+      matter12 = {
+        ...matter12,
+        status: '已完成',
+        progress: 100,
+        completedAt: '2026-08-21',
+        currentWeekUpdated: false,
+        latestUpdate: null,
+        currentWeekUpdate: null,
+        weeklyUpdates: []
+      }
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 400, message: '已完成事项无需新增周进展' })
+      })
+    }
+    if (path === '/api/key-matters/12') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: matter12 })
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [matter12] })
+    })
+  })
+
+  await page.goto('/key-matters')
+  const table = page.getByLabel('大事儿列表')
+  const row = table.locator('tr', { hasText: '运营平台数据质量治理' })
+  await expect(row.getByText('本周待更新')).toBeVisible()
+  await row.getByRole('button', { name: '更新周进展' }).click()
+
+  const weekly = page.getByRole('dialog', { name: '更新周进展' })
+  await expect(weekly).toBeVisible()
+  await weekly.getByRole('textbox', { name: '本周成果' }).fill('数据质量治理推进中')
+  await weekly.getByRole('button', { name: '保存周进展' }).click()
+
+  await expect(page.getByRole('dialog', { name: '更新周进展' })).toHaveCount(0)
+  await expect(row.getByText('已完成')).toBeVisible()
+  await expect(row.getByText('无需更新')).toBeVisible()
+  await expect(row.getByText('本周待更新')).toHaveCount(0)
+  await expect(page.getByText('已完成事项无需新增周进展')).toBeVisible()
 })
