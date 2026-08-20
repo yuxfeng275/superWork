@@ -23,6 +23,10 @@ const coreMatters = [
     projectName: '皇家全渠道定制项目',
     ownerId: 7,
     ownerName: '石家乐',
+    participants: [
+      { userId: 7, username: 'shijiale', realName: '石家乐' },
+      { userId: 16, username: 'yufeng', realName: '于峰' }
+    ],
     priority: 'P0',
     status: '有风险',
     progress: 60,
@@ -77,6 +81,10 @@ const coreMatters = [
     projectId: null,
     ownerId: 16,
     ownerName: '于峰',
+    participants: [
+      { userId: 16, username: 'yufeng', realName: '于峰' },
+      { userId: 7, username: 'shijiale', realName: '石家乐' }
+    ],
     priority: 'P1',
     status: '推进中',
     progress: 35,
@@ -101,6 +109,9 @@ const matters = [
     projectName: index % 2 === 0 ? '皇家全渠道定制项目' : undefined,
     ownerId: index % 2 === 0 ? 7 : 16,
     ownerName: index % 2 === 0 ? '石家乐' : '于峰',
+    participants: index % 2 === 0
+      ? [{ userId: 7, username: 'shijiale', realName: '石家乐' }]
+      : [{ userId: 16, username: 'yufeng', realName: '于峰' }],
     priority: index % 3 === 0 ? 'P1' : 'P2',
     status: '推进中',
     progress: 10 + index,
@@ -758,7 +769,7 @@ test('新增事项提交完整负责人和计划周期', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: '新增大事儿' })
 
   await dialog.getByLabel('事项标题').fill('客户体验专项治理')
-  await dialog.locator('.el-form-item', { hasText: '负责人' }).locator('.el-select').click()
+  await dialog.getByLabel('负责人').press('ArrowDown')
   await page.getByRole('option', { name: '石家乐' }).click()
   await dialog.getByLabel('开始日期').fill('2026-08-05')
   await dialog.getByLabel('计划完成').fill('2026-08-31')

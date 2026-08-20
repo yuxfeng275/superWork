@@ -25,6 +25,18 @@ interface ApiResponse<T> {
   timestamp: string
 }
 
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code?: number
+
+  constructor(message: string, status: number, code?: number) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+  }
+}
+
 type ApiPayload<T> = ApiResponse<T> | T
 
 interface LoginResponse {
@@ -335,21 +347,24 @@ class ApiService {
     if (!response.ok) {
       const errorText = await response.text()
       let errorMessage = `HTTP error! status: ${response.status}`
+      let errorCode: number | undefined
       try {
-        const parsed = errorText ? JSON.parse(errorText) : null
-        if (parsed?.message) {
-          errorMessage = parsed.message
+        const parsed: unknown = errorText ? JSON.parse(errorText) : null
+        if (parsed && typeof parsed === 'object') {
+          const errorBody = parsed as { message?: unknown; code?: unknown }
+          if (typeof errorBody.message === 'string' && errorBody.message) {
+            errorMessage = errorBody.message
+          }
+          if (typeof errorBody.code === 'number') errorCode = errorBody.code
         }
       } catch {
-        if (errorText) {
-          errorMessage = errorText
-        }
+        if (errorText) errorMessage = errorText
       }
 
       if (response.status === 401) {
         this.clearAuthAndRedirect()
       }
-      throw new Error(errorMessage)
+      throw new ApiRequestError(errorMessage, response.status, errorCode)
     }
 
     const text = await response.text()
@@ -367,7 +382,8 @@ class ApiService {
     if (result && typeof result === 'object' && 'code' in result) {
       const wrapped = result as ApiResponse<T>
       if (wrapped.code !== 200) {
-        throw new Error(wrapped.message || 'Request failed')
+        if (wrapped.code === 401) this.clearAuthAndRedirect()
+        throw new ApiRequestError(wrapped.message || 'Request failed', wrapped.code, wrapped.code)
       }
       return wrapped.data
     }
