@@ -47,7 +47,7 @@ public class BuKeyMatterController {
     }
 
     @GetMapping
-    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:manage"})
     @Operation(summary = "查询大事儿台账")
     public Result<List<BuKeyMatterView>> list(
             @RequestParam(required = false) String keyword,
@@ -62,7 +62,7 @@ public class BuKeyMatterController {
     }
 
     @GetMapping("/meeting")
-    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:manage"})
     @Operation(summary = "查询指定周的周会视图")
     public Result<List<BuKeyMatterView>> meeting(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate weekStartDate,
@@ -73,7 +73,7 @@ public class BuKeyMatterController {
     }
 
     @GetMapping("/{id}")
-    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:manage"})
     @Operation(summary = "查询大事儿详情")
     public Result<BuKeyMatterView> get(@PathVariable Long id,
                                        @RequestAttribute("userId") Long userId,

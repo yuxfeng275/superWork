@@ -27,12 +27,13 @@ public class BuKeyMatterAccessService {
     private final BuKeyMatterMapper matterMapper;
 
     public BuKeyMatterAccessView resolveAccess(Long userId, String username) {
-        boolean canManageAll = isAdmin(username) && hasPermission(userId, PERMISSION_MANAGE);
-        boolean canView = canManageAll || hasPermission(userId, PERMISSION_VIEW);
+        List<String> permissionCodes = permissionCodes(userId);
+        boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
+        boolean canView = canManageAll || permissionCodes.contains(PERMISSION_VIEW);
         boolean isParticipant = userId != null && participantMapper.existsByUserId(userId);
         boolean canAccess = canManageAll || (canView && isParticipant);
         boolean canFeedbackOwn = canManageAll
-                || (hasPermission(userId, PERMISSION_FEEDBACK)
+                || (permissionCodes.contains(PERMISSION_FEEDBACK)
                     && userId != null
                     && matterMapper.existsByOwnerId(userId));
         return new BuKeyMatterAccessView(canAccess, canManageAll, canFeedbackOwn);
@@ -51,11 +52,12 @@ public class BuKeyMatterAccessService {
     }
 
     public void requireFeedback(BuKeyMatter matter, Long userId, String username) {
-        boolean canManageAll = isAdmin(username) && hasPermission(userId, PERMISSION_MANAGE);
+        List<String> permissionCodes = permissionCodes(userId);
+        boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
         if (canManageAll) {
             return;
         }
-        boolean canFeedback = hasPermission(userId, PERMISSION_FEEDBACK)
+        boolean canFeedback = permissionCodes.contains(PERMISSION_FEEDBACK)
                 && matter != null
                 && userId != null
                 && userId.equals(matter.getOwnerId());
@@ -68,11 +70,11 @@ public class BuKeyMatterAccessService {
         return "admin".equals(username) || "yufeng".equals(username);
     }
 
-    private boolean hasPermission(Long userId, String code) {
+    private List<String> permissionCodes(Long userId) {
         if (userId == null) {
-            return false;
+            return List.of();
         }
         List<String> codes = sysRoleService.getPermissionCodesByUserId(userId);
-        return codes != null && codes.contains(code);
+        return codes == null ? List.of() : codes;
     }
 }

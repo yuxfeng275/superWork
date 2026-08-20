@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -189,9 +189,18 @@ class BuKeyMatterLockIntegrationTest {
 
     @Test
     void ownerChangeRaceRejectsOldOwnerAfterCommitAndAllowsNewOwner() throws Exception {
-        doThrow(new ForbiddenOperationException("仅事项负责人可反馈周进度"))
-                .when(accessService)
+        doAnswer(invocation -> {
+            BuKeyMatter matter = invocation.getArgument(0);
+            assertThat(matter.getOwnerId()).isEqualTo(21L);
+            throw new ForbiddenOperationException("仅事项负责人可反馈周进度");
+        }).when(accessService)
                 .requireFeedback(any(BuKeyMatter.class), eq(7L), anyString());
+        doAnswer(invocation -> {
+            BuKeyMatter matter = invocation.getArgument(0);
+            assertThat(matter.getOwnerId()).isEqualTo(21L);
+            return null;
+        }).when(accessService)
+                .requireFeedback(any(BuKeyMatter.class), eq(21L), anyString());
 
         CountDownLatch lockHeld = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);

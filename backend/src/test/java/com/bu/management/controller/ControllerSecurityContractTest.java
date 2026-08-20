@@ -147,7 +147,7 @@ class ControllerSecurityContractTest {
                     .as("GET %s 权限", name)
                     .isNotNull()
                     .extracting(RequirePermission::value)
-                    .isEqualTo(new String[]{"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"});
+                    .isEqualTo(new String[]{"bu:key-matter:view", "bu:key-matter:manage"});
         }
     }
 
@@ -290,6 +290,11 @@ class ControllerSecurityContractTest {
         assertThat(status).isNotNull();
         assertThat(status.value()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(handler.getReturnType()).isEqualTo(Result.class);
+
+        Result<Void> result = new GlobalExceptionHandler()
+                .handleForbiddenOperationException(new ForbiddenOperationException("仅事项负责人可反馈周进度"));
+        assertThat(result.getCode()).isEqualTo(403);
+        assertThat(result.getMessage()).isEqualTo("仅事项负责人可反馈周进度");
     }
 
     @Test

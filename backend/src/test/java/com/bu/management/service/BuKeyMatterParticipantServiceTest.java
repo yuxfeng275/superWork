@@ -12,6 +12,7 @@ import com.bu.management.mapper.BuKeyMatterWeeklyUpdateMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.InOrder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -25,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -133,6 +135,74 @@ class BuKeyMatterParticipantServiceTest {
     }
 
     @Test
+    void updateWithNullParticipantIdsPreservesExistingRelations() {
+        BuKeyMatter matter = matter(11L, 7L);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
+        when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
+        when(participantMapper.selectList(any(Wrapper.class))).thenReturn(relations(11L, 7L, 16L));
+
+        service.update(11L, request());
+
+        ArgumentCaptor<BuKeyMatterParticipant> captor =
+                ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
+        verify(participantMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(BuKeyMatterParticipant::getUserId)
+                .containsExactly(7L, 16L);
+    }
+
+    @Test
+    void updateWithNullParticipantIdsAddsNewOwnerToExistingRelations() {
+        BuKeyMatter matter = matter(11L, 7L);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(userMapper.selectById(21L)).thenReturn(activeUser(21L, "新负责人"));
+        when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
+        when(participantMapper.selectList(any(Wrapper.class))).thenReturn(relations(11L, 7L, 16L));
+        BuKeyMatterRequest request = request();
+        request.setOwnerId(21L);
+
+        service.update(11L, request);
+
+        ArgumentCaptor<BuKeyMatterParticipant> captor =
+                ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
+        verify(participantMapper, times(3)).insert(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(BuKeyMatterParticipant::getUserId)
+                .containsExactly(7L, 16L, 21L);
+    }
+
+    @Test
+    void updateWithExplicitEmptyParticipantIdsKeepsOwnerOnly() {
+        BuKeyMatter matter = matter(11L, 7L);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
+        when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
+        BuKeyMatterRequest request = request();
+        request.setParticipantIds(List.of());
+
+        service.update(11L, request);
+
+        verify(participantMapper, never()).selectList(any(Wrapper.class));
+        ArgumentCaptor<BuKeyMatterParticipant> captor =
+                ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
+        verify(participantMapper).insert(captor.capture());
+        assertThat(captor.getValue().getUserId()).isEqualTo(7L);
+    }
+
+    @Test
+    void deleteLocksMatterBeforeDeletingParticipantsAndMatter() {
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter(11L, 7L));
+
+        service.delete(11L);
+
+        InOrder order = inOrder(matterMapper, participantMapper);
+        order.verify(matterMapper).selectByIdForUpdate(11L);
+        order.verify(participantMapper).delete(any(Wrapper.class));
+        order.verify(matterMapper).deleteById(11L);
+    }
+
+    @Test
     void missingParticipantIsRejected() {
         when(userMapper.selectById(7L)).thenReturn(activeUser(7L, "石家乐"));
         when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
@@ -190,6 +260,15 @@ class BuKeyMatterParticipantServiceTest {
         matter.setCreatedAt(LocalDateTime.of(2026, 8, 1, 9, 0));
         matter.setUpdatedAt(LocalDateTime.of(2026, 8, 1, 9, 0));
         return matter;
+    }
+
+    private List<BuKeyMatterParticipant> relations(Long matterId, Long... userIds) {
+        return java.util.Arrays.stream(userIds).map(userId -> {
+            BuKeyMatterParticipant relation = new BuKeyMatterParticipant();
+            relation.setKeyMatterId(matterId);
+            relation.setUserId(userId);
+            return relation;
+        }).toList();
     }
 
     private User activeUser(Long id, String name) {

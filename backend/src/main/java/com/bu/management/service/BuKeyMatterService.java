@@ -99,8 +99,10 @@ public class BuKeyMatterService {
         boolean wasCompleted = "已完成".equals(matter.getStatus());
         LocalDateTime originalCompletedAt = matter.getCompletedAt();
         NormalizedMatter normalized = validate(request);
-        List<Long> participantIds = normalizeParticipantIds(request);
-        validateParticipantIds(participantIds, request.getOwnerId());
+        List<Long> participantIds = normalizeUpdateParticipantIds(matter.getId(), request);
+        if (request.getParticipantIds() != null) {
+            validateParticipantIds(participantIds, request.getOwnerId());
+        }
         apply(matter, request, normalized);
         if ("已完成".equals(normalized.status()) && wasCompleted) {
             matter.setCompletedAt(originalCompletedAt == null ? LocalDateTime.now() : originalCompletedAt);
@@ -113,7 +115,7 @@ public class BuKeyMatterService {
 
     @Transactional
     public void delete(Long id) {
-        findMatter(id);
+        findMatterForUpdate(id);
         participantMapper.delete(new LambdaQueryWrapper<BuKeyMatterParticipant>()
                 .eq(BuKeyMatterParticipant::getKeyMatterId, id));
         matterMapper.deleteById(id);
@@ -451,6 +453,24 @@ public class BuKeyMatterService {
         LinkedHashSet<Long> ids = new LinkedHashSet<>();
         if (request.getParticipantIds() != null) {
             request.getParticipantIds().stream()
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
+        ids.add(request.getOwnerId());
+        return List.copyOf(ids);
+    }
+
+    private List<Long> normalizeUpdateParticipantIds(Long matterId, BuKeyMatterRequest request) {
+        if (request.getParticipantIds() != null) {
+            return normalizeParticipantIds(request);
+        }
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        List<BuKeyMatterParticipant> existingRelations = participantMapper.selectList(
+                new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                        .eq(BuKeyMatterParticipant::getKeyMatterId, matterId));
+        if (existingRelations != null) {
+            existingRelations.stream()
+                    .map(BuKeyMatterParticipant::getUserId)
                     .filter(Objects::nonNull)
                     .forEach(ids::add);
         }

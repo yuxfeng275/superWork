@@ -15,6 +15,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +57,18 @@ class BuKeyMatterAccessServiceTest {
 
         assertThat(service.resolveAccess(16L, "participant"))
                 .isEqualTo(new BuKeyMatterAccessView(true, false, false));
+    }
+
+    @Test
+    void resolveAccessLoadsPermissionCodesOnce() {
+        when(sysRoleService.getPermissionCodesByUserId(7L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
+        when(participantMapper.existsByUserId(7L)).thenReturn(true);
+        when(matterMapper.existsByOwnerId(7L)).thenReturn(true);
+
+        service.resolveAccess(7L, "shijiale");
+
+        verify(sysRoleService, times(1)).getPermissionCodesByUserId(7L);
     }
 
     @Test
