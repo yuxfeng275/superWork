@@ -90,7 +90,7 @@ interface FeatureSessionOptions {
   user: TestUser
   access: KeyMatterAccessFixture | (() => KeyMatterAccessFixture)
   matters: ReturnType<typeof featureMatter>[]
-  onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number } | undefined
+  onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number; waitUntil?: Promise<void> } | undefined
   onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
   onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
 }
@@ -183,6 +183,7 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
       const response = options.onMatterListGet?.(requestCounts.matterListGet)
       if (response) {
         if (response.delayMs) await new Promise(resolve => setTimeout(resolve, response.delayMs))
+        if (response.waitUntil) await response.waitUntil
         await route.fulfill({
           status: response.status,
           contentType: 'application/json',
@@ -498,6 +499,59 @@ test('普通参与人只能查看所有大事儿', async ({ page }) => {
   await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
   await expect(stage.getByRole('button', { name: '编辑周报' })).toHaveCount(0)
   await expect(stage.getByRole('button', { name: /保存并下一项/ })).toHaveCount(0)
+
+  const activeGroupMatter = page.locator('.presentation-group-matters button', { hasText: firstMatter.title })
+  await expect(activeGroupMatter.locator('i')).toHaveClass(/waiting/)
+  await expect(activeGroupMatter.locator('i')).not.toHaveClass(/pending/)
+  const activeThumbnail = stage.getByRole('button', { name: '跳转到第 1 项' })
+  await expect(activeThumbnail).toHaveClass(/waiting/)
+  await expect(activeThumbnail).not.toHaveClass(/pending/)
+  await expect(activeThumbnail.locator('.el-icon')).toHaveCount(0)
+  await expect(activeThumbnail.locator('span')).toHaveText('1')
+})
+
+test('演示参与人信息在1024宽度不裁剪进度控件', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 })
+  const matter = featureMatter({ id: 41, title: '多参与人演示布局事项', ownerId: 7, projectId: 31 })
+  matter.participants.push(
+    { userId: 17, username: 'participant-seventeen', realName: '参与成员丙' },
+    { userId: 18, username: 'participant-eighteen', realName: '参与成员丁' }
+  )
+  await mockFeatureSession(page, {
+    user: { id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' },
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    matters: [matter]
+  })
+
+  await page.goto('/key-matters-meeting')
+  const stage = page.getByLabel('周会演示模式')
+  await expect(stage.getByLabel('演示中更新周报')).toBeVisible()
+
+  const geometry = await stage.evaluate(element => {
+    const bounds = (selector: string) => {
+      const target = element.querySelector<HTMLElement>(selector)
+      if (!target) throw new Error(`Missing presentation element: ${selector}`)
+      const box = target.getBoundingClientRect()
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+    }
+    const meta = element.querySelector<HTMLElement>('.presentation-meta')
+    if (!meta) throw new Error('Missing presentation metadata')
+    return {
+      metaFits: meta.scrollWidth <= meta.clientWidth + 1,
+      card: bounds('.presentation-card'),
+      progress: bounds('.presentation-inline-progress'),
+      slider: bounds('.presentation-progress-slider'),
+      progressText: bounds('.presentation-progress-text')
+    }
+  })
+
+  expect(geometry.metaFits).toBe(true)
+  for (const box of [geometry.progress, geometry.slider, geometry.progressText]) {
+    expect(box.left).toBeGreaterThanOrEqual(geometry.card.left - 1)
+    expect(box.right).toBeLessThanOrEqual(geometry.card.right + 1)
+    expect(box.top).toBeGreaterThanOrEqual(geometry.card.top - 1)
+    expect(box.bottom).toBeLessThanOrEqual(geometry.card.bottom + 1)
+  }
 })
 
 test('负责人变更后保存周进度刷新为只读', async ({ page }) => {
@@ -594,6 +648,57 @@ test('参与关系被移除后读取403自动退出大事儿且忽略延迟重�
   await expect.poll(() => requestCounts.access).toBe(2)
   await expect.poll(() => page.evaluate(() => (window as Window & { __deniedToastCount: number }).__deniedToastCount)).toBe(1)
   await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+})
+
+test('离开页面后迟到403不会改写当前路由', async ({ page }) => {
+  const matter = featureMatter({ id: 41, title: '延迟权限响应事项', ownerId: 7, projectId: 31 })
+  let accessRevoked = false
+  let releaseReads = () => {}
+  const readsRelease = new Promise<void>(resolve => {
+    releaseReads = resolve
+  })
+  await page.addInitScript(() => {
+    let deniedToastCount = 0
+    const seen = new WeakSet<Element>()
+    const countDeniedToasts = () => {
+      document.querySelectorAll('.el-message__content').forEach(element => {
+        if (element.textContent?.trim() === '无权访问大事儿' && !seen.has(element)) {
+          seen.add(element)
+          deniedToastCount += 1
+        }
+      })
+    }
+    new MutationObserver(countDeniedToasts).observe(document, { childList: true, subtree: true })
+    Object.defineProperty(window, '__deniedToastCount', {
+      configurable: true,
+      get: () => deniedToastCount
+    })
+  })
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[2],
+    access: () => accessRevoked
+      ? { canAccess: false, canManageAll: false, canFeedbackOwn: false }
+      : { canAccess: true, canManageAll: false, canFeedbackOwn: false },
+    matters: [matter],
+    onMatterListGet: () => ({
+      status: 403,
+      body: { code: 403, message: '无权访问大事儿' },
+      waitUntil: readsRelease
+    })
+  })
+
+  await page.goto('/key-matters')
+  await expect.poll(() => requestCounts.matterListGet).toBe(2)
+  await page.getByRole('link', { name: '项目管理' }).click()
+  await expect(page).toHaveURL('/projects')
+
+  accessRevoked = true
+  releaseReads()
+  await page.waitForTimeout(500)
+
+  await expect(page).toHaveURL('/projects')
+  expect(requestCounts.access).toBe(1)
+  await expect.poll(() => page.evaluate(() => (window as Window & { __deniedToastCount: number }).__deniedToastCount)).toBe(0)
 })
 
 test('管理员权限撤销后保存事项刷新为只读', async ({ page }) => {

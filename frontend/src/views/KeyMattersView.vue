@@ -483,20 +483,29 @@ function isForbiddenError(error: unknown) {
   return error instanceof ApiRequestError && error.status === 403
 }
 
+let keyMatterPageActive = true
 let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+const inactiveKeyMatterAccess: KeyMatterAccess = {
+  canAccess: false,
+  canManageAll: false,
+  canFeedbackOwn: false
+}
 function isKeyMatterRoute(path: string) {
   return path === '/key-matters' || path === '/key-matters-meeting'
+}
+function canRecoverKeyMatterPage() {
+  return keyMatterPageActive && isKeyMatterRoute(route.path)
 }
 
 async function refreshAccessAfterForbidden(error: unknown) {
   if (!isForbiddenError(error)) return null
-  const cachedAccess = authStore.keyMatterAccess
-  if (!isKeyMatterRoute(route.path) && cachedAccess?.canAccess === false) return cachedAccess
+  if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
   if (forbiddenAccessRefresh) return forbiddenAccessRefresh
 
   ElMessage.error(errorMessage(error, '无权操作大事儿'))
   const recovery = (async () => {
     const access = await authStore.loadKeyMatterAccess(true)
+    if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
     if (!access.canAccess) await router.push('/')
     return access
   })()
@@ -911,13 +920,15 @@ async function refreshMatterState(matterId: number) {
 
 async function recoverOwnerFeedbackForbidden(error: unknown, matterId: number) {
   if (!isOwnerFeedbackForbiddenError(error)) return false
+  if (!canRecoverKeyMatterPage()) return true
 
   ElMessage.error(ownerFeedbackForbiddenMessage)
+  const access = await authStore.loadKeyMatterAccess(true)
+  if (!canRecoverKeyMatterPage()) return true
+
   weeklyDrawer.value = false
   presentationEditing.value = false
   presentationDrafts.delete(matterId)
-
-  const access = await authStore.loadKeyMatterAccess(true)
   if (!access.canAccess) {
     await router.push('/')
     return true
@@ -1432,6 +1443,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  keyMatterPageActive = false
   window.removeEventListener('keydown', handlePresentationKeydown)
   window.removeEventListener('resize', updateMilestoneScrollState)
   document.removeEventListener('fullscreenchange', handlePresentationFullscreenChange)
@@ -2023,7 +2035,10 @@ onBeforeUnmount(() => {
                   :class="{ active: matter.id === presentationMatter?.id }"
                   @click="jumpPresentation(presentationIndexOf(matter.id))"
                 >
-                  <i :class="{ pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) }" />
+                  <i :class="{
+                    pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter),
+                    waiting: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && !canFeedbackMatter(matter)
+                  }" />
                   <span>{{ matter.title }}</span>
                 </button>
               </div>
@@ -2232,13 +2247,14 @@ onBeforeUnmount(() => {
               :class="{
                 active: index === presentationIndex,
                 complete: (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter))) && index !== presentationIndex,
-                pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter)
+                pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter),
+                waiting: requiresWeeklyUpdate(matter) && !reportUpdate(matter) && !canFeedbackMatter(matter)
               }"
               :aria-label="`跳转到第 ${index + 1} 项`"
               @click="jumpPresentation(index)"
             >
               <el-icon v-if="index !== presentationIndex && (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter)))"><Select /></el-icon>
-              <el-icon v-else-if="index === presentationIndex && requiresWeeklyUpdate(matter) && !reportUpdate(matter)"><EditPen /></el-icon>
+              <el-icon v-else-if="index === presentationIndex && requiresWeeklyUpdate(matter) && !reportUpdate(matter) && canFeedbackMatter(matter)"><EditPen /></el-icon>
               <span v-else>{{ index + 1 }}</span>
             </button>
           </nav>
@@ -5768,6 +5784,10 @@ button:focus-visible {
   background: var(--km-warning);
 }
 
+.presentation-group-matters button i.waiting {
+  background: #cbd5e1;
+}
+
 .presentation-stage {
   position: relative;
   min-width: 0;
@@ -6336,6 +6356,12 @@ button:focus-visible {
   background: var(--km-warning-soft);
 }
 
+.presentation-thumbnails button.waiting {
+  color: #64748b;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
 .detail-clean {
   display: grid;
   gap: 16px;
@@ -6741,6 +6767,35 @@ button:focus-visible {
 
   .presentation-arrow {
     display: none;
+  }
+
+  .presentation-meta {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .presentation-meta-status {
+    flex: 1 0 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .presentation-meta-divider {
+    display: none;
+  }
+
+  .presentation-inline-progress,
+  .presentation-inline-progress.is-editable {
+    min-width: 0;
+    flex: 1 1 220px;
+  }
+
+  .presentation-progress-slider {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }
 
