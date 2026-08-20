@@ -7,6 +7,12 @@ const wrap = (data: unknown) => JSON.stringify({
   timestamp: new Date().toISOString()
 })
 
+const adminKeyMatterAccess = {
+  canAccess: true,
+  canManageAll: true,
+  canFeedbackOwn: true
+}
+
 const listRoutes = [
   '/requirements',
   '/key-matters',
@@ -30,11 +36,14 @@ test.beforeEach(async ({ page }) => {
     }))
   })
 
-  await page.route('**/api/**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: wrap([])
-  }))
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: wrap(path === '/api/key-matters/access' ? adminKeyMatterAccess : [])
+    })
+  })
 })
 
 test('主布局在平板宽度保持紧凑侧栏和可收缩内容区', async ({ page }) => {
