@@ -11,6 +11,11 @@
 - 未负责且未参与任何事项的普通用户不能访问页面或业务 API。
 - 大事儿支持多个参与人；本期不维护投入比例或历史参与版本。
 
+普通用户的动态能力同时依赖数据库权限与当前事项关系：参与关系加数据库
+`bu:key-matter:view` 才能得到 `canAccess`；负责人关系加数据库
+`bu:key-matter:feedback` 才能得到 `canFeedbackOwn`。仅有负责人或参与人关系不授予
+任何能力。管理员能力仍按用户名与 `bu:key-matter:manage` 的组合判断。
+
 ## 角色与权限矩阵
 
 | 能力 | `admin/yufeng` | 当前负责人 | 普通参与人 | 无关系用户 |
@@ -144,11 +149,12 @@ void requireFeedback(BuKeyMatter matter, Long userId, String username);
 规则：
 
 - 用户名为 `admin/yufeng` 且数据库权限包含 `bu:key-matter:manage`：`canAccess=true`、`canManageAll=true`、`canFeedbackOwn=true`。
-- 至少存在一条 `participant.user_id = userId`：`canAccess=true`。
-- 至少存在一条 `bu_key_matter.owner_id = userId`：`canFeedbackOwn=true`。
-- 仅参与但不负责事项：`canAccess=true`、`canManageAll=false`、`canFeedbackOwn=false`。
+- 同时具备数据库 `bu:key-matter:view` 且至少存在一条 `participant.user_id = userId`：`canAccess=true`。
+- 同时具备数据库 `bu:key-matter:feedback` 且至少存在一条 `bu_key_matter.owner_id = userId`：`canFeedbackOwn=true`。
+- 仅参与但不负责事项的用户只有在具备 `view` 时才是 `canAccess=true`、`canManageAll=false`、`canFeedbackOwn=false`。
+- 负责人/参与人关系本身不授予能力；缺少对应数据库权限时，相应能力为 false。
 - 无参与关系：三个能力均为 false。
-- `canFeedbackOwn` 只表示用户当前至少负责一条事项；具体写入仍必须在锁后校验目标事项 `ownerId`。
+- `canFeedbackOwn` 只表示用户当前至少负责一条事项且具备反馈基础权限；具体写入仍必须在锁后校验目标事项 `ownerId`。
 
 ### 参与关系同步
 
@@ -236,7 +242,7 @@ GET /api/key-matters/access
 
 `MainLayout` 根据 `canAccess` 显示菜单。路由守卫对 `/key-matters` 和 `/key-matters-meeting` 调用能力接口；无能力返回首页。页面加载时强制刷新一次，确保负责人/参与关系变更尽快生效。
 
-能力接口 `401` 按现有逻辑退出登录；`403` 或其他业务错误按无访问能力处理，但保留错误日志/提示。
+能力加载失败必须 fail closed，将三个能力视为 false。能力接口 `401` 沿用 API 客户端现有逻辑清理会话并跳转登录；其他能力加载错误同样只返回拒绝能力，不约定 store 记录日志或主动提示。页面列表、详情、CRUD 和周进度等操作自身的错误仍展示对应服务端消息。
 
 ### 管理员表单
 
@@ -267,7 +273,8 @@ canFeedbackMatter(matter) = access.canManageAll
 - 新增、编辑、删除事项只由 `canManageMatter` 控制。
 - 周进度新增、历史编辑/删除、周会内联编辑和演示保存由 `canFeedbackMatter` 控制。
 - 普通参与人看到全部内容但所有周进度入口只读。
-- 后端 `403` 后刷新 access 和事项数据；若访问资格已失效，退出大事儿页面。
+- 通用读取 `403`（列表、详情、周会、里程碑）强制刷新 access；若访问资格已失效则退出大事儿页面，若 `canAccess` 仍为 true 则展示原读取错误且不自动重试数据请求，避免循环。
+- CRUD 和周进度操作的 `403` 同样刷新 access；能力刷新成功且页面仍可访问时，可以重新加载当前事项或模式数据，以移除已撤销的管理/反馈入口。
 
 ## 错误矩阵
 
@@ -275,6 +282,8 @@ canFeedbackMatter(matter) = access.canManageAll
 | --- | --- |
 | 未登录 | HTTP 401 |
 | access 查询且无事项关系 | 200，三个能力均 false |
+| 有参与关系但无数据库 `view` 权限 | `canAccess=false`，关系本身不足以授权 |
+| 有负责人关系但无数据库 `feedback` 权限 | `canFeedbackOwn=false`，关系本身不足以授权 |
 | 无事项关系访问列表/详情/周会 | HTTP 403 |
 | 普通负责人访问全部列表/详情/周会 | 200 |
 | 普通参与人访问全部列表/详情/周会 | 200 |
@@ -299,8 +308,8 @@ canFeedbackMatter(matter) = access.canManageAll
 ### 数据库与服务
 
 - V33 迁移创建表、唯一约束、索引、外键并回填所有现有负责人。
-- 创建事项对 null/省略/空数组保存仅负责人；显式列表自动去重并加入负责人。
-- 更新事项对 null/省略保留当前参与人并加入新负责人；显式空数组替换为仅负责人；显式列表替换、去重并加入负责人。
+- 创建事项对 null/省略/空数组保存仅负责人；测试必须单独覆盖显式空数组得到 owner-only 关系。
+- 更新事项对 null/省略保留当前参与人并加入新负责人；显式空数组替换为仅负责人；测试必须覆盖显式列表省略负责人且包含重复参与人时，结果按确定性归一顺序只插入去重参与人和自动补入的负责人。
 - 不存在/停用参与人被拒绝。
 - access 对管理员、负责人、仅参与用户、无关系用户返回正确且不同的能力组合。
 - 领域授权异常由全局异常处理器稳定返回 HTTP 403 和原始原因。

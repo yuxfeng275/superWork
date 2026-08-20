@@ -8,8 +8,11 @@ extend the requirement/task `issue` model.
 
 Access is no longer limited to a fixed username for reads. RBAC permits a
 request to enter the domain layer; current participant/owner relations decide
-whether a non-manager may read or provide feedback. Full management remains a
-two-part boundary: username `admin` or `yufeng` **and** database permission
+whether a non-manager may read or provide feedback. Both parts are required:
+a participant relation plus database `bu:key-matter:view` grants `canAccess`,
+and an owner relation plus database `bu:key-matter:feedback` grants
+`canFeedbackOwn`. A relationship alone is insufficient. Full management remains
+a two-part boundary: username `admin` or `yufeng` **and** database permission
 `bu:key-matter:manage`.
 
 ## 2. Signatures
@@ -158,6 +161,8 @@ state, open before completed, manual sort order, planned completion date, ID.
 | Missing, invalid, or expired authentication | `401`; Spring Security message `登录已失效，请重新登录` when it handles the response |
 | Authenticated caller lacks every endpoint RBAC permission | `403` before controller/domain execution |
 | Access endpoint, qualifying RBAC, no relation | `200`; `canAccess=false`, `canManageAll=false`, `canFeedbackOwn=false` |
+| Participant relation without database `view` | `canAccess=false`; relationship alone is insufficient |
+| Owner relation without database `feedback` | `canFeedbackOwn=false`; relationship alone is insufficient |
 | Read endpoint, qualifying RBAC, no relation | `403`, exact domain message `无权访问大事儿` |
 | Matter CRUD by non-manager, if request reaches domain check | `403`, exact domain message `仅管理员可管理大事儿` |
 | Weekly write by participant, unrelated owner, former owner, or owner without `feedback` | `403`, exact domain message `仅事项负责人可反馈周进度` |
@@ -198,10 +203,12 @@ state, open before completed, manual sort order, planned completion date, ID.
 - `BuKeyMatterAccessServiceTest`: manager requires username plus `manage`;
   owner, participant, and unrelated capability combinations; read/manage/
   feedback exact denial messages; owner without `feedback` is denied.
-- `BuKeyMatterParticipantServiceTest`: create null/empty/list behavior; update
-  null preserves and adds owner; explicit empty replaces with owner-only;
-  explicit list replaces/deduplicates/adds owner; disabled/missing participant;
-  matter delete lock and participant cleanup.
+- `BuKeyMatterParticipantServiceTest`: create null behavior and explicit empty
+  `participantIds` producing owner-only; create list normalization; update null
+  preserves and adds owner; explicit empty replaces with owner-only; an explicit
+  update list that omits owner and duplicates a participant inserts the
+  deterministic deduplicated `[participant, owner]` relation order; disabled/
+  missing participant; matter delete lock and participant cleanup.
 - `BuKeyMatterServiceTest`: creation defaults, validation, completion
   transitions, same-week upsert, historical isolation, meeting inclusion/order,
   completed-row correction, completed-row creation denial, and reopen behavior.

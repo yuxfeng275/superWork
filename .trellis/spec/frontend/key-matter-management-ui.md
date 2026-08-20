@@ -29,7 +29,10 @@ The auth store owns `keyMatterAccess` and
 - a resolved value is cached unless `force` is true;
 - one in-flight promise is shared even when a concurrent caller requests a
   force refresh (single-flight);
-- access errors resolve to a denied capability object;
+- access errors fail closed and resolve to a denied capability object; the store
+  does not promise logging or user prompts for capability-load failures;
+- an access-request `401` keeps the API client's existing session-expiry behavior:
+  clear credentials and replace the location with `/login`;
 - login, registration, logout, and token/session replacement reset access;
 - every reset increments a generation; a late success/error from an older
   generation cannot repopulate the new session's cache;
@@ -193,11 +196,15 @@ has two paths:
    discards that matter's presentation draft, force-refreshes access, refreshes
    matter/meeting data, and becomes read-only while preserving page access. If
    access is gone, it redirects to `/`.
-2. Generic 403: CRUD, list, detail, meeting, milestone, and weekly handlers share
-   one single-flight forced access refresh. The first active response displays
-   the server message. When `canAccess` is false, route changes to `/`; when it
-   remains true, current mode/data refreshes so revoked manage/feedback actions
-   disappear.
+2. Generic read 403: list, detail, meeting, and milestone handlers share one
+   single-flight forced access refresh. The first active response displays the
+   server message. When `canAccess` is false, route changes to `/`; when it
+   remains true, the read error is surfaced without automatically retrying the
+   failed data request, preventing a refresh/error loop.
+3. CRUD/weekly 403: these operation handlers use the same capability refresh.
+   When access remains true after a successful refresh, they may reload the
+   current mode or matter so revoked manage/feedback actions disappear. Page
+   operation failures continue to display their server messages.
 
 Recovery must be route-safe:
 
@@ -222,7 +229,9 @@ and replace the location with `/login`.
   meeting keeps presentation/list DOM unmounted behind a full-viewport loader
   until base data, meeting data, and initial presentation draft are ready.
 - Empty: register and meeting modes use contextual empty text.
-- Error: load errors persist in an alert; save errors use messages.
+- Error: load errors persist in an alert; detail/operation errors use messages.
+  Capability-load errors themselves fail closed without a store-level logging or
+  prompt contract.
 - Mobile: summary and filters become two columns; pagination stays in its table
   panel; weekly/briefing content becomes one column; detail facts precede the
   weekly brief; milestone cards stack; wide tables scroll locally.
