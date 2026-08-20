@@ -389,20 +389,37 @@ The tests must assert mapper delete/insert calls and returned participant view d
 
 Extend `BuKeyMatterService` constructor with `BuKeyMatterParticipantMapper` and `BuKeyMatterAccessService`.
 
-Implement normalization:
+Implement create/update-specific normalization. Create treats a missing or empty list as owner-only. Update preserves existing relations when the field is omitted, but an explicit empty list replaces them with owner-only:
 
 ```java
-private List<Long> normalizeParticipantIds(BuKeyMatterRequest request) {
-    LinkedHashSet<Long> ids = new LinkedHashSet<>();
+private List<Long> normalizeCreateParticipantIds(BuKeyMatterRequest request) {
+    return normalizeSubmittedParticipantIds(request.getParticipantIds(), request.getOwnerId());
+}
+
+private List<Long> normalizeUpdateParticipantIds(
+        Long matterId, BuKeyMatterRequest request) {
     if (request.getParticipantIds() != null) {
-        request.getParticipantIds().stream().filter(Objects::nonNull).forEach(ids::add);
+        return normalizeSubmittedParticipantIds(request.getParticipantIds(), request.getOwnerId());
     }
+    LinkedHashSet<Long> ids = participantMapper.selectList(
+            new LambdaQueryWrapper<BuKeyMatterParticipant>()
+                    .eq(BuKeyMatterParticipant::getKeyMatterId, matterId)
+                    .orderByAsc(BuKeyMatterParticipant::getId)).stream()
+            .map(BuKeyMatterParticipant::getUserId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
     ids.add(request.getOwnerId());
+    return List.copyOf(ids);
+}
+
+private List<Long> normalizeSubmittedParticipantIds(List<Long> submitted, Long ownerId) {
+    LinkedHashSet<Long> ids = new LinkedHashSet<>();
+    if (submitted != null) submitted.stream().filter(Objects::nonNull).forEach(ids::add);
+    ids.add(ownerId);
     return List.copyOf(ids);
 }
 ```
 
-Validate each selected user with `userMapper.selectBatchIds`; reject missing/disabled with exact `参与人不存在或已停用`. Keep owner validation and project validation unchanged.
+Validate each newly submitted user with `userMapper.selectBatchIds`; reject missing/disabled with exact `参与人不存在或已停用`. Keep owner validation and project validation unchanged. Existing persisted relations on an omitted-field update are preserved for stale-client safety.
 
 After `matterMapper.insert/updateById`, synchronize relation rows in the same `@Transactional` method:
 
@@ -767,7 +784,7 @@ git commit -m "feat(key-matters): add participants and owner feedback controls"
 Add executable entries for:
 
 ```markdown
-GET /api/key-matters/access -> KeyMatterAccessView
+GET /api/key-matters/access -> BuKeyMatterAccessView
 GET/list/detail/meeting -> view/manage plus participant relationship
 POST/PUT/DELETE matter -> manage plus admin username
 PUT/DELETE weekly -> feedback/manage plus current owner after row lock
@@ -794,7 +811,7 @@ cd backend
 mvn test
 ```
 
-Expected: `BUILD SUCCESS`, including Flyway/migration integration checks, access tests, participant tests, lock tests, and all previous 157+ tests.
+Expected: `BUILD SUCCESS`, including access tests, participant compatibility tests, lock tests, controller contracts, and all previous tests. The unit profile disables Flyway, so real MySQL migration execution is verified separately in Step 5.
 
 - [ ] **Step 4: Run full frontend regression**
 
