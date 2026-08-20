@@ -1120,6 +1120,10 @@ async function savePresentationAndNext() {
     if (isCompletedWeeklyUpdateError(error)) {
       presentationDrafts.delete(matter.id)
       await loadMeeting()
+      const refreshedIndex = presentationOrderedMatters.value.findIndex(item => item.id === matter.id)
+      presentationIndex.value = refreshedIndex >= 0
+        ? refreshedIndex
+        : Math.min(presentationIndex.value, Math.max(presentationOrderedMatters.value.length - 1, 0))
       hydratePresentationForm()
     }
   } finally {

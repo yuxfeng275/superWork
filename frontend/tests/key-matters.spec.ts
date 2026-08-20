@@ -798,3 +798,92 @@ test('填写期间事项被完成后关闭新增表单并刷新状态', async ({
   // 回归断言：保留服务端返回的原因文案；抽屉关闭并刷新为「已完成/无需更新」行是新恢复行为
   await expect(page.getByText('已完成事项无需新增周进展')).toBeVisible()
 })
+
+test('演示填写期间事项被完成后仍定位原事项', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const updatedMatter = { ...coreMatters[0] }
+  const targetMatter = { ...coreMatters[1] }
+  const otherMatter = {
+    ...coreMatters[1],
+    id: 14,
+    title: '数据看板迭代事项',
+    description: '演示期间的另一条待更新事项',
+    sortOrder: 2
+  }
+  const completedTarget = {
+    ...targetMatter,
+    status: '已完成',
+    progress: 100,
+    completedAt: '2026-08-21',
+    currentWeekUpdated: false,
+    latestUpdate: null,
+    currentWeekUpdate: null,
+    weeklyUpdates: []
+  }
+  let targetCompleted = false
+
+  await page.unroute('**/api/key-matters**')
+  await page.route('**/api/key-matters**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
+      targetCompleted = true
+      return route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 400, message: '已完成事项无需新增周进展' })
+      })
+    }
+    if (path === '/api/key-matters/meeting') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: targetCompleted
+            ? [updatedMatter, otherMatter, completedTarget]
+            : [updatedMatter, targetMatter, otherMatter]
+        })
+      })
+    }
+    if (path === '/api/key-matters/12') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: targetCompleted ? completedTarget : targetMatter })
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [updatedMatter, otherMatter] })
+    })
+  })
+
+  await page.goto('/key-matters-meeting')
+  const stage = page.getByLabel('周会演示模式')
+  await expect(stage).toBeVisible()
+
+  // 初始会议顺序为 [11, 12, 14]：通过快速缩略图定位到目标事项 12。
+  await stage.getByRole('button', { name: '跳转到第 2 项' }).click()
+  await expect(stage.getByRole('heading', { name: '运营平台数据质量治理' })).toBeVisible()
+  await expect(stage.getByLabel('演示中更新周报')).toBeVisible()
+
+  await stage.getByLabel('演示本周成果').fill('数据质量治理规则梳理完成')
+  const saveRequest = page.waitForRequest(request =>
+    request.url().includes('/api/key-matters/12/weekly-updates/')
+      && request.method() === 'PUT'
+  )
+  await stage.getByRole('button', { name: /保存并下一项/ }).click()
+  const request = await saveRequest
+  expect(request.postDataJSON()).toMatchObject({
+    progressSummary: '数据质量治理规则梳理完成'
+  })
+
+  // 保存失败后仍显示服务端原因，且演示重新定位到 id 12（而非 id 14）。
+  await expect(page.getByText('已完成事项无需新增周进展')).toBeVisible()
+  await expect(stage.getByRole('heading', { name: '运营平台数据质量治理' })).toBeVisible()
+  await expect(stage.getByRole('heading', { name: '数据看板迭代事项' })).toHaveCount(0)
+  await expect(stage.getByText('本周已完成，无需更新')).toBeVisible()
+  await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
+})
