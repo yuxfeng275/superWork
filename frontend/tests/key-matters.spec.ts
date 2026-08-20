@@ -123,6 +123,51 @@ const completedMatterWithoutWeeklyUpdate = {
   weeklyUpdates: []
 }
 
+// 已完成的重点事项且携带当前周周报：用于校验历史修正入口保留、周会只读。该夹具只用于专属用例。
+const completedWeekReport = {
+  id: 31,
+  weekStartDate: '2026-08-03',
+  status: '已完成',
+  progress: 100,
+  progressSummary: '完成交付并通过验收',
+  issues: '',
+  nextWeekPlan: '',
+  supportNeeded: ''
+}
+
+const completedMatterWithWeeklyUpdate = {
+  id: 14,
+  title: '完成事项保留历史修正入口',
+  description: '已完成并携带当前周周报，验证历史周报仍可修正且周会只读',
+  projectId: null,
+  ownerId: 16,
+  ownerName: '于峰',
+  priority: 'P1',
+  status: '已完成',
+  progress: 100,
+  startDate: '2026-07-27',
+  plannedCompletionDate: '2026-08-09',
+  completedAt: '2026-08-07',
+  sortOrder: 0,
+  overdue: false,
+  currentWeekUpdated: true,
+  latestUpdate: completedWeekReport,
+  currentWeekUpdate: completedWeekReport,
+  weeklyUpdates: [
+    completedWeekReport,
+    {
+      id: 30,
+      weekStartDate: '2026-07-27',
+      status: '推进中',
+      progress: 80,
+      progressSummary: '进入交付验收阶段',
+      issues: '',
+      nextWeekPlan: '',
+      supportNeeded: ''
+    }
+  ]
+}
+
 // 列表与会演示使用同一数组：保留一条已更新事项，用于校验完成事项不会拉低更新占比。
 const completedMatterList = [coreMatters[0], completedMatterWithoutWeeklyUpdate]
 
@@ -743,6 +788,66 @@ test('已完成事项不再要求新增周进展', async ({ page }) => {
   await expect(stage.getByText('本周已完成，无需更新')).toBeVisible()
   await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
   await expect(stage.getByRole('button', { name: /保存并下一项/ })).toHaveCount(0)
+})
+
+test('已完成事项保留历史修正入口且周会只读', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.unroute('**/api/key-matters**')
+  await page.route('**/api/key-matters**', route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() !== 'GET') {
+      return route.fulfill({
+        status: 405,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 405, message: '只读用例不支持写入 key-matters' })
+      })
+    }
+    if (path === '/api/key-matters/14') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: completedMatterWithWeeklyUpdate })
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [completedMatterWithWeeklyUpdate] })
+    })
+  })
+
+  await page.goto('/key-matters')
+  const table = page.getByLabel('大事儿列表')
+  const completedRow = table.locator('tr', { hasText: '完成事项保留历史修正入口' })
+  await expect(completedRow).toBeVisible()
+  await completedRow.getByText('完成事项保留历史修正入口').click()
+
+  const detail = page.locator('.detail-content')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
+  const history = detail.getByLabel('周进展记录')
+  await expect(history.getByText('完成交付并通过验收')).toBeVisible()
+  await expect(history.getByRole('button', { name: '编辑周进展' }).first()).toBeVisible()
+  await expect(history.getByRole('button', { name: '删除周进展' }).first()).toBeVisible()
+
+  await history.getByRole('button', { name: '编辑周进展' }).first().click()
+  const weekly = page.getByRole('dialog', { name: '更新周进展' })
+  await expect(weekly).toBeVisible()
+  await expect(weekly.getByRole('textbox', { name: '本周成果' })).toHaveValue('完成交付并通过验收')
+  await weekly.getByRole('button', { name: '取消' }).click()
+  await expect(weekly).toHaveCount(0)
+
+  await page.goto('/key-matters-meeting')
+  const stage = page.getByLabel('周会演示模式')
+  await expect(stage).toBeVisible()
+  const brief = stage.getByLabel('演示事项简报')
+  await expect(brief).toBeVisible()
+  await expect(brief).toContainText('完成交付并通过验收')
+  await expect(stage.getByRole('button', { name: '编辑周报' })).toHaveCount(0)
+  await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
+  await expect(stage.getByRole('button', { name: /保存并下一项/ })).toHaveCount(0)
+  await expect(stage.getByRole('button', { name: '查看详情' })).toBeVisible()
 })
 
 test('填写期间事项被完成后关闭新增表单并刷新状态', async ({ page }) => {
