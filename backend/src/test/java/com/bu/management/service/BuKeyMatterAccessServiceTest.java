@@ -49,6 +49,17 @@ class BuKeyMatterAccessServiceTest {
     }
 
     @Test
+    void accessRequiresViewPermissionEvenForAnOwnerWithFeedbackPermission() {
+        when(sysRoleService.getPermissionCodesByUserId(7L))
+                .thenReturn(List.of("bu:key-matter:feedback"));
+        when(participantMapper.existsByUserId(7L)).thenReturn(true);
+        when(matterMapper.existsByOwnerId(7L)).thenReturn(true);
+
+        assertThat(service.resolveAccess(7L, "shijiale"))
+                .isEqualTo(new BuKeyMatterAccessView(false, false, true));
+    }
+
+    @Test
     void accessForParticipantIsReadOnly() {
         when(sysRoleService.getPermissionCodesByUserId(16L))
                 .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
@@ -87,6 +98,19 @@ class BuKeyMatterAccessServiceTest {
 
         assertThat(service.resolveAccess(1L, "admin"))
                 .isEqualTo(new BuKeyMatterAccessView(false, false, false));
+    }
+
+    @Test
+    void nonAdminUsernameWithManagePermissionCannotBypassUsernameBoundary() {
+        when(sysRoleService.getPermissionCodesByUserId(21L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:manage"));
+        when(participantMapper.existsByUserId(21L)).thenReturn(true);
+
+        assertThat(service.resolveAccess(21L, "manager"))
+                .isEqualTo(new BuKeyMatterAccessView(true, false, false));
+        assertThatThrownBy(() -> service.requireManageAll(21L, "manager"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅管理员可管理大事儿");
     }
 
     @Test

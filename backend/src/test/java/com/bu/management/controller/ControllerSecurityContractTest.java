@@ -140,7 +140,7 @@ class ControllerSecurityContractTest {
     }
 
     @Test
-    void keyMatterReadEndpointsAllowViewFeedbackOrManage() {
+    void keyMatterReadEndpointsAllowViewOrManage() {
         for (String name : new String[]{"list", "meeting", "get"}) {
             Method method = findMethod(BuKeyMatterController.class, name);
             assertThat(method.getAnnotation(RequirePermission.class))
