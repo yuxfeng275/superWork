@@ -729,6 +729,14 @@ test('已完成事项不再要求新增周进展', async ({ page }) => {
   await expect(stage).toBeVisible()
   await stage.getByRole('button', { name: '跳转到第 2 项' }).click()
   await expect(stage.getByRole('heading', { name: '完成事项无需周报' })).toBeVisible()
+
+  const completedGroupButton = page.locator('.presentation-group-matters button', { hasText: '完成事项无需周报' })
+  await expect(completedGroupButton.locator('i')).not.toHaveClass(/pending/)
+
+  const completedQuickNav = stage.getByRole('button', { name: '跳转到第 2 项' })
+  await expect(completedQuickNav).not.toHaveClass(/pending/)
+  await expect(completedQuickNav.locator('.el-icon')).toHaveCount(0)
+
   await expect(stage.getByText('本周已完成，无需更新')).toBeVisible()
   await expect(stage.getByLabel('演示中更新周报')).toHaveCount(0)
   await expect(stage.getByRole('button', { name: /保存并下一项/ })).toHaveCount(0)

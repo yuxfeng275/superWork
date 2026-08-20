@@ -1779,7 +1779,7 @@ onBeforeUnmount(() => {
                   :class="{ active: matter.id === presentationMatter?.id }"
                   @click="jumpPresentation(presentationIndexOf(matter.id))"
                 >
-                  <i :class="{ pending: !reportUpdate(matter) }" />
+                  <i :class="{ pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter) }" />
                   <span>{{ matter.title }}</span>
                 </button>
               </div>
@@ -1977,14 +1977,14 @@ onBeforeUnmount(() => {
               type="button"
               :class="{
                 active: index === presentationIndex,
-                complete: Boolean(reportUpdate(matter)) && index !== presentationIndex,
-                pending: !reportUpdate(matter)
+                complete: (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter))) && index !== presentationIndex,
+                pending: requiresWeeklyUpdate(matter) && !reportUpdate(matter)
               }"
               :aria-label="`跳转到第 ${index + 1} 项`"
               @click="jumpPresentation(index)"
             >
-              <el-icon v-if="reportUpdate(matter) && index !== presentationIndex"><Select /></el-icon>
-              <el-icon v-else-if="!reportUpdate(matter) && index === presentationIndex"><EditPen /></el-icon>
+              <el-icon v-if="index !== presentationIndex && (!requiresWeeklyUpdate(matter) || Boolean(reportUpdate(matter)))"><Select /></el-icon>
+              <el-icon v-else-if="index === presentationIndex && requiresWeeklyUpdate(matter) && !reportUpdate(matter)"><EditPen /></el-icon>
               <span v-else>{{ index + 1 }}</span>
             </button>
           </nav>
