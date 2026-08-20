@@ -41,6 +41,16 @@ Saving the latest chronological weekly update synchronizes the matter status,
 progress, and completion time. Editing an older week does not roll back the
 current matter. Deleting a weekly update never rewrites the current matter.
 
+Weekly upsert and matter update both lock the `bu_key_matter` row with
+`selectByIdForUpdate` (`SELECT ... FOR UPDATE`) before deciding how to apply
+the write. A completed matter requires no new weekly updates: when the target
+week has no existing weekly row, the upsert fails with the exact message
+`已完成事项无需新增周进展` and inserts nothing. When the target week already
+has a weekly row, the upsert corrects that row's fields without changing the
+matter's current status, progress, or completed time. Reopening a matter
+through the matter update path (any non-completed status) restores its
+eligibility to create new weekly updates.
+
 The meeting query includes every non-completed matter plus matters completed
 during the selected Monday-to-Sunday range. Ordering is priority, blocked/risk
 state, open before completed, manual sort order, planned completion date, ID.
@@ -58,6 +68,11 @@ state, open before completed, manual sort order, planned completion date, ID.
 | Non-completed status with 100% | validation error |
 | Completed status below 100% | server normalizes progress to 100% |
 | Weekly path date is not Monday | validation error `周进展日期必须为周一` |
+| Weekly upsert locks the matter row | `SELECT ... FOR UPDATE` before the completed/creating decision |
+| Matter update locks the matter row | `SELECT ... FOR UPDATE` before applying the status change |
+| Weekly upsert on completed matter with no row for the week | exact error `已完成事项无需新增周进展`, no insert, matter unchanged |
+| Weekly upsert on completed matter with an existing row for the week | row corrected; matter status/progress/completedAt unchanged |
+| Matter update reopens a completed matter | `completedAt` cleared; weekly creation eligibility restored |
 
 ## 5. Good / Base / Bad Cases
 
@@ -65,11 +80,22 @@ state, open before completed, manual sort order, planned completion date, ID.
 - Base: `admin` edits a historical week; only that weekly row changes.
 - Bad: another business owner calls the endpoint directly; backend returns 403.
 - Bad: a non-completed weekly update submits 100%; validation rejects it.
+- Good: `yufeng` corrects the completion-week row summary; the matter stays completed.
+- Bad: `admin` upserts a missing week for a completed matter; backend returns
+  `已完成事项无需新增周进展` and inserts nothing.
+- Base: `admin` reopens a completed matter via the update API, then creates a
+  new weekly row for the reopened matter.
 
 ## 6. Tests Required
 
 - `BuKeyMatterServiceTest`: creation defaults, date validation, completion
-  transitions, same-week upsert, older-week isolation, meeting inclusion/order.
+  transitions, same-week upsert, older-week isolation, meeting inclusion/order;
+  completed matter rejects new weekly creation with the exact
+  `已完成事项无需新增周进展` error, allows existing-week correction without
+  reopening the matter, and reopen restores weekly creation eligibility.
+- `BuKeyMatterLockIntegrationTest`: the `SELECT ... FOR UPDATE` row lock held
+  by a completing matter update blocks a concurrent weekly upsert until commit,
+  then the upsert re-reads the completed state and fails without inserting.
 - `PermissionInterceptorUsernameTest`: both allowed users, disallowed username,
   and missing JWT username attribute.
 - `ControllerSecurityContractTest`: permission annotation and username allowlist.

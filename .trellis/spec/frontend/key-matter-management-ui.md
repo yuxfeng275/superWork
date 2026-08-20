@@ -65,6 +65,31 @@ Route `/key-matters` is visible and navigable only for stored usernames
   and meeting owner avatars. Project grouping and all other owners retain the
   existing neutral or rotating palette.
 
+## Completed-matter behavior
+
+- Completed matters never surface create/update-weekly actions. Register rows,
+  the detail drawer, and meeting group rows suppress the `更新周进展` action and
+  show `无需更新` instead of `本周待更新`. Completed matters never count as
+  missing.
+- Register summary total (`事项概览` all count) includes completed matters, but
+  the update meter denominator and missing count (`x/y` and the missing strong
+  value) count only non-completed matters, so a completed matter neither inflates
+  the denominator nor lowers the update ratio.
+- Detail hides the create action for completed matters while the weekly history
+  keeps its per-row edit/delete actions so an already-recorded week can still be
+  corrected.
+- A matter completed during the selected meeting week with no report renders the
+  exact `本周已完成，无需更新` state: no inline editor, no `保存并下一项`
+  control, and no pending quick-nav/group-row indicator.
+- A completed matter that already has a report for the selected week stays
+  read-only in meeting and keeps showing that report, never the editor.
+- On a completed-write race, where the server returns
+  `已完成事项无需新增周进展` for a write that looked valid when rendered: the
+  standalone weekly drawer closes and refreshes state, or the presentation
+  reloads meeting data and re-anchors to the same matter id. The exact server
+  message stays visible, and the refreshed view shows the completed/`无需更新`
+  state without stale pending navigation.
+
 ## States
 
 - Loading: table/meeting list uses Element Plus loading state. The standalone
@@ -122,3 +147,16 @@ Route `/key-matters` is visible and navigable only for stored usernames
   inside the selected month after expansion.
 - date pickers display Chinese year/month/day labels and still submit ISO dates.
 - create request carries owner and date fields exactly as `YYYY-MM-DD`.
+- completed matter rows show `无需更新`, never `本周待更新`, and hide the
+  `更新周进展` action; the detail drawer hides the same create action while the
+  weekly history keeps per-row edit/delete.
+- register `事项概览` total includes completed matters while the update meter
+  denominator and missing count exclude them.
+- a meeting matter completed during the selected week without a report shows the
+  exact `本周已完成，无需更新` state with no inline editor, no `保存并下一项`,
+  and no pending quick-nav/group-row indicator; a completed matter that already
+  has a report stays read-only.
+- a completed-write race preserves the server's `已完成事项无需新增周进展`
+  message, closes the standalone drawer or reloads the presentation anchored to
+  the same matter id, and refreshes to the completed/`无需更新` state without
+  stale pending navigation.
