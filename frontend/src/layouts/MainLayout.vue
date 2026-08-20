@@ -18,7 +18,7 @@ interface NavItem {
   label: string
   badge?: number
   access?: RoleAccess
-  allowedUsernames?: string[]
+  requiresKeyMatterAccess?: boolean
 }
 
 interface NavSection {
@@ -39,7 +39,7 @@ const navItems: NavSection[] = [
         path: '/key-matters',
         icon: 'Flag',
         label: '大事儿管理',
-        allowedUsernames: ['admin', 'yufeng']
+        requiresKeyMatterAccess: true
       }
     ]
   },
@@ -81,7 +81,7 @@ const visibleNavItems = computed(() =>
       ...section,
       items: section.items.filter(item =>
         (!item.access || hasRoleAccess(authStore.user?.role, item.access))
-        && (!item.allowedUsernames || item.allowedUsernames.includes(authStore.user?.username || ''))
+        && (!item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
       )
     }))
     .filter(section => section.items.length > 0)
@@ -119,7 +119,12 @@ const loadRequirementBadge = async () => {
   }
 }
 
-onMounted(loadRequirementBadge)
+onMounted(() => {
+  void Promise.allSettled([
+    loadRequirementBadge(),
+    authStore.loadKeyMatterAccess()
+  ])
+})
 </script>
 
 <template>

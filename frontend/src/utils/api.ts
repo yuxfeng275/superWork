@@ -172,6 +172,18 @@ export interface SeeyonOaDepartmentOption {
   enabled: boolean
 }
 
+export interface KeyMatterAccess {
+  canAccess: boolean
+  canManageAll: boolean
+  canFeedbackOwn: boolean
+}
+
+export interface BuKeyMatterParticipant {
+  userId: number
+  username: string
+  realName: string
+}
+
 export interface BuKeyMatterWeeklyUpdate {
   id: number
   weekStartDate: string
@@ -196,6 +208,7 @@ export interface BuKeyMatter {
   projectRootName?: string
   ownerId: number
   ownerName?: string
+  participants?: BuKeyMatterParticipant[]
   priority: string
   status: string
   progress: number
@@ -217,6 +230,7 @@ export interface BuKeyMatterPayload {
   description?: string
   projectId?: number
   ownerId: number
+  participantIds?: number[]
   priority: string
   status: string
   progress: number
@@ -1012,6 +1026,10 @@ class ApiService {
     return this.request(`/api/bu-directions/${id}`, {
       method: 'DELETE'
     })
+  }
+
+  async getKeyMatterAccess(): Promise<KeyMatterAccess> {
+    return this.request<KeyMatterAccess>('/api/key-matters/access')
   }
 
   async getKeyMatters(params?: {

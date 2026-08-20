@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { hasRoleAccess, type RoleAccess } from '@/constants/roles'
+import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -19,7 +20,7 @@ const routes: RouteRecordRaw[] = [
     path: '/key-matters-meeting',
     name: 'KeyMattersMeeting',
     component: () => import('@/views/KeyMattersView.vue'),
-    meta: { requiresAuth: true, standalone: true, allowedUsernames: ['admin', 'yufeng'] }
+    meta: { requiresAuth: true, standalone: true, requiresKeyMatterAccess: true }
   },
   {
     path: '/',
@@ -65,7 +66,7 @@ const routes: RouteRecordRaw[] = [
         path: 'key-matters',
         name: 'KeyMatters',
         component: () => import('@/views/KeyMattersView.vue'),
-        meta: { title: '大事儿管理', allowedUsernames: ['admin', 'yufeng'] }
+        meta: { title: '大事儿管理', requiresKeyMatterAccess: true }
       },
       {
         path: 'statistics',
@@ -141,7 +142,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach(to => {
+router.beforeEach(async to => {
   const token = localStorage.getItem('token')
 
   if (to.meta.requiresAuth !== false && !token) {
@@ -159,6 +160,13 @@ router.beforeEach(to => {
         return '/'
       }
     } catch {
+      return '/'
+    }
+  }
+
+  if (to.meta.requiresKeyMatterAccess) {
+    const access = await useAuthStore().loadKeyMatterAccess(true)
+    if (!access.canAccess) {
       return '/'
     }
   }
