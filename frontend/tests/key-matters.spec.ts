@@ -1,18 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
-
-const adminKeyMatterAccess = {
-  canAccess: true,
-  canManageAll: true,
-  canFeedbackOwn: true
-}
-
-function fulfillAdminKeyMatterAccess(route: Route) {
-  return route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ code: 200, data: adminKeyMatterAccess })
-  })
-}
+import { expect, test, type Page } from '@playwright/test'
 
 const coreMatters = [
   {
@@ -190,7 +176,6 @@ async function installCompletedMatterRoutes(page: Page) {
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() !== 'GET') {
       return route.fulfill({
         status: 405,
@@ -247,7 +232,6 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'POST' || request.method() === 'PUT') {
       return route.fulfill({
         status: 200,
@@ -404,7 +388,6 @@ test('周会首次访问等待数据完成后再显示事项内容', async ({ pa
   await page.unroute('**/api/key-matters**')
   await page.route('**/api/key-matters**', async route => {
     const path = new URL(route.request().url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (path === '/api/key-matters/meeting') await meetingGate
     await route.fulfill({
       status: 200,
@@ -662,15 +645,11 @@ test('周会快速导航内容超出时在卡片内部滚动', async ({ page }) 
     sortOrder: index
   }))
   await page.unroute('**/api/key-matters**')
-  await page.route('**/api/key-matters**', route => {
-    const path = new URL(route.request().url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ code: 200, data: groupedMatters })
-    })
-  })
+  await page.route('**/api/key-matters**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: groupedMatters })
+  }))
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/key-matters-meeting')
 
@@ -699,15 +678,11 @@ test('指定女性负责人在列表与周会中使用独立配色', async ({ pa
     ownerName: '丛宁'
   }
   await page.unroute('**/api/key-matters**')
-  await page.route('**/api/key-matters**', route => {
-    const path = new URL(route.request().url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ code: 200, data: [femaleMatter] })
-    })
-  })
+  await page.route('**/api/key-matters**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: [femaleMatter] })
+  }))
 
   await page.goto('/key-matters')
   await expect(page.locator('.owner-name.female')).toHaveText('丛宁')
@@ -821,7 +796,6 @@ test('已完成事项保留历史修正入口且周会只读', async ({ page }) 
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() !== 'GET') {
       return route.fulfill({
         status: 405,
@@ -883,7 +857,6 @@ test('填写期间事项被完成后关闭新增表单并刷新状态', async ({
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
       matter12 = {
         ...matter12,
@@ -961,7 +934,6 @@ test('演示填写期间事项被完成后仍定位原事项', async ({ page }) 
   await page.route('**/api/key-matters**', route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (path === '/api/key-matters/access') return fulfillAdminKeyMatterAccess(route)
     if (request.method() === 'PUT' && path.startsWith('/api/key-matters/12/weekly-updates/')) {
       targetCompleted = true
       return route.fulfill({
