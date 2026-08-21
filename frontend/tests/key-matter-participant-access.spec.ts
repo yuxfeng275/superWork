@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Response } from '@playwright/test'
 
 interface TestUser {
   id: number
@@ -87,10 +87,14 @@ function featureMatter(options: {
   }
 }
 
+type FeatureMatterFixture = Omit<ReturnType<typeof featureMatter>, 'participants'> & {
+  participants?: ReturnType<typeof featureMatter>['participants']
+}
+
 interface FeatureSessionOptions {
   user: TestUser
   access: KeyMatterAccessFixture | (() => KeyMatterAccessFixture)
-  matters: ReturnType<typeof featureMatter>[]
+  matters: FeatureMatterFixture[]
   onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number; waitUntil?: Promise<void> } | undefined
   onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
   onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
@@ -215,6 +219,24 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
   })
 
   return requestCounts
+}
+
+function waitForCompletedMatterListResponses(page: Page, expectedCount: number) {
+  return new Promise<void>(resolve => {
+    let completedCount = 0
+    const handleResponse = async (response: Response) => {
+      const request = response.request()
+      if (request.method() !== 'GET' || new URL(response.url()).pathname !== '/api/key-matters') return
+
+      await response.finished()
+      completedCount += 1
+      if (completedCount >= expectedCount) {
+        page.off('response', handleResponse)
+        resolve()
+      }
+    }
+    page.on('response', handleResponse)
+  })
 }
 
 async function mockSession(
@@ -401,10 +423,24 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
     projectId: 32,
     participantIds: [16, 8]
   })
+  const legacyNonOwnedMatter: FeatureMatterFixture = featureMatter({
+    id: 54,
+    title: '旧数据缺少参与人的他人事项',
+    ownerId: 16,
+    projectId: 32
+  })
+  delete legacyNonOwnedMatter.participants
+  const legacyOwnedMatter: FeatureMatterFixture = featureMatter({
+    id: 55,
+    title: '旧数据缺少参与人的本人事项',
+    ownerId: 7,
+    projectId: 31
+  })
+  delete legacyOwnedMatter.participants
   await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
-    matters: [ownedMatter, participatingMatter, unrelatedMatter]
+    matters: [ownedMatter, participatingMatter, unrelatedMatter, legacyNonOwnedMatter, legacyOwnedMatter]
   })
 
   await page.goto('/key-matters')
@@ -414,8 +450,9 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
 
+  await expect(page.locator('.load-error')).toHaveCount(0)
   await expect(ownedButton).toBeVisible()
-  await expect(ownedButton).toContainText('1 项由我负责')
+  await expect(ownedButton).toContainText('2 项由我负责')
   await expect(participatingButton).toBeVisible()
   await expect(participatingButton).toContainText('1 项协作参与')
   await expect(allButton).toHaveClass(/\bactive\b/)
@@ -425,14 +462,18 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(participatingButton).not.toHaveClass(/\bactive\b/)
   await expect(allButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
+  await expect(table.getByText(legacyOwnedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
+  await expect(table.getByText(legacyNonOwnedMatter.title)).toHaveCount(0)
 
   await ownedButton.click()
   await expect(ownedButton).toHaveClass(/\bactive\b/)
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
+  await expect(table.getByText(legacyOwnedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
+  await expect(table.getByText(legacyNonOwnedMatter.title)).toHaveCount(0)
 
   await participatingButton.click()
   await expect(participatingButton).toHaveClass(/\bactive\b/)
@@ -440,7 +481,9 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(allButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(ownedMatter.title)).toHaveCount(0)
+  await expect(table.getByText(legacyOwnedMatter.title)).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
+  await expect(table.getByText(legacyNonOwnedMatter.title)).toHaveCount(0)
 
   await allButton.click()
   await expect(allButton).toHaveClass(/\bactive\b/)
@@ -449,6 +492,8 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(unrelatedMatter.title)).toBeVisible()
+  await expect(table.getByText(legacyNonOwnedMatter.title)).toBeVisible()
+  await expect(table.getByText(legacyOwnedMatter.title)).toBeVisible()
 })
 
 test('个人快捷筛选清空普通筛选并保持完整数量和概览', async ({ page }) => {
@@ -598,23 +643,75 @@ test('个人快捷筛选清空普通筛选并保持完整数量和概览', async
   await expectFixedPersonalCounts()
 })
 
-test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({ page }) => {
+test('切换个人快捷筛选回到默认每页十条的第一页', async ({ page }) => {
   const ownedMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
     id: 400 + index,
+    title: `切换分页本人负责事项 ${index + 1}`,
+    ownerId: 7,
+    projectId: 31,
+    participantIds: [7, 8]
+  }))
+  const participatingMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
+    id: 450 + index,
+    title: `切换分页本人参与事项 ${index + 1}`,
+    ownerId: 16,
+    projectId: 32,
+    participantIds: [16, 7]
+  }))
+  await mockFeatureSession(page, {
+    user: featureUsers[0],
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    matters: [...ownedMatters, ...participatingMatters]
+  })
+
+  await page.goto('/key-matters')
+  const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const ownedButton = rail.getByRole('button', { name: /我的事项/ })
+  const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
+  const table = page.getByLabel('大事儿列表')
+  const rows = table.locator('.el-table__body-wrapper tbody tr')
+  const pagination = page.getByLabel('事项列表分页')
+
+  await expect(ownedButton).toContainText('11 项由我负责')
+  await expect(participatingButton).toContainText('11 项协作参与')
+  await ownedButton.click()
+  await expect(pagination).toContainText('共 11 项')
+  await expect(rows).toHaveCount(10)
+
+  await pagination.locator('.btn-next').click()
+  await expect(pagination.locator('.number.is-active')).toHaveText('2')
+  await expect(rows).toHaveCount(1)
+  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toBeVisible()
+
+  await participatingButton.click()
+  await expect(participatingButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(pagination).toContainText('共 11 项')
+  await expect(pagination.locator('.number.is-active')).toHaveText('1')
+  await expect(rows).toHaveCount(10)
+  await expect(table.getByText(participatingMatters[0].title, { exact: true })).toBeVisible()
+  await expect(table.getByText(participatingMatters[9].title, { exact: true })).toBeVisible()
+  await expect(table.getByText(participatingMatters[10].title, { exact: true })).toHaveCount(0)
+  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toHaveCount(0)
+})
+
+test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({ page }) => {
+  const ownedMatters = Array.from({ length: 21 }, (_, index) => featureMatter({
+    id: 500 + index,
     title: `刷新本人负责事项 ${index + 1}`,
     ownerId: 7,
     projectId: index % 2 === 0 ? 31 : 32,
     participantIds: [7, 8]
   }))
   const unrelatedMatter = featureMatter({
-    id: 500,
+    id: 600,
     title: '刷新无关事项',
     ownerId: 16,
     projectId: 31,
     participantIds: [16, 8]
   })
   const fixtureMatters = [...ownedMatters, unrelatedMatter]
-  const requestCounts = await mockFeatureSession(page, {
+  await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
     matters: fixtureMatters
@@ -624,29 +721,47 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   const rail = page.getByRole('complementary', { name: '列表快速筛选' })
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const table = page.getByLabel('大事儿列表')
+  const rows = table.locator('.el-table__body-wrapper tbody tr')
   const pagination = page.getByLabel('事项列表分页')
 
-  await expect(ownedButton).toContainText('11 项由我负责')
+  await expect(ownedButton).toContainText('21 项由我负责')
   await ownedButton.click()
   await pagination.locator('.btn-next').click()
+  await pagination.locator('.btn-next').click()
   await expect(ownedButton).toHaveClass(/\bactive\b/)
-  await expect(pagination.locator('.number.is-active')).toHaveText('2')
-  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toBeVisible()
+  await expect(pagination).toContainText('共 21 项')
+  await expect(pagination.locator('.number.is-active')).toHaveText('3')
+  await expect(rows).toHaveCount(1)
+  await expect(table.getByText(ownedMatters[20].title, { exact: true })).toBeVisible()
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toHaveCount(0)
 
-  fixtureMatters.splice(0, fixtureMatters.length, ...ownedMatters.slice(0, 3), unrelatedMatter)
-  const requestsBeforeRefresh = requestCounts.matterListGet
+  const unchangedRefreshCompleted = waitForCompletedMatterListResponses(page, 2)
   await page.getByRole('button', { name: '刷新' }).click()
+  await unchangedRefreshCompleted
 
-  await expect.poll(() => requestCounts.matterListGet).toBe(requestsBeforeRefresh + 2)
   await expect(ownedButton).toHaveClass(/\bactive\b/)
-  await expect(ownedButton).toContainText('3 项由我负责')
-  await expect(pagination).toContainText('共 3 项')
-  await expect(pagination.locator('.number.is-active')).toHaveText('1')
+  await expect(ownedButton).toContainText('21 项由我负责')
+  await expect(pagination).toContainText('共 21 项')
+  await expect(pagination.locator('.number.is-active')).toHaveText('3')
+  await expect(rows).toHaveCount(1)
+  await expect(table.getByText(ownedMatters[20].title, { exact: true })).toBeVisible()
+
+  fixtureMatters.splice(0, fixtureMatters.length, ...ownedMatters.slice(0, 15), unrelatedMatter)
+  const shortenedRefreshCompleted = waitForCompletedMatterListResponses(page, 2)
+  await page.getByRole('button', { name: '刷新' }).click()
+  await shortenedRefreshCompleted
+
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toContainText('15 项由我负责')
+  await expect(pagination).toContainText('共 15 项')
+  await expect(pagination.locator('.number.is-active')).toHaveText('2')
   await expect(pagination.locator('.btn-next')).toBeDisabled()
-  for (const matter of ownedMatters.slice(0, 3)) {
+  await expect(rows).toHaveCount(5)
+  for (const matter of ownedMatters.slice(10, 15)) {
     await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
   }
-  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toHaveCount(0)
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toHaveCount(0)
+  await expect(table.getByText(ownedMatters[20].title, { exact: true })).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
 })
 
