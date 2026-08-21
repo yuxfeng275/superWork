@@ -465,11 +465,15 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(ownedButton).toContainText('2 项由我负责')
   await expect(participatingButton).toBeVisible()
   await expect(participatingButton).toContainText('1 项协作参与')
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'false')
+  await expect(participatingButton).toHaveAttribute('aria-pressed', 'false')
   await expect(allButton).toHaveClass(/\bactive\b/)
 
   await ownedButton.click()
   await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'true')
   await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(participatingButton).toHaveAttribute('aria-pressed', 'false')
   await expect(allButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
   await expect(table.getByText(legacyOwnedMatter.title)).toBeVisible()
@@ -487,7 +491,9 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
 
   await participatingButton.click()
   await expect(participatingButton).toHaveClass(/\bactive\b/)
+  await expect(participatingButton).toHaveAttribute('aria-pressed', 'true')
   await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'false')
   await expect(allButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(ownedMatter.title)).toHaveCount(0)
@@ -498,7 +504,9 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await allButton.click()
   await expect(allButton).toHaveClass(/\bactive\b/)
   await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'false')
   await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(participatingButton).toHaveAttribute('aria-pressed', 'false')
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(unrelatedMatter.title)).toBeVisible()
@@ -793,11 +801,11 @@ test('被新个人筛选取代的旧403不提示也不跳转', async ({ page }) 
   })
   const requestCounts = await mockFeatureSession(page, {
     user: featureUsers[0],
-    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
     matters: [...ownedMatters, unrelatedMatter],
     onAccessGet: requestCount => requestCount === 2
       ? {
-          access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+          access: { canAccess: false, canManageAll: false, canFeedbackOwn: false },
           waitUntil: accessRefreshReleased
         }
       : undefined,
@@ -832,9 +840,15 @@ test('被新个人筛选取代的旧403不提示也不跳转', async ({ page }) 
   await expect.poll(() => requestCounts.access).toBe(2)
 
   await expect(page).toHaveURL('/key-matters')
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toBeVisible()
   await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: '新增事项' })).toBeVisible()
   for (const matter of ownedMatters) {
+    const row = table.locator('tr', { hasText: matter.title })
     await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+    await expect(row.getByRole('button', { name: '编辑事项' })).toBeVisible()
+    await expect(row.getByRole('button', { name: '删除事项' })).toBeVisible()
   }
   await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
   await expect(page.locator('.load-error')).toHaveCount(0)
@@ -842,6 +856,83 @@ test('被新个人筛选取代的旧403不提示也不跳转', async ({ page }) 
   await expect.poll(() => page.evaluate(() => (
     window as Window & { __staleDeniedToastCount: number }
   ).__staleDeniedToastCount)).toBe(0)
+})
+
+test('被新个人筛选取代的旧里程碑403无副作用', async ({ page }) => {
+  const ownedMatters = [
+    featureMatter({ id: 328, title: '里程碑竞态本人事项一', ownerId: 7, projectId: 31 }),
+    featureMatter({ id: 329, title: '里程碑竞态本人事项二', ownerId: 7, projectId: 32 })
+  ]
+  let releaseMilestoneResponse: () => void = () => undefined
+  const milestoneResponseReleased = new Promise<void>(resolve => {
+    releaseMilestoneResponse = resolve
+  })
+  await page.addInitScript(() => {
+    let staleMilestoneToastCount = 0
+    const seen = new WeakSet<Element>()
+    const countStaleMilestoneToasts = () => {
+      document.querySelectorAll('.el-message__content').forEach(element => {
+        if (element.textContent?.trim() === '里程碑权限已过期' && !seen.has(element)) {
+          seen.add(element)
+          staleMilestoneToastCount += 1
+        }
+      })
+    }
+    new MutationObserver(countStaleMilestoneToasts).observe(document, { childList: true, subtree: true })
+    Object.defineProperty(window, '__staleMilestoneToastCount', {
+      configurable: true,
+      get: () => staleMilestoneToastCount
+    })
+  })
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[0],
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    matters: ownedMatters,
+    onMatterListGet: requestCount => requestCount === 4
+      ? {
+          status: 403,
+          body: { code: 403, message: '里程碑权限已过期' },
+          waitUntil: milestoneResponseReleased
+        }
+      : undefined
+  })
+
+  await page.goto('/key-matters')
+  const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const table = page.getByLabel('大事儿列表')
+  const ownedButton = rail.getByRole('button', { name: /我的事项/ })
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toBeVisible()
+  await expect.poll(() => requestCounts.matterListGet).toBe(2)
+
+  const milestoneResponse = page.waitForResponse(response => (
+    response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/key-matters'
+      && response.status() === 403
+  ))
+  await page.getByRole('button', { name: '刷新' }).click()
+  await expect.poll(() => requestCounts.matterListGet).toBe(4)
+
+  await ownedButton.click()
+  await expect.poll(() => requestCounts.matterListGet).toBe(5)
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toBeVisible()
+
+  releaseMilestoneResponse()
+  await (await milestoneResponse).finished()
+  await page.waitForTimeout(100)
+
+  await expect(page).toHaveURL('/key-matters')
+  await expect(page.getByRole('link', { name: '大事儿管理' })).toBeVisible()
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toBeVisible()
+  await expect(page.locator('.load-error')).toHaveCount(0)
+  await expect(page.getByText('里程碑权限已过期', { exact: true })).toHaveCount(0)
+  await expect.poll(() => requestCounts.access).toBe(1)
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __staleMilestoneToastCount: number }
+  ).__staleMilestoneToastCount)).toBe(0)
 })
 
 test('旧个人筛选响应不会覆盖新的普通查询', async ({ page }) => {

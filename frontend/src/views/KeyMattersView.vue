@@ -511,8 +511,8 @@ function isForbiddenError(error: unknown) {
 
 let keyMatterPageActive = true
 let matterLoadSequence = 0
+let milestoneLoadSequence = 0
 interface ForbiddenAccessRecovery {
-  access: Promise<KeyMatterAccess>
   notified: boolean
 }
 let forbiddenAccessRecovery: ForbiddenAccessRecovery | null = null
@@ -535,13 +535,13 @@ async function refreshAccessAfterForbidden(
   if (!isForbiddenError(error)) return null
   if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
 
-  const recovery = forbiddenAccessRecovery ?? {
-    access: authStore.loadKeyMatterAccess(true),
-    notified: false
-  }
+  const recovery = forbiddenAccessRecovery ?? { notified: false }
   forbiddenAccessRecovery = recovery
   try {
-    const access = await recovery.access
+    const access = await authStore.loadKeyMatterAccess(
+      true,
+      () => canRecoverKeyMatterPage() && isRelevant()
+    )
     if (!canRecoverKeyMatterPage() || !isRelevant()) return access
     if (!recovery.notified) {
       recovery.notified = true
@@ -624,6 +624,7 @@ async function loadBaseData() {
 
 async function loadMatters() {
   const sequence = ++matterLoadSequence
+  milestoneLoadSequence += 1
   loading.value = true
   loadError.value = ''
   try {
@@ -680,17 +681,25 @@ async function loadMeeting() {
 }
 
 async function loadMilestones() {
+  const sequence = ++milestoneLoadSequence
   loading.value = true
   loadError.value = ''
   try {
-    milestoneMatters.value = await api.getKeyMatters()
+    const result = await api.getKeyMatters()
+    if (sequence !== milestoneLoadSequence) return
+    milestoneMatters.value = result
   } catch (error: unknown) {
-    const access = await refreshAccessAfterForbidden(error)
+    if (sequence !== milestoneLoadSequence) return
+    const access = await refreshAccessAfterForbidden(
+      error,
+      () => sequence === milestoneLoadSequence
+    )
+    if (sequence !== milestoneLoadSequence) return
     if (!access || access.canAccess) {
       loadError.value = errorMessage(error, '里程碑数据加载失败')
     }
   } finally {
-    loading.value = false
+    if (sequence === milestoneLoadSequence) loading.value = false
   }
 }
 
@@ -1728,6 +1737,7 @@ onBeforeUnmount(() => {
             type="button"
             class="list-filter-all list-filter-personal"
             :class="{ active: personalScope === 'owned' }"
+            :aria-pressed="personalScope === 'owned'"
             @click="applyPersonalScope('owned')"
           >
             <span class="list-filter-icon personal owned"><el-icon><UserFilled /></el-icon></span>
@@ -1737,6 +1747,7 @@ onBeforeUnmount(() => {
             type="button"
             class="list-filter-all list-filter-personal"
             :class="{ active: personalScope === 'participating' }"
+            :aria-pressed="personalScope === 'participating'"
             @click="applyPersonalScope('participating')"
           >
             <span class="list-filter-icon personal participating"><el-icon><User /></el-icon></span>

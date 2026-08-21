@@ -16,7 +16,10 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
   const user = ref<User | null>(null)
   const keyMatterAccess = ref<KeyMatterAccess | null>(null)
-  let keyMatterAccessRequest: Promise<KeyMatterAccess> | null = null
+  let keyMatterAccessRequest: {
+    promise: Promise<KeyMatterAccess>
+    generation: number
+  } | null = null
   let keyMatterAccessGeneration = 0
 
   const deniedKeyMatterAccess = (): KeyMatterAccess => ({
@@ -31,28 +34,31 @@ export const useAuthStore = defineStore('auth', () => {
     keyMatterAccessRequest = null
   }
 
-  const loadKeyMatterAccess = (force = false): Promise<KeyMatterAccess> => {
-    if (keyMatterAccessRequest) return keyMatterAccessRequest
-    if (!force && keyMatterAccess.value) return Promise.resolve(keyMatterAccess.value)
+  const loadKeyMatterAccess = (
+    force = false,
+    shouldCommit: () => boolean = () => true
+  ): Promise<KeyMatterAccess> => {
+    let request = keyMatterAccessRequest
+    if (!request) {
+      if (!force && keyMatterAccess.value) return Promise.resolve(keyMatterAccess.value)
 
-    const generation = keyMatterAccessGeneration
-    const request = api.getKeyMatterAccess()
-      .then(access => {
-        if (generation !== keyMatterAccessGeneration) return deniedKeyMatterAccess()
-        keyMatterAccess.value = access
-        return access
-      })
-      .catch(() => {
-        const denied = deniedKeyMatterAccess()
-        if (generation === keyMatterAccessGeneration) keyMatterAccess.value = denied
-        return denied
-      })
-      .finally(() => {
+      const generation = keyMatterAccessGeneration
+      const rawPromise = api.getKeyMatterAccess()
+        .catch(() => deniedKeyMatterAccess())
+      request = { promise: rawPromise, generation }
+      keyMatterAccessRequest = request
+      void rawPromise.finally(() => {
         if (keyMatterAccessRequest === request) keyMatterAccessRequest = null
       })
+    }
 
-    keyMatterAccessRequest = request
-    return request
+    return request.promise.then(access => {
+      if (request.generation !== keyMatterAccessGeneration || !shouldCommit()) {
+        return deniedKeyMatterAccess()
+      }
+      keyMatterAccess.value = access
+      return access
+    })
   }
 
   const isLoggedIn = () => !!token.value
