@@ -719,10 +719,16 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
 
   await page.goto('/key-matters')
   const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const filterBar = page.getByLabel('事项筛选')
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const table = page.getByLabel('大事儿列表')
   const rows = table.locator('.el-table__body-wrapper tbody tr')
   const pagination = page.getByLabel('事项列表分页')
+  const keywordControl = filterBar.getByPlaceholder('搜索标题或说明')
+  const statusControl = filterBar.getByPlaceholder('状态')
+  const priorityControl = filterBar.getByPlaceholder('优先级')
+  const ownerControl = filterBar.getByRole('combobox').nth(2)
+  const projectControl = filterBar.getByRole('combobox').nth(3)
 
   await expect(ownedButton).toContainText('21 项由我负责')
   await ownedButton.click()
@@ -735,10 +741,27 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await expect(table.getByText(ownedMatters[20].title, { exact: true })).toBeVisible()
   await expect(table.getByText(ownedMatters[0].title, { exact: true })).toHaveCount(0)
 
+  await keywordControl.fill('未提交的关键词')
+  await statusControl.click()
+  await page.getByRole('option', { name: '有风险', exact: true }).click()
+  await priorityControl.click()
+  await page.getByRole('option', { name: 'P1', exact: true }).click()
+  await ownerControl.fill('负责人乙')
+  await ownerControl.press('ArrowDown')
+  await ownerControl.press('Enter')
+  await projectControl.fill('数据治理平台')
+  await projectControl.press('ArrowDown')
+  await projectControl.press('Enter')
+
   const unchangedRefreshCompleted = waitForCompletedMatterListResponses(page, 2)
   await page.getByRole('button', { name: '刷新' }).click()
   await unchangedRefreshCompleted
 
+  await expect(keywordControl).toHaveValue('未提交的关键词')
+  await expect(statusControl).toHaveValue('有风险')
+  await expect(priorityControl).toHaveValue('P1')
+  await expect(filterBar).toContainText('负责人乙')
+  await expect(filterBar).toContainText('数据治理平台')
   await expect(ownedButton).toHaveClass(/\bactive\b/)
   await expect(ownedButton).toContainText('21 项由我负责')
   await expect(pagination).toContainText('共 21 项')
@@ -766,29 +789,21 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
 })
 
 test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ page }) => {
-  const unrelatedMatter = featureMatter({
-    id: 61,
-    title: '空态用户无关事项',
-    ownerId: 16,
-    projectId: 32,
-    participantIds: [16, 8]
-  })
   await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
-    matters: [unrelatedMatter]
+    matters: []
   })
 
   await page.setViewportSize({ width: 320, height: 844 })
   await page.goto('/key-matters')
   const rail = page.getByRole('complementary', { name: '列表快速筛选' })
-  const table = page.getByLabel('大事儿列表')
   const pagination = page.getByLabel('事项列表分页')
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
 
-  await expect(pagination).toContainText('共 1 项')
-  await expect(table.getByText(unrelatedMatter.title, { exact: true })).toBeVisible()
+  await expect(pagination).toContainText('共 0 项')
+  await expect(page.getByText('暂无大事儿，点击右上角新增事项', { exact: true })).toBeVisible()
   await expect(page.locator('.load-error')).toHaveCount(0)
   await expect(ownedButton).toBeVisible()
   await expect(participatingButton).toBeVisible()

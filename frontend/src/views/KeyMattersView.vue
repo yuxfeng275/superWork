@@ -254,7 +254,7 @@ const visibleMatters = computed(() => {
 const tableEmptyText = computed(() => {
   if (personalScope.value === 'owned') return '暂无我负责的事项'
   if (personalScope.value === 'participating') return '暂无我参与的事项'
-  return canManageAll.value ? '暂无大事儿，点击右上角新增事项' : '暂无大事儿'
+  return '暂无大事儿，点击右上角新增事项'
 })
 
 const pagedMatters = computed(() => {
@@ -615,14 +615,22 @@ async function loadMatters() {
   loading.value = true
   loadError.value = ''
   try {
-    const query = {
-      keyword: filters.keyword.trim() || undefined,
-      status: filters.status || undefined,
-      priority: filters.priority || undefined,
-      ownerId: filters.ownerId,
-      projectId: filters.projectId
-    }
-    const hasFilters = Boolean(query.keyword || query.status || query.priority
+    const query: {
+      keyword?: string
+      status?: string
+      priority?: string
+      ownerId?: number
+      projectId?: number
+    } = personalScope.value === ''
+      ? {
+          keyword: filters.keyword.trim() || undefined,
+          status: filters.status || undefined,
+          priority: filters.priority || undefined,
+          ownerId: filters.ownerId,
+          projectId: filters.projectId
+        }
+      : {}
+    const hasFilters = personalScope.value === '' && Boolean(query.keyword || query.status || query.priority
       || query.ownerId !== undefined || query.projectId !== undefined)
     const [result, completeResult] = await Promise.all([
       api.getKeyMatters(query),
