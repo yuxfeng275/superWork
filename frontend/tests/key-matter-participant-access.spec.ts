@@ -506,7 +506,7 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(table.getByText(legacyOwnedMatter.title)).toBeVisible()
 })
 
-test('个人快捷筛选清空普通筛选并保持完整数量和概览', async ({ page }) => {
+test('个人快捷筛选清空普通筛选并保持完整数量、概览和分组计数', async ({ page }) => {
   const ownedMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
     id: 100 + index,
     title: `分页本人负责事项 ${index + 1}`,
@@ -551,6 +551,12 @@ test('个人快捷筛选清空普通筛选并保持完整数量和概览', async
     .getByRole('button', { name: /客户体验平台/ })
   const owner16Button = rail.locator('[aria-label="按负责人筛选"]')
     .getByRole('button', { name: /负责人乙/ })
+  const owner7Button = rail.locator('[aria-label="按负责人筛选"]')
+    .getByRole('button', { name: /负责人甲/ })
+  const owner8Button = rail.locator('[aria-label="按负责人筛选"]')
+    .getByRole('button', { name: /参与用户/ })
+  const project32Button = rail.locator('[aria-label="按项目筛选"]')
+    .getByRole('button', { name: /数据治理平台/ })
   const keywordControl = filterBar.getByPlaceholder('搜索标题或说明')
   const prioritySelect = filterBar.getByRole('combobox', { name: '优先级' })
   const statusSelect = filterBar.getByRole('combobox', { name: '状态' })
@@ -565,6 +571,11 @@ test('个人快捷筛选清空普通筛选并保持完整数量和概览', async
   const expectFixedPersonalCounts = async () => {
     await expect(ownedButton).toContainText('11 项由我负责')
     await expect(participatingButton).toContainText('11 项协作参与')
+    await expect(project31Button).toContainText('13 项')
+    await expect(project32Button).toContainText('10 项')
+    await expect(owner7Button).toContainText('11 项')
+    await expect(owner16Button).toContainText('7 项')
+    await expect(owner8Button).toContainText('5 项')
   }
   const expectOwnedRecords = async () => {
     await expect(ownedButton).toHaveClass(/\bactive\b/)
@@ -958,7 +969,7 @@ test('切换个人快捷筛选回到默认每页十条的第一页', async ({ pa
   await expect(table.getByText(ownedMatters[10].title, { exact: true })).toHaveCount(0)
 })
 
-test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({ page }) => {
+test('刷新保留个人快捷筛选、忽略未提交普通筛选并在结果缩短后校正分页', async ({ page }) => {
   const ownedMatters = Array.from({ length: 21 }, (_, index) => featureMatter({
     id: 500 + index,
     title: `刷新本人负责事项 ${index + 1}`,
@@ -974,7 +985,7 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
     participantIds: [16, 8]
   })
   const fixtureMatters = [...ownedMatters, unrelatedMatter]
-  await mockFeatureSession(page, {
+  const requestCounts = await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
     matters: fixtureMatters
@@ -1022,9 +1033,20 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await projectControl.press('ArrowDown')
   await projectControl.press('Enter')
 
+  const refreshBaselineUrlIndex = requestCounts.matterListUrls.length
   const unchangedRefreshCompleted = waitForCompletedMatterListResponses(page, 2)
   await page.getByRole('button', { name: '刷新' }).click()
   await unchangedRefreshCompleted
+
+  const unchangedRefreshUrls = requestCounts.matterListUrls
+    .slice(refreshBaselineUrlIndex)
+    .map(url => new URL(url))
+  expect(unchangedRefreshUrls.length).toBeGreaterThan(0)
+  for (const url of unchangedRefreshUrls) {
+    for (const parameter of ['keyword', 'status', 'priority', 'ownerId', 'projectId']) {
+      expect(url.searchParams.has(parameter)).toBe(false)
+    }
+  }
 
   await expect(keywordControl).toHaveValue('未提交的关键词')
   await expect(filterBar).toContainText('有风险')
@@ -1057,7 +1079,7 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
 })
 
-test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ page, context }) => {
+test('个人快捷筛选显示上下文空态且无作用域和个人作用域均不溢出', async ({ page, context }) => {
   await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
@@ -1073,6 +1095,7 @@ test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ pa
 
   await expect(pagination).toContainText('共 0 项')
   await expect(page.getByText('暂无大事儿', { exact: true })).toBeVisible()
+  const allButton = rail.getByRole('button', { name: '全部事项' })
   await expect(page.getByText(/点击右上角新增事项/)).toHaveCount(0)
   await expect(page.locator('.load-error')).toHaveCount(0)
   await expect(ownedButton).toBeVisible()
@@ -1080,6 +1103,12 @@ test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ pa
 
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 })
+
+    await allButton.click()
+    await expect(allButton).toHaveClass(/\bactive\b/)
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth > document.documentElement.clientWidth
+    )).toBe(false)
 
     await ownedButton.click()
     await expect(page.getByText('暂无我负责的事项', { exact: true })).toBeVisible()
