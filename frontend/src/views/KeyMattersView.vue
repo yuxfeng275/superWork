@@ -49,6 +49,7 @@ interface MatterFormState {
 }
 
 type ViewMode = 'register' | 'meeting'
+type PersonalScope = '' | 'owned' | 'participating'
 type MeetingGroupBy = 'owner' | 'project'
 
 interface MeetingGroup {
@@ -136,6 +137,7 @@ function canFeedbackMatter(matter: BuKeyMatter) {
 }
 const matters = ref<BuKeyMatter[]>([])
 const allMatters = ref<BuKeyMatter[]>([])
+const personalScope = ref<PersonalScope>('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const meetingMatters = ref<BuKeyMatter[]>([])
@@ -232,13 +234,36 @@ const summary = computed(() => {
   }
 })
 
+function isOwnedMatter(matter: BuKeyMatter) {
+  return currentUserId.value !== undefined && matter.ownerId === currentUserId.value
+}
+
+function isParticipatingMatter(matter: BuKeyMatter) {
+  return currentUserId.value !== undefined
+    && matter.ownerId !== currentUserId.value
+    && Boolean(matter.participants?.some(participant => participant.userId === currentUserId.value))
+}
+
+const ownedMatters = computed(() => allMatters.value.filter(isOwnedMatter))
+const participatingMatters = computed(() => allMatters.value.filter(isParticipatingMatter))
+const visibleMatters = computed(() => {
+  if (personalScope.value === 'owned') return matters.value.filter(isOwnedMatter)
+  if (personalScope.value === 'participating') return matters.value.filter(isParticipatingMatter)
+  return matters.value
+})
+const registerEmptyText = computed(() => {
+  if (personalScope.value === 'owned') return '暂无我负责的事项'
+  if (personalScope.value === 'participating') return '暂无我参与的事项'
+  return canManageAll.value ? '暂无大事儿，点击右上角新增事项' : '暂无大事儿'
+})
+
 const pagedMatters = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
-  return matters.value.slice(start, start + pageSize.value)
+  return visibleMatters.value.slice(start, start + pageSize.value)
 })
 
 function clampCurrentPage() {
-  const lastPage = Math.max(1, Math.ceil(matters.value.length / pageSize.value))
+  const lastPage = Math.max(1, Math.ceil(visibleMatters.value.length / pageSize.value))
   currentPage.value = Math.min(Math.max(currentPage.value, 1), lastPage)
 }
 
@@ -247,6 +272,7 @@ function resetCurrentPage() {
 }
 
 function searchMatters() {
+  personalScope.value = ''
   resetCurrentPage()
   return loadMatters()
 }
@@ -484,7 +510,12 @@ function isForbiddenError(error: unknown) {
 }
 
 let keyMatterPageActive = true
-let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+let matterLoadSequence = 0
+let milestoneLoadSequence = 0
+interface ForbiddenAccessRecovery {
+  notified: boolean
+}
+let forbiddenAccessRecovery: ForbiddenAccessRecovery | null = null
 const inactiveKeyMatterAccess: KeyMatterAccess = {
   canAccess: false,
   canManageAll: false,
@@ -497,23 +528,29 @@ function canRecoverKeyMatterPage() {
   return keyMatterPageActive && isKeyMatterRoute(route.path)
 }
 
-async function refreshAccessAfterForbidden(error: unknown) {
+async function refreshAccessAfterForbidden(
+  error: unknown,
+  isRelevant: () => boolean = () => true
+) {
   if (!isForbiddenError(error)) return null
   if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
-  if (forbiddenAccessRefresh) return forbiddenAccessRefresh
 
-  ElMessage.error(errorMessage(error, '无权操作大事儿'))
-  const recovery = (async () => {
-    const access = await authStore.loadKeyMatterAccess(true)
-    if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
-    if (!access.canAccess) await router.push('/')
-    return access
-  })()
-  forbiddenAccessRefresh = recovery
+  const recovery = forbiddenAccessRecovery ?? { notified: false }
+  forbiddenAccessRecovery = recovery
   try {
-    return await recovery
+    const access = await authStore.loadKeyMatterAccess(
+      true,
+      () => canRecoverKeyMatterPage() && isRelevant()
+    )
+    if (!canRecoverKeyMatterPage() || !isRelevant()) return access
+    if (!recovery.notified) {
+      recovery.notified = true
+      ElMessage.error(errorMessage(error, '无权操作大事儿'))
+      if (!access.canAccess) await router.push('/')
+    }
+    return access
   } finally {
-    if (forbiddenAccessRefresh === recovery) forbiddenAccessRefresh = null
+    if (forbiddenAccessRecovery === recovery) forbiddenAccessRecovery = null
   }
 }
 
@@ -586,32 +623,45 @@ async function loadBaseData() {
 }
 
 async function loadMatters() {
+  const sequence = ++matterLoadSequence
+  milestoneLoadSequence += 1
   loading.value = true
   loadError.value = ''
   try {
-    const query = {
-      keyword: filters.keyword.trim() || undefined,
-      status: filters.status || undefined,
-      priority: filters.priority || undefined,
-      ownerId: filters.ownerId,
-      projectId: filters.projectId
-    }
-    const hasFilters = Boolean(query.keyword || query.status || query.priority
+    const query: {
+      keyword?: string
+      status?: string
+      priority?: string
+      ownerId?: number
+      projectId?: number
+    } = personalScope.value === ''
+      ? {
+          keyword: filters.keyword.trim() || undefined,
+          status: filters.status || undefined,
+          priority: filters.priority || undefined,
+          ownerId: filters.ownerId,
+          projectId: filters.projectId
+        }
+      : {}
+    const hasFilters = personalScope.value === '' && Boolean(query.keyword || query.status || query.priority
       || query.ownerId !== undefined || query.projectId !== undefined)
     const [result, completeResult] = await Promise.all([
       api.getKeyMatters(query),
       hasFilters ? api.getKeyMatters() : Promise.resolve(undefined)
     ])
+    if (sequence !== matterLoadSequence) return
     matters.value = result
     allMatters.value = completeResult ?? result
     clampCurrentPage()
   } catch (error: unknown) {
-    const access = await refreshAccessAfterForbidden(error)
+    if (sequence !== matterLoadSequence) return
+    const access = await refreshAccessAfterForbidden(error, () => sequence === matterLoadSequence)
+    if (sequence !== matterLoadSequence) return
     if (!access || access.canAccess) {
       loadError.value = errorMessage(error, '大事儿台账加载失败')
     }
   } finally {
-    loading.value = false
+    if (sequence === matterLoadSequence) loading.value = false
   }
 }
 
@@ -631,17 +681,25 @@ async function loadMeeting() {
 }
 
 async function loadMilestones() {
+  const sequence = ++milestoneLoadSequence
   loading.value = true
   loadError.value = ''
   try {
-    milestoneMatters.value = await api.getKeyMatters()
+    const result = await api.getKeyMatters()
+    if (sequence !== milestoneLoadSequence) return
+    milestoneMatters.value = result
   } catch (error: unknown) {
-    const access = await refreshAccessAfterForbidden(error)
+    if (sequence !== milestoneLoadSequence) return
+    const access = await refreshAccessAfterForbidden(
+      error,
+      () => sequence === milestoneLoadSequence
+    )
+    if (sequence !== milestoneLoadSequence) return
     if (!access || access.canAccess) {
       loadError.value = errorMessage(error, '里程碑数据加载失败')
     }
   } finally {
-    loading.value = false
+    if (sequence === milestoneLoadSequence) loading.value = false
   }
 }
 
@@ -663,6 +721,7 @@ function resetFilters() {
     ownerId: undefined,
     projectId: undefined
   })
+  personalScope.value = ''
   resetCurrentPage()
   loadMatters()
 }
@@ -703,7 +762,9 @@ const listOwnerGroups = computed<QuickListGroup[]>(() => {
   return Array.from(grouped.values()).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
 })
 
-const listFilterActive = computed(() => filters.ownerId !== undefined || filters.projectId !== undefined)
+const listFilterActive = computed(() => personalScope.value !== ''
+  || filters.ownerId !== undefined
+  || filters.projectId !== undefined)
 
 function applyQuickListFilter(type: 'project' | 'owner', id?: number) {
   filters.keyword = ''
@@ -711,6 +772,20 @@ function applyQuickListFilter(type: 'project' | 'owner', id?: number) {
   filters.priority = ''
   filters.projectId = type === 'project' ? id : undefined
   filters.ownerId = type === 'owner' ? id : undefined
+  personalScope.value = ''
+  resetCurrentPage()
+  loadMatters()
+}
+
+function applyPersonalScope(scope: Exclude<PersonalScope, ''>) {
+  Object.assign(filters, {
+    keyword: '',
+    status: '',
+    priority: '',
+    ownerId: undefined,
+    projectId: undefined
+  })
+  personalScope.value = scope
   resetCurrentPage()
   loadMatters()
 }
@@ -1658,13 +1733,33 @@ onBeforeUnmount(() => {
             <span class="list-filter-icon all"><el-icon><Document /></el-icon></span>
             <span><strong>全部事项</strong><small>{{ allMatters.length }} 项持续跟踪</small></span>
           </button>
+          <button
+            type="button"
+            class="list-filter-all list-filter-personal"
+            :class="{ active: personalScope === 'owned' }"
+            :aria-pressed="personalScope === 'owned'"
+            @click="applyPersonalScope('owned')"
+          >
+            <span class="list-filter-icon personal owned"><el-icon><UserFilled /></el-icon></span>
+            <span><strong>我的事项</strong><small>{{ ownedMatters.length }} 项由我负责</small></span>
+          </button>
+          <button
+            type="button"
+            class="list-filter-all list-filter-personal"
+            :class="{ active: personalScope === 'participating' }"
+            :aria-pressed="personalScope === 'participating'"
+            @click="applyPersonalScope('participating')"
+          >
+            <span class="list-filter-icon personal participating"><el-icon><User /></el-icon></span>
+            <span><strong>我参与的事项</strong><small>{{ participatingMatters.length }} 项协作参与</small></span>
+          </button>
           <section class="list-filter-section" aria-label="按项目筛选">
             <header><span>项目</span><small>{{ listProjectGroups.length }}</small></header>
             <button
               v-for="group in listProjectGroups"
               :key="group.key"
               type="button"
-              :class="{ active: filters.projectId === group.id && filters.ownerId === undefined }"
+              :class="{ active: personalScope === '' && filters.projectId === group.id && filters.ownerId === undefined }"
               @click="applyQuickListFilter('project', group.id)"
             >
               <span class="list-filter-icon project"><el-icon><Folder /></el-icon></span>
@@ -1677,7 +1772,7 @@ onBeforeUnmount(() => {
               v-for="group in listOwnerGroups"
               :key="group.key"
               type="button"
-              :class="{ active: filters.ownerId === group.id && filters.projectId === undefined }"
+              :class="{ active: personalScope === '' && filters.ownerId === group.id && filters.projectId === undefined }"
               @click="applyQuickListFilter('owner', group.id)"
             >
               <span class="list-filter-icon owner" :class="{ female: isFemaleOwner(group.label) }"><el-icon><User /></el-icon></span>
@@ -1696,16 +1791,16 @@ onBeforeUnmount(() => {
           :prefix-icon="Search"
           @keyup.enter="searchMatters"
         />
-        <el-select v-model="filters.priority" placeholder="优先级" clearable>
+        <el-select v-model="filters.priority" aria-label="优先级" placeholder="优先级" clearable>
           <el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-select v-model="filters.status" placeholder="状态" clearable>
+        <el-select v-model="filters.status" aria-label="状态" placeholder="状态" clearable>
           <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-select v-model="filters.ownerId" placeholder="负责人" clearable filterable>
+        <el-select v-model="filters.ownerId" aria-label="负责人" placeholder="负责人" clearable filterable>
           <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
         </el-select>
-        <el-select v-model="filters.projectId" placeholder="关联项目" clearable filterable>
+        <el-select v-model="filters.projectId" aria-label="关联项目" placeholder="关联项目" clearable filterable>
           <el-option v-for="project in rootProjectOptions" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
         <el-button type="primary" :icon="Search" @click="searchMatters">查询</el-button>
@@ -1718,7 +1813,7 @@ onBeforeUnmount(() => {
           :data="pagedMatters"
           row-key="id"
           class="matter-table"
-          empty-text="暂无大事儿，点击右上角新增事项"
+          :empty-text="registerEmptyText"
           scrollbar-always-on
           @row-click="openDetail"
         >
@@ -1794,12 +1889,12 @@ onBeforeUnmount(() => {
           </el-table-column>
         </el-table>
         <footer class="table-pagination" aria-label="事项列表分页">
-          <span>共 {{ matters.length }} 项</span>
+          <span>共 {{ visibleMatters.length }} 项</span>
           <el-pagination
             v-model:current-page="currentPage"
             v-model:page-size="pageSize"
             :page-sizes="[10, 20, 50]"
-            :total="matters.length"
+            :total="visibleMatters.length"
             layout="sizes, prev, pager, next"
             background
             @size-change="handlePageSizeChange"
@@ -2842,6 +2937,16 @@ onBeforeUnmount(() => {
 .list-filter-icon.owner {
   color: #7c3aed;
   background: #f5f3ff;
+}
+
+.list-filter-icon.personal {
+  color: #0f766e;
+  background: #f0fdfa;
+}
+
+.list-filter-icon.personal.participating {
+  color: #0369a1;
+  background: #f0f9ff;
 }
 
 .list-filter-icon.owner.female {
