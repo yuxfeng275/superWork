@@ -510,6 +510,7 @@ function isForbiddenError(error: unknown) {
 }
 
 let keyMatterPageActive = true
+let matterLoadSequence = 0
 let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
 const inactiveKeyMatterAccess: KeyMatterAccess = {
   canAccess: false,
@@ -612,6 +613,7 @@ async function loadBaseData() {
 }
 
 async function loadMatters() {
+  const sequence = ++matterLoadSequence
   loading.value = true
   loadError.value = ''
   try {
@@ -636,16 +638,19 @@ async function loadMatters() {
       api.getKeyMatters(query),
       hasFilters ? api.getKeyMatters() : Promise.resolve(undefined)
     ])
+    if (sequence !== matterLoadSequence) return
     matters.value = result
     allMatters.value = completeResult ?? result
     clampCurrentPage()
   } catch (error: unknown) {
+    if (sequence !== matterLoadSequence) return
     const access = await refreshAccessAfterForbidden(error)
+    if (sequence !== matterLoadSequence) return
     if (!access || access.canAccess) {
       loadError.value = errorMessage(error, '大事儿台账加载失败')
     }
   } finally {
-    loading.value = false
+    if (sequence === matterLoadSequence) loading.value = false
   }
 }
 
@@ -1463,11 +1468,6 @@ function handlePresentationFullscreenChange() {
   if (presentationMode.value) nextTick(() => presentationStageRef.value?.focus())
 }
 
-function openFilterSelect(event: MouseEvent) {
-  const proxy = event.currentTarget as HTMLElement
-  proxy.parentElement?.querySelector<HTMLElement>('.el-select__wrapper')?.click()
-}
-
 watch(selectedMilestoneMonth, () => {
   void refreshMilestoneViewport(true)
 })
@@ -1770,34 +1770,12 @@ onBeforeUnmount(() => {
           :prefix-icon="Search"
           @keyup.enter="searchMatters"
         />
-        <div class="filter-select-proxy-wrap">
-          <input
-            class="filter-select-proxy"
-            type="text"
-            placeholder="优先级"
-            :value="filters.priority"
-            readonly
-            tabindex="-1"
-            @click="openFilterSelect"
-          />
-          <el-select v-model="filters.priority" placeholder="优先级" clearable>
-            <el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" />
-          </el-select>
-        </div>
-        <div class="filter-select-proxy-wrap">
-          <input
-            class="filter-select-proxy"
-            type="text"
-            placeholder="状态"
-            :value="filters.status"
-            readonly
-            tabindex="-1"
-            @click="openFilterSelect"
-          />
-          <el-select v-model="filters.status" placeholder="状态" clearable>
-            <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
-          </el-select>
-        </div>
+        <el-select v-model="filters.priority" placeholder="优先级" clearable>
+          <el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="filters.status" placeholder="状态" clearable>
+          <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
+        </el-select>
         <el-select v-model="filters.ownerId" placeholder="负责人" clearable filterable>
           <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
         </el-select>
@@ -3080,25 +3058,6 @@ onBeforeUnmount(() => {
   gap: 10px;
   align-items: center;
   margin-bottom: 12px;
-}
-
-.filter-select-proxy-wrap {
-  position: relative;
-  min-width: 0;
-}
-
-.filter-select-proxy-wrap :deep(.el-select) {
-  width: 100%;
-}
-
-.filter-select-proxy {
-  position: absolute;
-  inset: 0 30px 0 0;
-  z-index: 1;
-  width: auto;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
 }
 
 .filter-bar :deep(.el-button) {
