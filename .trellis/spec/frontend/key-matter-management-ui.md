@@ -123,7 +123,63 @@ owner when an older response omits that owner from `participants`.
   `李芳晨`) use the shared warm owner treatment in register labels/filters and
   meeting avatars. Project grouping and other owners retain existing palettes.
 
-## 5. Weekly, Meeting, and Presentation Contract
+## 5. Personal Quick Filters
+
+Register mode uses this exact local scope contract:
+
+```ts
+type PersonalScope = '' | 'owned' | 'participating'
+
+owned = currentUserId !== undefined && matter.ownerId === currentUserId
+participating = currentUserId !== undefined
+  && matter.ownerId !== currentUserId
+  && matter.participants?.some(item => item.userId === currentUserId) === true
+```
+
+`participating` checks the raw response `participants` only. Missing participants
+are safe and do not imply participation; `owned` still matches legacy rows with
+missing participants. The owner inequality makes `owned` and `participating`
+mutually exclusive.
+
+- `allMatters` is the complete unfiltered register and supplies both personal
+  button counts, the summary, and project/owner quick-filter group counts.
+- The active list response supplies `matters`; personal scope filters that
+  response into `visibleMatters`, which alone supplies table rows, empty state,
+  pagination total, and pages. Summary and group counts remain register-wide.
+- The buttons use exact visible copy `我的事项` / `${N} 项由我负责` and
+  `我参与的事项` / `${N} 项协作参与`. The scoped empty labels are exact
+  `暂无我负责的事项` and `暂无我参与的事项`.
+- With no personal scope, an empty manager view is exact
+  `暂无大事儿，点击右上角新增事项`; an empty non-manager view is exact
+  `暂无大事儿` and never includes the create hint.
+- Priority, status, owner, and project are real comboboxes with accessible names
+  `优先级`, `状态`, `负责人`, and `关联项目`; placeholders alone are not the
+  accessibility contract.
+
+Selecting either personal button clears keyword, status, priority, owner, and
+project; sets that scope; resets to page 1; and sends an unfiltered list request
+with none of `keyword`, `status`, `priority`, `ownerId`, or `projectId`. While a
+personal scope is active, Refresh retains the scope and current valid page and
+ignores ordinary filter model values entered but not submitted; those values
+remain displayed but are not sent. A shortened refresh clamps to the last page.
+Selecting All, a project, or an owner, or executing Query or Reset, clears the
+personal scope. Switching personal scope resets to page 1; repeated selection
+does not create a mixed or toggled scope.
+
+List loads are latest-request-wins for both success and error. A stale list
+success cannot replace `matters`/`allMatters`; a stale error cannot set loading
+or error UI. A list 403 is relevant only while its request remains latest:
+relevance is checked before recovery and again after the shared single-flight
+capability refresh. If superseded during recovery, it must not toast, redirect,
+or surface a load error; concurrent relevant 403s still coalesce through the
+existing recovery path.
+
+Personal filtering expands no permission. `canAccess` still controls route and
+menu visibility, while `canFeedbackMatter` and `canManageAll` retain the exact
+action rules in Section 2. At 320px and 390px widths, scoped and unscoped
+register states have no page-level horizontal overflow.
+
+## 6. Weekly, Meeting, and Presentation Contract
 
 The standalone weekly drawer and meeting presentation editor share the same
 semantic hierarchy and payload: week/status/progress, this week's outcomes,
@@ -160,7 +216,7 @@ meeting read-only body, group navigation marker, thumbnail state, and
 presentation body/actions. These states use a non-pending `waiting` treatment,
 contain no edit icon, and still permit detail viewing.
 
-## 6. Milestone, Locale, and Completed Rules
+## 7. Milestone, Locale, and Completed Rules
 
 Milestone mode uses each planned completion date as a delivery node, groups by
 date inside a selected month, and opens the existing detail drawer. It starts
@@ -186,7 +242,7 @@ Completed-matter behavior is preserved across capability classes:
   closes and refreshes, or presentation reloads and re-anchors by matter ID;
   the exact message remains visible and stale pending navigation disappears.
 
-## 7. Forbidden Recovery and Route Safety
+## 8. Forbidden Recovery and Route Safety
 
 All HTTP 403 responses use the typed `ApiRequestError.status` check. Recovery
 has two paths:
@@ -223,7 +279,7 @@ Recovery must be route-safe:
 HTTP 401 remains the API client's session-expiry path: clear local credentials
 and replace the location with `/login`.
 
-## 8. Loading and Responsive States
+## 9. Loading and Responsive States
 
 - Loading: register/meeting data uses Element Plus loading state. Standalone
   meeting keeps presentation/list DOM unmounted behind a full-viewport loader
@@ -247,10 +303,28 @@ and replace the location with `/login`.
   form sizing is preserved, and page scrolling reaches the form footer. At
   390x844 there is no page-level horizontal overflow.
 
-## 9. Executable E2E Test Points
+## 10. Executable E2E Test Points
 
 `frontend/tests/key-matter-participant-access.spec.ts` must assert:
 
+- `个人快捷筛选区分本人负责和仅参与事项` proves exact predicates, mutual
+  exclusion, legacy missing-participant safety, labels, counts, and All clearing;
+- `个人快捷筛选清空普通筛选并保持完整数量和概览` proves personal selection
+  clears every ordinary filter, ordinary actions clear scope, personal counts
+  stay fixed, and summary/group sources remain the complete register;
+- `旧普通筛选响应不会覆盖新的个人筛选` proves personal selection sends an
+  unfiltered request and stale ordinary successes cannot replace its rows;
+- `被新个人筛选取代的旧403不提示也不跳转` proves a superseded 403 recovery
+  produces no redirect, toast, load alert, or personal-scope change;
+- `旧个人筛选响应不会覆盖新的普通查询` proves Query clears scope and its
+  latest filtered/full responses cannot be replaced by a stale personal success;
+- `切换个人快捷筛选回到默认每页十条的第一页` proves a scope switch returns
+  to page 1 and shows 10 rows when the unchanged page size is the default 10;
+- `刷新保留个人快捷筛选并在结果缩短后校正分页` proves Refresh ignores
+  unsent ordinary model values, retains scope/current valid page, updates counts,
+  and clamps a shortened result to its last page;
+- `个人快捷筛选显示上下文空态且移动端不溢出` proves exact scoped/default
+  manager/non-manager empty copy and no page-level overflow at 320px and 390px;
 - manager, owner, and participant capabilities show the menu and permit both
   register and standalone meeting routes; unrelated access hides the menu and
   redirects both direct routes to `/`;
@@ -293,7 +367,7 @@ that user has no key-matter menu and direct `/key-matters` navigation returns to
 for key-matter routes and asserts the compact 72px sidebar through 1024px,
 260px at 1280px, local table overflow, and no main-content overflow.
 
-## 10. Wrong vs Correct
+## 11. Wrong vs Correct
 
 Wrong: derive key-matter access from username/role, trust unvalidated JSON,
 show `本周待更新` to a user who cannot act, guard only register buttons, or let a
