@@ -418,49 +418,58 @@ test('个人快捷筛选区分本人负责和仅参与事项', async ({ page }) 
   await expect(ownedButton).toContainText('1 项由我负责')
   await expect(participatingButton).toBeVisible()
   await expect(participatingButton).toContainText('1 项协作参与')
-  await expect(allButton).toHaveClass(/active/)
+  await expect(allButton).toHaveClass(/\bactive\b/)
 
   await ownedButton.click()
-  await expect(ownedButton).toHaveClass(/active/)
-  await expect(participatingButton).not.toHaveClass(/active/)
-  await expect(allButton).not.toHaveClass(/active/)
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(allButton).not.toHaveClass(/\bactive\b/)
+  await expect(table.getByText(ownedMatter.title)).toBeVisible()
+  await expect(table.getByText(participatingMatter.title)).toHaveCount(0)
+  await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
+
+  await ownedButton.click()
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
 
   await participatingButton.click()
-  await expect(participatingButton).toHaveClass(/active/)
-  await expect(ownedButton).not.toHaveClass(/active/)
-  await expect(allButton).not.toHaveClass(/active/)
+  await expect(participatingButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(allButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(ownedMatter.title)).toHaveCount(0)
   await expect(table.getByText(unrelatedMatter.title)).toHaveCount(0)
 
   await allButton.click()
-  await expect(allButton).toHaveClass(/active/)
-  await expect(ownedButton).not.toHaveClass(/active/)
-  await expect(participatingButton).not.toHaveClass(/active/)
+  await expect(allButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(participatingButton).not.toHaveClass(/\bactive\b/)
   await expect(table.getByText(ownedMatter.title)).toBeVisible()
   await expect(table.getByText(participatingMatter.title)).toBeVisible()
   await expect(table.getByText(unrelatedMatter.title)).toBeVisible()
 })
 
-test('个人快捷筛选保持概览并与其他筛选互斥', async ({ page }) => {
+test('个人快捷筛选清空普通筛选并保持完整数量和概览', async ({ page }) => {
   const ownedMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
     id: 100 + index,
     title: `分页本人负责事项 ${index + 1}`,
     ownerId: 7,
-    projectId: 31,
+    projectId: index % 2 === 0 ? 31 : 32,
     participantIds: [7, 8]
   }))
   ownedMatters[0].status = '有风险'
-  const participatingMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
-    id: 200 + index,
-    title: `分页本人参与事项 ${index + 1}`,
-    ownerId: 16,
-    projectId: 31,
-    participantIds: [16, 7]
-  }))
+  const participatingMatters = Array.from({ length: 11 }, (_, index) => {
+    const ownerId = index % 2 === 0 ? 16 : 8
+    return featureMatter({
+      id: 200 + index,
+      title: `分页本人参与事项 ${index + 1}`,
+      ownerId,
+      projectId: index % 3 === 0 ? 32 : 31,
+      participantIds: [ownerId, 7]
+    })
+  })
   const unrelatedMatter = featureMatter({
     id: 300,
     title: '分页无关事项',
@@ -476,66 +485,169 @@ test('个人快捷筛选保持概览并与其他筛选互斥', async ({ page }) 
 
   await page.goto('/key-matters')
   const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const filterBar = page.getByLabel('事项筛选')
   const table = page.getByLabel('大事儿列表')
   const pagination = page.getByLabel('事项列表分页')
   const overview = page.getByLabel('大事儿操作栏').getByLabel('事项概览')
   const allButton = rail.getByRole('button', { name: '全部事项' })
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
+  const project31Button = rail.locator('[aria-label="按项目筛选"]')
+    .getByRole('button', { name: /客户体验平台/ })
+  const owner16Button = rail.locator('[aria-label="按负责人筛选"]')
+    .getByRole('button', { name: /负责人乙/ })
+  const keywordControl = filterBar.getByPlaceholder('搜索标题或说明')
+  const statusControl = filterBar.getByPlaceholder('状态')
+  const priorityControl = filterBar.getByPlaceholder('优先级')
+
+  const expectFixedPersonalCounts = async () => {
+    await expect(ownedButton).toContainText('11 项由我负责')
+    await expect(participatingButton).toContainText('11 项协作参与')
+  }
+  const expectOwnedRecords = async () => {
+    await expect(ownedButton).toHaveClass(/\bactive\b/)
+    await expect(pagination).toContainText('共 11 项')
+    for (const matter of ownedMatters) {
+      await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+    }
+    await expect(table.getByText(participatingMatters[0].title, { exact: true })).toHaveCount(0)
+    await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
+  }
+  const expectParticipatingRecords = async () => {
+    await expect(participatingButton).toHaveClass(/\bactive\b/)
+    await expect(pagination).toContainText('共 11 项')
+    for (const matter of participatingMatters) {
+      await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+    }
+    await expect(table.getByText(ownedMatters[0].title, { exact: true })).toHaveCount(0)
+    await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
+  }
+
+  await expectFixedPersonalCounts()
+  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('23')
+  await expect(overview.locator('.summary-cell.risk .summary-value strong')).toHaveText('1')
+  await pagination.locator('.el-select').click()
+  await page.getByRole('option', { name: '20条/页' }).click()
+
+  await ownedButton.click()
+  await expectOwnedRecords()
+  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('23')
+  await expect(overview.locator('.summary-cell.risk .summary-value strong')).toHaveText('1')
+
+  await project31Button.click()
+  await expect(project31Button).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(pagination).toContainText('共 13 项')
+  await expectFixedPersonalCounts()
+  await ownedButton.click()
+  await expect(project31Button).not.toHaveClass(/\bactive\b/)
+  await expectOwnedRecords()
+
+  await owner16Button.click()
+  await expect(owner16Button).toHaveClass(/\bactive\b/)
+  await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(pagination).toContainText('共 7 项')
+  await expectFixedPersonalCounts()
+  await participatingButton.click()
+  await expect(owner16Button).not.toHaveClass(/\bactive\b/)
+  await expectParticipatingRecords()
+
+  await keywordControl.fill('分页本人负责事项 1')
+  await filterBar.getByRole('button', { name: '查询' }).click()
+  await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(keywordControl).toHaveValue('分页本人负责事项 1')
+  await expect(pagination).toContainText('共 3 项')
+  await expectFixedPersonalCounts()
+  await ownedButton.click()
+  await expect(keywordControl).toHaveValue('')
+  await expectOwnedRecords()
+
+  await statusControl.click()
+  await page.getByRole('option', { name: '有风险', exact: true }).click()
+  await filterBar.getByRole('button', { name: '查询' }).click()
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(statusControl).toHaveValue('有风险')
+  await expect(pagination).toContainText('共 1 项')
+  await expectFixedPersonalCounts()
+  await ownedButton.click()
+  await expect(statusControl).toHaveValue('')
+  await expectOwnedRecords()
+
+  await priorityControl.click()
+  await page.getByRole('option', { name: 'P0', exact: true }).click()
+  await filterBar.getByRole('button', { name: '查询' }).click()
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(priorityControl).toHaveValue('P0')
+  await expect(pagination).toContainText('共 10 项')
+  await expectFixedPersonalCounts()
+  await participatingButton.click()
+  await expect(priorityControl).toHaveValue('')
+  await expectParticipatingRecords()
+
+  await allButton.click()
+  await expect(allButton).toHaveClass(/\bactive\b/)
+  await expect(participatingButton).not.toHaveClass(/\bactive\b/)
+  await expect(pagination).toContainText('共 23 项')
+  await expectFixedPersonalCounts()
+
+  await ownedButton.click()
+  await filterBar.getByRole('button', { name: '重置' }).click()
+  await expect(ownedButton).not.toHaveClass(/\bactive\b/)
+  await expect(allButton).toHaveClass(/\bactive\b/)
+  await expect(pagination).toContainText('共 23 项')
+  await expectFixedPersonalCounts()
+})
+
+test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({ page }) => {
+  const ownedMatters = Array.from({ length: 11 }, (_, index) => featureMatter({
+    id: 400 + index,
+    title: `刷新本人负责事项 ${index + 1}`,
+    ownerId: 7,
+    projectId: index % 2 === 0 ? 31 : 32,
+    participantIds: [7, 8]
+  }))
+  const unrelatedMatter = featureMatter({
+    id: 500,
+    title: '刷新无关事项',
+    ownerId: 16,
+    projectId: 31,
+    participantIds: [16, 8]
+  })
+  const fixtureMatters = [...ownedMatters, unrelatedMatter]
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[0],
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    matters: fixtureMatters
+  })
+
+  await page.goto('/key-matters')
+  const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const ownedButton = rail.getByRole('button', { name: /我的事项/ })
+  const table = page.getByLabel('大事儿列表')
+  const pagination = page.getByLabel('事项列表分页')
 
   await expect(ownedButton).toContainText('11 项由我负责')
-  await expect(participatingButton).toContainText('11 项协作参与')
-  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('23')
-  await expect(overview.locator('.summary-cell.risk .summary-value strong')).toHaveText('1')
-
   await ownedButton.click()
-  await expect(pagination).toContainText('共 11 项')
-  await expect(table.locator('.el-table__body-wrapper tbody tr')).toHaveCount(10)
-  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('23')
-  await expect(overview.locator('.summary-cell.risk .summary-value strong')).toHaveText('1')
   await pagination.locator('.btn-next').click()
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
   await expect(pagination.locator('.number.is-active')).toHaveText('2')
-  await expect(table.locator('.el-table__body-wrapper tbody tr')).toHaveCount(1)
+  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toBeVisible()
 
-  await participatingButton.click()
-  await expect(pagination.locator('.number.is-active')).toHaveText('1')
-  await expect(pagination).toContainText('共 11 项')
-  await expect(table.locator('.el-table__body-wrapper tbody tr')).toHaveCount(10)
-  await expect(table.getByText(participatingMatters[0].title)).toBeVisible()
-  await expect(overview.locator('.summary-cell.all .summary-value strong')).toHaveText('23')
-  await expect(overview.locator('.summary-cell.risk .summary-value strong')).toHaveText('1')
+  fixtureMatters.splice(0, fixtureMatters.length, ...ownedMatters.slice(0, 3), unrelatedMatter)
+  const requestsBeforeRefresh = requestCounts.matterListGet
+  await page.getByRole('button', { name: '刷新' }).click()
 
-  await rail.locator('[aria-label="按项目筛选"]')
-    .getByRole('button', { name: /客户体验平台/ }).click()
-  await expect(participatingButton).not.toHaveClass(/active/)
-  await expect(pagination).toContainText('共 22 项')
-  await expect(table.getByText(ownedMatters[0].title)).toBeVisible()
-
-  await ownedButton.click()
-  await rail.locator('[aria-label="按负责人筛选"]')
-    .getByRole('button', { name: /负责人乙/ }).click()
-  await expect(ownedButton).not.toHaveClass(/active/)
-  await expect(pagination).toContainText('共 12 项')
-  await expect(table.getByText(participatingMatters[0].title)).toBeVisible()
-
-  await participatingButton.click()
-  await allButton.click()
-  await expect(participatingButton).not.toHaveClass(/active/)
-  await expect(allButton).toHaveClass(/active/)
-  await expect(pagination).toContainText('共 23 项')
-
-  await ownedButton.click()
-  await page.getByPlaceholder('搜索标题或说明').fill('分页本人参与事项 1')
-  await page.getByRole('button', { name: '查询' }).click()
-  await expect(ownedButton).not.toHaveClass(/active/)
+  await expect.poll(() => requestCounts.matterListGet).toBe(requestsBeforeRefresh + 2)
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  await expect(ownedButton).toContainText('3 项由我负责')
   await expect(pagination).toContainText('共 3 项')
-  await expect(table.getByText(participatingMatters[0].title)).toBeVisible()
-
-  await participatingButton.click()
-  await page.getByRole('button', { name: '重置' }).click()
-  await expect(participatingButton).not.toHaveClass(/active/)
-  await expect(allButton).toHaveClass(/active/)
-  await expect(pagination).toContainText('共 23 项')
+  await expect(pagination.locator('.number.is-active')).toHaveText('1')
+  await expect(pagination.locator('.btn-next')).toBeDisabled()
+  for (const matter of ownedMatters.slice(0, 3)) {
+    await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+  }
+  await expect(table.getByText(ownedMatters[10].title, { exact: true })).toHaveCount(0)
+  await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
 })
 
 test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ page }) => {
@@ -555,8 +667,14 @@ test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ pa
   await page.setViewportSize({ width: 320, height: 844 })
   await page.goto('/key-matters')
   const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const table = page.getByLabel('大事儿列表')
+  const pagination = page.getByLabel('事项列表分页')
   const ownedButton = rail.getByRole('button', { name: /我的事项/ })
   const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
+
+  await expect(pagination).toContainText('共 1 项')
+  await expect(table.getByText(unrelatedMatter.title, { exact: true })).toBeVisible()
+  await expect(page.locator('.load-error')).toHaveCount(0)
   await expect(ownedButton).toBeVisible()
   await expect(participatingButton).toBeVisible()
 
