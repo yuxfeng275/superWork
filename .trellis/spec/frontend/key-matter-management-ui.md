@@ -166,13 +166,10 @@ Selecting All, a project, or an owner, or executing Query or Reset, clears the
 personal scope. Switching personal scope resets to page 1; repeated selection
 does not create a mixed or toggled scope.
 
-List loads are latest-request-wins for both success and error. A stale list
-success cannot replace `matters`/`allMatters`; a stale error cannot set loading
-or error UI. A list 403 is relevant only while its request remains latest:
-relevance is checked before recovery and again after the shared single-flight
-capability refresh. If superseded during recovery, it must not toast, redirect,
-or surface a load error; concurrent relevant 403s still coalesce through the
-existing recovery path.
+Personal-scope list loads use latest-request-wins sequencing for both success
+and error. A stale list success cannot replace `matters`/`allMatters`; a stale
+error cannot set loading or error UI. Generic list-403 relevance, single-flight
+capability recovery, and route-safety behavior follow Section 8.
 
 Personal filtering expands no permission. `canAccess` still controls route and
 menu visibility, while `canFeedbackMatter` and `canManageAll` retain the exact
@@ -309,9 +306,10 @@ and replace the location with `/login`.
 
 - `个人快捷筛选区分本人负责和仅参与事项` proves exact predicates, mutual
   exclusion, legacy missing-participant safety, labels, counts, and All clearing;
-- `个人快捷筛选清空普通筛选并保持完整数量和概览` proves personal selection
-  clears every ordinary filter, ordinary actions clear scope, personal counts
-  stay fixed, and summary/group sources remain the complete register;
+- `个人快捷筛选清空普通筛选并保持完整数量、概览和分组计数` proves personal
+  selection clears every ordinary filter, ordinary actions clear scope, personal
+  counts stay fixed, and summary/project-group/owner-group counts remain sourced
+  from the complete register;
 - `旧普通筛选响应不会覆盖新的个人筛选` proves personal selection sends an
   unfiltered request and stale ordinary successes cannot replace its rows;
 - `被新个人筛选取代的旧403不提示也不跳转` proves a superseded 403 recovery
@@ -320,11 +318,13 @@ and replace the location with `/login`.
   latest filtered/full responses cannot be replaced by a stale personal success;
 - `切换个人快捷筛选回到默认每页十条的第一页` proves a scope switch returns
   to page 1 and shows 10 rows when the unchanged page size is the default 10;
-- `刷新保留个人快捷筛选并在结果缩短后校正分页` proves Refresh ignores
-  unsent ordinary model values, retains scope/current valid page, updates counts,
-  and clamps a shortened result to its last page;
-- `个人快捷筛选显示上下文空态且移动端不溢出` proves exact scoped/default
-  manager/non-manager empty copy and no page-level overflow at 320px and 390px;
+- `刷新保留个人快捷筛选、忽略未提交普通筛选并在结果缩短后校正分页` proves
+  Refresh ignores unsent ordinary model values in every newly recorded list URL,
+  retains scope/current valid page, updates counts, and clamps a shortened result
+  to its last page;
+- `个人快捷筛选显示上下文空态且无作用域和个人作用域均不溢出` proves exact
+  scoped/default manager/non-manager empty copy and no page-level overflow before
+  personal scope and in both personal scopes at 320px and 390px;
 - manager, owner, and participant capabilities show the menu and permit both
   register and standalone meeting routes; unrelated access hides the menu and
   redirects both direct routes to `/`;
