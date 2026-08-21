@@ -95,6 +95,7 @@ interface FeatureSessionOptions {
   user: TestUser
   access: KeyMatterAccessFixture | (() => KeyMatterAccessFixture)
   matters: FeatureMatterFixture[]
+  onAccessGet?: (requestCount: number) => { access: KeyMatterAccessFixture; waitUntil?: Promise<void> } | undefined
   onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number; waitUntil?: Promise<void> } | undefined
   onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
   onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
@@ -135,7 +136,9 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
     const path = new URL(request.url()).pathname
     if (path === '/api/key-matters/access') {
       requestCounts.access += 1
-      const access = typeof options.access === 'function' ? options.access() : options.access
+      const response = options.onAccessGet?.(requestCounts.access)
+      if (response?.waitUntil) await response.waitUntil
+      const access = response?.access ?? (typeof options.access === 'function' ? options.access() : options.access)
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -549,8 +552,15 @@ test('个人快捷筛选清空普通筛选并保持完整数量和概览', async
   const owner16Button = rail.locator('[aria-label="按负责人筛选"]')
     .getByRole('button', { name: /负责人乙/ })
   const keywordControl = filterBar.getByPlaceholder('搜索标题或说明')
-  const prioritySelect = filterBar.locator('.el-select').nth(0)
-  const statusSelect = filterBar.locator('.el-select').nth(1)
+  const prioritySelect = filterBar.getByRole('combobox', { name: '优先级' })
+  const statusSelect = filterBar.getByRole('combobox', { name: '状态' })
+  const ownerControl = filterBar.getByRole('combobox', { name: '负责人' })
+  const projectControl = filterBar.getByRole('combobox', { name: '关联项目' })
+
+  await expect(prioritySelect).toBeVisible()
+  await expect(statusSelect).toBeVisible()
+  await expect(ownerControl).toBeVisible()
+  await expect(projectControl).toBeVisible()
 
   const expectFixedPersonalCounts = async () => {
     await expect(ownedButton).toContainText('11 项由我负责')
@@ -614,30 +624,30 @@ test('个人快捷筛选清空普通筛选并保持完整数量和概览', async
   await expect(keywordControl).toHaveValue('')
   await expectOwnedRecords()
 
-  await statusSelect.click()
+  await statusSelect.press('ArrowDown')
   await page.getByRole('option', { name: '有风险', exact: true }).click()
-  await expect(statusSelect).toContainText('有风险')
+  await expect(filterBar).toContainText('有风险')
   await filterBar.getByRole('button', { name: '查询' }).click()
   await expect(ownedButton).not.toHaveClass(/\bactive\b/)
-  await expect(statusSelect).toContainText('有风险')
+  await expect(filterBar).toContainText('有风险')
   await expect(pagination).toContainText('共 1 项')
   await expectFixedPersonalCounts()
   await ownedButton.click()
-  await expect(statusSelect).not.toContainText('有风险')
-  await expect(statusSelect).toContainText('状态')
+  await expect(filterBar).not.toContainText('有风险')
+  await expect(filterBar).toContainText('状态')
   await expectOwnedRecords()
 
-  await prioritySelect.click()
+  await prioritySelect.press('ArrowDown')
   await page.getByRole('option', { name: 'P0', exact: true }).click()
-  await expect(prioritySelect).toContainText('P0')
+  await expect(filterBar).toContainText('P0')
   await filterBar.getByRole('button', { name: '查询' }).click()
   await expect(ownedButton).not.toHaveClass(/\bactive\b/)
-  await expect(prioritySelect).toContainText('P0')
+  await expect(filterBar).toContainText('P0')
   await expect(pagination).toContainText('共 10 项')
   await expectFixedPersonalCounts()
   await participatingButton.click()
-  await expect(prioritySelect).not.toContainText('P0')
-  await expect(prioritySelect).toContainText('优先级')
+  await expect(filterBar).not.toContainText('P0')
+  await expect(filterBar).toContainText('优先级')
   await expectParticipatingRecords()
 
   await allButton.click()
@@ -736,6 +746,91 @@ test('旧普通筛选响应不会覆盖新的个人筛选', async ({ page }) => 
     await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
   }
   await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
+})
+
+test('被新个人筛选取代的旧403不提示也不跳转', async ({ page }) => {
+  const ownedMatters = [
+    featureMatter({ id: 325, title: '权限竞态本人事项一', ownerId: 7, projectId: 31 }),
+    featureMatter({ id: 326, title: '权限竞态本人事项二', ownerId: 7, projectId: 32 })
+  ]
+  const unrelatedMatter = featureMatter({
+    id: 327,
+    title: '权限竞态普通查询事项',
+    ownerId: 16,
+    projectId: 31
+  })
+  let releaseAccessRefresh: () => void = () => undefined
+  const accessRefreshReleased = new Promise<void>(resolve => {
+    releaseAccessRefresh = resolve
+  })
+  await page.addInitScript(() => {
+    let staleDeniedToastCount = 0
+    const seen = new WeakSet<Element>()
+    const countStaleDeniedToasts = () => {
+      document.querySelectorAll('.el-message__content').forEach(element => {
+        if (element.textContent?.trim() === '普通筛选权限已过期' && !seen.has(element)) {
+          seen.add(element)
+          staleDeniedToastCount += 1
+        }
+      })
+    }
+    new MutationObserver(countStaleDeniedToasts).observe(document, { childList: true, subtree: true })
+    Object.defineProperty(window, '__staleDeniedToastCount', {
+      configurable: true,
+      get: () => staleDeniedToastCount
+    })
+  })
+  const requestCounts = await mockFeatureSession(page, {
+    user: featureUsers[0],
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    matters: [...ownedMatters, unrelatedMatter],
+    onAccessGet: requestCount => requestCount === 2
+      ? {
+          access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+          waitUntil: accessRefreshReleased
+        }
+      : undefined,
+    onMatterListGet: requestCount => requestCount === 3
+      ? {
+          status: 403,
+          body: { code: 403, message: '普通筛选权限已过期' }
+        }
+      : undefined
+  })
+
+  await page.goto('/key-matters')
+  const rail = page.getByRole('complementary', { name: '列表快速筛选' })
+  const filterBar = page.getByLabel('事项筛选')
+  const table = page.getByLabel('大事儿列表')
+  const ownedButton = rail.getByRole('button', { name: /我的事项/ })
+
+  await expect(table.getByText(ownedMatters[0].title, { exact: true })).toBeVisible()
+  await filterBar.getByPlaceholder('搜索标题或说明').fill(unrelatedMatter.title)
+  await filterBar.getByRole('button', { name: '查询' }).click()
+  await expect.poll(() => requestCounts.access).toBe(2)
+
+  await ownedButton.click()
+  await expect.poll(() => requestCounts.matterListGet).toBe(5)
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  for (const matter of ownedMatters) {
+    await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+  }
+  await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
+
+  releaseAccessRefresh()
+  await expect.poll(() => requestCounts.access).toBe(2)
+
+  await expect(page).toHaveURL('/key-matters')
+  await expect(ownedButton).toHaveClass(/\bactive\b/)
+  for (const matter of ownedMatters) {
+    await expect(table.getByText(matter.title, { exact: true })).toBeVisible()
+  }
+  await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
+  await expect(page.locator('.load-error')).toHaveCount(0)
+  await expect(page.getByText('普通筛选权限已过期', { exact: true })).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => (
+    window as Window & { __staleDeniedToastCount: number }
+  ).__staleDeniedToastCount)).toBe(0)
 })
 
 test('旧个人筛选响应不会覆盖新的普通查询', async ({ page }) => {
@@ -893,11 +988,15 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   const rows = table.locator('.el-table__body-wrapper tbody tr')
   const pagination = page.getByLabel('事项列表分页')
   const keywordControl = filterBar.getByPlaceholder('搜索标题或说明')
-  const prioritySelect = filterBar.locator('.el-select').nth(0)
-  const statusSelect = filterBar.locator('.el-select').nth(1)
-  const ownerControl = filterBar.getByRole('combobox').nth(2)
-  const projectControl = filterBar.getByRole('combobox').nth(3)
+  const prioritySelect = filterBar.getByRole('combobox', { name: '优先级' })
+  const statusSelect = filterBar.getByRole('combobox', { name: '状态' })
+  const ownerControl = filterBar.getByRole('combobox', { name: '负责人' })
+  const projectControl = filterBar.getByRole('combobox', { name: '关联项目' })
 
+  await expect(prioritySelect).toBeVisible()
+  await expect(statusSelect).toBeVisible()
+  await expect(ownerControl).toBeVisible()
+  await expect(projectControl).toBeVisible()
   await expect(ownedButton).toContainText('21 项由我负责')
   await ownedButton.click()
   await pagination.locator('.btn-next').click()
@@ -910,12 +1009,12 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await expect(table.getByText(ownedMatters[0].title, { exact: true })).toHaveCount(0)
 
   await keywordControl.fill('未提交的关键词')
-  await statusSelect.click()
+  await statusSelect.press('ArrowDown')
   await page.getByRole('option', { name: '有风险', exact: true }).click()
-  await expect(statusSelect).toContainText('有风险')
-  await prioritySelect.click()
+  await expect(filterBar).toContainText('有风险')
+  await prioritySelect.press('ArrowDown')
   await page.getByRole('option', { name: 'P1', exact: true }).click()
-  await expect(prioritySelect).toContainText('P1')
+  await expect(filterBar).toContainText('P1')
   await ownerControl.fill('负责人乙')
   await ownerControl.press('ArrowDown')
   await ownerControl.press('Enter')
@@ -928,8 +1027,8 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await unchangedRefreshCompleted
 
   await expect(keywordControl).toHaveValue('未提交的关键词')
-  await expect(statusSelect).toContainText('有风险')
-  await expect(prioritySelect).toContainText('P1')
+  await expect(filterBar).toContainText('有风险')
+  await expect(filterBar).toContainText('P1')
   await expect(filterBar).toContainText('负责人乙')
   await expect(filterBar).toContainText('数据治理平台')
   await expect(ownedButton).toHaveClass(/\bactive\b/)

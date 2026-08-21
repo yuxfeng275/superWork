@@ -511,7 +511,11 @@ function isForbiddenError(error: unknown) {
 
 let keyMatterPageActive = true
 let matterLoadSequence = 0
-let forbiddenAccessRefresh: Promise<KeyMatterAccess> | null = null
+interface ForbiddenAccessRecovery {
+  access: Promise<KeyMatterAccess>
+  notified: boolean
+}
+let forbiddenAccessRecovery: ForbiddenAccessRecovery | null = null
 const inactiveKeyMatterAccess: KeyMatterAccess = {
   canAccess: false,
   canManageAll: false,
@@ -524,23 +528,29 @@ function canRecoverKeyMatterPage() {
   return keyMatterPageActive && isKeyMatterRoute(route.path)
 }
 
-async function refreshAccessAfterForbidden(error: unknown) {
+async function refreshAccessAfterForbidden(
+  error: unknown,
+  isRelevant: () => boolean = () => true
+) {
   if (!isForbiddenError(error)) return null
   if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
-  if (forbiddenAccessRefresh) return forbiddenAccessRefresh
 
-  ElMessage.error(errorMessage(error, '无权操作大事儿'))
-  const recovery = (async () => {
-    const access = await authStore.loadKeyMatterAccess(true)
-    if (!canRecoverKeyMatterPage()) return inactiveKeyMatterAccess
-    if (!access.canAccess) await router.push('/')
-    return access
-  })()
-  forbiddenAccessRefresh = recovery
+  const recovery = forbiddenAccessRecovery ?? {
+    access: authStore.loadKeyMatterAccess(true),
+    notified: false
+  }
+  forbiddenAccessRecovery = recovery
   try {
-    return await recovery
+    const access = await recovery.access
+    if (!canRecoverKeyMatterPage() || !isRelevant()) return access
+    if (!recovery.notified) {
+      recovery.notified = true
+      ElMessage.error(errorMessage(error, '无权操作大事儿'))
+      if (!access.canAccess) await router.push('/')
+    }
+    return access
   } finally {
-    if (forbiddenAccessRefresh === recovery) forbiddenAccessRefresh = null
+    if (forbiddenAccessRecovery === recovery) forbiddenAccessRecovery = null
   }
 }
 
@@ -644,7 +654,7 @@ async function loadMatters() {
     clampCurrentPage()
   } catch (error: unknown) {
     if (sequence !== matterLoadSequence) return
-    const access = await refreshAccessAfterForbidden(error)
+    const access = await refreshAccessAfterForbidden(error, () => sequence === matterLoadSequence)
     if (sequence !== matterLoadSequence) return
     if (!access || access.canAccess) {
       loadError.value = errorMessage(error, '大事儿台账加载失败')
@@ -1770,16 +1780,16 @@ onBeforeUnmount(() => {
           :prefix-icon="Search"
           @keyup.enter="searchMatters"
         />
-        <el-select v-model="filters.priority" placeholder="优先级" clearable>
+        <el-select v-model="filters.priority" aria-label="优先级" placeholder="优先级" clearable>
           <el-option v-for="item in priorityOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-select v-model="filters.status" placeholder="状态" clearable>
+        <el-select v-model="filters.status" aria-label="状态" placeholder="状态" clearable>
           <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-select v-model="filters.ownerId" placeholder="负责人" clearable filterable>
+        <el-select v-model="filters.ownerId" aria-label="负责人" placeholder="负责人" clearable filterable>
           <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
         </el-select>
-        <el-select v-model="filters.projectId" placeholder="关联项目" clearable filterable>
+        <el-select v-model="filters.projectId" aria-label="关联项目" placeholder="关联项目" clearable filterable>
           <el-option v-for="project in rootProjectOptions" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
         <el-button type="primary" :icon="Search" @click="searchMatters">查询</el-button>
