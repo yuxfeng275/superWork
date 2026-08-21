@@ -251,10 +251,10 @@ const visibleMatters = computed(() => {
   if (personalScope.value === 'participating') return matters.value.filter(isParticipatingMatter)
   return matters.value
 })
-const tableEmptyText = computed(() => {
+const registerEmptyText = computed(() => {
   if (personalScope.value === 'owned') return '暂无我负责的事项'
   if (personalScope.value === 'participating') return '暂无我参与的事项'
-  return '暂无大事儿，点击右上角新增事项'
+  return canManageAll.value ? '暂无大事儿，点击右上角新增事项' : '暂无大事儿'
 })
 
 const pagedMatters = computed(() => {
@@ -1814,7 +1814,7 @@ onBeforeUnmount(() => {
           :data="pagedMatters"
           row-key="id"
           class="matter-table"
-          :empty-text="tableEmptyText"
+          :empty-text="registerEmptyText"
           scrollbar-always-on
           @row-click="openDetail"
         >

@@ -788,7 +788,7 @@ test('刷新保留个人快捷筛选并在结果缩短后校正分页', async ({
   await expect(table.getByText(unrelatedMatter.title, { exact: true })).toHaveCount(0)
 })
 
-test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ page }) => {
+test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ page, context }) => {
   await mockFeatureSession(page, {
     user: featureUsers[0],
     access: { canAccess: true, canManageAll: false, canFeedbackOwn: false },
@@ -803,7 +803,8 @@ test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ pa
   const participatingButton = rail.getByRole('button', { name: /我参与的事项/ })
 
   await expect(pagination).toContainText('共 0 项')
-  await expect(page.getByText('暂无大事儿，点击右上角新增事项', { exact: true })).toBeVisible()
+  await expect(page.getByText('暂无大事儿', { exact: true })).toBeVisible()
+  await expect(page.getByText(/点击右上角新增事项/)).toHaveCount(0)
   await expect(page.locator('.load-error')).toHaveCount(0)
   await expect(ownedButton).toBeVisible()
   await expect(participatingButton).toBeVisible()
@@ -825,6 +826,16 @@ test('个人快捷筛选显示上下文空态且移动端不溢出', async ({ pa
       document.documentElement.scrollWidth > document.documentElement.clientWidth
     )).toBe(false)
   }
+
+  const adminPage = await context.newPage()
+  await mockFeatureSession(adminPage, {
+    user: { id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' },
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    matters: []
+  })
+  await adminPage.goto('/key-matters')
+  await expect(adminPage.getByText('暂无大事儿，点击右上角新增事项', { exact: true })).toBeVisible()
+  await adminPage.close()
 })
 
 test('管理员可以维护参与人且负责人自动保留', async ({ page }) => {
