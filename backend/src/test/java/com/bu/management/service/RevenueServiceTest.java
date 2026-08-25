@@ -128,6 +128,8 @@ class RevenueServiceTest {
         });
     }
 
+    // The service's ReentrantLock is sufficient for single-instance deployment; multi-instance deployment
+    // would require SELECT FOR UPDATE or a distributed lock.
     @Test
     void costImportUpsertsBusinessLineLevelRowsWhenImportedTwice() throws Exception {
         RevenueProjectMapping memberMapping = mapping("cost_project", "会员通项目", null, 30L, "delivery");
@@ -192,7 +194,10 @@ class RevenueServiceTest {
 
     @Test
     void disabledMappingIsSkippedDuringLookup() throws Exception {
-        when(mappingMapper.selectOne(any())).thenReturn(null);
+        RevenueProjectMapping disabledMapping = mapping("cost_project", "逢时项目", 1L, 10L, "delivery");
+        disabledMapping.setStatus(0);
+        when(mappingMapper.selectOne(any())).thenAnswer(invocation ->
+                disabledMapping.getStatus() == 1 ? disabledMapping : null);
         when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "逢时项目")));
         when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
         when(costMapper.selectOne(any())).thenReturn(null);
