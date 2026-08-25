@@ -1,6 +1,12 @@
 import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
+  RevenueImportResult,
+  RevenueManualEntryDTO,
+  RevenueMapping,
+  RevenueSummary
+} from '@/types/revenue'
+import type {
   EmailAccount,
   EmailAccountPayload,
   EmailConnectionTestResult,
@@ -330,10 +336,12 @@ class ApiService {
     const url = `${this.baseUrl}${endpoint}`
     const token = this.getToken()
 
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
+    const headers: HeadersInit = options.body instanceof FormData
+      ? { ...options.headers }
+      : {
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
 
     if (token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`
@@ -1370,6 +1378,71 @@ class ApiService {
 
   async syncSeeyonOa(): Promise<string[]> {
     return this.request<string[]>('/api/seeyon-oa/sync', { method: 'POST' })
+  }
+
+  // Revenue management APIs
+  async getRevenueSummary(year: number): Promise<RevenueSummary> {
+    return this.request<RevenueSummary>(`/api/revenue/summary?year=${year}`)
+  }
+
+  async importCostExcel(file: File): Promise<RevenueImportResult> {
+    const body = new FormData()
+    body.append('file', file)
+    return this.request<RevenueImportResult>('/api/revenue/import/cost', {
+      method: 'POST',
+      body
+    })
+  }
+
+  async importIncomeExcel(file: File): Promise<RevenueImportResult> {
+    const body = new FormData()
+    body.append('file', file)
+    return this.request<RevenueImportResult>('/api/revenue/import/income', {
+      method: 'POST',
+      body
+    })
+  }
+
+  async getRevenueMappings(sourceType?: string): Promise<RevenueMapping[]> {
+    const query = sourceType ? `?sourceType=${encodeURIComponent(sourceType)}` : ''
+    return this.request<RevenueMapping[]>(`/api/revenue/mappings${query}`)
+  }
+
+  async updateRevenueMapping(id: number, data: Partial<RevenueMapping>): Promise<void> {
+    await this.request<RevenueMapping>(`/api/revenue/mappings/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async getRevenueManualEntries(yearMonth: string): Promise<RevenueManualEntryDTO[]> {
+    const [year, month] = yearMonth.split('-')
+    return this.request<RevenueManualEntryDTO[]>(
+      `/api/revenue/manual?yearMonth=${encodeURIComponent(yearMonth)}&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`
+    )
+  }
+
+  async createRevenueManualEntry(
+    data: Omit<RevenueManualEntryDTO, 'id'>
+  ): Promise<RevenueManualEntryDTO> {
+    return this.request<RevenueManualEntryDTO>('/api/revenue/manual', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateRevenueManualEntry(
+    id: number,
+    data: RevenueManualEntryDTO
+  ): Promise<RevenueManualEntryDTO> {
+    return this.request<RevenueManualEntryDTO>(`/api/revenue/manual/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteRevenueManualEntry(id: number): Promise<void> {
+    return this.request<void>(`/api/revenue/manual/${id}`, { method: 'DELETE' })
   }
 }
 
