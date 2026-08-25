@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import com.bu.management.dto.RevenueImportResultVO;
 import com.bu.management.dto.RevenueManualEntryDTO;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.dto.RevenueSummaryVO;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
@@ -29,12 +30,15 @@ import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -122,6 +126,103 @@ class RevenueServiceTest {
             assertThat(income.getBusinessLineId()).isEqualTo(30L);
             assertThat(income.getReceivableAmount()).isEqualTo(300000L);
         });
+    }
+
+    @Test
+    void costImportUpsertsBusinessLineLevelRowsWhenImportedTwice() throws Exception {
+        RevenueProjectMapping memberMapping = mapping("cost_project", "会员通项目", null, 30L, "delivery");
+        List<RevenueMonthlyCost> storedCosts = new ArrayList<>();
+        when(mappingMapper.selectOne(any())).thenReturn(memberMapping);
+        when(projectMapper.selectList(any())).thenReturn(List.of());
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(30L, "会员通")));
+        when(costMapper.selectOne(any())).thenAnswer(invocation -> storedCosts.stream().findFirst().orElse(null));
+        doAnswer(invocation -> {
+            RevenueMonthlyCost inserted = invocation.getArgument(0);
+            inserted.setId(1L);
+            storedCosts.add(inserted);
+            return 1;
+        }).when(costMapper).insert(any());
+
+        MockMultipartFile file = costWorkbook("2026-01", "会员通项目", "2", "100");
+        service.importCostExcel(file);
+        service.importCostExcel(file);
+
+        assertThat(storedCosts).hasSize(1);
+        verify(costMapper, times(1)).insert(any());
+        verify(costMapper, times(1)).updateById(storedCosts.get(0));
+    }
+
+    @Test
+    void incomeImportAggregatesRowsForSameMonthAndBrand() throws Exception {
+        when(mappingMapper.selectOne(any()))
+                .thenReturn(mapping("contract_brand", "皇家宠物", 1L, 10L, "delivery"));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "皇家项目")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+        when(incomeMapper.selectOne(any())).thenReturn(null);
+        MockMultipartFile file = incomeWorkbook(List.of(
+                new IncomeRow("2026-02", "皇家宠物", "项目交付", 800000L, 700000L),
+                new IncomeRow("2026-02", "皇家宠物", "项目交付", 200000L, 150000L)));
+
+        RevenueImportResultVO result = service.importIncomeExcel(file);
+
+        assertThat(result.getSuccessCount()).isEqualTo(2);
+        ArgumentCaptor<RevenueMonthlyIncome> captor = ArgumentCaptor.forClass(RevenueMonthlyIncome.class);
+        verify(incomeMapper).insert(captor.capture());
+        assertThat(captor.getValue().getContractCount()).isEqualTo(2);
+        assertThat(captor.getValue().getReceivableAmount()).isEqualTo(1000000L);
+        assertThat(captor.getValue().getReceivedAmount()).isEqualTo(850000L);
+    }
+
+    @Test
+    void autoMappingAssignsMemberSalesCostToMemberBusinessLine() throws Exception {
+        when(mappingMapper.selectOne(any())).thenReturn(null);
+        when(projectMapper.selectList(any())).thenReturn(List.of());
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(30L, "会员通")));
+        when(costMapper.selectOne(any())).thenReturn(null);
+
+        RevenueImportResultVO result = service.importCostExcel(
+                costWorkbook("2026-05", "会员通【销售】", "1", "888"));
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        ArgumentCaptor<RevenueProjectMapping> captor = ArgumentCaptor.forClass(RevenueProjectMapping.class);
+        verify(mappingMapper).insert(captor.capture());
+        assertThat(captor.getValue().getBusinessLineId()).isEqualTo(30L);
+        assertThat(captor.getValue().getCategory()).isEqualTo("sales");
+    }
+
+    @Test
+    void disabledMappingIsSkippedDuringLookup() throws Exception {
+        when(mappingMapper.selectOne(any())).thenReturn(null);
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "逢时项目")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+        when(costMapper.selectOne(any())).thenReturn(null);
+
+        RevenueImportResultVO result = service.importCostExcel(
+                costWorkbook("2026-05", "逢时项目", "1", "888"));
+
+        assertThat(result.getNewMappingCount()).isEqualTo(1);
+        ArgumentCaptor<LambdaQueryWrapper<RevenueProjectMapping>> queryCaptor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(mappingMapper).selectOne(queryCaptor.capture());
+        assertThat(queryCaptor.getValue().getExpression().getNormal()).hasSize(11);
+        ArgumentCaptor<RevenueProjectMapping> captor = ArgumentCaptor.forClass(RevenueProjectMapping.class);
+        verify(mappingMapper).insert(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(1);
+    }
+
+    @Test
+    void categoryUsesOnlySuffixAndDefaultsToDelivery() throws Exception {
+        when(mappingMapper.selectOne(any())).thenReturn(null);
+        when(projectMapper.selectList(any())).thenReturn(List.of());
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+
+        service.importCostExcel(costWorkbook("2026-05", "逢时项目", "1", "100"));
+        service.importCostExcel(costWorkbook("2026-05", "京博项目", "1", "100"));
+
+        ArgumentCaptor<RevenueProjectMapping> captor = ArgumentCaptor.forClass(RevenueProjectMapping.class);
+        verify(mappingMapper, times(2)).insert(captor.capture());
+        assertThat(captor.getAllValues()).allSatisfy(mapping ->
+                assertThat(mapping.getCategory()).isEqualTo("delivery"));
     }
 
     @Test
@@ -258,7 +359,7 @@ class RevenueServiceTest {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("合同明细");
             Row header = sheet.createRow(0);
-            String[] headers = {"收款销售月份", "品牌", "收款项类型", "应收金额", "实收金额"};
+            String[] headers = {"收款销售月份", "品牌", "收款款项类型", "应收金额", "实收金额"};
             for (int i = 0; i < headers.length; i++) {
                 header.createCell(i).setCellValue(headers[i]);
             }

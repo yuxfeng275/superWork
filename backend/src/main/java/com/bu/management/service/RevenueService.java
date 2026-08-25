@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -66,6 +67,7 @@ public class RevenueService {
     private final RevenueManualEntryMapper manualEntryMapper;
     private final ProjectMapper projectMapper;
     private final BusinessLineMapper businessLineMapper;
+    private final ReentrantLock upsertLock = new ReentrantLock();
 
     @Transactional
     public RevenueImportResultVO importCostExcel(MultipartFile file) {
@@ -130,7 +132,7 @@ public class RevenueService {
             Map<String, Integer> headers = readHeaders(sheet.getRow(sheet.getFirstRowNum()), formatter, evaluator);
             int monthColumn = requireHeader(headers, "收款销售月份");
             int brandColumn = requireHeader(headers, "品牌");
-            int typeColumn = requireHeader(headers, "收款项类型");
+            int typeColumn = requireHeader(headers, "收款款项类型");
             int receivableColumn = requireHeader(headers, "应收金额");
             int receivedColumn = requireHeader(headers, "实收金额");
             Map<IncomeKey, IncomeAggregate> aggregates = new LinkedHashMap<>();
@@ -141,7 +143,7 @@ public class RevenueService {
                 }
                 try {
                     String month = readMonth(row.getCell(monthColumn), formatter, evaluator);
-                    String type = readRequiredText(row.getCell(typeColumn), formatter, evaluator, "收款项类型");
+                    String type = readRequiredText(row.getCell(typeColumn), formatter, evaluator, "收款款项类型");
                     String brand = readText(row.getCell(brandColumn), formatter, evaluator);
                     if (!type.contains("会员通") && brand.isBlank()) {
                         throw new IllegalArgumentException("品牌不能为空");
@@ -302,7 +304,8 @@ public class RevenueService {
     private RevenueProjectMapping findMapping(String sourceType, String sourceName) {
         return mappingMapper.selectOne(new LambdaQueryWrapper<RevenueProjectMapping>()
                 .eq(RevenueProjectMapping::getSourceType, sourceType)
-                .eq(RevenueProjectMapping::getSourceName, sourceName));
+                .eq(RevenueProjectMapping::getSourceName, sourceName)
+                .eq(RevenueProjectMapping::getStatus, 1));
     }
 
     private RevenueProjectMapping createCostMapping(String sourceName, ImportReferences references) {
@@ -395,58 +398,68 @@ public class RevenueService {
 
     private void upsertCost(String month, Long projectId, Long businessLineId, String category,
                             BigDecimal workHours, long workCost) {
-        LambdaQueryWrapper<RevenueMonthlyCost> query = new LambdaQueryWrapper<RevenueMonthlyCost>()
-                .eq(RevenueMonthlyCost::getYearMonth, month)
-                .eq(RevenueMonthlyCost::getCategory, category);
-        if (projectId == null) {
-            query.isNull(RevenueMonthlyCost::getProjectId)
-                    .eq(RevenueMonthlyCost::getBusinessLineId, businessLineId);
-        } else {
-            query.eq(RevenueMonthlyCost::getProjectId, projectId);
-        }
-        RevenueMonthlyCost existing = costMapper.selectOne(query);
-        if (existing == null) {
-            existing = new RevenueMonthlyCost();
-            existing.setYearMonth(month);
-            existing.setProjectId(projectId);
-            existing.setBusinessLineId(businessLineId);
-            existing.setCategory(category);
-            existing.setWorkHours(workHours);
-            existing.setWorkCost(workCost);
-            costMapper.insert(existing);
-        } else {
-            existing.setBusinessLineId(businessLineId);
-            existing.setWorkHours(workHours);
-            existing.setWorkCost(workCost);
-            costMapper.updateById(existing);
+        upsertLock.lock();
+        try {
+            LambdaQueryWrapper<RevenueMonthlyCost> query = new LambdaQueryWrapper<RevenueMonthlyCost>()
+                    .eq(RevenueMonthlyCost::getYearMonth, month)
+                    .eq(RevenueMonthlyCost::getCategory, category);
+            if (projectId == null) {
+                query.isNull(RevenueMonthlyCost::getProjectId)
+                        .eq(RevenueMonthlyCost::getBusinessLineId, businessLineId);
+            } else {
+                query.eq(RevenueMonthlyCost::getProjectId, projectId);
+            }
+            RevenueMonthlyCost existing = costMapper.selectOne(query);
+            if (existing == null) {
+                existing = new RevenueMonthlyCost();
+                existing.setYearMonth(month);
+                existing.setProjectId(projectId);
+                existing.setBusinessLineId(businessLineId);
+                existing.setCategory(category);
+                existing.setWorkHours(workHours);
+                existing.setWorkCost(workCost);
+                costMapper.insert(existing);
+            } else {
+                existing.setBusinessLineId(businessLineId);
+                existing.setWorkHours(workHours);
+                existing.setWorkCost(workCost);
+                costMapper.updateById(existing);
+            }
+        } finally {
+            upsertLock.unlock();
         }
     }
 
     private void upsertIncome(IncomeKey key, IncomeAggregate aggregate) {
-        LambdaQueryWrapper<RevenueMonthlyIncome> query = new LambdaQueryWrapper<RevenueMonthlyIncome>()
-                .eq(RevenueMonthlyIncome::getYearMonth, key.month());
-        if (key.projectId() == null) {
-            query.isNull(RevenueMonthlyIncome::getProjectId)
-                    .eq(RevenueMonthlyIncome::getBusinessLineId, key.businessLineId());
-        } else {
-            query.eq(RevenueMonthlyIncome::getProjectId, key.projectId());
-        }
-        RevenueMonthlyIncome existing = incomeMapper.selectOne(query);
-        if (existing == null) {
-            existing = new RevenueMonthlyIncome();
-            existing.setYearMonth(key.month());
-            existing.setProjectId(key.projectId());
-            existing.setBusinessLineId(key.businessLineId());
-            existing.setContractCount(aggregate.contractCount);
-            existing.setReceivableAmount(aggregate.receivable);
-            existing.setReceivedAmount(aggregate.received);
-            incomeMapper.insert(existing);
-        } else {
-            existing.setBusinessLineId(key.businessLineId());
-            existing.setContractCount(aggregate.contractCount);
-            existing.setReceivableAmount(aggregate.receivable);
-            existing.setReceivedAmount(aggregate.received);
-            incomeMapper.updateById(existing);
+        upsertLock.lock();
+        try {
+            LambdaQueryWrapper<RevenueMonthlyIncome> query = new LambdaQueryWrapper<RevenueMonthlyIncome>()
+                    .eq(RevenueMonthlyIncome::getYearMonth, key.month());
+            if (key.projectId() == null) {
+                query.isNull(RevenueMonthlyIncome::getProjectId)
+                        .eq(RevenueMonthlyIncome::getBusinessLineId, key.businessLineId());
+            } else {
+                query.eq(RevenueMonthlyIncome::getProjectId, key.projectId());
+            }
+            RevenueMonthlyIncome existing = incomeMapper.selectOne(query);
+            if (existing == null) {
+                existing = new RevenueMonthlyIncome();
+                existing.setYearMonth(key.month());
+                existing.setProjectId(key.projectId());
+                existing.setBusinessLineId(key.businessLineId());
+                existing.setContractCount(aggregate.contractCount);
+                existing.setReceivableAmount(aggregate.receivable);
+                existing.setReceivedAmount(aggregate.received);
+                incomeMapper.insert(existing);
+            } else {
+                existing.setBusinessLineId(key.businessLineId());
+                existing.setContractCount(aggregate.contractCount);
+                existing.setReceivableAmount(aggregate.receivable);
+                existing.setReceivedAmount(aggregate.received);
+                incomeMapper.updateById(existing);
+            }
+        } finally {
+            upsertLock.unlock();
         }
     }
 
@@ -748,13 +761,7 @@ public class RevenueService {
     }
 
     private String categoryFor(String sourceName) {
-        if (sourceName.contains("【销售】") || sourceName.contains("京博")) {
-            return "sales";
-        }
-        if (sourceName.contains("逢时") || sourceName.contains("黄天鹅")) {
-            return "product";
-        }
-        return "delivery";
+        return sourceName.contains("【销售】") ? "sales" : "delivery";
     }
 
     private String defaultCategory(String category) {
