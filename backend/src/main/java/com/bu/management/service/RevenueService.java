@@ -235,15 +235,11 @@ public class RevenueService {
         return existing;
     }
 
-    public List<RevenueManualEntryDTO> listManualEntries(Integer year, String month) {
+    public List<RevenueManualEntryDTO> listManualEntries(String yearMonth) {
         LambdaQueryWrapper<RevenueManualEntry> query = new LambdaQueryWrapper<RevenueManualEntry>()
+                .eq(RevenueManualEntry::getYearMonth, normalizeMonth(yearMonth))
                 .orderByDesc(RevenueManualEntry::getYearMonth)
                 .orderByDesc(RevenueManualEntry::getId);
-        if (month != null && !month.isBlank()) {
-            query.eq(RevenueManualEntry::getYearMonth, normalizeMonth(month));
-        } else if (year != null) {
-            query.likeRight(RevenueManualEntry::getYearMonth, year + "-");
-        }
         return nullSafe(manualEntryMapper.selectList(query)).stream().map(this::toDto).toList();
     }
 

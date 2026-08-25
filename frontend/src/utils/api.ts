@@ -1416,10 +1416,9 @@ class ApiService {
   }
 
   async getRevenueManualEntries(yearMonth: string): Promise<RevenueManualEntryDTO[]> {
-    const [year, month] = yearMonth.split('-')
-    return this.request<RevenueManualEntryDTO[]>(
-      `/api/revenue/manual?yearMonth=${encodeURIComponent(yearMonth)}&year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`
-    )
+    const query = new URLSearchParams()
+    query.set('yearMonth', yearMonth)
+    return this.request<RevenueManualEntryDTO[]>(`/api/revenue/manual?${query}`)
   }
 
   async createRevenueManualEntry(

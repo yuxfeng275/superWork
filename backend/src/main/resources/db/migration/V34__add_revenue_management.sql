@@ -75,4 +75,4 @@ SELECT role.id, permission.id
 FROM sys_role role
 JOIN sys_permission permission
   ON permission.code IN ('revenue:view', 'revenue:manage')
-WHERE role.code IN ('DIRECTOR', 'BUSINESS_OWNER');
+WHERE role.code IN ('DIRECTOR', 'BUSINESS_OWNER', 'DEPUTY_DIRECTOR', 'EFFECTIVENESS_OWNER');

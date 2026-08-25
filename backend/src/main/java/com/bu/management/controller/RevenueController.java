@@ -63,9 +63,8 @@ public class RevenueController {
     @GetMapping("/manual")
     @RequirePermission({"revenue:view"})
     public Result<List<RevenueManualEntryDTO>> listManualEntries(
-            @RequestParam(required = false) Integer year,
-            @RequestParam(required = false) String month) {
-        return Result.success(revenueService.listManualEntries(year, month));
+            @RequestParam String yearMonth) {
+        return Result.success(revenueService.listManualEntries(yearMonth));
     }
 
     @PostMapping("/manual")
