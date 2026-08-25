@@ -60,7 +60,8 @@ const navItems: NavSection[] = [
   {
     section: '数据分析',
     items: [
-      { path: '/statistics', icon: 'DataAnalysis', label: 'BU驾驶舱', access: 'management' }
+      { path: '/statistics', icon: 'DataAnalysis', label: 'BU驾驶舱', access: 'management' },
+      { path: '/revenue', icon: 'Coin', label: '营收管理', access: 'management' }
     ]
   },
   {

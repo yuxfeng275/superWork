@@ -148,6 +148,13 @@
             <version>5.8.26</version>
         </dependency>
 
+        <!-- Apache POI (Excel import) -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <!-- Configuration Processor -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
