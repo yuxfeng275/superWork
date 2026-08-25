@@ -193,11 +193,10 @@ class RevenueServiceTest {
     }
 
     @Test
-    void disabledMappingIsSkippedDuringLookup() throws Exception {
-        RevenueProjectMapping disabledMapping = mapping("cost_project", "逢时项目", 1L, 10L, "delivery");
+    void disabledMappingIsReactivatedDuringImport() throws Exception {
+        RevenueProjectMapping disabledMapping = mapping("cost_project", "逢时项目", 99L, 99L, "sales");
         disabledMapping.setStatus(0);
-        when(mappingMapper.selectOne(any())).thenAnswer(invocation ->
-                disabledMapping.getStatus() == 1 ? disabledMapping : null);
+        when(mappingMapper.selectOne(any())).thenReturn(null, disabledMapping);
         when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "逢时项目")));
         when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
         when(costMapper.selectOne(any())).thenReturn(null);
@@ -205,14 +204,14 @@ class RevenueServiceTest {
         RevenueImportResultVO result = service.importCostExcel(
                 costWorkbook("2026-05", "逢时项目", "1", "888"));
 
-        assertThat(result.getNewMappingCount()).isEqualTo(1);
-        ArgumentCaptor<LambdaQueryWrapper<RevenueProjectMapping>> queryCaptor =
-                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
-        verify(mappingMapper).selectOne(queryCaptor.capture());
-        assertThat(queryCaptor.getValue().getExpression().getNormal()).hasSize(11);
-        ArgumentCaptor<RevenueProjectMapping> captor = ArgumentCaptor.forClass(RevenueProjectMapping.class);
-        verify(mappingMapper).insert(captor.capture());
-        assertThat(captor.getValue().getStatus()).isEqualTo(1);
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        assertThat(result.getNewMappingCount()).isZero();
+        assertThat(disabledMapping.getStatus()).isEqualTo(1);
+        assertThat(disabledMapping.getProjectId()).isEqualTo(1L);
+        assertThat(disabledMapping.getBusinessLineId()).isNull();
+        assertThat(disabledMapping.getCategory()).isEqualTo("delivery");
+        verify(mappingMapper).updateById(disabledMapping);
+        verify(mappingMapper, never()).insert(any());
     }
 
     @Test
@@ -289,6 +288,34 @@ class RevenueServiceTest {
         assertThat(zeroIncome.getProfitRate()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(findBusinessLine(zeroIncome, 10L).getProjects().get(0).getProfitRate())
                 .isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void updateMappingRejectsInvalidProjectReference() {
+        RevenueProjectMapping existing = mapping("cost_project", "皇家项目", 1L, 10L, "delivery");
+        RevenueProjectMapping request = mapping("cost_project", "皇家项目", 999L, 10L, "delivery");
+        when(mappingMapper.selectById(1L)).thenReturn(existing);
+        when(projectMapper.selectById(999L)).thenReturn(null);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> service.updateMapping(1L, request))
+                .withMessageContaining("project_id");
+        verify(mappingMapper, never()).updateById(any());
+    }
+
+    @Test
+    void manualEntryRejectsInvalidBusinessLineReference() {
+        RevenueManualEntryDTO request = new RevenueManualEntryDTO();
+        request.setYearMonth("2026-01");
+        request.setBusinessLineId(999L);
+        request.setEntryType("partner_cost");
+        request.setAmount(100L);
+        when(businessLineMapper.selectById(999L)).thenReturn(null);
+
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> service.createManualEntry(request, 7L))
+                .withMessageContaining("business_line_id");
+        verify(manualEntryMapper, never()).insert(any());
     }
 
     @Test

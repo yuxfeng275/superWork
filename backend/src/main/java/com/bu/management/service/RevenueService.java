@@ -92,12 +92,7 @@ public class RevenueService {
                     BigDecimal workHours = readDecimal(row.getCell(5), formatter, evaluator, "工时");
                     long workCost = readDecimal(row.getCell(6), formatter, evaluator, "工时成本")
                             .setScale(0, RoundingMode.HALF_UP).longValueExact();
-                    RevenueProjectMapping mapping = findMapping(COST_SOURCE, sourceName);
-                    if (mapping == null) {
-                        mapping = createCostMapping(sourceName, references);
-                        mappingMapper.insert(mapping);
-                        incrementNewMapping(result);
-                    }
+                    RevenueProjectMapping mapping = findOrCreateCostMapping(sourceName, references, result);
                     Long businessLineId = resolveBusinessLineId(mapping, references.projectsById());
                     if (businessLineId == null) {
                         incrementPending(result);
@@ -229,6 +224,7 @@ public class RevenueService {
             throw new IllegalArgumentException("映射不存在");
         }
         validateCategory(request.getCategory());
+        validateProjectReference(request.getProjectId());
         existing.setProjectId(request.getProjectId());
         existing.setBusinessLineId(request.getBusinessLineId());
         existing.setCategory(request.getCategory());
@@ -302,10 +298,49 @@ public class RevenueService {
     }
 
     private RevenueProjectMapping findMapping(String sourceType, String sourceName) {
-        return mappingMapper.selectOne(new LambdaQueryWrapper<RevenueProjectMapping>()
+        return mappingMapper.selectOne(mappingQuery(sourceType, sourceName, 1));
+    }
+
+    private RevenueProjectMapping findDisabledMapping(String sourceType, String sourceName) {
+        return mappingMapper.selectOne(mappingQuery(sourceType, sourceName, 0));
+    }
+
+    private LambdaQueryWrapper<RevenueProjectMapping> mappingQuery(String sourceType, String sourceName,
+                                                                     int status) {
+        return new LambdaQueryWrapper<RevenueProjectMapping>()
                 .eq(RevenueProjectMapping::getSourceType, sourceType)
                 .eq(RevenueProjectMapping::getSourceName, sourceName)
-                .eq(RevenueProjectMapping::getStatus, 1));
+                .eq(RevenueProjectMapping::getStatus, status);
+    }
+
+    private RevenueProjectMapping findOrCreateCostMapping(String sourceName, ImportReferences references,
+                                                           RevenueImportResultVO result) {
+        upsertLock.lock();
+        try {
+            RevenueProjectMapping mapping = findMapping(COST_SOURCE, sourceName);
+            if (mapping != null) {
+                return mapping;
+            }
+            RevenueProjectMapping candidate = createCostMapping(sourceName, references);
+            RevenueProjectMapping disabled = findDisabledMapping(COST_SOURCE, sourceName);
+            if (disabled != null) {
+                reactivateMapping(disabled, candidate);
+                mappingMapper.updateById(disabled);
+                return disabled;
+            }
+            mappingMapper.insert(candidate);
+            incrementNewMapping(result);
+            return candidate;
+        } finally {
+            upsertLock.unlock();
+        }
+    }
+
+    private void reactivateMapping(RevenueProjectMapping disabled, RevenueProjectMapping replacement) {
+        disabled.setStatus(1);
+        disabled.setProjectId(replacement.getProjectId());
+        disabled.setBusinessLineId(replacement.getBusinessLineId());
+        disabled.setCategory(replacement.getCategory());
     }
 
     private RevenueProjectMapping createCostMapping(String sourceName, ImportReferences references) {
@@ -333,19 +368,32 @@ public class RevenueService {
         if (type.contains("会员通")) {
             return new Assignment(null, findBusinessLineId(references.businessLines(), "会员通"));
         }
-        RevenueProjectMapping mapping = findMapping(INCOME_SOURCE, brand);
-        if (mapping == null) {
-            mapping = baseMapping(INCOME_SOURCE, brand, "delivery");
-            Project project = findKnownProject(brand, references.projects());
-            if (project != null) {
-                mapping.setProjectId(project.getId());
-            } else {
-                mapping.setBusinessLineId(findBusinessLineId(references.businessLines(), "定制"));
+        upsertLock.lock();
+        try {
+            RevenueProjectMapping mapping = findMapping(INCOME_SOURCE, brand);
+            if (mapping == null) {
+                RevenueProjectMapping candidate = baseMapping(INCOME_SOURCE, brand, "delivery");
+                Project project = findKnownProject(brand, references.projects());
+                if (project != null) {
+                    candidate.setProjectId(project.getId());
+                } else {
+                    candidate.setBusinessLineId(findBusinessLineId(references.businessLines(), "定制"));
+                }
+                RevenueProjectMapping disabled = findDisabledMapping(INCOME_SOURCE, brand);
+                if (disabled != null) {
+                    reactivateMapping(disabled, candidate);
+                    mappingMapper.updateById(disabled);
+                    mapping = disabled;
+                } else {
+                    mappingMapper.insert(candidate);
+                    incrementNewMapping(result);
+                    mapping = candidate;
+                }
             }
-            mappingMapper.insert(mapping);
-            incrementNewMapping(result);
+            return new Assignment(mapping.getProjectId(), resolveBusinessLineId(mapping, references.projectsById()));
+        } finally {
+            upsertLock.unlock();
         }
-        return new Assignment(mapping.getProjectId(), resolveBusinessLineId(mapping, references.projectsById()));
     }
 
     private RevenueProjectMapping baseMapping(String sourceType, String sourceName, String category) {
@@ -637,6 +685,7 @@ public class RevenueService {
         if (request.getBusinessLineId() == null) {
             throw new IllegalArgumentException("business_line_id 不能为空");
         }
+        validateBusinessLineReference(request.getBusinessLineId());
         if (request.getAmount() == null) {
             throw new IllegalArgumentException("amount 不能为空");
         }
@@ -771,6 +820,18 @@ public class RevenueService {
     private void validateCategory(String category) {
         if (!Set.of("delivery", "sales", "product").contains(category)) {
             throw new IllegalArgumentException("category 必须是 delivery、sales 或 product");
+        }
+    }
+
+    private void validateProjectReference(Long projectId) {
+        if (projectId != null && projectMapper.selectById(projectId) == null) {
+            throw new IllegalArgumentException("project_id 对应的项目不存在: " + projectId);
+        }
+    }
+
+    private void validateBusinessLineReference(Long businessLineId) {
+        if (businessLineId != null && businessLineMapper.selectById(businessLineId) == null) {
+            throw new IllegalArgumentException("business_line_id 对应的业务线不存在: " + businessLineId);
         }
     }
 
