@@ -18,7 +18,7 @@ CREATE TABLE revenue_project_mapping (
 
 CREATE TABLE revenue_monthly_cost (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    year_month VARCHAR(7) NOT NULL COMMENT '月份 YYYY-MM',
+    `year_month` VARCHAR(7) NOT NULL COMMENT '月份 YYYY-MM',
     project_id BIGINT NULL COMMENT '关联项目；NULL=业务线级',
     business_line_id BIGINT NOT NULL COMMENT '冗余业务线ID',
     category VARCHAR(20) NOT NULL DEFAULT 'delivery' COMMENT 'delivery/sales/product',
@@ -26,13 +26,13 @@ CREATE TABLE revenue_monthly_cost (
     work_cost BIGINT NOT NULL DEFAULT 0 COMMENT '工时成本（元）',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_month_project_cat (year_month, project_id, category),
-    INDEX idx_month_bl (year_month, business_line_id)
+    UNIQUE KEY uk_month_project_cat (`year_month`, project_id, category),
+    INDEX idx_month_bl (`year_month`, business_line_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='营收月度成本';
 
 CREATE TABLE revenue_monthly_income (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    year_month VARCHAR(7) NOT NULL COMMENT '收款月份 YYYY-MM',
+    `year_month` VARCHAR(7) NOT NULL COMMENT '收款月份 YYYY-MM',
     project_id BIGINT NULL COMMENT '关联项目；NULL=业务线级',
     business_line_id BIGINT NOT NULL COMMENT '冗余业务线ID',
     contract_count INT NOT NULL DEFAULT 0,
@@ -40,13 +40,13 @@ CREATE TABLE revenue_monthly_income (
     received_amount BIGINT NOT NULL DEFAULT 0 COMMENT '实收金额（元）',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_month_project (year_month, project_id),
-    INDEX idx_month_bl (year_month, business_line_id)
+    UNIQUE KEY uk_month_project (`year_month`, project_id),
+    INDEX idx_month_bl (`year_month`, business_line_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='营收月度交付';
 
 CREATE TABLE revenue_manual_entry (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    year_month VARCHAR(7) NOT NULL COMMENT '月份 YYYY-MM',
+    `year_month` VARCHAR(7) NOT NULL COMMENT '月份 YYYY-MM',
     project_id BIGINT NULL COMMENT '关联项目；NULL=业务线级',
     business_line_id BIGINT NOT NULL COMMENT '冗余业务线ID',
     entry_type VARCHAR(30) NOT NULL COMMENT 'h2_estimate/partner_cost/server_cost/other_cost',
@@ -55,8 +55,8 @@ CREATE TABLE revenue_manual_entry (
     created_by BIGINT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_month_bl (year_month, business_line_id),
-    INDEX idx_month_project (year_month, project_id)
+    INDEX idx_month_bl (`year_month`, business_line_id),
+    INDEX idx_month_project (`year_month`, project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='营收手动维护项';
 
 INSERT INTO sys_permission (code, name, description, type, menu_id)
