@@ -514,7 +514,46 @@ class RevenueServiceTest {
         verify(manualEntryMapper, never()).insert(any());
     }
 
+    @Test
+    void initializeSplitsAoyouAcrossKabritaAndHyproca() throws Exception {
+        when(projectMapper.selectList(any())).thenReturn(List.of(
+                project(1L, 10L, "皇家项目"), project(8L, 10L, "佳贝艾特"), project(9L, 10L, "海普诺凯")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+        when(costMapper.selectOne(any())).thenReturn(null);
+
+        RevenueInitResultVO result = service.initializeFromWorkbook(initWorkbook(true), 2026, 7L);
+
+        assertThat(result.getImportedProjectCount()).isEqualTo(3);
+        assertThat(result.getErrors()).isEmpty();
+        // 皇家 12 个月 + 佳贝艾特/海普诺凯 各 1 个月
+        ArgumentCaptor<RevenueMonthlyCost> costCaptor = ArgumentCaptor.forClass(RevenueMonthlyCost.class);
+        verify(costMapper, times(14)).insert(costCaptor.capture());
+        assertThat(costCaptor.getAllValues()).filteredOn(c -> c.getProjectId() == 8L)
+                .singleElement().satisfies(c -> {
+                    assertThat(c.getWorkHours()).isEqualByComparingTo("1");
+                    assertThat(c.getWorkCost()).isEqualTo(15000L);
+                });
+        assertThat(costCaptor.getAllValues()).filteredOn(c -> c.getProjectId() == 9L)
+                .singleElement().satisfies(c -> {
+                    assertThat(c.getWorkHours()).isEqualByComparingTo("1");
+                    assertThat(c.getWorkCost()).isEqualTo(15000L);
+                });
+        // H2预估 100万 拆半：佳贝艾特/海普诺凯 各 50万 + 皇家 128万
+        ArgumentCaptor<RevenueManualEntry> manualCaptor = ArgumentCaptor.forClass(RevenueManualEntry.class);
+        verify(manualEntryMapper, times(3)).insert(manualCaptor.capture());
+        assertThat(manualCaptor.getAllValues()).filteredOn(
+                        item -> item.getProjectId() == 8L && "h2_estimate".equals(item.getEntryType()))
+                .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(500000L));
+        assertThat(manualCaptor.getAllValues()).filteredOn(
+                        item -> item.getProjectId() == 9L && "h2_estimate".equals(item.getEntryType()))
+                .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(500000L));
+    }
+
     private MockMultipartFile initWorkbook() throws Exception {
+        return initWorkbook(false);
+    }
+
+    private MockMultipartFile initWorkbook(boolean includeAoyou) throws Exception {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("一页");
             // 工时明细区域（Excel 行 3 表头 / 4-9 项目）
@@ -551,6 +590,18 @@ class RevenueServiceTest {
             royalRevenue.createCell(10).setCellValue(0.0);
             royalRevenue.createCell(11).setCellValue(0.0);
             royalRevenue.createCell(12).setCellValue(0.0);
+            if (includeAoyou) {
+                // 澳优：工时 1月=2，成本 1月=3万，H2预估=100万
+                Row aoyouHours = sheet.createRow(5);
+                aoyouHours.createCell(2).setCellValue("澳优");
+                aoyouHours.createCell(3).setCellValue(2.0);
+                Row aoyouCost = sheet.createRow(15);
+                aoyouCost.createCell(2).setCellValue("澳优");
+                aoyouCost.createCell(3).setCellValue(3.0);
+                Row aoyouRevenue = sheet.createRow(26);
+                aoyouRevenue.createCell(2).setCellValue("澳优");
+                aoyouRevenue.createCell(7).setCellValue(100.0);
+            }
             workbook.write(output);
             return new MockMultipartFile("file", "项目营收拆解.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray());

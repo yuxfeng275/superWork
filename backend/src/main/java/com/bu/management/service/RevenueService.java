@@ -287,34 +287,58 @@ public class RevenueService {
                     .likeRight(RevenueManualEntry::getYearMonth, yearPrefix));
             for (InitProjectData data : projectData) {
                 Project project = findKnownProject(data.name, references.projects());
-                if (project == null || project.getId() == null || project.getBusinessLineId() == null) {
+                List<Project> splitTargets = List.of();
+                if (project == null && normalize(data.name).contains("澳优")) {
+                    // 澳优 = 佳贝艾特 + 海普诺凯，默认各 50%
+                    splitTargets = references.projects().stream()
+                            .filter(item -> item.getName() != null
+                                    && (item.getName().contains("佳贝艾特") || item.getName().contains("海普诺凯")))
+                            .toList();
+                }
+                if (project == null && splitTargets.isEmpty()) {
                     result.getErrors().add("未找到项目映射: " + data.name);
                     continue;
                 }
-                result.setImportedProjectCount(result.getImportedProjectCount() + 1);
-                for (int month = 1; month <= 12; month++) {
-                    BigDecimal hours = data.monthlyHours[month - 1];
-                    long costYuan = data.monthlyCostYuan[month - 1];
-                    if (hours == null || hours.signum() == 0) {
-                        continue;
+                if (project != null) {
+                    writeInitProjectData(year, project, data, 1, userId, result);
+                } else {
+                    for (Project target : splitTargets) {
+                        writeInitProjectData(year, target, data, 2, userId, result);
                     }
-                    upsertCost(String.format(Locale.ROOT, "%04d-%02d", year, month),
-                            project.getId(), project.getBusinessLineId(), "delivery", hours, costYuan);
-                    result.setCostRowCount(result.getCostRowCount() + 1);
                 }
-                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
-                        "partner_cost", data.partnerYuan, userId, result);
-                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
-                        "server_cost", data.serverYuan, userId, result);
-                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
-                        "other_cost", data.otherYuan, userId, result);
-                insertInitH2Estimate(year, project.getId(), project.getBusinessLineId(),
-                        data.h2EstimateYuan, userId, result);
             }
             return result;
         } catch (IOException | RuntimeException exception) {
             throw new IllegalArgumentException("无法解析初始化 Excel: " + safeMessage(exception), exception);
         }
+    }
+
+    private void writeInitProjectData(int year, Project project, InitProjectData data, int divisor,
+                                      Long userId, RevenueInitResultVO result) {
+        if (project.getId() == null || project.getBusinessLineId() == null) {
+            result.getErrors().add("项目缺少业务线: " + project.getName());
+            return;
+        }
+        result.setImportedProjectCount(result.getImportedProjectCount() + 1);
+        for (int month = 1; month <= 12; month++) {
+            BigDecimal hours = data.monthlyHours[month - 1];
+            if (hours == null || hours.signum() == 0) {
+                continue;
+            }
+            long costYuan = data.monthlyCostYuan[month - 1] / divisor;
+            upsertCost(String.format(Locale.ROOT, "%04d-%02d", year, month),
+                    project.getId(), project.getBusinessLineId(), "delivery",
+                    hours.divide(BigDecimal.valueOf(divisor), 4, RoundingMode.HALF_UP), costYuan);
+            result.setCostRowCount(result.getCostRowCount() + 1);
+        }
+        insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                "partner_cost", data.partnerYuan / divisor, userId, result);
+        insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                "server_cost", data.serverYuan / divisor, userId, result);
+        insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                "other_cost", data.otherYuan / divisor, userId, result);
+        insertInitH2Estimate(year, project.getId(), project.getBusinessLineId(),
+                data.h2EstimateYuan / divisor, userId, result);
     }
 
     private List<InitProjectData> parseInitProjects(Sheet sheet, DataFormatter formatter, FormulaEvaluator evaluator) {

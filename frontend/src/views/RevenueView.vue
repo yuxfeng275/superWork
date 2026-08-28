@@ -42,6 +42,7 @@ type ImportKind = 'cost' | 'income'
 
 const currentYear = new Date().getFullYear()
 const selectedYear = ref(currentYear)
+const mainTab = ref('summary')
 const activeTab = ref('mappings')
 const loading = ref(false)
 const mappingsLoading = ref(false)
@@ -473,8 +474,10 @@ onMounted(loadPage)
       </el-card>
     </section>
 
-    <section class="panel trend-panel">
-      <div class="section-head"><div><h3>月度趋势</h3><p>按月对比营收与成本，单位：万元</p></div></div>
+    <section class="panel">
+      <el-tabs v-model="mainTab">
+        <el-tab-pane label="月度趋势" name="trend">
+          <div class="section-head"><div><h3>月度趋势</h3><p>按月对比营收与成本，单位：万元</p></div></div>
       <div v-if="summary?.monthlyTrend?.length" class="trend-list">
         <div v-for="item in summary.monthlyTrend" :key="item.month" class="trend-row">
           <span class="trend-month">{{ item.month.slice(5) }}月</span>
@@ -485,10 +488,9 @@ onMounted(loadPage)
         </div>
       </div>
       <el-empty v-else description="暂无月度数据" :image-size="70" />
-    </section>
-
-    <section class="panel summary-panel">
-      <div class="section-head"><div><h3>业务线盈利明细</h3><p>金额单位：万元，工时单位：人月</p></div></div>
+        </el-tab-pane>
+        <el-tab-pane label="业务线盈利明细" name="summary">
+          <div class="section-head"><div><h3>业务线盈利明细</h3><p>金额单位：万元，工时单位：人月</p></div></div>
       <div class="table-scroll">
         <el-table :data="summaryRows" :row-class-name="rowClassName" empty-text="暂无业务线数据" class="revenue-table">
           <el-table-column type="expand" width="46">
@@ -529,11 +531,10 @@ onMounted(loadPage)
           <el-table-column label="毛利(万)" min-width="110"><template #default="scope"><span :class="profitClass(cellValue(scope.row, 'profit'))">{{ cellWan(scope.row, 'profit') }}</span></template></el-table-column>
           <el-table-column label="毛利率" min-width="100"><template #default="scope"><span :class="profitClass(cellValue(scope.row, 'profitRate'))">{{ cellRate(scope.row) }}</span></template></el-table-column>
         </el-table>
-      </div>
-    </section>
-
-    <section class="panel management-panel">
-      <el-tabs v-model="activeTab">
+        </div>
+        </el-tab-pane>
+        <el-tab-pane label="基础配置" name="config">
+          <el-tabs v-model="activeTab" class="config-tabs">
         <el-tab-pane label="项目映射" name="mappings">
           <div class="tab-toolbar"><el-select v-model="selectedSourceType" clearable placeholder="按来源类型筛选" style="width: 220px"><el-option v-for="sourceType in sourceTypeOptions" :key="sourceType" :label="sourceType" :value="sourceType" /></el-select><el-button :icon="Refresh" @click="loadMappings">刷新</el-button></div>
           <div class="table-scroll">
@@ -606,6 +607,8 @@ onMounted(loadPage)
           </div>
         </el-tab-pane>
       </el-tabs>
+        </el-tab-pane>
+      </el-tabs>
     </section>
 
     <el-dialog v-model="mappingDialogVisible" title="编辑项目映射" width="500px">
@@ -641,7 +644,7 @@ onMounted(loadPage)
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }.metric-card { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); }.metric-card :deep(.el-card__body) { padding: 18px 20px; }.metric-label { color: var(--gray-500); font-size: 13px; }.metric-value { margin-top: 10px; color: var(--gray-800); font-size: 27px; font-weight: 700; line-height: 1.2; }.metric-value small { margin-left: 5px; font-size: 12px; font-weight: 500; }.metric-value.blue { color: var(--primary); }.metric-value.orange { color: var(--warning); }.metric-value.purple { color: #7c5cd6; }.metric-value.green, .positive { color: var(--success); }.metric-value.red, .negative { color: var(--danger); }.metric-year { margin-top: 7px; color: var(--gray-400); font-size: 12px; }
 .panel { padding: 20px; }.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }.section-head h3 { margin: 0 0 4px; color: var(--gray-800); font-size: 17px; }.trend-list { display: flex; flex-direction: column; gap: 13px; }.trend-row { display: flex; align-items: center; gap: 16px; }.trend-month { width: 38px; color: var(--gray-600); font-size: 13px; }.trend-bars { display: flex; flex: 1; flex-direction: column; gap: 6px; }.bar-line { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--gray-600); font-size: 12px; }.bar-label { width: 30px; }.bar-track { height: 9px; flex: 1; overflow: hidden; background: var(--gray-100); border-radius: 5px; }.bar { display: block; height: 100%; min-width: 2px; border-radius: inherit; }.bar.income { background: var(--primary); }.bar.cost { background: var(--warning); }.bar-line strong { width: 78px; color: var(--gray-700); font-size: 12px; font-weight: 500; text-align: right; }
 .table-scroll { width: 100%; overflow-x: auto; }.revenue-table { min-width: 1780px; }.revenue-table :deep(.business-line-row td) { background: #f8fbff; }.revenue-table :deep(.business-line-row:hover td) { background: #f1f6ff !important; }.revenue-table :deep(.total-row td) { background: #f5f7fa; font-weight: 600; }.revenue-table :deep(.total-row:hover td) { background: #eef1f5 !important; }.revenue-table :deep(.mapping-warning-row td) { background: #fff8e6; }.revenue-table :deep(.mapping-warning-row:hover td) { background: #fff1cc !important; }.line-name { color: var(--gray-800); }.project-row .line-name { color: var(--gray-700); font-weight: 500; }.month-detail { padding: 12px 34px 16px 58px; background: var(--gray-50); }.month-detail h4 { margin: 0 0 10px; color: var(--gray-700); font-size: 13px; }
-.management-panel :deep(.el-tabs__header) { margin-bottom: 18px; }.tab-toolbar { justify-content: space-between; margin-bottom: 14px; }.tab-toolbar > :first-child { margin-right: auto; }.tab-toolbar-actions { display: flex; gap: 8px; }.init-alert { margin-top: 16px; }.init-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }.import-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.import-box { display: flex; min-height: 240px; align-items: center; flex-direction: column; padding: 24px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); text-align: center; }.import-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 10px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }.import-box h4 { margin: 0 0 5px; color: var(--gray-800); font-size: 16px; }.import-box p { margin: 0 0 15px; color: var(--gray-500); font-size: 12px; }.file-name { max-width: 100%; margin-top: 9px; overflow: hidden; color: var(--gray-600); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.import-button { margin-top: 14px; }.import-result { width: 100%; margin-top: 14px; text-align: left; }.dialog-alert { margin-bottom: 18px; }.form-readonly { color: var(--gray-600); font-size: 13px; }
+.config-tabs :deep(.el-tabs__header) { margin-bottom: 18px; }.tab-toolbar { justify-content: space-between; margin-bottom: 14px; }.tab-toolbar > :first-child { margin-right: auto; }.tab-toolbar-actions { display: flex; gap: 8px; }.init-alert { margin-top: 16px; }.init-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }.import-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.import-box { display: flex; min-height: 240px; align-items: center; flex-direction: column; padding: 24px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); text-align: center; }.import-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 10px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }.import-box h4 { margin: 0 0 5px; color: var(--gray-800); font-size: 16px; }.import-box p { margin: 0 0 15px; color: var(--gray-500); font-size: 12px; }.file-name { max-width: 100%; margin-top: 9px; overflow: hidden; color: var(--gray-600); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.import-button { margin-top: 14px; }.import-result { width: 100%; margin-top: 14px; text-align: left; }.dialog-alert { margin-bottom: 18px; }.form-readonly { color: var(--gray-600); font-size: 13px; }
 @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .page-head { align-items: flex-start; flex-direction: column; padding: 18px; }.head-actions { width: 100%; }.head-actions .el-select, .head-actions .el-button { flex: 1; }.panel { padding: 15px; }.metrics-grid, .import-grid { grid-template-columns: 1fr; }.metric-value { font-size: 23px; }.trend-row { align-items: flex-start; }.trend-month { padding-top: 2px; }.tab-toolbar { align-items: stretch; flex-direction: column; }.tab-toolbar .el-select, .tab-toolbar .el-button { width: 100%; margin: 0; }.tab-toolbar-actions { flex-direction: column; }.tab-toolbar-actions .el-button { width: 100%; }.init-actions { flex-direction: column; align-items: stretch; }.init-actions .el-button { width: 100%; }.month-detail { padding-left: 18px; } }
 </style>
