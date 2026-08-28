@@ -515,38 +515,30 @@ class RevenueServiceTest {
     }
 
     @Test
-    void initializeSplitsAoyouAcrossKabritaAndHyproca() throws Exception {
+    void initializeWritesAoyouAsSingleProject() throws Exception {
         when(projectMapper.selectList(any())).thenReturn(List.of(
-                project(1L, 10L, "皇家项目"), project(8L, 10L, "佳贝艾特"), project(9L, 10L, "海普诺凯")));
+                project(1L, 10L, "皇家项目"), project(20L, 10L, "澳优")));
         when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
         when(costMapper.selectOne(any())).thenReturn(null);
 
         RevenueInitResultVO result = service.initializeFromWorkbook(initWorkbook(true), 2026, 7L);
 
-        assertThat(result.getImportedProjectCount()).isEqualTo(3);
+        assertThat(result.getImportedProjectCount()).isEqualTo(2);
         assertThat(result.getErrors()).isEmpty();
-        // 皇家 12 个月 + 佳贝艾特/海普诺凯 各 1 个月
+        // 皇家 12 个月 + 澳优 1 个月
         ArgumentCaptor<RevenueMonthlyCost> costCaptor = ArgumentCaptor.forClass(RevenueMonthlyCost.class);
-        verify(costMapper, times(14)).insert(costCaptor.capture());
-        assertThat(costCaptor.getAllValues()).filteredOn(c -> c.getProjectId() == 8L)
+        verify(costMapper, times(13)).insert(costCaptor.capture());
+        assertThat(costCaptor.getAllValues()).filteredOn(c -> c.getProjectId() == 20L)
                 .singleElement().satisfies(c -> {
-                    assertThat(c.getWorkHours()).isEqualByComparingTo("1");
-                    assertThat(c.getWorkCost()).isEqualTo(15000L);
+                    assertThat(c.getWorkHours()).isEqualByComparingTo("2");
+                    assertThat(c.getWorkCost()).isEqualTo(30000L);
                 });
-        assertThat(costCaptor.getAllValues()).filteredOn(c -> c.getProjectId() == 9L)
-                .singleElement().satisfies(c -> {
-                    assertThat(c.getWorkHours()).isEqualByComparingTo("1");
-                    assertThat(c.getWorkCost()).isEqualTo(15000L);
-                });
-        // H2预估 100万 拆半：佳贝艾特/海普诺凯 各 50万 + 皇家 128万
+        // 皇家 H2预估 128万 + 澳优 H2预估 100万（全额，不拆分）
         ArgumentCaptor<RevenueManualEntry> manualCaptor = ArgumentCaptor.forClass(RevenueManualEntry.class);
-        verify(manualEntryMapper, times(3)).insert(manualCaptor.capture());
+        verify(manualEntryMapper, times(2)).insert(manualCaptor.capture());
         assertThat(manualCaptor.getAllValues()).filteredOn(
-                        item -> item.getProjectId() == 8L && "h2_estimate".equals(item.getEntryType()))
-                .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(500000L));
-        assertThat(manualCaptor.getAllValues()).filteredOn(
-                        item -> item.getProjectId() == 9L && "h2_estimate".equals(item.getEntryType()))
-                .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(500000L));
+                        item -> item.getProjectId() == 20L && "h2_estimate".equals(item.getEntryType()))
+                .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(1000000L));
     }
 
     private MockMultipartFile initWorkbook() throws Exception {

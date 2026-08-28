@@ -287,25 +287,11 @@ public class RevenueService {
                     .likeRight(RevenueManualEntry::getYearMonth, yearPrefix));
             for (InitProjectData data : projectData) {
                 Project project = findKnownProject(data.name, references.projects());
-                List<Project> splitTargets = List.of();
-                if (project == null && normalize(data.name).contains("澳优")) {
-                    // 澳优 = 佳贝艾特 + 海普诺凯，默认各 50%
-                    splitTargets = references.projects().stream()
-                            .filter(item -> item.getName() != null
-                                    && (item.getName().contains("佳贝艾特") || item.getName().contains("海普诺凯")))
-                            .toList();
-                }
-                if (project == null && splitTargets.isEmpty()) {
+                if (project == null || project.getId() == null) {
                     result.getErrors().add("未找到项目映射: " + data.name);
                     continue;
                 }
-                if (project != null) {
-                    writeInitProjectData(year, project, data, 1, userId, result);
-                } else {
-                    for (Project target : splitTargets) {
-                        writeInitProjectData(year, target, data, 2, userId, result);
-                    }
-                }
+                writeInitProjectData(year, project, data, 1, userId, result);
             }
             return result;
         } catch (IOException | RuntimeException exception) {
