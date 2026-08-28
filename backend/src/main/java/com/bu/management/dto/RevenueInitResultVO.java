@@ -10,5 +10,6 @@ public class RevenueInitResultVO {
     private Integer importedProjectCount = 0;
     private Integer costRowCount = 0;
     private Integer manualRowCount = 0;
+    private Integer incomeRowCount = 0;
     private List<String> errors = new ArrayList<>();
 }

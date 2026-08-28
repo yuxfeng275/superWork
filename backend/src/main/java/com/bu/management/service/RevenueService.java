@@ -285,6 +285,10 @@ public class RevenueService {
                     .likeRight(RevenueMonthlyCost::getYearMonth, yearPrefix));
             manualEntryMapper.delete(new LambdaQueryWrapper<RevenueManualEntry>()
                     .likeRight(RevenueManualEntry::getYearMonth, yearPrefix));
+            List<String> h1Months = List.of("01", "02", "03", "04", "05", "06").stream()
+                    .map(month -> year + "-" + month).toList();
+            incomeMapper.delete(new LambdaQueryWrapper<RevenueMonthlyIncome>()
+                    .in(RevenueMonthlyIncome::getYearMonth, h1Months));
             for (InitProjectData data : projectData) {
                 Project project = findKnownProject(data.name, references.projects());
                 if (project == null || project.getId() == null) {
@@ -325,6 +329,18 @@ public class RevenueService {
                 "other_cost", data.otherYuan / divisor, userId, result);
         insertInitH2Estimate(year, project.getId(), project.getBusinessLineId(),
                 data.h2EstimateYuan / divisor, userId, result);
+        long h1Receivable = data.h1ReceivableYuan / divisor;
+        if (h1Receivable > 0) {
+            long base = h1Receivable / 6;
+            long remainder = h1Receivable % 6;
+            for (int month = 1; month <= 6; month++) {
+                IncomeAggregate aggregate = new IncomeAggregate();
+                aggregate.add(base + (month == 6 ? remainder : 0), 0);
+                upsertIncome(new IncomeKey(String.format(Locale.ROOT, "%04d-%02d", year, month),
+                        project.getId(), project.getBusinessLineId()), aggregate);
+            }
+            result.setIncomeRowCount(result.getIncomeRowCount() + 6);
+        }
     }
 
     private List<InitProjectData> parseInitProjects(Sheet sheet, DataFormatter formatter, FormulaEvaluator evaluator) {
@@ -361,7 +377,7 @@ public class RevenueService {
                         readNullableDecimal(row.getCell(3 + month), formatter, evaluator));
             }
         }
-        // 交付营收区域（Excel 行 25-30）：H2预估=H列，协力=K列，服务器=L列，其他=M列
+        // 交付营收区域（Excel 行 25-30）：H1交付=D列，H2预估=H列，协力=K列，服务器=L列，其他=M列
         for (int rowIndex = 24; rowIndex <= 29; rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (row == null) {
@@ -372,6 +388,7 @@ public class RevenueService {
             if (data == null) {
                 continue;
             }
+            data.h1ReceivableYuan = yuanFromWan(readNullableDecimal(row.getCell(3), formatter, evaluator));
             data.h2EstimateYuan = yuanFromWan(readNullableDecimal(row.getCell(7), formatter, evaluator));
             data.partnerYuan = yuanFromWan(readNullableDecimal(row.getCell(10), formatter, evaluator));
             data.serverYuan = yuanFromWan(readNullableDecimal(row.getCell(11), formatter, evaluator));
@@ -1202,6 +1219,7 @@ public class RevenueService {
         private final String name;
         private final BigDecimal[] monthlyHours = new BigDecimal[12];
         private final long[] monthlyCostYuan = new long[12];
+        private long h1ReceivableYuan;
         private long h2EstimateYuan;
         private long partnerYuan;
         private long serverYuan;

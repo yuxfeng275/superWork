@@ -465,12 +465,13 @@ class RevenueServiceTest {
     }
 
     @Test
-    void initializeFromWorkbookWritesCostsManualsAndKeepsIncome() throws Exception {
+    void initializeWritesCostsManualsAndH1Income() throws Exception {
         when(projectMapper.selectList(any())).thenReturn(List.of(
                 project(1L, 10L, "皇家项目"), project(10L, 20L, "Speedo项目")));
         when(businessLineMapper.selectList(any())).thenReturn(List.of(
                 businessLine(10L, "全渠道云鹿定制"), businessLine(20L, "全渠道云鹿SAAS")));
         when(costMapper.selectOne(any())).thenReturn(null);
+        when(incomeMapper.selectOne(any())).thenReturn(null);
         MockMultipartFile file = initWorkbook();
 
         RevenueInitResultVO result = service.initializeFromWorkbook(file, 2026, 7L);
@@ -479,8 +480,8 @@ class RevenueServiceTest {
         assertThat(result.getErrors()).isEmpty();
         verify(costMapper).delete(any());
         verify(manualEntryMapper).delete(any());
-        verify(incomeMapper, never()).delete(any());
-        // 皇家：12 个月工时成本 + 协力/服务器/其他 均为 0（跳过） + H2预估 1条
+        verify(incomeMapper).delete(any());
+        // 皇家：12 个月工时成本 + H1交付分摊 6 个月 + H2预估 1条
         ArgumentCaptor<RevenueMonthlyCost> costCaptor = ArgumentCaptor.forClass(RevenueMonthlyCost.class);
         verify(costMapper, times(12)).insert(costCaptor.capture());
         assertThat(costCaptor.getAllValues()).first().satisfies(cost -> {
@@ -490,6 +491,18 @@ class RevenueServiceTest {
             assertThat(cost.getCategory()).isEqualTo("delivery");
             assertThat(cost.getWorkHours()).isEqualByComparingTo("4.77");
         });
+        ArgumentCaptor<RevenueMonthlyIncome> incomeCaptor = ArgumentCaptor.forClass(RevenueMonthlyIncome.class);
+        verify(incomeMapper, times(6)).insert(incomeCaptor.capture());
+        assertThat(incomeCaptor.getAllValues()).hasSize(6);
+        assertThat(incomeCaptor.getAllValues()).filteredOn(
+                        item -> "2026-06".equals(item.getYearMonth()))
+                .singleElement().satisfies(item -> {
+                    assertThat(item.getReceivableAmount()).isEqualTo(149335L);
+                    assertThat(item.getReceivedAmount()).isZero();
+                });
+        assertThat(incomeCaptor.getAllValues()).filteredOn(
+                        item -> "2026-01".equals(item.getYearMonth()))
+                .singleElement().satisfies(item -> assertThat(item.getReceivableAmount()).isEqualTo(149333L));
         ArgumentCaptor<RevenueManualEntry> manualCaptor = ArgumentCaptor.forClass(RevenueManualEntry.class);
         verify(manualEntryMapper, times(1)).insert(manualCaptor.capture());
         assertThat(manualCaptor.getValue().getEntryType()).isEqualTo("h2_estimate");
@@ -497,6 +510,7 @@ class RevenueServiceTest {
         assertThat(manualCaptor.getValue().getAmount()).isEqualTo(1280000L);
         assertThat(manualCaptor.getValue().getCreatedBy()).isEqualTo(7L);
         assertThat(result.getManualRowCount()).isEqualTo(1);
+        assertThat(result.getIncomeRowCount()).isEqualTo(6);
     }
 
     @Test
@@ -539,6 +553,15 @@ class RevenueServiceTest {
         assertThat(manualCaptor.getAllValues()).filteredOn(
                         item -> item.getProjectId() == 20L && "h2_estimate".equals(item.getEntryType()))
                 .singleElement().satisfies(item -> assertThat(item.getAmount()).isEqualTo(1000000L));
+        // H1交付：皇家 89.6万 + 澳优 19.09万，各分摊 6 个月
+        ArgumentCaptor<RevenueMonthlyIncome> incomeCaptor = ArgumentCaptor.forClass(RevenueMonthlyIncome.class);
+        verify(incomeMapper, times(12)).insert(incomeCaptor.capture());
+        assertThat(incomeCaptor.getAllValues()).filteredOn(item -> item.getProjectId() == 20L)
+                .hasSize(6)
+                .allSatisfy(item -> assertThat(item.getBusinessLineId()).isEqualTo(10L));
+        assertThat(incomeCaptor.getAllValues()).filteredOn(
+                        item -> item.getProjectId() == 20L && "2026-06".equals(item.getYearMonth()))
+                .singleElement().satisfies(item -> assertThat(item.getReceivableAmount()).isEqualTo(31820L));
     }
 
     private MockMultipartFile initWorkbook() throws Exception {
@@ -572,18 +595,20 @@ class RevenueServiceTest {
             }
             // 交付营收区域（Excel 行 24 表头 / 25-30 项目）
             Row revenueHeader = sheet.createRow(23);
+            revenueHeader.createCell(3).setCellValue("H1交付(万)");
             revenueHeader.createCell(7).setCellValue("H2预估(万)");
             revenueHeader.createCell(10).setCellValue("协力成本(万)");
             revenueHeader.createCell(11).setCellValue("服务器成本(万)");
             revenueHeader.createCell(12).setCellValue("其他成本(万)");
             Row royalRevenue = sheet.createRow(24);
             royalRevenue.createCell(2).setCellValue("皇家");
+            royalRevenue.createCell(3).setCellValue(89.6);
             royalRevenue.createCell(7).setCellValue(128.0);
             royalRevenue.createCell(10).setCellValue(0.0);
             royalRevenue.createCell(11).setCellValue(0.0);
             royalRevenue.createCell(12).setCellValue(0.0);
             if (includeAoyou) {
-                // 澳优：工时 1月=2，成本 1月=3万，H2预估=100万
+                // 澳优：工时 1月=2，成本 1月=3万，H1交付=19.09万，H2预估=100万
                 Row aoyouHours = sheet.createRow(5);
                 aoyouHours.createCell(2).setCellValue("澳优");
                 aoyouHours.createCell(3).setCellValue(2.0);
@@ -592,6 +617,7 @@ class RevenueServiceTest {
                 aoyouCost.createCell(3).setCellValue(3.0);
                 Row aoyouRevenue = sheet.createRow(26);
                 aoyouRevenue.createCell(2).setCellValue("澳优");
+                aoyouRevenue.createCell(3).setCellValue(19.09);
                 aoyouRevenue.createCell(7).setCellValue(100.0);
             }
             workbook.write(output);
