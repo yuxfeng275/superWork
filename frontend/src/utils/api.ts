@@ -1,6 +1,7 @@
 import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
+  RevenueImportRecord,
   RevenueImportResult,
   RevenueManualEntryDTO,
   RevenueMapping,
@@ -1383,6 +1384,11 @@ class ApiService {
   // Revenue management APIs
   async getRevenueSummary(year: number): Promise<RevenueSummary> {
     return this.request<RevenueSummary>(`/api/revenue/summary?year=${year}`)
+  }
+
+  async getRevenueImportRecords(importType?: string): Promise<RevenueImportRecord[]> {
+    const query = importType ? `?importType=${encodeURIComponent(importType)}` : ''
+    return this.request<RevenueImportRecord[]>(`/api/revenue/imports${query}`)
   }
 
   async importCostExcel(file: File): Promise<RevenueImportResult> {

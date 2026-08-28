@@ -6,12 +6,14 @@ import com.bu.management.dto.RevenueManualEntryDTO;
 import com.bu.management.dto.RevenueSummaryVO;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
+import com.bu.management.entity.RevenueImportRecord;
 import com.bu.management.entity.RevenueManualEntry;
 import com.bu.management.entity.RevenueMonthlyCost;
 import com.bu.management.entity.RevenueMonthlyIncome;
 import com.bu.management.entity.RevenueProjectMapping;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.RevenueImportRecordMapper;
 import com.bu.management.mapper.RevenueManualEntryMapper;
 import com.bu.management.mapper.RevenueMonthlyCostMapper;
 import com.bu.management.mapper.RevenueMonthlyIncomeMapper;
@@ -60,6 +62,7 @@ public class RevenueService {
     private static final Pattern MONTH_PATTERN = Pattern.compile("(\\d{4})\\D+(\\d{1,2})");
     private static final Set<String> MANUAL_ENTRY_TYPES = Set.of(
             H2_ESTIMATE, "partner_cost", "server_cost", "other_cost");
+    private static final List<String> PRODUCT_PROJECT_KEYWORDS = List.of("逢时", "黄天鹅");
 
     private final RevenueProjectMappingMapper mappingMapper;
     private final RevenueMonthlyCostMapper costMapper;
@@ -67,10 +70,16 @@ public class RevenueService {
     private final RevenueManualEntryMapper manualEntryMapper;
     private final ProjectMapper projectMapper;
     private final BusinessLineMapper businessLineMapper;
+    private final RevenueImportRecordMapper importRecordMapper;
     private final ReentrantLock upsertLock = new ReentrantLock();
 
     @Transactional
     public RevenueImportResultVO importCostExcel(MultipartFile file) {
+        return importCostExcel(file, null);
+    }
+
+    @Transactional
+    public RevenueImportResultVO importCostExcel(MultipartFile file, Long userId) {
         validateImportFile(file);
         RevenueImportResultVO result = new RevenueImportResultVO();
         ImportReferences references = loadImportReferences();
@@ -81,16 +90,21 @@ public class RevenueService {
             }
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             DataFormatter formatter = new DataFormatter();
+            Map<String, Integer> headers = readHeaders(sheet.getRow(sheet.getFirstRowNum()), formatter, evaluator);
+            int monthColumn = headerIndexOr(headers, "月份", 0);
+            int projectColumn = headerIndexOr(headers, "项目名", 2);
+            int hoursColumn = headerIndexOr(headers, "工时", 5);
+            int costColumn = headerIndexOr(headers, "工时成本", 6);
             for (int rowIndex = sheet.getFirstRowNum() + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
                 Row row = sheet.getRow(rowIndex);
                 if (row == null || isBlankRow(row, formatter, evaluator)) {
                     continue;
                 }
                 try {
-                    String month = readMonth(row.getCell(0), formatter, evaluator);
-                    String sourceName = readRequiredText(row.getCell(2), formatter, evaluator, "项目名");
-                    BigDecimal workHours = readDecimal(row.getCell(5), formatter, evaluator, "工时");
-                    long workCost = readDecimal(row.getCell(6), formatter, evaluator, "工时成本")
+                    String month = readMonth(row.getCell(monthColumn), formatter, evaluator);
+                    String sourceName = readRequiredText(row.getCell(projectColumn), formatter, evaluator, "项目名");
+                    BigDecimal workHours = readDecimal(row.getCell(hoursColumn), formatter, evaluator, "工时");
+                    long workCost = readDecimal(row.getCell(costColumn), formatter, evaluator, "工时成本")
                             .setScale(0, RoundingMode.HALF_UP).longValueExact();
                     RevenueProjectMapping mapping = findOrCreateCostMapping(sourceName, references, result);
                     Long businessLineId = resolveBusinessLineId(mapping, references.projectsById());
@@ -106,6 +120,7 @@ public class RevenueService {
                     result.getErrors().add(rowError(rowIndex, exception.getMessage()));
                 }
             }
+            recordImport(userId, "cost", file.getOriginalFilename(), result);
             return result;
         } catch (IOException | RuntimeException exception) {
             throw new IllegalArgumentException("无法解析成本 Excel: " + safeMessage(exception), exception);
@@ -114,6 +129,11 @@ public class RevenueService {
 
     @Transactional
     public RevenueImportResultVO importIncomeExcel(MultipartFile file) {
+        return importIncomeExcel(file, null);
+    }
+
+    @Transactional
+    public RevenueImportResultVO importIncomeExcel(MultipartFile file, Long userId) {
         validateImportFile(file);
         RevenueImportResultVO result = new RevenueImportResultVO();
         ImportReferences references = loadImportReferences();
@@ -162,6 +182,7 @@ public class RevenueService {
                 }
             }
             aggregates.forEach(this::upsertIncome);
+            recordImport(userId, "income", file.getOriginalFilename(), result);
             return result;
         } catch (IOException | RuntimeException exception) {
             throw new IllegalArgumentException("无法解析营收 Excel: " + safeMessage(exception), exception);
@@ -188,11 +209,13 @@ public class RevenueService {
         RevenueSummaryVO summary = new RevenueSummaryVO();
         summary.setYear(year);
         long totalReceivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long totalReceived = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
         long importedCost = costs.stream().mapToLong(item -> value(item.getWorkCost())).sum();
         long manualCost = manualEntries.stream().filter(this::isActualCost)
                 .mapToLong(item -> value(item.getAmount())).sum();
         long totalCost = importedCost + manualCost;
         summary.setTotalReceivable(totalReceivable);
+        summary.setTotalReceived(totalReceived);
         summary.setTotalCost(totalCost);
         summary.setTotalProfit(totalReceivable - totalCost);
         summary.setProfitRate(profitRate(totalReceivable - totalCost, totalReceivable));
@@ -214,6 +237,15 @@ public class RevenueService {
         return nullSafe(mappingMapper.selectList(query));
     }
 
+    public List<RevenueImportRecord> listImportRecords(String importType) {
+        LambdaQueryWrapper<RevenueImportRecord> query = new LambdaQueryWrapper<RevenueImportRecord>()
+                .orderByDesc(RevenueImportRecord::getId);
+        if (importType != null && !importType.isBlank()) {
+            query.eq(RevenueImportRecord::getImportType, importType.trim());
+        }
+        return nullSafe(importRecordMapper.selectList(query));
+    }
+
     @Transactional
     public RevenueProjectMapping updateMapping(Long id, RevenueProjectMapping request) {
         if (id == null || request == null) {
@@ -225,6 +257,13 @@ public class RevenueService {
         }
         validateCategory(request.getCategory());
         validateProjectReference(request.getProjectId());
+        validateBusinessLineReference(request.getBusinessLineId());
+        if (request.getProjectId() != null && request.getBusinessLineId() != null) {
+            Project project = projectMapper.selectById(request.getProjectId());
+            if (project != null && !Objects.equals(request.getBusinessLineId(), project.getBusinessLineId())) {
+                throw new IllegalArgumentException("所选项目不属于所选业务线");
+            }
+        }
         existing.setProjectId(request.getProjectId());
         existing.setBusinessLineId(request.getBusinessLineId());
         existing.setCategory(request.getCategory());
@@ -518,6 +557,7 @@ public class RevenueService {
         List<RevenueManualEntry> manualEntries = allManualEntries.stream()
                 .filter(item -> Objects.equals(line.getId(), item.getBusinessLineId())).toList();
         long receivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long received = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
         long totalCost = costs.stream().mapToLong(item -> value(item.getWorkCost())).sum()
                 + manualEntries.stream().filter(this::isActualCost).mapToLong(item -> value(item.getAmount())).sum();
 
@@ -527,6 +567,7 @@ public class RevenueService {
         boolean memberLine = normalize(line.getName()).contains("会员通");
         summary.setType(memberLine ? "business_line_summary" : "project_breakdown");
         summary.setTotalReceivable(receivable);
+        summary.setTotalReceived(received);
         summary.setTotalCost(totalCost);
         summary.setTotalProfit(receivable - totalCost);
         summary.setProfitRate(profitRate(receivable - totalCost, receivable));
@@ -578,6 +619,7 @@ public class RevenueService {
             Long projectId, Project project, List<RevenueMonthlyCost> costs,
             List<RevenueMonthlyIncome> incomes, List<RevenueManualEntry> manualEntries) {
         long receivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long received = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
         long deliveryCost = costs.stream().filter(item -> !"sales".equals(item.getCategory()))
                 .mapToLong(item -> value(item.getWorkCost())).sum();
         long salesCost = costs.stream().filter(item -> "sales".equals(item.getCategory()))
@@ -594,6 +636,7 @@ public class RevenueService {
         summary.setProjectId(projectId);
         summary.setProjectName(project == null ? "项目 " + projectId : project.getName());
         summary.setReceivable(receivable);
+        summary.setReceived(received);
         summary.setDeliveryHours(deliveryHours);
         summary.setDeliveryCost(deliveryCost);
         summary.setSalesCost(salesCost);
@@ -664,7 +707,7 @@ public class RevenueService {
 
     private BigDecimal profitRate(long profit, long receivable) {
         if (receivable == 0) {
-            return BigDecimal.ZERO;
+            return null;
         }
         return BigDecimal.valueOf(profit)
                 .divide(BigDecimal.valueOf(receivable), 4, RoundingMode.HALF_UP);
@@ -682,6 +725,15 @@ public class RevenueService {
             throw new IllegalArgumentException("business_line_id 不能为空");
         }
         validateBusinessLineReference(request.getBusinessLineId());
+        if (request.getProjectId() != null) {
+            Project project = projectMapper.selectById(request.getProjectId());
+            if (project == null) {
+                throw new IllegalArgumentException("project_id 对应的项目不存在: " + request.getProjectId());
+            }
+            if (!Objects.equals(request.getBusinessLineId(), project.getBusinessLineId())) {
+                throw new IllegalArgumentException("所选项目不属于所选业务线");
+            }
+        }
         if (request.getAmount() == null) {
             throw new IllegalArgumentException("amount 不能为空");
         }
@@ -739,6 +791,11 @@ public class RevenueService {
             }
         }
         return headers;
+    }
+
+    private int headerIndexOr(Map<String, Integer> headers, String name, int fallback) {
+        Integer index = headers.get(name);
+        return index == null ? fallback : index;
     }
 
     private int requireHeader(Map<String, Integer> headers, String name) {
@@ -806,7 +863,13 @@ public class RevenueService {
     }
 
     private String categoryFor(String sourceName) {
-        return sourceName.contains("【销售】") ? "sales" : "delivery";
+        if (sourceName.contains("【销售】")) {
+            return "sales";
+        }
+        if (PRODUCT_PROJECT_KEYWORDS.stream().anyMatch(sourceName::contains)) {
+            return "product";
+        }
+        return "delivery";
     }
 
     private String defaultCategory(String category) {
@@ -865,6 +928,18 @@ public class RevenueService {
 
     private void incrementPending(RevenueImportResultVO result) {
         result.setPendingMappingCount(result.getPendingMappingCount() + 1);
+    }
+
+    private void recordImport(Long userId, String importType, String fileName, RevenueImportResultVO result) {
+        RevenueImportRecord record = new RevenueImportRecord();
+        record.setImportType(importType);
+        record.setFileName(fileName == null || fileName.isBlank() ? importType + ".xlsx" : fileName);
+        record.setSuccessCount(result.getSuccessCount());
+        record.setNewMappingCount(result.getNewMappingCount());
+        record.setPendingMappingCount(result.getPendingMappingCount());
+        record.setErrorCount(result.getErrors().size());
+        record.setCreatedBy(userId);
+        importRecordMapper.insert(record);
     }
 
     private record ImportReferences(List<Project> projects, List<BusinessLine> businessLines,

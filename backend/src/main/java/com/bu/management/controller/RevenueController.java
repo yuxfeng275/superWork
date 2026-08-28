@@ -4,6 +4,7 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RevenueImportResultVO;
 import com.bu.management.dto.RevenueManualEntryDTO;
 import com.bu.management.dto.RevenueSummaryVO;
+import com.bu.management.entity.RevenueImportRecord;
 import com.bu.management.entity.RevenueProjectMapping;
 import com.bu.management.service.RevenueService;
 import com.bu.management.vo.Result;
@@ -36,14 +37,23 @@ public class RevenueController {
 
     @PostMapping("/import/cost")
     @RequirePermission({"revenue:manage"})
-    public Result<RevenueImportResultVO> importCost(@RequestParam("file") MultipartFile file) {
-        return Result.success(revenueService.importCostExcel(file));
+    public Result<RevenueImportResultVO> importCost(@RequestParam("file") MultipartFile file,
+                                                   @RequestAttribute("userId") Long userId) {
+        return Result.success(revenueService.importCostExcel(file, userId));
     }
 
     @PostMapping("/import/income")
     @RequirePermission({"revenue:manage"})
-    public Result<RevenueImportResultVO> importIncome(@RequestParam("file") MultipartFile file) {
-        return Result.success(revenueService.importIncomeExcel(file));
+    public Result<RevenueImportResultVO> importIncome(@RequestParam("file") MultipartFile file,
+                                                     @RequestAttribute("userId") Long userId) {
+        return Result.success(revenueService.importIncomeExcel(file, userId));
+    }
+
+    @GetMapping("/imports")
+    @RequirePermission({"revenue:view"})
+    public Result<List<RevenueImportRecord>> listImportRecords(
+            @RequestParam(required = false) String importType) {
+        return Result.success(revenueService.listImportRecords(importType));
     }
 
     @GetMapping("/mappings")

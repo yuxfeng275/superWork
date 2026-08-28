@@ -17,6 +17,7 @@ export interface RevenueProjectSummary {
   projectId: number
   projectName: string
   receivable: number
+  received: number
   deliveryHours: number | null
   deliveryCost: number
   salesCost: number
@@ -25,7 +26,7 @@ export interface RevenueProjectSummary {
   otherCost: number
   totalCost: number
   profit: number
-  profitRate: number
+  profitRate: number | null
   h2Estimate: number | null
   months: RevenueMonthlyData[]
 }
@@ -35,9 +36,10 @@ export interface RevenueBusinessLineSummary {
   businessLineName: string
   type: 'project_breakdown' | 'business_line_summary' | string
   totalReceivable: number
+  totalReceived: number
   totalCost: number
   totalProfit: number
-  profitRate: number
+  profitRate: number | null
   projects: RevenueProjectSummary[]
   months: RevenueMonthlyData[]
 }
@@ -45,9 +47,10 @@ export interface RevenueBusinessLineSummary {
 export interface RevenueSummary {
   year: number
   totalReceivable: number
+  totalReceived: number
   totalCost: number
   totalProfit: number
-  profitRate: number
+  profitRate: number | null
   monthlyTrend: RevenueMonthlyTrendItem[]
   businessLines: RevenueBusinessLineSummary[]
 }
@@ -67,6 +70,18 @@ export interface RevenueMapping {
   businessLineId: number | null
   category: 'delivery' | 'sales' | 'product' | string
   status: number
+}
+
+export interface RevenueImportRecord {
+  id: number
+  importType: 'cost' | 'income' | string
+  fileName: string
+  successCount: number
+  newMappingCount: number
+  pendingMappingCount: number
+  errorCount: number
+  createdBy: number | null
+  createdAt: string
 }
 
 export interface RevenueManualEntryDTO {

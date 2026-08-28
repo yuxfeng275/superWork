@@ -6,6 +6,7 @@ import { api } from '@/utils/api'
 import type {
   RevenueBusinessLineSummary,
   RevenueEntryType,
+  RevenueImportRecord,
   RevenueImportResult,
   RevenueManualEntryDTO,
   RevenueMapping,
@@ -47,6 +48,8 @@ const mappings = ref<RevenueMapping[]>([])
 const selectedSourceType = ref('')
 const manualMonth = ref(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
 const manualEntries = ref<RevenueManualEntryDTO[]>([])
+const importRecords = ref<RevenueImportRecord[]>([])
+const importRecordsLoading = ref(false)
 const businessLines = ref<BusinessLineOption[]>([])
 const projects = ref<ProjectOption[]>([])
 const importFiles = reactive<Record<ImportKind, File | null>>({ cost: null, income: null })
@@ -84,9 +87,15 @@ const filteredMappings = computed(() => selectedSourceType.value
 const metricCards = computed(() => [
   { label: '年度累计营收', value: formatWan(summary.value?.totalReceivable, 1), tone: 'blue' },
   { label: '累计成本', value: formatWan(summary.value?.totalCost, 1), tone: 'orange' },
-  { label: '毛利', value: formatWan(summary.value?.totalProfit, 1), tone: summary.value && summary.value.totalProfit >= 0 ? 'green' : 'red' },
-  { label: '毛利率', value: formatRate(summary.value?.profitRate), tone: summary.value && summary.value.profitRate >= 0 ? 'green' : 'red' }
+  { label: '毛利', value: formatWan(summary.value?.totalProfit, 1), tone: profitTone(summary.value?.totalProfit) },
+  { label: '毛利率', value: summary.value && summary.value.totalReceivable > 0 ? formatRate(summary.value.profitRate) : '—', tone: rateTone(summary.value?.profitRate, summary.value?.totalReceivable) }
 ])
+const manualProjects = computed(() => manualForm.businessLineId
+  ? projects.value.filter(item => item.businessLineId === manualForm.businessLineId)
+  : projects.value)
+const mappingProjects = computed(() => mappingForm.businessLineId
+  ? projects.value.filter(item => item.businessLineId === mappingForm.businessLineId)
+  : projects.value)
 const trendMax = computed(() => Math.max(1, ...(summary.value?.monthlyTrend ?? []).flatMap(item => [item.income, item.cost])))
 const summaryRows = computed<SummaryRow[]>(() => (summary.value?.businessLines ?? []).flatMap(businessLine => {
   if (businessLine.type === 'project_breakdown' && businessLine.projects?.length) {
@@ -108,6 +117,16 @@ function formatRate(value: number | null | undefined) {
   return `${(value * 100).toFixed(2)}%`
 }
 
+function profitTone(value: number | null | undefined) {
+  if (value === null || value === undefined) return ''
+  return value >= 0 ? 'green' : 'red'
+}
+
+function rateTone(value: number | null | undefined, receivable: number | null | undefined) {
+  if (value === null || value === undefined || !receivable) return ''
+  return value >= 0 ? 'green' : 'red'
+}
+
 function formatHours(value: number | null | undefined) {
   if (value === null || value === undefined) return '—'
   return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
@@ -118,7 +137,8 @@ function getEntryTypeLabel(value: string) {
 }
 
 function profitClass(value: number | null | undefined) {
-  return value !== null && value !== undefined && value >= 0 ? 'positive' : 'negative'
+  if (value === null || value === undefined) return ''
+  return value >= 0 ? 'positive' : 'negative'
 }
 
 function extractList<T>(payload: unknown): T[] {
@@ -175,6 +195,17 @@ async function loadManualEntries() {
   }
 }
 
+async function loadImportRecords() {
+  importRecordsLoading.value = true
+  try {
+    importRecords.value = await api.getRevenueImportRecords()
+  } catch {
+    ElMessage.error('导入历史加载失败')
+  } finally {
+    importRecordsLoading.value = false
+  }
+}
+
 async function loadOptions() {
   try {
     const [businessLinePayload, projectPayload] = await Promise.all([
@@ -190,7 +221,7 @@ async function loadOptions() {
 }
 
 async function loadPage() {
-  await Promise.all([loadSummary(), loadMappings(), loadManualEntries(), loadOptions()])
+  await Promise.all([loadSummary(), loadMappings(), loadManualEntries(), loadOptions(), loadImportRecords()])
 }
 
 function rowClassName({ row }: { row: SummaryRow }) {
@@ -233,6 +264,14 @@ function syncManualBusinessLine() {
   if (!manualForm.projectId) return
   const project = projects.value.find(item => item.id === manualForm.projectId)
   if (project) manualForm.businessLineId = project.businessLineId
+}
+
+function onManualBusinessLineChange() {
+  if (!manualForm.projectId) return
+  const project = projects.value.find(item => item.id === manualForm.projectId)
+  if (project && project.businessLineId !== manualForm.businessLineId) {
+    manualForm.projectId = undefined
+  }
 }
 
 function openManualAdd() {
@@ -326,7 +365,7 @@ async function runImport(kind: ImportKind) {
       ? await api.importCostExcel(file)
       : await api.importIncomeExcel(file)
     ElMessage.success('导入处理完成')
-    await Promise.all([loadSummary(), loadMappings()])
+    await Promise.all([loadSummary(), loadMappings(), loadImportRecords()])
   } catch {
     ElMessage.error('Excel 导入失败')
   } finally {
@@ -381,7 +420,15 @@ onMounted(loadPage)
         <el-table :data="summaryRows" :row-class-name="rowClassName" empty-text="暂无业务线数据" class="revenue-table">
           <el-table-column type="expand" width="46">
             <template #default="scope">
-              <div v-if="scope.row.kind === 'project'" class="month-detail">
+              <div v-if="scope.row.kind === 'business-line' && scope.row.businessLine.months?.length" class="month-detail">
+                <h4>{{ scope.row.businessLine.businessLineName }}月度明细</h4>
+                <el-table :data="scope.row.businessLine.months" size="small">
+                  <el-table-column prop="month" label="月份" width="120" />
+                  <el-table-column label="营收(万)" width="130"><template #default="detail">{{ formatWan(detail.row.income) }}</template></el-table-column>
+                  <el-table-column label="成本(万)" width="130"><template #default="detail">{{ formatWan(detail.row.cost) }}</template></el-table-column>
+                </el-table>
+              </div>
+              <div v-else-if="scope.row.kind === 'project'" class="month-detail">
                 <h4>{{ scope.row.project.projectName }}月度明细</h4>
                 <el-table :data="scope.row.project.months" size="small">
                   <el-table-column prop="month" label="月份" width="120" />
@@ -396,6 +443,7 @@ onMounted(loadPage)
             <template #default="scope"><strong :class="{ 'line-name': scope.row.kind === 'business-line' }">{{ scope.row.kind === 'business-line' ? scope.row.businessLine.businessLineName : `　${scope.row.project.projectName}` }}</strong></template>
           </el-table-column>
           <el-table-column label="应收(万)" min-width="110"><template #default="scope">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalReceivable : scope.row.project.receivable) }}</template></el-table-column>
+          <el-table-column label="已收(万)" min-width="110"><template #default="scope">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalReceived : scope.row.project.received) }}</template></el-table-column>
           <el-table-column label="工时(人月)" min-width="115"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatHours(scope.row.project.deliveryHours) }}</template></el-table-column>
           <el-table-column label="交付成本(万)" min-width="125"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.deliveryCost) }}</template></el-table-column>
           <el-table-column label="销售成本(万)" min-width="125"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.salesCost) }}</template></el-table-column>
@@ -458,6 +506,21 @@ onMounted(loadPage)
             </div>
           </div>
         </el-tab-pane>
+        <el-tab-pane label="导入历史" name="history">
+          <div class="tab-toolbar"><el-button :icon="Refresh" @click="loadImportRecords">刷新</el-button></div>
+          <div class="table-scroll">
+            <el-table v-loading="importRecordsLoading" :data="importRecords" class="revenue-table">
+              <el-table-column label="时间" width="180"><template #default="scope">{{ scope.row.createdAt }}</template></el-table-column>
+              <el-table-column label="类型" width="100"><template #default="scope"><el-tag size="small" :type="scope.row.importType === 'cost' ? 'warning' : 'success'">{{ scope.row.importType === 'cost' ? '成本' : '营收' }}</el-tag></template></el-table-column>
+              <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
+              <el-table-column prop="successCount" label="成功" width="90" />
+              <el-table-column prop="newMappingCount" label="新增映射" width="100" />
+              <el-table-column prop="pendingMappingCount" label="待处理" width="90" />
+              <el-table-column label="错误" width="90"><template #default="scope"><span :class="scope.row.errorCount > 0 ? 'negative' : ''">{{ scope.row.errorCount }}</span></template></el-table-column>
+              <template #empty><el-empty description="暂无导入记录" :image-size="70" /></template>
+            </el-table>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </section>
 
@@ -465,8 +528,8 @@ onMounted(loadPage)
       <el-alert v-if="editingMapping && !editingMapping.projectId && !editingMapping.businessLineId" title="该来源尚未关联项目或业务线" type="warning" :closable="false" show-icon class="dialog-alert" />
       <el-form label-width="90px">
         <el-form-item label="来源名称"><span class="form-readonly">{{ editingMapping?.sourceName }}</span></el-form-item>
-        <el-form-item label="项目"><el-select v-model="mappingForm.projectId" clearable filterable placeholder="可选项目" style="width: 100%"><el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" /></el-select></el-form-item>
-        <el-form-item label="业务线" required><el-select v-model="mappingForm.businessLineId" filterable placeholder="请选择业务线" style="width: 100%"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></el-form-item>
+        <el-form-item label="项目"><el-select v-model="mappingForm.projectId" clearable filterable placeholder="可选项目" style="width: 100%"><el-option v-for="project in mappingProjects" :key="project.id" :label="project.name" :value="project.id" /></el-select></el-form-item>
+        <el-form-item label="业务线" required><el-select v-model="mappingForm.businessLineId" filterable placeholder="请选择业务线" style="width: 100%" @change="mappingForm.projectId = undefined"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></el-form-item>
         <el-form-item label="分类"><el-select v-model="mappingForm.category" style="width: 100%"><el-option label="交付" value="delivery" /><el-option label="销售" value="sales" /><el-option label="产品" value="product" /></el-select></el-form-item>
       </el-form>
       <template #footer><el-button @click="mappingDialogVisible = false">取消</el-button><el-button type="primary" @click="saveMapping">保存</el-button></template>
@@ -476,9 +539,9 @@ onMounted(loadPage)
       <el-form ref="manualFormRef" :model="manualForm" label-width="95px" :rules="{ yearMonth: [{ required: true, message: '请选择月份', trigger: 'change' }], businessLineId: [{ required: true, message: '请选择业务线', trigger: 'change' }], entryType: [{ required: true, message: '请选择类型', trigger: 'change' }], amount: [{ required: true, message: '请输入金额', trigger: 'blur' }] }">
         <el-form-item label="月份" prop="yearMonth"><el-date-picker v-model="manualForm.yearMonth" type="month" value-format="YYYY-MM" style="width: 100%" /></el-form-item>
         <el-form-item label="类型" prop="entryType"><el-select v-model="manualForm.entryType" style="width: 100%"><el-option v-for="(label, type) in entryTypeLabels" :key="type" :label="label" :value="type" /></el-select></el-form-item>
-        <el-form-item label="金额(元)" prop="amount"><el-input-number v-model="manualForm.amount" :min="0" :precision="0" controls-position="right" style="width: 100%" /></el-form-item>
-        <el-form-item label="业务线" prop="businessLineId"><el-select v-model="manualForm.businessLineId" filterable placeholder="请选择业务线" style="width: 100%"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></el-form-item>
-        <el-form-item label="项目"><el-select v-model="manualForm.projectId" clearable filterable placeholder="可选项目" style="width: 100%" @change="syncManualBusinessLine"><el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" /></el-select></el-form-item>
+        <el-form-item label="金额(元)" prop="amount"><el-input-number v-model="manualForm.amount" :precision="0" controls-position="right" style="width: 100%" /></el-form-item>
+        <el-form-item label="业务线" prop="businessLineId"><el-select v-model="manualForm.businessLineId" filterable placeholder="请选择业务线" style="width: 100%" @change="onManualBusinessLineChange"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></el-form-item>
+        <el-form-item label="项目"><el-select v-model="manualForm.projectId" clearable filterable placeholder="可选项目" style="width: 100%" @change="syncManualBusinessLine"><el-option v-for="project in manualProjects" :key="project.id" :label="project.name" :value="project.id" /></el-select></el-form-item>
         <el-form-item label="备注"><el-input v-model="manualForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
       </el-form>
       <template #footer><el-button @click="manualDialogVisible = false">取消</el-button><el-button type="primary" @click="saveManualEntry">保存</el-button></template>

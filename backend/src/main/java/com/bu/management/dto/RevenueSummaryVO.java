@@ -9,6 +9,7 @@ import java.util.List;
 public class RevenueSummaryVO {
     private Integer year;
     private Long totalReceivable;
+    private Long totalReceived;
     private Long totalCost;
     private Long totalProfit;
     private BigDecimal profitRate;
@@ -28,6 +29,7 @@ public class RevenueSummaryVO {
         private String businessLineName;
         private String type;
         private Long totalReceivable;
+        private Long totalReceived;
         private Long totalCost;
         private Long totalProfit;
         private BigDecimal profitRate;
@@ -40,6 +42,7 @@ public class RevenueSummaryVO {
         private Long projectId;
         private String projectName;
         private Long receivable;
+        private Long received;
         private BigDecimal deliveryHours;
         private Long deliveryCost;
         private Long salesCost;
