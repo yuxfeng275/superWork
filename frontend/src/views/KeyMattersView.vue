@@ -1167,6 +1167,13 @@ function historyComparison(matter: BuKeyMatter, index: number) {
   }
 }
 
+function presentationHistoryComparison(update: BuKeyMatterWeeklyUpdate) {
+  const matter = presentationMatter.value
+  if (!matter) return { label: '基线', tone: 'muted' }
+  const index = matter.weeklyUpdates.findIndex(item => item.id === update.id)
+  return index >= 0 ? historyComparison(matter, index) : { label: '基线', tone: 'muted' }
+}
+
 function milestoneTiming(matter: BuKeyMatter) {
   if (matter.status === '已完成') return { label: '已完成', tone: 'complete' }
   const today = parseDate(formatDate(new Date()))
@@ -2366,32 +2373,32 @@ onBeforeUnmount(() => {
         <aside v-if="presentationMatter" class="presentation-history-rail" aria-label="大事儿历史周报">
           <header class="presentation-history-header">
             <div>
-              <span class="presentation-rail-kicker">WEEKLY HISTORY</span>
-              <strong>历史周报</strong>
+              <span>历史记录</span>
+              <strong>周进展记录</strong>
             </div>
-            <span>{{ presentationHistory.length }} 期</span>
+            <small>{{ presentationHistory.length }} 次更新</small>
           </header>
-          <div v-if="presentationHistory.length" class="presentation-history-list">
-            <article v-for="update in presentationHistory" :key="update.id" class="presentation-history-item">
-              <header>
-                <time :datetime="update.weekStartDate">{{ formatChineseDay(update.weekStartDate) }}当周</time>
-                <el-tag :type="statusType(update.status)" size="small" effect="light">{{ update.status }}</el-tag>
-              </header>
-              <div class="presentation-history-progress" :aria-label="`历史周报进度 ${update.progress}%`">
-                <i><b :style="{ width: `${update.progress}%` }" /></i>
-                <strong>{{ update.progress }}%</strong>
-              </div>
-              <p class="presentation-history-summary">{{ update.progressSummary }}</p>
-              <dl v-if="update.issues || update.supportNeeded || update.nextWeekPlan">
-                <div v-if="update.issues"><dt>风险</dt><dd>{{ update.issues }}</dd></div>
-                <div v-if="update.supportNeeded"><dt>协调</dt><dd>{{ update.supportNeeded }}</dd></div>
-                <div v-if="update.nextWeekPlan"><dt>下一步</dt><dd>{{ update.nextWeekPlan }}</dd></div>
-              </dl>
-            </article>
-          </div>
+          <ol v-if="presentationHistory.length" class="presentation-history-list">
+            <li v-for="(update, index) in presentationHistory" :key="update.id" class="presentation-history-item">
+              <time :datetime="update.weekStartDate">{{ formatChineseDay(update.weekStartDate) }}</time>
+              <article>
+                <header>
+                  <div class="history-status">
+                    <el-tag size="small" :type="statusType(update.status)">{{ update.status }}</el-tag>
+                    <strong>{{ update.progress }}%</strong>
+                    <span class="history-delta" :class="`tone-${presentationHistoryComparison(update).tone}`">
+                      {{ presentationHistoryComparison(update).label }}
+                    </span>
+                    <span v-if="index === 0" class="latest-pill">最新</span>
+                  </div>
+                </header>
+                <p>{{ update.progressSummary }}</p>
+              </article>
+            </li>
+          </ol>
           <div v-else class="presentation-history-empty">
             <el-icon><Calendar /></el-icon>
-            <strong>暂无历史周报</strong>
+            <strong>暂无周进展记录</strong>
             <span>首次周报提交后将按周沉淀</span>
           </div>
         </aside>
@@ -5733,129 +5740,77 @@ button:focus-visible {
   gap: 4px;
 }
 
+.presentation-history-header > div > span {
+  color: var(--km-primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .presentation-history-header strong {
   color: var(--km-ink);
   font-size: 16px;
 }
 
-.presentation-history-header > span {
+.presentation-history-header > small {
   flex: 0 0 auto;
-  padding: 4px 8px;
-  border-radius: 999px;
   color: var(--km-muted);
-  background: var(--km-surface-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .presentation-history-list {
   min-height: 0;
+  display: grid;
+  align-content: start;
   flex: 1;
+  margin: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 12px 4px 4px 10px;
+  padding: 2px 4px;
+  list-style: none;
 }
 
 .presentation-history-item {
-  position: relative;
+  min-width: 0;
   display: grid;
-  gap: 9px;
-  padding: 0 0 18px 16px;
-  border-left: 2px solid #dbe3ee;
+  gap: 8px;
+  padding: 14px 4px;
+  border-bottom: 1px solid #eef2f7;
 }
 
 .presentation-history-item:last-child {
-  padding-bottom: 2px;
+  border-bottom: 0;
 }
 
-.presentation-history-item::before {
-  position: absolute;
-  top: 4px;
-  left: -6px;
-  width: 10px;
-  height: 10px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--km-primary);
-  box-shadow: 0 0 0 2px #c7d2fe;
-  content: '';
-}
-
-.presentation-history-item > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.presentation-history-item time {
-  color: #475569;
+.presentation-history-item > time {
+  color: #64748b;
   font-size: 12px;
   font-weight: 750;
 }
 
-.presentation-history-progress {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+.presentation-history-item article {
+  min-width: 0;
+}
+
+.presentation-history-item article > header {
+  display: flex;
   align-items: center;
-  gap: 8px;
 }
 
-.presentation-history-progress > i {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 99px;
-  background: #e8edf4;
+.presentation-history-item .history-status {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.presentation-history-progress > i b {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--km-primary);
-}
-
-.presentation-history-progress > strong {
-  color: var(--km-primary);
-  font-size: 12px;
-  text-align: right;
-}
-
-.presentation-history-summary {
-  margin: 0;
+.presentation-history-item article > p {
+  margin: 8px 0 0;
   overflow-wrap: anywhere;
-  color: var(--km-ink);
+  color: #334155;
   font-size: 13px;
-  font-weight: 650;
-  line-height: 1.55;
-}
-
-.presentation-history-item dl {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-}
-
-.presentation-history-item dl > div {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 6px;
-}
-
-.presentation-history-item dt {
-  color: #94a3b8;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.presentation-history-item dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: #64748b;
-  font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.6;
 }
 
 .presentation-history-empty {
