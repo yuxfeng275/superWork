@@ -574,7 +574,7 @@ onMounted(loadPage)
               <span v-if="importFiles[kind]" class="file-name">{{ importFiles[kind]?.name }}</span>
               <el-button class="import-button" type="primary" :loading="importing === kind" @click="runImport(kind)">开始导入</el-button>
               <el-alert v-if="importResults[kind]" class="import-result" type="success" :closable="false" show-icon>
-                成功 {{ importResults[kind]?.successCount }} 条，新增映射 {{ importResults[kind]?.newMappingCount }} 条，待处理映射 {{ importResults[kind]?.pendingMappingCount }} 条
+                成功 {{ importResults[kind]?.successCount }} 条，新增映射 {{ importResults[kind]?.newMappingCount }} 条，待处理映射 {{ importResults[kind]?.pendingMappingCount }} 条<template v-if="importResults[kind]?.skippedCount">，跳过 H1（1-6月）{{ importResults[kind]?.skippedCount }} 条</template>
               </el-alert>
               <el-alert v-if="importResults[kind]?.errors.length" class="import-result" type="warning" :closable="false" title="部分数据未导入" show-icon><template #default><div v-for="error in importResults[kind]?.errors" :key="error">{{ error }}</div></template></el-alert>
             </div>

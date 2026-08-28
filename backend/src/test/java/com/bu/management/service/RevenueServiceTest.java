@@ -110,8 +110,8 @@ class RevenueServiceTest {
                 businessLine(10L, "全渠道云鹿定制"), businessLine(30L, "会员通")));
         when(incomeMapper.selectOne(any())).thenReturn(null);
         MockMultipartFile file = incomeWorkbook(List.of(
-                new IncomeRow("2026-02", "皇家宠物", "项目交付", 800000L, 700000L),
-                new IncomeRow("2026-02", "", "会员通服务费", 300000L, 250000L)));
+                new IncomeRow("2026-07", "皇家宠物", "项目交付", 800000L, 700000L),
+                new IncomeRow("2026-07", "", "会员通服务费", 300000L, 250000L)));
 
         RevenueImportResultVO result = service.importIncomeExcel(file);
 
@@ -167,8 +167,8 @@ class RevenueServiceTest {
         when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
         when(incomeMapper.selectOne(any())).thenReturn(null);
         MockMultipartFile file = incomeWorkbook(List.of(
-                new IncomeRow("2026-02", "皇家宠物", "项目交付", 800000L, 700000L),
-                new IncomeRow("2026-02", "皇家宠物", "项目交付", 200000L, 150000L)));
+                new IncomeRow("2026-07", "皇家宠物", "项目交付", 800000L, 700000L),
+                new IncomeRow("2026-07", "皇家宠物", "项目交付", 200000L, 150000L)));
 
         RevenueImportResultVO result = service.importIncomeExcel(file);
 
@@ -643,6 +643,26 @@ class RevenueServiceTest {
         assertThat(captor.getValue().getReceivedAmount()).isZero();
     }
 
+    @Test
+    void incomeImportSkipsH1Months() throws Exception {
+        when(mappingMapper.selectOne(any())).thenReturn(mapping("contract_brand", "皇家宠物", 1L, 10L, "delivery"));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "皇家项目")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+        when(incomeMapper.selectOne(any())).thenReturn(null);
+        MockMultipartFile file = incomeWorkbook(List.of(
+                new IncomeRow("2026-03", "皇家宠物", "项目交付", 800000L, 700000L),
+                new IncomeRow("2026-08", "皇家宠物", "项目交付", 500000L, 400000L)));
+
+        RevenueImportResultVO result = service.importIncomeExcel(file);
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        assertThat(result.getSkippedCount()).isEqualTo(1);
+        ArgumentCaptor<RevenueMonthlyIncome> captor = ArgumentCaptor.forClass(RevenueMonthlyIncome.class);
+        verify(incomeMapper).insert(captor.capture());
+        assertThat(captor.getValue().getYearMonth()).isEqualTo("2026-08");
+        assertThat(captor.getValue().getReceivableAmount()).isEqualTo(500000L);
+    }
+
     private MockMultipartFile incomeWorkbookWithEmptyReceived() throws Exception {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("合同明细");
@@ -652,7 +672,7 @@ class RevenueServiceTest {
                 header.createCell(i).setCellValue(headers[i]);
             }
             Row row = sheet.createRow(1);
-            row.createCell(0).setCellValue("2026-05");
+            row.createCell(0).setCellValue("2026-07");
             row.createCell(1).setCellValue("皇家宠物");
             row.createCell(2).setCellValue("项目交付");
             row.createCell(3).setCellValue(1000.0);

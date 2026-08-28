@@ -76,6 +76,7 @@ export interface RevenueImportResult {
   successCount: number
   newMappingCount: number
   pendingMappingCount: number
+  skippedCount: number
   errors: string[]
 }
 

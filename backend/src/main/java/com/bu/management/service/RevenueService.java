@@ -164,6 +164,11 @@ public class RevenueService {
                     if (!type.contains("会员通") && brand.isBlank()) {
                         throw new IllegalArgumentException("品牌不能为空");
                     }
+                    // H1（1-6月）交付以项目营收拆解.xlsx 表值为准，合同导入仅用于 H2（7-12月）
+                    if (isFirstHalf(month)) {
+                        incrementSkipped(result);
+                        continue;
+                    }
                     long receivable = readDecimal(row.getCell(receivableColumn), formatter, evaluator, "应收金额")
                             .setScale(0, RoundingMode.HALF_UP).longValueExact();
                     long received = readOptionalDecimalYuan(row.getCell(receivedColumn), formatter, evaluator);
@@ -690,7 +695,9 @@ public class RevenueService {
         keywordTargets.put("飞鹤", "飞鹤");
         keywordTargets.put("逢时", "逢时");
         keywordTargets.put("黄天鹅", "黄天鹅");
-        keywordTargets.put("海普诺凯", "海普诺凯");
+        // 佳贝艾特/海普诺凯 为澳优的组成部分，营收口径合并到澳优
+        keywordTargets.put("海普诺凯", "澳优");
+        keywordTargets.put("佳贝艾特", "澳优");
         for (Map.Entry<String, String> rule : keywordTargets.entrySet()) {
             if (normalizedSource.contains(rule.getKey())) {
                 return projects.stream()
@@ -1208,6 +1215,10 @@ public class RevenueService {
 
     private void incrementPending(RevenueImportResultVO result) {
         result.setPendingMappingCount(result.getPendingMappingCount() + 1);
+    }
+
+    private void incrementSkipped(RevenueImportResultVO result) {
+        result.setSkippedCount(result.getSkippedCount() + 1);
     }
 
     private void recordImport(Long userId, String importType, String fileName, RevenueImportResultVO result) {
