@@ -461,7 +461,12 @@ test('周会演示按负责人和项目分组并展示结构化简报', async ({
   await page.goto('/key-matters-meeting')
   const stage = page.getByLabel('周会演示模式')
   const rail = page.getByRole('complementary', { name: '演示分组导航' })
+  const history = page.getByRole('complementary', { name: '大事儿历史周报' })
   await expect(stage).toBeVisible()
+  await expect(history).toBeVisible()
+  await expect(history).toContainText('7月27日周一当周')
+  await expect(history).toContainText('完成方案评审')
+  await expect(history.getByLabel('历史周报进度 40%')).toBeVisible()
   await expect(rail).toContainText('项目分组')
   await expect(rail).toContainText('皇家全渠道定制项目')
   await expect(rail).toContainText('BU 内部事项')
@@ -469,13 +474,16 @@ test('周会演示按负责人和项目分组并展示结构化简报', async ({
   await expect(stage.getByLabel('演示事项简报')).toContainText('上线窗口仍待确认')
   await expect(stage.getByLabel('演示事项简报')).toContainText('需协调 / 决策')
   await expect(stage.getByLabel('演示事项简报')).toContainText('下一步行动')
-  const [railBox, presentationCardBox] = await Promise.all([
+  const [railBox, presentationCardBox, historyBox] = await Promise.all([
     rail.boundingBox(),
-    stage.locator('.presentation-card').boundingBox()
+    stage.locator('.presentation-card').boundingBox(),
+    history.boundingBox()
   ])
   expect(railBox).not.toBeNull()
   expect(presentationCardBox).not.toBeNull()
+  expect(historyBox).not.toBeNull()
   expect(Math.abs(railBox!.height - presentationCardBox!.height)).toBeLessThanOrEqual(1)
+  expect(historyBox!.x).toBeGreaterThanOrEqual(presentationCardBox!.x + presentationCardBox!.width)
 
   const grouping = rail.getByRole('group', { name: '演示分组方式' })
   await grouping.getByRole('button', { name: '负责人' }).click()
@@ -493,9 +501,14 @@ test('周会演示按负责人和项目分组并展示结构化简报', async ({
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.locator('.presentation-layout')).toHaveCSS('overflow-y', 'auto')
   const mobileStageBox = await stage.boundingBox()
+  const mobileHistoryBox = await history.boundingBox()
   expect(mobileStageBox).not.toBeNull()
+  expect(mobileHistoryBox).not.toBeNull()
   expect(mobileStageBox!.x).toBeGreaterThanOrEqual(0)
   expect(mobileStageBox!.x + mobileStageBox!.width).toBeLessThanOrEqual(390)
+  expect(mobileHistoryBox!.x).toBeGreaterThanOrEqual(0)
+  expect(mobileHistoryBox!.x + mobileHistoryBox!.width).toBeLessThanOrEqual(390)
+  expect(mobileHistoryBox!.y).toBeGreaterThanOrEqual(mobileStageBox!.y + mobileStageBox!.height)
   const mobileOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth > document.documentElement.clientWidth
   )

@@ -391,6 +391,12 @@ const presentationOrderedMatters = computed(() => presentationGroups.value.flatM
 const presentationMatter = computed(() => presentationOrderedMatters.value[presentationIndex.value])
 const presentationUpdate = computed(() => presentationMatter.value ? reportUpdate(presentationMatter.value) : undefined)
 const presentationRequiresUpdate = computed(() => presentationMatter.value ? requiresWeeklyUpdate(presentationMatter.value) : false)
+const presentationHistory = computed(() => {
+  if (!presentationMatter.value) return []
+  return [...(presentationMatter.value.weeklyUpdates || [])]
+    .filter(update => update.weekStartDate < selectedWeek.value)
+    .sort((left, right) => right.weekStartDate.localeCompare(left.weekStartDate))
+})
 
 const currentPresentationGroupKey = computed(() => {
   const matter = presentationMatter.value
@@ -2356,6 +2362,39 @@ onBeforeUnmount(() => {
         </template>
         <el-empty v-else description="本周暂无可演示事项" />
         </section>
+
+        <aside v-if="presentationMatter" class="presentation-history-rail" aria-label="大事儿历史周报">
+          <header class="presentation-history-header">
+            <div>
+              <span class="presentation-rail-kicker">WEEKLY HISTORY</span>
+              <strong>历史周报</strong>
+            </div>
+            <span>{{ presentationHistory.length }} 期</span>
+          </header>
+          <div v-if="presentationHistory.length" class="presentation-history-list">
+            <article v-for="update in presentationHistory" :key="update.id" class="presentation-history-item">
+              <header>
+                <time :datetime="update.weekStartDate">{{ formatChineseDay(update.weekStartDate) }}当周</time>
+                <el-tag :type="statusType(update.status)" size="small" effect="light">{{ update.status }}</el-tag>
+              </header>
+              <div class="presentation-history-progress" :aria-label="`历史周报进度 ${update.progress}%`">
+                <i><b :style="{ width: `${update.progress}%` }" /></i>
+                <strong>{{ update.progress }}%</strong>
+              </div>
+              <p class="presentation-history-summary">{{ update.progressSummary }}</p>
+              <dl v-if="update.issues || update.supportNeeded || update.nextWeekPlan">
+                <div v-if="update.issues"><dt>风险</dt><dd>{{ update.issues }}</dd></div>
+                <div v-if="update.supportNeeded"><dt>协调</dt><dd>{{ update.supportNeeded }}</dd></div>
+                <div v-if="update.nextWeekPlan"><dt>下一步</dt><dd>{{ update.nextWeekPlan }}</dd></div>
+              </dl>
+            </article>
+          </div>
+          <div v-else class="presentation-history-empty">
+            <el-icon><Calendar /></el-icon>
+            <strong>暂无历史周报</strong>
+            <span>首次周报提交后将按周沉淀</span>
+          </div>
+        </aside>
       </div>
     </template>
     <el-drawer
@@ -5640,11 +5679,11 @@ button:focus-visible {
 .presentation-layout {
   --presentation-panel-height: min(740px, calc(100dvh - 120px));
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 180px minmax(0, 1fr) 220px;
   align-items: center;
-  gap: 24px;
+  gap: 14px;
   height: 100dvh;
-  padding: 32px 40px;
+  padding: 24px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -5662,6 +5701,186 @@ button:focus-visible {
   border-radius: var(--km-radius-lg);
   background: rgb(255 255 255 / 92%);
   box-shadow: var(--km-shadow);
+}
+
+.presentation-history-rail {
+  min-width: 0;
+  min-height: 0;
+  height: var(--presentation-panel-height);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 18px 14px;
+  border: 1px solid var(--km-border);
+  border-radius: var(--km-radius-lg);
+  background: rgb(255 255 255 / 94%);
+  box-shadow: var(--km-shadow);
+}
+
+.presentation-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 14px;
+  border-bottom: 1px solid #e8edf4;
+}
+
+.presentation-history-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.presentation-history-header strong {
+  color: var(--km-ink);
+  font-size: 16px;
+}
+
+.presentation-history-header > span {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--km-muted);
+  background: var(--km-surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.presentation-history-list {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 12px 4px 4px 10px;
+}
+
+.presentation-history-item {
+  position: relative;
+  display: grid;
+  gap: 9px;
+  padding: 0 0 18px 16px;
+  border-left: 2px solid #dbe3ee;
+}
+
+.presentation-history-item:last-child {
+  padding-bottom: 2px;
+}
+
+.presentation-history-item::before {
+  position: absolute;
+  top: 4px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--km-primary);
+  box-shadow: 0 0 0 2px #c7d2fe;
+  content: '';
+}
+
+.presentation-history-item > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.presentation-history-item time {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.presentation-history-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.presentation-history-progress > i {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e8edf4;
+}
+
+.presentation-history-progress > i b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--km-primary);
+}
+
+.presentation-history-progress > strong {
+  color: var(--km-primary);
+  font-size: 12px;
+  text-align: right;
+}
+
+.presentation-history-summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--km-ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.presentation-history-item dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.presentation-history-item dl > div {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.presentation-history-item dt {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.presentation-history-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.presentation-history-empty {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.presentation-history-empty :deep(.el-icon) {
+  font-size: 28px;
+}
+
+.presentation-history-empty strong {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.presentation-history-empty span {
+  font-size: 11px;
 }
 
 .presentation-group-header,
@@ -6788,13 +7007,40 @@ button:focus-visible {
 
 @media (max-width: 1440px) {
   .presentation-layout {
-    grid-template-columns: 220px minmax(0, 1fr);
-    gap: 16px;
+    grid-template-columns: 180px minmax(0, 1fr) 220px;
+    gap: 14px;
     padding: 24px;
   }
 
   .presentation-shell {
     gap: 10px;
+  }
+}
+
+@media (max-width: 1420px) {
+  .presentation-layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .presentation-group-rail {
+    grid-row: 1 / span 2;
+  }
+
+  .presentation-stage {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .presentation-history-rail {
+    grid-column: 2;
+    grid-row: 2;
+    width: 100%;
+    height: auto;
+    max-height: 360px;
   }
 }
 
@@ -6864,6 +7110,27 @@ button:focus-visible {
 @media (max-width: 1180px) {
   .presentation-layout {
     grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-items: start;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .presentation-group-rail {
+    grid-row: 1 / span 2;
+  }
+
+  .presentation-stage {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .presentation-history-rail {
+    grid-column: 2;
+    grid-row: 2;
+    width: 100%;
+    height: auto;
+    max-height: 360px;
   }
 
   .presentation-shell {
@@ -7186,6 +7453,13 @@ button:focus-visible {
   .presentation-group-stats,
   .presentation-group-matters {
     display: none;
+  }
+
+  .presentation-history-rail {
+    height: auto;
+    max-height: none;
+    margin-top: 10px;
+    padding: 14px;
   }
 
   .presentation-shell {
