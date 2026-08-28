@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueInitResultVO;
 import com.bu.management.dto.RevenueManualEntryDTO;
 import com.bu.management.dto.RevenueSummaryVO;
 import com.bu.management.entity.BusinessLine;
@@ -261,6 +262,186 @@ public class RevenueService {
             query.eq(RevenueProjectMapping::getSourceType, sourceType.trim());
         }
         return nullSafe(mappingMapper.selectList(query));
+    }
+
+    @Transactional
+    public RevenueInitResultVO initializeFromWorkbook(MultipartFile file, int year, Long userId) {
+        validateImportFile(file);
+        RevenueInitResultVO result = new RevenueInitResultVO();
+        ImportReferences references = loadImportReferences();
+        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
+            Sheet sheet = workbook.getSheet("一页");
+            if (sheet == null) {
+                sheet = workbook.getSheetAt(0);
+            }
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            DataFormatter formatter = new DataFormatter();
+            List<InitProjectData> projectData = parseInitProjects(sheet, formatter, evaluator);
+            if (projectData.isEmpty()) {
+                throw new IllegalArgumentException("未解析到项目数据，请确认上传的是项目营收拆解.xlsx");
+            }
+            String yearPrefix = year + "-";
+            costMapper.delete(new LambdaQueryWrapper<RevenueMonthlyCost>()
+                    .likeRight(RevenueMonthlyCost::getYearMonth, yearPrefix));
+            manualEntryMapper.delete(new LambdaQueryWrapper<RevenueManualEntry>()
+                    .likeRight(RevenueManualEntry::getYearMonth, yearPrefix));
+            for (InitProjectData data : projectData) {
+                Project project = findKnownProject(data.name, references.projects());
+                if (project == null || project.getId() == null || project.getBusinessLineId() == null) {
+                    result.getErrors().add("未找到项目映射: " + data.name);
+                    continue;
+                }
+                result.setImportedProjectCount(result.getImportedProjectCount() + 1);
+                for (int month = 1; month <= 12; month++) {
+                    BigDecimal hours = data.monthlyHours[month - 1];
+                    long costYuan = data.monthlyCostYuan[month - 1];
+                    if (hours == null || hours.signum() == 0) {
+                        continue;
+                    }
+                    upsertCost(String.format(Locale.ROOT, "%04d-%02d", year, month),
+                            project.getId(), project.getBusinessLineId(), "delivery", hours, costYuan);
+                    result.setCostRowCount(result.getCostRowCount() + 1);
+                }
+                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                        "partner_cost", data.partnerYuan, userId, result);
+                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                        "server_cost", data.serverYuan, userId, result);
+                insertInitManualCost(year, project.getId(), project.getBusinessLineId(),
+                        "other_cost", data.otherYuan, userId, result);
+                insertInitH2Estimate(year, project.getId(), project.getBusinessLineId(),
+                        data.h2EstimateYuan, userId, result);
+            }
+            return result;
+        } catch (IOException | RuntimeException exception) {
+            throw new IllegalArgumentException("无法解析初始化 Excel: " + safeMessage(exception), exception);
+        }
+    }
+
+    private List<InitProjectData> parseInitProjects(Sheet sheet, DataFormatter formatter, FormulaEvaluator evaluator) {
+        List<InitProjectData> list = new ArrayList<>();
+        // 工时明细区域（Excel 行 4-9）：项目名 C 列，1-12 月 D..O 列
+        for (int rowIndex = 3; rowIndex <= 8; rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) {
+                continue;
+            }
+            String name = readText(row.getCell(2), formatter, evaluator);
+            if (name.isBlank()) {
+                continue;
+            }
+            InitProjectData data = new InitProjectData(name);
+            for (int month = 0; month < 12; month++) {
+                data.monthlyHours[month] = readNullableDecimal(row.getCell(3 + month), formatter, evaluator);
+            }
+            list.add(data);
+        }
+        // 成本明细区域（Excel 行 14-19）：同结构，值为万元
+        for (int rowIndex = 13; rowIndex <= 18; rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) {
+                continue;
+            }
+            String name = readText(row.getCell(2), formatter, evaluator);
+            InitProjectData data = findInitData(list, name);
+            if (data == null) {
+                continue;
+            }
+            for (int month = 0; month < 12; month++) {
+                data.monthlyCostYuan[month] = yuanFromWan(
+                        readNullableDecimal(row.getCell(3 + month), formatter, evaluator));
+            }
+        }
+        // 交付营收区域（Excel 行 25-30）：H2预估=H列，协力=K列，服务器=L列，其他=M列
+        for (int rowIndex = 24; rowIndex <= 29; rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null) {
+                continue;
+            }
+            String name = readText(row.getCell(2), formatter, evaluator);
+            InitProjectData data = findInitData(list, name);
+            if (data == null) {
+                continue;
+            }
+            data.h2EstimateYuan = yuanFromWan(readNullableDecimal(row.getCell(7), formatter, evaluator));
+            data.partnerYuan = yuanFromWan(readNullableDecimal(row.getCell(10), formatter, evaluator));
+            data.serverYuan = yuanFromWan(readNullableDecimal(row.getCell(11), formatter, evaluator));
+            data.otherYuan = yuanFromWan(readNullableDecimal(row.getCell(12), formatter, evaluator));
+        }
+        return list;
+    }
+
+    private InitProjectData findInitData(List<InitProjectData> list, String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        return list.stream().filter(item -> item.name.equals(name)).findFirst().orElse(null);
+    }
+
+    private void insertInitManualCost(int year, Long projectId, Long businessLineId, String type,
+                                      long totalYuan, Long userId, RevenueInitResultVO result) {
+        if (totalYuan <= 0) {
+            return;
+        }
+        long base = totalYuan / 12;
+        long remainder = totalYuan % 12;
+        for (int month = 1; month <= 12; month++) {
+            RevenueManualEntry entry = new RevenueManualEntry();
+            entry.setYearMonth(String.format(Locale.ROOT, "%04d-%02d", year, month));
+            entry.setProjectId(projectId);
+            entry.setBusinessLineId(businessLineId);
+            entry.setEntryType(type);
+            entry.setAmount(base + (month == 12 ? remainder : 0));
+            entry.setRemark("初始化自项目营收拆解.xlsx");
+            entry.setCreatedBy(userId);
+            manualEntryMapper.insert(entry);
+        }
+        result.setManualRowCount(result.getManualRowCount() + 12);
+    }
+
+    private void insertInitH2Estimate(int year, Long projectId, Long businessLineId, long totalYuan,
+                                      Long userId, RevenueInitResultVO result) {
+        if (totalYuan <= 0) {
+            return;
+        }
+        RevenueManualEntry entry = new RevenueManualEntry();
+        entry.setYearMonth(String.format(Locale.ROOT, "%04d-12", year));
+        entry.setProjectId(projectId);
+        entry.setBusinessLineId(businessLineId);
+        entry.setEntryType(H2_ESTIMATE);
+        entry.setAmount(totalYuan);
+        entry.setRemark("初始化自项目营收拆解.xlsx");
+        entry.setCreatedBy(userId);
+        manualEntryMapper.insert(entry);
+        result.setManualRowCount(result.getManualRowCount() + 1);
+    }
+
+    private long yuanFromWan(BigDecimal wan) {
+        if (wan == null) {
+            return 0L;
+        }
+        return wan.multiply(BigDecimal.valueOf(10000)).setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    private BigDecimal readNullableDecimal(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
+        if (cell == null) {
+            return null;
+        }
+        if (cell.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC) {
+            try {
+                return BigDecimal.valueOf(cell.getNumericCellValue());
+            } catch (IllegalStateException ignored) {
+                // fall through to formatter
+            }
+        }
+        String value = readText(cell, formatter, evaluator);
+        if (value.isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.replace(",", "").replace("¥", "").replace("￥", "").trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     public List<RevenueImportRecord> listImportRecords(String importType) {
@@ -1005,6 +1186,20 @@ public class RevenueService {
         record.setErrorCount(result.getErrors().size());
         record.setCreatedBy(userId);
         importRecordMapper.insert(record);
+    }
+
+    private static class InitProjectData {
+        private final String name;
+        private final BigDecimal[] monthlyHours = new BigDecimal[12];
+        private final long[] monthlyCostYuan = new long[12];
+        private long h2EstimateYuan;
+        private long partnerYuan;
+        private long serverYuan;
+        private long otherYuan;
+
+        private InitProjectData(String name) {
+            this.name = name;
+        }
     }
 
     private record ImportReferences(List<Project> projects, List<BusinessLine> businessLines,

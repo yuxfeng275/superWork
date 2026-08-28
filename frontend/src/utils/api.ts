@@ -3,6 +3,7 @@ import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResp
 import type {
   RevenueImportRecord,
   RevenueImportResult,
+  RevenueInitResult,
   RevenueManualEntryDTO,
   RevenueMapping,
   RevenueSummary
@@ -1404,6 +1405,15 @@ class ApiService {
     const body = new FormData()
     body.append('file', file)
     return this.request<RevenueImportResult>('/api/revenue/import/income', {
+      method: 'POST',
+      body
+    })
+  }
+
+  async initRevenueFromWorkbook(file: File, year: number): Promise<RevenueInitResult> {
+    const body = new FormData()
+    body.append('file', file)
+    return this.request<RevenueInitResult>(`/api/revenue/init?year=${year}`, {
       method: 'POST',
       body
     })

@@ -8,6 +8,7 @@ import type {
   RevenueEntryType,
   RevenueImportRecord,
   RevenueImportResult,
+  RevenueInitResult,
   RevenueManualEntryDTO,
   RevenueMapping,
   RevenueProjectSummary,
@@ -57,6 +58,9 @@ const projects = ref<ProjectOption[]>([])
 const importFiles = reactive<Record<ImportKind, File | null>>({ cost: null, income: null })
 const importResults = reactive<Record<ImportKind, RevenueImportResult | null>>({ cost: null, income: null })
 const importing = ref<ImportKind | null>(null)
+const initFile = ref<File | null>(null)
+const initResult = ref<RevenueInitResult | null>(null)
+const initLoading = ref(false)
 
 const mappingDialogVisible = ref(false)
 const editingMapping = ref<RevenueMapping | null>(null)
@@ -380,6 +384,48 @@ function handleIncomeFileChange(file: UploadFile) {
   selectImportFile('income', file)
 }
 
+function handleInitFileChange(file: UploadFile) {
+  initFile.value = file.raw ?? null
+  initResult.value = null
+}
+
+async function runInit() {
+  if (!initFile.value) {
+    ElMessage.warning('请先选择项目营收拆解.xlsx 文件')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '初始化将覆盖当年（' + selectedYear.value + '年）已导入的成本和手动维护数据（交付营收不受影响，由合同导入维护）。确定继续吗？',
+      '初始化测算数据',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  initLoading.value = true
+  try {
+    initResult.value = await api.initRevenueFromWorkbook(initFile.value, selectedYear.value)
+    ElMessage.success('初始化完成')
+    await Promise.all([loadSummary(), loadManualEntries(), loadImportRecords()])
+  } catch {
+    ElMessage.error('初始化失败')
+  } finally {
+    initLoading.value = false
+  }
+}
+
+function openManualAddEstimate() {
+  editingManualId.value = null
+  manualForm.yearMonth = manualMonth.value
+  manualForm.projectId = undefined
+  manualForm.businessLineId = undefined
+  manualForm.entryType = 'h2_estimate'
+  manualForm.amount = undefined
+  manualForm.remark = ''
+  manualDialogVisible.value = true
+}
+
 async function runImport(kind: ImportKind) {
   const file = importFiles[kind]
   if (!file) {
@@ -505,7 +551,7 @@ onMounted(loadPage)
         </el-tab-pane>
 
         <el-tab-pane label="手动维护" name="manual">
-          <div class="tab-toolbar"><el-date-picker v-model="manualMonth" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width: 180px" @change="loadManualEntries" /><el-button type="primary" :icon="Plus" @click="openManualAdd">新增维护项</el-button></div>
+          <div class="tab-toolbar"><el-date-picker v-model="manualMonth" type="month" value-format="YYYY-MM" placeholder="选择月份" style="width: 180px" @change="loadManualEntries" /><div class="tab-toolbar-actions"><el-button type="primary" :icon="Plus" @click="openManualAddEstimate">新增预估交付</el-button><el-button :icon="Plus" @click="openManualAdd">新增维护项</el-button></div></div>
           <div class="table-scroll">
             <el-table v-loading="manualLoading" :data="manualEntries" class="revenue-table">
               <el-table-column prop="yearMonth" label="月份" width="120" />
@@ -519,8 +565,7 @@ onMounted(loadPage)
         </el-tab-pane>
 
         <el-tab-pane label="导入" name="imports">
-          <div class="import-grid">
-            <div v-for="kind in (['cost', 'income'] as ImportKind[])" :key="kind" class="import-box">
+          <div class="import-grid">            <div v-for="kind in (['cost', 'income'] as ImportKind[])" :key="kind" class="import-box">
               <div class="import-icon"><el-icon><Upload /></el-icon></div>
               <h4>{{ kind === 'cost' ? '成本导入' : '营收导入' }}</h4>
               <p>选择 .xlsx 或 .xls 文件后开始导入</p>
@@ -533,6 +578,17 @@ onMounted(loadPage)
               <el-alert v-if="importResults[kind]?.errors.length" class="import-result" type="warning" :closable="false" title="部分数据未导入" show-icon><template #default><div v-for="error in importResults[kind]?.errors" :key="error">{{ error }}</div></template></el-alert>
             </div>
           </div>
+          <el-divider content-position="left">初始化测算数据</el-divider>
+          <el-alert class="init-alert" type="info" :closable="false" show-icon title="从「项目营收拆解.xlsx」初始化当年数据" description="将写入当年逐月工时/工时成本、H2预估、协力/服务器/其他成本；交付（H1/H2交付）请通过导入合同维护。初始化会覆盖当年已导入的成本与手动维护数据。" />
+          <div class="init-actions">
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls" :on-change="handleInitFileChange"><el-button>选择Excel</el-button></el-upload>
+            <span v-if="initFile" class="file-name">{{ initFile.name }}</span>
+            <el-button type="primary" :loading="initLoading" @click="runInit">初始化{{ selectedYear }}年数据</el-button>
+          </div>
+          <el-alert v-if="initResult" class="import-result" type="success" :closable="false" show-icon>
+            已初始化 {{ initResult.importedProjectCount }} 个项目、{{ initResult.costRowCount }} 条月度成本、{{ initResult.manualRowCount }} 条手动维护
+          </el-alert>
+          <el-alert v-if="initResult?.errors.length" class="import-result" type="warning" :closable="false" title="部分项目未初始化" show-icon><template #default><div v-for="error in initResult?.errors" :key="error">{{ error }}</div></template></el-alert>
         </el-tab-pane>
         <el-tab-pane label="导入历史" name="history">
           <div class="tab-toolbar"><el-button :icon="Refresh" @click="loadImportRecords">刷新</el-button></div>
@@ -563,7 +619,7 @@ onMounted(loadPage)
       <template #footer><el-button @click="mappingDialogVisible = false">取消</el-button><el-button type="primary" @click="saveMapping">保存</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="manualDialogVisible" :title="editingManualId ? '编辑手动维护项' : '新增手动维护项'" width="540px">
+    <el-dialog v-model="manualDialogVisible" :title="editingManualId ? '编辑手动维护项' : manualForm.entryType === 'h2_estimate' ? '新增预估交付' : '新增手动维护项'" width="540px">
       <el-form ref="manualFormRef" :model="manualForm" label-width="95px" :rules="{ yearMonth: [{ required: true, message: '请选择月份', trigger: 'change' }], businessLineId: [{ required: true, message: '请选择业务线', trigger: 'change' }], entryType: [{ required: true, message: '请选择类型', trigger: 'change' }], amount: [{ required: true, message: '请输入金额', trigger: 'blur' }] }">
         <el-form-item label="月份" prop="yearMonth"><el-date-picker v-model="manualForm.yearMonth" type="month" value-format="YYYY-MM" style="width: 100%" /></el-form-item>
         <el-form-item label="类型" prop="entryType"><el-select v-model="manualForm.entryType" style="width: 100%"><el-option v-for="(label, type) in entryTypeLabels" :key="type" :label="label" :value="type" /></el-select></el-form-item>
@@ -585,7 +641,7 @@ onMounted(loadPage)
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }.metric-card { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); }.metric-card :deep(.el-card__body) { padding: 18px 20px; }.metric-label { color: var(--gray-500); font-size: 13px; }.metric-value { margin-top: 10px; color: var(--gray-800); font-size: 27px; font-weight: 700; line-height: 1.2; }.metric-value small { margin-left: 5px; font-size: 12px; font-weight: 500; }.metric-value.blue { color: var(--primary); }.metric-value.orange { color: var(--warning); }.metric-value.purple { color: #7c5cd6; }.metric-value.green, .positive { color: var(--success); }.metric-value.red, .negative { color: var(--danger); }.metric-year { margin-top: 7px; color: var(--gray-400); font-size: 12px; }
 .panel { padding: 20px; }.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }.section-head h3 { margin: 0 0 4px; color: var(--gray-800); font-size: 17px; }.trend-list { display: flex; flex-direction: column; gap: 13px; }.trend-row { display: flex; align-items: center; gap: 16px; }.trend-month { width: 38px; color: var(--gray-600); font-size: 13px; }.trend-bars { display: flex; flex: 1; flex-direction: column; gap: 6px; }.bar-line { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--gray-600); font-size: 12px; }.bar-label { width: 30px; }.bar-track { height: 9px; flex: 1; overflow: hidden; background: var(--gray-100); border-radius: 5px; }.bar { display: block; height: 100%; min-width: 2px; border-radius: inherit; }.bar.income { background: var(--primary); }.bar.cost { background: var(--warning); }.bar-line strong { width: 78px; color: var(--gray-700); font-size: 12px; font-weight: 500; text-align: right; }
 .table-scroll { width: 100%; overflow-x: auto; }.revenue-table { min-width: 1780px; }.revenue-table :deep(.business-line-row td) { background: #f8fbff; }.revenue-table :deep(.business-line-row:hover td) { background: #f1f6ff !important; }.revenue-table :deep(.total-row td) { background: #f5f7fa; font-weight: 600; }.revenue-table :deep(.total-row:hover td) { background: #eef1f5 !important; }.revenue-table :deep(.mapping-warning-row td) { background: #fff8e6; }.revenue-table :deep(.mapping-warning-row:hover td) { background: #fff1cc !important; }.line-name { color: var(--gray-800); }.project-row .line-name { color: var(--gray-700); font-weight: 500; }.month-detail { padding: 12px 34px 16px 58px; background: var(--gray-50); }.month-detail h4 { margin: 0 0 10px; color: var(--gray-700); font-size: 13px; }
-.management-panel :deep(.el-tabs__header) { margin-bottom: 18px; }.tab-toolbar { justify-content: space-between; margin-bottom: 14px; }.tab-toolbar > :first-child { margin-right: auto; }.import-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.import-box { display: flex; min-height: 240px; align-items: center; flex-direction: column; padding: 24px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); text-align: center; }.import-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 10px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }.import-box h4 { margin: 0 0 5px; color: var(--gray-800); font-size: 16px; }.import-box p { margin: 0 0 15px; color: var(--gray-500); font-size: 12px; }.file-name { max-width: 100%; margin-top: 9px; overflow: hidden; color: var(--gray-600); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.import-button { margin-top: 14px; }.import-result { width: 100%; margin-top: 14px; text-align: left; }.dialog-alert { margin-bottom: 18px; }.form-readonly { color: var(--gray-600); font-size: 13px; }
+.management-panel :deep(.el-tabs__header) { margin-bottom: 18px; }.tab-toolbar { justify-content: space-between; margin-bottom: 14px; }.tab-toolbar > :first-child { margin-right: auto; }.tab-toolbar-actions { display: flex; gap: 8px; }.init-alert { margin-top: 16px; }.init-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }.import-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.import-box { display: flex; min-height: 240px; align-items: center; flex-direction: column; padding: 24px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); text-align: center; }.import-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 10px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }.import-box h4 { margin: 0 0 5px; color: var(--gray-800); font-size: 16px; }.import-box p { margin: 0 0 15px; color: var(--gray-500); font-size: 12px; }.file-name { max-width: 100%; margin-top: 9px; overflow: hidden; color: var(--gray-600); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.import-button { margin-top: 14px; }.import-result { width: 100%; margin-top: 14px; text-align: left; }.dialog-alert { margin-bottom: 18px; }.form-readonly { color: var(--gray-600); font-size: 13px; }
 @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .page-head { align-items: flex-start; flex-direction: column; padding: 18px; }.head-actions { width: 100%; }.head-actions .el-select, .head-actions .el-button { flex: 1; }.panel { padding: 15px; }.metrics-grid, .import-grid { grid-template-columns: 1fr; }.metric-value { font-size: 23px; }.trend-row { align-items: flex-start; }.trend-month { padding-top: 2px; }.tab-toolbar { align-items: stretch; flex-direction: column; }.tab-toolbar .el-select, .tab-toolbar .el-button { width: 100%; margin: 0; }.month-detail { padding-left: 18px; } }
+@media (max-width: 640px) { .page-head { align-items: flex-start; flex-direction: column; padding: 18px; }.head-actions { width: 100%; }.head-actions .el-select, .head-actions .el-button { flex: 1; }.panel { padding: 15px; }.metrics-grid, .import-grid { grid-template-columns: 1fr; }.metric-value { font-size: 23px; }.trend-row { align-items: flex-start; }.trend-month { padding-top: 2px; }.tab-toolbar { align-items: stretch; flex-direction: column; }.tab-toolbar .el-select, .tab-toolbar .el-button { width: 100%; margin: 0; }.tab-toolbar-actions { flex-direction: column; }.tab-toolbar-actions .el-button { width: 100%; }.init-actions { flex-direction: column; align-items: stretch; }.init-actions .el-button { width: 100%; }.month-detail { padding-left: 18px; } }
 </style>

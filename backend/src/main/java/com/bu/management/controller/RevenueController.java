@@ -2,6 +2,7 @@ package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueInitResultVO;
 import com.bu.management.dto.RevenueManualEntryDTO;
 import com.bu.management.dto.RevenueSummaryVO;
 import com.bu.management.entity.RevenueImportRecord;
@@ -47,6 +48,14 @@ public class RevenueController {
     public Result<RevenueImportResultVO> importIncome(@RequestParam("file") MultipartFile file,
                                                      @RequestAttribute("userId") Long userId) {
         return Result.success(revenueService.importIncomeExcel(file, userId));
+    }
+
+    @PostMapping("/init")
+    @RequirePermission({"revenue:manage"})
+    public Result<RevenueInitResultVO> initFromWorkbook(@RequestParam("file") MultipartFile file,
+                                                       @RequestParam int year,
+                                                       @RequestAttribute("userId") Long userId) {
+        return Result.success(revenueService.initializeFromWorkbook(file, year, userId));
     }
 
     @GetMapping("/imports")

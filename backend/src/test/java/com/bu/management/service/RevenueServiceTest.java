@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueInitResultVO;
 import com.bu.management.dto.RevenueManualEntryDTO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.dto.RevenueSummaryVO;
@@ -461,6 +462,99 @@ class RevenueServiceTest {
         assertThat(captor.getValue().getProjectId()).isEqualTo(10L);
         assertThat(captor.getValue().getBusinessLineId()).isNull();
         assertThat(captor.getValue().getCategory()).isEqualTo("sales");
+    }
+
+    @Test
+    void initializeFromWorkbookWritesCostsManualsAndKeepsIncome() throws Exception {
+        when(projectMapper.selectList(any())).thenReturn(List.of(
+                project(1L, 10L, "皇家项目"), project(10L, 20L, "Speedo项目")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(
+                businessLine(10L, "全渠道云鹿定制"), businessLine(20L, "全渠道云鹿SAAS")));
+        when(costMapper.selectOne(any())).thenReturn(null);
+        MockMultipartFile file = initWorkbook();
+
+        RevenueInitResultVO result = service.initializeFromWorkbook(file, 2026, 7L);
+
+        assertThat(result.getImportedProjectCount()).isEqualTo(1);
+        assertThat(result.getErrors()).isEmpty();
+        verify(costMapper).delete(any());
+        verify(manualEntryMapper).delete(any());
+        verify(incomeMapper, never()).delete(any());
+        // 皇家：12 个月工时成本 + 协力/服务器/其他 均为 0（跳过） + H2预估 1条
+        ArgumentCaptor<RevenueMonthlyCost> costCaptor = ArgumentCaptor.forClass(RevenueMonthlyCost.class);
+        verify(costMapper, times(12)).insert(costCaptor.capture());
+        assertThat(costCaptor.getAllValues()).first().satisfies(cost -> {
+            assertThat(cost.getYearMonth()).isEqualTo("2026-01");
+            assertThat(cost.getProjectId()).isEqualTo(1L);
+            assertThat(cost.getBusinessLineId()).isEqualTo(10L);
+            assertThat(cost.getCategory()).isEqualTo("delivery");
+            assertThat(cost.getWorkHours()).isEqualByComparingTo("4.77");
+        });
+        ArgumentCaptor<RevenueManualEntry> manualCaptor = ArgumentCaptor.forClass(RevenueManualEntry.class);
+        verify(manualEntryMapper, times(1)).insert(manualCaptor.capture());
+        assertThat(manualCaptor.getValue().getEntryType()).isEqualTo("h2_estimate");
+        assertThat(manualCaptor.getValue().getYearMonth()).isEqualTo("2026-12");
+        assertThat(manualCaptor.getValue().getAmount()).isEqualTo(1280000L);
+        assertThat(manualCaptor.getValue().getCreatedBy()).isEqualTo(7L);
+        assertThat(result.getManualRowCount()).isEqualTo(1);
+    }
+
+    @Test
+    void initializeFromWorkbookSkipsUnknownProject() throws Exception {
+        when(projectMapper.selectList(any())).thenReturn(List.of());
+        when(businessLineMapper.selectList(any())).thenReturn(List.of());
+        MockMultipartFile file = initWorkbook();
+
+        RevenueInitResultVO result = service.initializeFromWorkbook(file, 2026, 7L);
+
+        assertThat(result.getImportedProjectCount()).isZero();
+        assertThat(result.getErrors()).hasSize(1);
+        assertThat(result.getErrors().get(0)).contains("未找到项目映射");
+        verify(costMapper, never()).insert(any());
+        verify(manualEntryMapper, never()).insert(any());
+    }
+
+    private MockMultipartFile initWorkbook() throws Exception {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("一页");
+            // 工时明细区域（Excel 行 3 表头 / 4-9 项目）
+            Row hoursHeader = sheet.createRow(2);
+            hoursHeader.createCell(2).setCellValue("项目");
+            for (int m = 0; m < 12; m++) {
+                hoursHeader.createCell(3 + m).setCellValue((m + 1) + "月");
+            }
+            Row royalHours = sheet.createRow(3);
+            royalHours.createCell(2).setCellValue("皇家");
+            double[] hours = {4.77, 9.9646, 6.388, 4.138, 4.825, 4.366, 4.046, 3.8, 5, 8, 8, 8};
+            for (int m = 0; m < 12; m++) {
+                royalHours.createCell(3 + m).setCellValue(hours[m]);
+            }
+            // 成本明细区域（Excel 行 13 表头 / 14-19 项目，万元）
+            Row costHeader = sheet.createRow(12);
+            costHeader.createCell(2).setCellValue("项目");
+            Row royalCost = sheet.createRow(13);
+            royalCost.createCell(2).setCellValue("皇家");
+            double[] costs = {10.774476, 19.9120210296, 13.0875, 6.2783, 7.4106, 6.82347586666668,
+                    5.87, 5.93889333333335, 7.81433333333335, 12.5029333333334, 12.5029333333334, 12.5029333333334};
+            for (int m = 0; m < 12; m++) {
+                royalCost.createCell(3 + m).setCellValue(costs[m]);
+            }
+            // 交付营收区域（Excel 行 24 表头 / 25-30 项目）
+            Row revenueHeader = sheet.createRow(23);
+            revenueHeader.createCell(7).setCellValue("H2预估(万)");
+            revenueHeader.createCell(10).setCellValue("协力成本(万)");
+            revenueHeader.createCell(11).setCellValue("服务器成本(万)");
+            revenueHeader.createCell(12).setCellValue("其他成本(万)");
+            Row royalRevenue = sheet.createRow(24);
+            royalRevenue.createCell(2).setCellValue("皇家");
+            royalRevenue.createCell(7).setCellValue(128.0);
+            royalRevenue.createCell(10).setCellValue(0.0);
+            royalRevenue.createCell(11).setCellValue(0.0);
+            royalRevenue.createCell(12).setCellValue(0.0);
+            workbook.write(output);
+            return new MockMultipartFile("file", "项目营收拆解.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray());
+        }
     }
 
     private void stubSummaryData(List<RevenueMonthlyCost> costs, List<RevenueMonthlyIncome> incomes,

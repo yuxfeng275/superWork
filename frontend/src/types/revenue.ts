@@ -79,6 +79,13 @@ export interface RevenueImportResult {
   errors: string[]
 }
 
+export interface RevenueInitResult {
+  importedProjectCount: number
+  costRowCount: number
+  manualRowCount: number
+  errors: string[]
+}
+
 export interface RevenueMapping {
   id: number
   sourceType: string
