@@ -251,26 +251,37 @@ class RevenueServiceTest {
 
         RevenueSummaryVO summary = service.getSummary(2026);
 
-        assertThat(summary.getTotalReceivable()).isEqualTo(1500L);
+        assertThat(summary.getH1Receivable()).isEqualTo(1500L);
+        assertThat(summary.getH2Receivable()).isZero();
+        assertThat(summary.getH2Estimate()).isEqualTo(300L);
         assertThat(summary.getTotalCost()).isEqualTo(775L);
+        assertThat(summary.getProfit()).isEqualTo(1025L);
+        assertThat(summary.getProfitRate()).isEqualByComparingTo("0.6833");
         RevenueSummaryVO.BusinessLineSummary custom = findBusinessLine(summary, 10L);
         assertThat(custom.getType()).isEqualTo("project_breakdown");
-        assertThat(custom.getTotalReceivable()).isEqualTo(1000L);
-        assertThat(custom.getTotalReceived()).isEqualTo(1000L);
+        assertThat(custom.getH1Receivable()).isEqualTo(1000L);
+        assertThat(custom.getH2Receivable()).isZero();
+        assertThat(custom.getH1DeliveryCost()).isEqualTo(500L);
         assertThat(custom.getTotalCost()).isEqualTo(550L);
+        assertThat(custom.getProfit()).isEqualTo(750L);
         RevenueSummaryVO.ProjectSummary project = custom.getProjects().get(0);
-        assertThat(project.getReceivable()).isEqualTo(1000L);
-        assertThat(project.getReceived()).isEqualTo(1000L);
-        assertThat(project.getDeliveryHours()).isEqualByComparingTo("4.5");
-        assertThat(project.getDeliveryCost()).isEqualTo(400L);
-        assertThat(project.getSalesCost()).isEqualTo(100L);
+        assertThat(project.getH1Receivable()).isEqualTo(1000L);
+        assertThat(project.getH2Receivable()).isZero();
+        assertThat(project.getH1Hours()).isEqualByComparingTo("4.5");
+        assertThat(project.getH2Hours()).isEqualByComparingTo("0");
+        assertThat(project.getH1DeliveryCost()).isEqualTo(500L);
+        assertThat(project.getH2DeliveryCost()).isZero();
         assertThat(project.getPartnerCost()).isEqualTo(50L);
         assertThat(project.getH2Estimate()).isEqualTo(300L);
+        assertThat(project.getTotalCost()).isEqualTo(550L);
+        assertThat(project.getProfit()).isEqualTo(750L);
         RevenueSummaryVO.BusinessLineSummary member = findBusinessLine(summary, 30L);
         assertThat(member.getType()).isEqualTo("business_line_summary");
         assertThat(member.getProjects()).isNull();
-        assertThat(member.getTotalReceived()).isEqualTo(500L);
+        assertThat(member.getH1Receivable()).isEqualTo(500L);
+        assertThat(member.getServerCost()).isEqualTo(25L);
         assertThat(member.getTotalCost()).isEqualTo(225L);
+        assertThat(member.getProfit()).isEqualTo(275L);
         assertThat(summary.getMonthlyTrend()).singleElement().satisfies(month -> {
             assertThat(month.getMonth()).isEqualTo("2026-01");
             assertThat(month.getIncome()).isEqualTo(1500L);
@@ -287,7 +298,7 @@ class RevenueServiceTest {
 
         RevenueSummaryVO summary = service.getSummary(2026);
 
-        assertThat(summary.getTotalProfit()).isEqualTo(750L);
+        assertThat(summary.getProfit()).isEqualTo(750L);
         assertThat(summary.getProfitRate()).isEqualByComparingTo("0.7500");
         assertThat(findBusinessLine(summary, 10L).getProjects().get(0).getProfitRate())
                 .isEqualByComparingTo("0.7500");

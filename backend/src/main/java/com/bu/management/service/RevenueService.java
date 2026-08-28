@@ -208,17 +208,43 @@ public class RevenueService {
 
         RevenueSummaryVO summary = new RevenueSummaryVO();
         summary.setYear(year);
-        long totalReceivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
-        long totalReceived = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
-        long importedCost = costs.stream().mapToLong(item -> value(item.getWorkCost())).sum();
-        long manualCost = manualEntries.stream().filter(this::isActualCost)
+        long h1Receivable = incomes.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long h2Receivable = incomes.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        BigDecimal h1Hours = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
+                .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal h2Hours = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
+                .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long h1DeliveryCost = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
+        long h2DeliveryCost = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
+        long partnerCost = manualEntries.stream().filter(item -> "partner_cost".equals(item.getEntryType()))
                 .mapToLong(item -> value(item.getAmount())).sum();
-        long totalCost = importedCost + manualCost;
-        summary.setTotalReceivable(totalReceivable);
-        summary.setTotalReceived(totalReceived);
+        long serverCost = manualEntries.stream().filter(item -> "server_cost".equals(item.getEntryType()))
+                .mapToLong(item -> value(item.getAmount())).sum();
+        long otherCost = manualEntries.stream().filter(item -> "other_cost".equals(item.getEntryType()))
+                .mapToLong(item -> value(item.getAmount())).sum();
+        long h2Estimate = manualEntries.stream().filter(item -> H2_ESTIMATE.equals(item.getEntryType()))
+                .mapToLong(item -> value(item.getAmount())).sum();
+        long totalCost = h1DeliveryCost + h2DeliveryCost + partnerCost + serverCost + otherCost;
+        long profit = h1Receivable + h2Receivable + h2Estimate - totalCost;
+        summary.setH1Receivable(h1Receivable);
+        summary.setH2Receivable(h2Receivable);
+        summary.setH1Hours(h1Hours);
+        summary.setH2Hours(h2Hours);
+        summary.setH1DeliveryCost(h1DeliveryCost);
+        summary.setH2DeliveryCost(h2DeliveryCost);
+        summary.setH2Estimate(h2Estimate);
+        summary.setPartnerCost(partnerCost);
+        summary.setServerCost(serverCost);
+        summary.setOtherCost(otherCost);
         summary.setTotalCost(totalCost);
-        summary.setTotalProfit(totalReceivable - totalCost);
-        summary.setProfitRate(profitRate(totalReceivable - totalCost, totalReceivable));
+        summary.setProfit(profit);
+        summary.setProfitRate(profitRate(profit, h1Receivable + h2Receivable));
         summary.setMonthlyTrend(buildMonthlyTrend(costs, incomes, manualEntries));
         summary.setBusinessLines(businessLines.stream()
                 .sorted(Comparator.comparing(BusinessLine::getId, Comparator.nullsLast(Long::compareTo)))
@@ -556,21 +582,45 @@ public class RevenueService {
                 .filter(item -> Objects.equals(line.getId(), item.getBusinessLineId())).toList();
         List<RevenueManualEntry> manualEntries = allManualEntries.stream()
                 .filter(item -> Objects.equals(line.getId(), item.getBusinessLineId())).toList();
-        long receivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
-        long received = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
-        long totalCost = costs.stream().mapToLong(item -> value(item.getWorkCost())).sum()
-                + manualEntries.stream().filter(this::isActualCost).mapToLong(item -> value(item.getAmount())).sum();
+        long h1Receivable = incomes.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long h2Receivable = incomes.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        BigDecimal h1Hours = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
+                .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal h2Hours = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
+                .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long h1DeliveryCost = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
+        long h2DeliveryCost = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
+        long partnerCost = manualAmount(manualEntries, "partner_cost");
+        long serverCost = manualAmount(manualEntries, "server_cost");
+        long otherCost = manualAmount(manualEntries, "other_cost");
+        long h2Estimate = manualAmount(manualEntries, H2_ESTIMATE);
+        long totalCost = h1DeliveryCost + h2DeliveryCost + partnerCost + serverCost + otherCost;
+        long profit = h1Receivable + h2Receivable + h2Estimate - totalCost;
 
         RevenueSummaryVO.BusinessLineSummary summary = new RevenueSummaryVO.BusinessLineSummary();
         summary.setBusinessLineId(line.getId());
         summary.setBusinessLineName(line.getName());
         boolean memberLine = normalize(line.getName()).contains("会员通");
         summary.setType(memberLine ? "business_line_summary" : "project_breakdown");
-        summary.setTotalReceivable(receivable);
-        summary.setTotalReceived(received);
+        summary.setH1Receivable(h1Receivable);
+        summary.setH2Receivable(h2Receivable);
+        summary.setH1Hours(h1Hours);
+        summary.setH2Hours(h2Hours);
+        summary.setH1DeliveryCost(h1DeliveryCost);
+        summary.setH2DeliveryCost(h2DeliveryCost);
+        summary.setH2Estimate(h2Estimate);
+        summary.setPartnerCost(partnerCost);
+        summary.setServerCost(serverCost);
+        summary.setOtherCost(otherCost);
         summary.setTotalCost(totalCost);
-        summary.setTotalProfit(receivable - totalCost);
-        summary.setProfitRate(profitRate(receivable - totalCost, receivable));
+        summary.setProfit(profit);
+        summary.setProfitRate(profitRate(profit, h1Receivable + h2Receivable));
         summary.setMonths(buildMonthlyData(costs, incomes, manualEntries, false));
         if (memberLine) {
             summary.setProjects(null);
@@ -618,37 +668,52 @@ public class RevenueService {
     private RevenueSummaryVO.ProjectSummary buildProjectSummary(
             Long projectId, Project project, List<RevenueMonthlyCost> costs,
             List<RevenueMonthlyIncome> incomes, List<RevenueManualEntry> manualEntries) {
-        long receivable = incomes.stream().mapToLong(item -> value(item.getReceivableAmount())).sum();
-        long received = incomes.stream().mapToLong(item -> value(item.getReceivedAmount())).sum();
-        long deliveryCost = costs.stream().filter(item -> !"sales".equals(item.getCategory()))
-                .mapToLong(item -> value(item.getWorkCost())).sum();
-        long salesCost = costs.stream().filter(item -> "sales".equals(item.getCategory()))
-                .mapToLong(item -> value(item.getWorkCost())).sum();
-        BigDecimal deliveryHours = costs.stream().filter(item -> !"sales".equals(item.getCategory()))
+        long h1Receivable = incomes.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        long h2Receivable = incomes.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getReceivableAmount())).sum();
+        BigDecimal h1Hours = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
                 .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal h2Hours = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .filter(item -> !"sales".equals(item.getCategory()))
+                .map(item -> decimalValue(item.getWorkHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long h1DeliveryCost = costs.stream().filter(item -> isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
+        long h2DeliveryCost = costs.stream().filter(item -> !isFirstHalf(item.getYearMonth()))
+                .mapToLong(item -> value(item.getWorkCost())).sum();
         long partnerCost = manualAmount(manualEntries, "partner_cost");
         long serverCost = manualAmount(manualEntries, "server_cost");
         long otherCost = manualAmount(manualEntries, "other_cost");
-        long totalCost = deliveryCost + salesCost + partnerCost + serverCost + otherCost;
         long h2Estimate = manualAmount(manualEntries, H2_ESTIMATE);
+        long totalCost = h1DeliveryCost + h2DeliveryCost + partnerCost + serverCost + otherCost;
+        long profit = h1Receivable + h2Receivable + h2Estimate - totalCost;
 
         RevenueSummaryVO.ProjectSummary summary = new RevenueSummaryVO.ProjectSummary();
         summary.setProjectId(projectId);
         summary.setProjectName(project == null ? "项目 " + projectId : project.getName());
-        summary.setReceivable(receivable);
-        summary.setReceived(received);
-        summary.setDeliveryHours(deliveryHours);
-        summary.setDeliveryCost(deliveryCost);
-        summary.setSalesCost(salesCost);
+        summary.setH1Receivable(h1Receivable);
+        summary.setH2Receivable(h2Receivable);
+        summary.setH1Hours(h1Hours);
+        summary.setH2Hours(h2Hours);
+        summary.setH1DeliveryCost(h1DeliveryCost);
+        summary.setH2DeliveryCost(h2DeliveryCost);
+        summary.setH2Estimate(h2Estimate == 0 ? null : h2Estimate);
         summary.setPartnerCost(partnerCost);
         summary.setServerCost(serverCost);
         summary.setOtherCost(otherCost);
         summary.setTotalCost(totalCost);
-        summary.setProfit(receivable - totalCost);
-        summary.setProfitRate(profitRate(receivable - totalCost, receivable));
-        summary.setH2Estimate(h2Estimate == 0 ? null : h2Estimate);
+        summary.setProfit(profit);
+        summary.setProfitRate(profitRate(profit, h1Receivable + h2Receivable));
         summary.setMonths(buildMonthlyData(costs, incomes, manualEntries, true));
         return summary;
+    }
+
+    private boolean isFirstHalf(String yearMonth) {
+        if (yearMonth == null || yearMonth.length() < 7) {
+            return false;
+        }
+        return yearMonth.substring(5, 7).compareTo("07") < 0;
     }
 
     private List<RevenueSummaryVO.MonthlyTrendItem> buildMonthlyTrend(

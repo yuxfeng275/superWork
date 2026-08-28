@@ -16,18 +16,19 @@ export interface RevenueMonthlyData {
 export interface RevenueProjectSummary {
   projectId: number
   projectName: string
-  receivable: number
-  received: number
-  deliveryHours: number | null
-  deliveryCost: number
-  salesCost: number
+  h1Receivable: number
+  h2Receivable: number
+  h1Hours: number | null
+  h2Hours: number | null
+  h1DeliveryCost: number
+  h2DeliveryCost: number
+  h2Estimate: number | null
   partnerCost: number
   serverCost: number
   otherCost: number
   totalCost: number
   profit: number
   profitRate: number | null
-  h2Estimate: number | null
   months: RevenueMonthlyData[]
 }
 
@@ -35,10 +36,18 @@ export interface RevenueBusinessLineSummary {
   businessLineId: number
   businessLineName: string
   type: 'project_breakdown' | 'business_line_summary' | string
-  totalReceivable: number
-  totalReceived: number
+  h1Receivable: number
+  h2Receivable: number
+  h1Hours: number | null
+  h2Hours: number | null
+  h1DeliveryCost: number
+  h2DeliveryCost: number
+  h2Estimate: number | null
+  partnerCost: number
+  serverCost: number
+  otherCost: number
   totalCost: number
-  totalProfit: number
+  profit: number
   profitRate: number | null
   projects: RevenueProjectSummary[]
   months: RevenueMonthlyData[]
@@ -46,10 +55,18 @@ export interface RevenueBusinessLineSummary {
 
 export interface RevenueSummary {
   year: number
-  totalReceivable: number
-  totalReceived: number
+  h1Receivable: number
+  h2Receivable: number
+  h1Hours: number | null
+  h2Hours: number | null
+  h1DeliveryCost: number
+  h2DeliveryCost: number
+  h2Estimate: number | null
+  partnerCost: number
+  serverCost: number
+  otherCost: number
   totalCost: number
-  totalProfit: number
+  profit: number
   profitRate: number | null
   monthlyTrend: RevenueMonthlyTrendItem[]
   businessLines: RevenueBusinessLineSummary[]

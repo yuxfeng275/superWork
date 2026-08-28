@@ -8,10 +8,18 @@ import java.util.List;
 @Data
 public class RevenueSummaryVO {
     private Integer year;
-    private Long totalReceivable;
-    private Long totalReceived;
+    private Long h1Receivable;
+    private Long h2Receivable;
+    private BigDecimal h1Hours;
+    private BigDecimal h2Hours;
+    private Long h1DeliveryCost;
+    private Long h2DeliveryCost;
+    private Long h2Estimate;
+    private Long partnerCost;
+    private Long serverCost;
+    private Long otherCost;
     private Long totalCost;
-    private Long totalProfit;
+    private Long profit;
     private BigDecimal profitRate;
     private List<MonthlyTrendItem> monthlyTrend;
     private List<BusinessLineSummary> businessLines;
@@ -28,10 +36,18 @@ public class RevenueSummaryVO {
         private Long businessLineId;
         private String businessLineName;
         private String type;
-        private Long totalReceivable;
-        private Long totalReceived;
+        private Long h1Receivable;
+        private Long h2Receivable;
+        private BigDecimal h1Hours;
+        private BigDecimal h2Hours;
+        private Long h1DeliveryCost;
+        private Long h2DeliveryCost;
+        private Long h2Estimate;
+        private Long partnerCost;
+        private Long serverCost;
+        private Long otherCost;
         private Long totalCost;
-        private Long totalProfit;
+        private Long profit;
         private BigDecimal profitRate;
         private List<ProjectSummary> projects;
         private List<MonthlyData> months;
@@ -41,18 +57,19 @@ public class RevenueSummaryVO {
     public static class ProjectSummary {
         private Long projectId;
         private String projectName;
-        private Long receivable;
-        private Long received;
-        private BigDecimal deliveryHours;
-        private Long deliveryCost;
-        private Long salesCost;
+        private Long h1Receivable;
+        private Long h2Receivable;
+        private BigDecimal h1Hours;
+        private BigDecimal h2Hours;
+        private Long h1DeliveryCost;
+        private Long h2DeliveryCost;
+        private Long h2Estimate;
         private Long partnerCost;
         private Long serverCost;
         private Long otherCost;
         private Long totalCost;
         private Long profit;
         private BigDecimal profitRate;
-        private Long h2Estimate;
         private List<MonthlyData> months;
     }
 

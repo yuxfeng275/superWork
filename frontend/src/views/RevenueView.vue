@@ -35,6 +35,8 @@ interface ProjectTreeNode {
 type SummaryRow =
   | { kind: 'business-line'; businessLine: RevenueBusinessLineSummary; project?: undefined }
   | { kind: 'project'; businessLine: RevenueBusinessLineSummary; project: RevenueProjectSummary }
+  | { kind: 'total' }
+type CellRow = SummaryRow
 type ImportKind = 'cost' | 'income'
 
 const currentYear = new Date().getFullYear()
@@ -84,11 +86,13 @@ const sourceTypeOptions = computed(() => Array.from(new Set(mappings.value.map(i
 const filteredMappings = computed(() => selectedSourceType.value
   ? mappings.value.filter(item => item.sourceType === selectedSourceType.value)
   : mappings.value)
+const totalReceivable = computed(() => (summary.value?.h1Receivable ?? 0) + (summary.value?.h2Receivable ?? 0))
 const metricCards = computed(() => [
-  { label: '年度累计营收', value: formatWan(summary.value?.totalReceivable, 1), tone: 'blue' },
+  { label: '年度累计营收', value: formatWan(totalReceivable.value, 1), tone: 'blue' },
+  { label: 'H2预估', value: formatWan(summary.value?.h2Estimate, 1), tone: 'purple' },
   { label: '累计成本', value: formatWan(summary.value?.totalCost, 1), tone: 'orange' },
-  { label: '毛利', value: formatWan(summary.value?.totalProfit, 1), tone: profitTone(summary.value?.totalProfit) },
-  { label: '毛利率', value: summary.value && summary.value.totalReceivable > 0 ? formatRate(summary.value.profitRate) : '—', tone: rateTone(summary.value?.profitRate, summary.value?.totalReceivable) }
+  { label: '毛利', value: formatWan(summary.value?.profit, 1), tone: profitTone(summary.value?.profit) },
+  { label: '毛利率', value: totalReceivable.value > 0 ? formatRate(summary.value?.profitRate) : '—', tone: rateTone(summary.value?.profitRate, totalReceivable.value) }
 ])
 const manualProjects = computed(() => manualForm.businessLineId
   ? projects.value.filter(item => item.businessLineId === manualForm.businessLineId)
@@ -97,15 +101,19 @@ const mappingProjects = computed(() => mappingForm.businessLineId
   ? projects.value.filter(item => item.businessLineId === mappingForm.businessLineId)
   : projects.value)
 const trendMax = computed(() => Math.max(1, ...(summary.value?.monthlyTrend ?? []).flatMap(item => [item.income, item.cost])))
-const summaryRows = computed<SummaryRow[]>(() => (summary.value?.businessLines ?? []).flatMap(businessLine => {
-  if (businessLine.type === 'project_breakdown' && businessLine.projects?.length) {
-    return [
-      { kind: 'business-line' as const, businessLine },
-      ...businessLine.projects.map(project => ({ kind: 'project' as const, businessLine, project }))
-    ]
-  }
-  return [{ kind: 'business-line' as const, businessLine }]
-}))
+const summaryRows = computed<SummaryRow[]>(() => {
+  const rows: SummaryRow[] = (summary.value?.businessLines ?? []).flatMap(businessLine => {
+    if (businessLine.type === 'project_breakdown' && businessLine.projects?.length) {
+      return [
+        { kind: 'business-line' as const, businessLine },
+        ...businessLine.projects.map(project => ({ kind: 'project' as const, businessLine, project }))
+      ]
+    }
+    return [{ kind: 'business-line' as const, businessLine }]
+  })
+  if (summary.value) rows.push({ kind: 'total' })
+  return rows
+})
 
 function formatWan(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined) return '—'
@@ -139,6 +147,24 @@ function getEntryTypeLabel(value: string) {
 function profitClass(value: number | null | undefined) {
   if (value === null || value === undefined) return ''
   return value >= 0 ? 'positive' : 'negative'
+}
+
+function cellValue(row: CellRow, key: string): number | null | undefined {
+  if (row.kind === 'business-line') return (row.businessLine as unknown as Record<string, number | null | undefined>)[key]
+  if (row.kind === 'project') return (row.project as unknown as Record<string, number | null | undefined>)[key]
+  return (summary.value as unknown as Record<string, number | null | undefined> | null)?.[key]
+}
+
+function cellWan(row: CellRow, key: string) {
+  return formatWan(cellValue(row, key))
+}
+
+function cellHours(row: CellRow, key: string) {
+  return formatHours(cellValue(row, key))
+}
+
+function cellRate(row: CellRow) {
+  return formatRate(cellValue(row, 'profitRate'))
 }
 
 function extractList<T>(payload: unknown): T[] {
@@ -225,6 +251,7 @@ async function loadPage() {
 }
 
 function rowClassName({ row }: { row: SummaryRow }) {
+  if (row.kind === 'total') return 'total-row'
   return row.kind === 'business-line' ? 'business-line-row' : 'project-row'
 }
 
@@ -440,20 +467,21 @@ onMounted(loadPage)
             </template>
           </el-table-column>
           <el-table-column label="名称" min-width="190">
-            <template #default="scope"><strong :class="{ 'line-name': scope.row.kind === 'business-line' }">{{ scope.row.kind === 'business-line' ? scope.row.businessLine.businessLineName : `　${scope.row.project.projectName}` }}</strong></template>
+            <template #default="scope"><strong :class="{ 'line-name': scope.row.kind === 'business-line' || scope.row.kind === 'total' }">{{ scope.row.kind === 'business-line' ? scope.row.businessLine.businessLineName : scope.row.kind === 'total' ? '合计' : `　${scope.row.project.projectName}` }}</strong></template>
           </el-table-column>
-          <el-table-column label="应收(万)" min-width="110"><template #default="scope">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalReceivable : scope.row.project.receivable) }}</template></el-table-column>
-          <el-table-column label="已收(万)" min-width="110"><template #default="scope">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalReceived : scope.row.project.received) }}</template></el-table-column>
-          <el-table-column label="工时(人月)" min-width="115"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatHours(scope.row.project.deliveryHours) }}</template></el-table-column>
-          <el-table-column label="交付成本(万)" min-width="125"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.deliveryCost) }}</template></el-table-column>
-          <el-table-column label="销售成本(万)" min-width="125"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.salesCost) }}</template></el-table-column>
-          <el-table-column label="协力(万)" min-width="105"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.partnerCost) }}</template></el-table-column>
-          <el-table-column label="服务器(万)" min-width="115"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.serverCost) }}</template></el-table-column>
-          <el-table-column label="其他(万)" min-width="105"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.otherCost) }}</template></el-table-column>
-          <el-table-column label="H2预估(万)" min-width="115"><template #default="scope">{{ scope.row.kind === 'business-line' ? '—' : formatWan(scope.row.project.h2Estimate) }}</template></el-table-column>
-          <el-table-column label="合计成本(万)" min-width="125"><template #default="scope">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalCost : scope.row.project.totalCost) }}</template></el-table-column>
-          <el-table-column label="毛利(万)" min-width="110"><template #default="scope"><span :class="profitClass(scope.row.kind === 'business-line' ? scope.row.businessLine.totalProfit : scope.row.project.profit)">{{ formatWan(scope.row.kind === 'business-line' ? scope.row.businessLine.totalProfit : scope.row.project.profit) }}</span></template></el-table-column>
-          <el-table-column label="毛利率" min-width="100"><template #default="scope"><span :class="profitClass(scope.row.kind === 'business-line' ? scope.row.businessLine.profitRate : scope.row.project.profitRate)">{{ formatRate(scope.row.kind === 'business-line' ? scope.row.businessLine.profitRate : scope.row.project.profitRate) }}</span></template></el-table-column>
+          <el-table-column label="H1交付(万)" min-width="115"><template #default="scope">{{ cellWan(scope.row, 'h1Receivable') }}</template></el-table-column>
+          <el-table-column label="H1工时(人月)" min-width="115"><template #default="scope">{{ cellHours(scope.row, 'h1Hours') }}</template></el-table-column>
+          <el-table-column label="H1工时成本(万)" min-width="130"><template #default="scope">{{ cellWan(scope.row, 'h1DeliveryCost') }}</template></el-table-column>
+          <el-table-column label="H2交付(万)" min-width="115"><template #default="scope">{{ cellWan(scope.row, 'h2Receivable') }}</template></el-table-column>
+          <el-table-column label="H2预估(万)" min-width="115"><template #default="scope">{{ cellWan(scope.row, 'h2Estimate') }}</template></el-table-column>
+          <el-table-column label="H2工时(人月)" min-width="115"><template #default="scope">{{ cellHours(scope.row, 'h2Hours') }}</template></el-table-column>
+          <el-table-column label="H2工时成本(万)" min-width="130"><template #default="scope">{{ cellWan(scope.row, 'h2DeliveryCost') }}</template></el-table-column>
+          <el-table-column label="协力(万)" min-width="105"><template #default="scope">{{ cellWan(scope.row, 'partnerCost') }}</template></el-table-column>
+          <el-table-column label="服务器(万)" min-width="115"><template #default="scope">{{ cellWan(scope.row, 'serverCost') }}</template></el-table-column>
+          <el-table-column label="其他(万)" min-width="105"><template #default="scope">{{ cellWan(scope.row, 'otherCost') }}</template></el-table-column>
+          <el-table-column label="合计成本(万)" min-width="125"><template #default="scope">{{ cellWan(scope.row, 'totalCost') }}</template></el-table-column>
+          <el-table-column label="毛利(万)" min-width="110"><template #default="scope"><span :class="profitClass(cellValue(scope.row, 'profit'))">{{ cellWan(scope.row, 'profit') }}</span></template></el-table-column>
+          <el-table-column label="毛利率" min-width="100"><template #default="scope"><span :class="profitClass(cellValue(scope.row, 'profitRate'))">{{ cellRate(scope.row) }}</span></template></el-table-column>
         </el-table>
       </div>
     </section>
@@ -554,9 +582,9 @@ onMounted(loadPage)
 .page-head, .panel { background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 24px; }
 .page-head h2 { margin: 4px 0 6px; color: var(--gray-800); font-size: 22px; }.page-head p, .section-head p { margin: 0; color: var(--gray-500); font-size: 13px; }.eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: .1em; }.head-actions, .tab-toolbar { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }.metric-card { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); }.metric-card :deep(.el-card__body) { padding: 18px 20px; }.metric-label { color: var(--gray-500); font-size: 13px; }.metric-value { margin-top: 10px; color: var(--gray-800); font-size: 27px; font-weight: 700; line-height: 1.2; }.metric-value small { margin-left: 5px; font-size: 12px; font-weight: 500; }.metric-value.blue { color: var(--primary); }.metric-value.orange { color: var(--warning); }.metric-value.green, .positive { color: var(--success); }.metric-value.red, .negative { color: var(--danger); }.metric-year { margin-top: 7px; color: var(--gray-400); font-size: 12px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }.metric-card { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); }.metric-card :deep(.el-card__body) { padding: 18px 20px; }.metric-label { color: var(--gray-500); font-size: 13px; }.metric-value { margin-top: 10px; color: var(--gray-800); font-size: 27px; font-weight: 700; line-height: 1.2; }.metric-value small { margin-left: 5px; font-size: 12px; font-weight: 500; }.metric-value.blue { color: var(--primary); }.metric-value.orange { color: var(--warning); }.metric-value.purple { color: #7c5cd6; }.metric-value.green, .positive { color: var(--success); }.metric-value.red, .negative { color: var(--danger); }.metric-year { margin-top: 7px; color: var(--gray-400); font-size: 12px; }
 .panel { padding: 20px; }.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }.section-head h3 { margin: 0 0 4px; color: var(--gray-800); font-size: 17px; }.trend-list { display: flex; flex-direction: column; gap: 13px; }.trend-row { display: flex; align-items: center; gap: 16px; }.trend-month { width: 38px; color: var(--gray-600); font-size: 13px; }.trend-bars { display: flex; flex: 1; flex-direction: column; gap: 6px; }.bar-line { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--gray-600); font-size: 12px; }.bar-label { width: 30px; }.bar-track { height: 9px; flex: 1; overflow: hidden; background: var(--gray-100); border-radius: 5px; }.bar { display: block; height: 100%; min-width: 2px; border-radius: inherit; }.bar.income { background: var(--primary); }.bar.cost { background: var(--warning); }.bar-line strong { width: 78px; color: var(--gray-700); font-size: 12px; font-weight: 500; text-align: right; }
-.table-scroll { width: 100%; overflow-x: auto; }.revenue-table { min-width: 1380px; }.revenue-table :deep(.business-line-row td) { background: #f8fbff; }.revenue-table :deep(.business-line-row:hover td) { background: #f1f6ff !important; }.revenue-table :deep(.mapping-warning-row td) { background: #fff8e6; }.revenue-table :deep(.mapping-warning-row:hover td) { background: #fff1cc !important; }.line-name { color: var(--gray-800); }.project-row .line-name { color: var(--gray-700); font-weight: 500; }.month-detail { padding: 12px 34px 16px 58px; background: var(--gray-50); }.month-detail h4 { margin: 0 0 10px; color: var(--gray-700); font-size: 13px; }
+.table-scroll { width: 100%; overflow-x: auto; }.revenue-table { min-width: 1780px; }.revenue-table :deep(.business-line-row td) { background: #f8fbff; }.revenue-table :deep(.business-line-row:hover td) { background: #f1f6ff !important; }.revenue-table :deep(.total-row td) { background: #f5f7fa; font-weight: 600; }.revenue-table :deep(.total-row:hover td) { background: #eef1f5 !important; }.revenue-table :deep(.mapping-warning-row td) { background: #fff8e6; }.revenue-table :deep(.mapping-warning-row:hover td) { background: #fff1cc !important; }.line-name { color: var(--gray-800); }.project-row .line-name { color: var(--gray-700); font-weight: 500; }.month-detail { padding: 12px 34px 16px 58px; background: var(--gray-50); }.month-detail h4 { margin: 0 0 10px; color: var(--gray-700); font-size: 13px; }
 .management-panel :deep(.el-tabs__header) { margin-bottom: 18px; }.tab-toolbar { justify-content: space-between; margin-bottom: 14px; }.tab-toolbar > :first-child { margin-right: auto; }.import-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.import-box { display: flex; min-height: 240px; align-items: center; flex-direction: column; padding: 24px; border: 1px dashed var(--gray-300); border-radius: var(--radius-md); text-align: center; }.import-icon { display: grid; width: 42px; height: 42px; place-items: center; margin-bottom: 10px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 20px; }.import-box h4 { margin: 0 0 5px; color: var(--gray-800); font-size: 16px; }.import-box p { margin: 0 0 15px; color: var(--gray-500); font-size: 12px; }.file-name { max-width: 100%; margin-top: 9px; overflow: hidden; color: var(--gray-600); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.import-button { margin-top: 14px; }.import-result { width: 100%; margin-top: 14px; text-align: left; }.dialog-alert { margin-bottom: 18px; }.form-readonly { color: var(--gray-600); font-size: 13px; }
 @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .page-head { align-items: flex-start; flex-direction: column; padding: 18px; }.head-actions { width: 100%; }.head-actions .el-select, .head-actions .el-button { flex: 1; }.panel { padding: 15px; }.metrics-grid, .import-grid { grid-template-columns: 1fr; }.metric-value { font-size: 23px; }.trend-row { align-items: flex-start; }.trend-month { padding-top: 2px; }.tab-toolbar { align-items: stretch; flex-direction: column; }.tab-toolbar .el-select, .tab-toolbar .el-button { width: 100%; margin: 0; }.month-detail { padding-left: 18px; } }
