@@ -166,8 +166,7 @@ public class RevenueService {
                     }
                     long receivable = readDecimal(row.getCell(receivableColumn), formatter, evaluator, "应收金额")
                             .setScale(0, RoundingMode.HALF_UP).longValueExact();
-                    long received = readDecimal(row.getCell(receivedColumn), formatter, evaluator, "实收金额")
-                            .setScale(0, RoundingMode.HALF_UP).longValueExact();
+                    long received = readOptionalDecimalYuan(row.getCell(receivedColumn), formatter, evaluator);
                     Assignment assignment = resolveIncomeAssignment(brand, type, references, result);
                     if (assignment.businessLineId() == null) {
                         incrementPending(result);
@@ -469,6 +468,14 @@ public class RevenueService {
         } catch (NumberFormatException exception) {
             return null;
         }
+    }
+
+    private long readOptionalDecimalYuan(Cell cell, DataFormatter formatter, FormulaEvaluator evaluator) {
+        BigDecimal value = readNullableDecimal(cell, formatter, evaluator);
+        if (value == null) {
+            return 0L;
+        }
+        return value.setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
 
     public List<RevenueImportRecord> listImportRecords(String importType) {

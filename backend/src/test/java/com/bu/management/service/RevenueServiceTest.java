@@ -626,6 +626,42 @@ class RevenueServiceTest {
         }
     }
 
+    @Test
+    void incomeImportTreatsEmptyReceivedAsZero() throws Exception {
+        when(mappingMapper.selectOne(any())).thenReturn(mapping("contract_brand", "皇家宠物", 1L, 10L, "delivery"));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(1L, 10L, "皇家项目")));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(businessLine(10L, "全渠道云鹿定制")));
+        when(incomeMapper.selectOne(any())).thenReturn(null);
+
+        RevenueImportResultVO result = service.importIncomeExcel(incomeWorkbookWithEmptyReceived());
+
+        assertThat(result.getSuccessCount()).isEqualTo(1);
+        assertThat(result.getErrors()).isEmpty();
+        ArgumentCaptor<RevenueMonthlyIncome> captor = ArgumentCaptor.forClass(RevenueMonthlyIncome.class);
+        verify(incomeMapper).insert(captor.capture());
+        assertThat(captor.getValue().getReceivableAmount()).isEqualTo(1000L);
+        assertThat(captor.getValue().getReceivedAmount()).isZero();
+    }
+
+    private MockMultipartFile incomeWorkbookWithEmptyReceived() throws Exception {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("合同明细");
+            Row header = sheet.createRow(0);
+            String[] headers = {"收款销售月份", "品牌", "收款款项类型", "应收金额", "实收金额"};
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+            Row row = sheet.createRow(1);
+            row.createCell(0).setCellValue("2026-05");
+            row.createCell(1).setCellValue("皇家宠物");
+            row.createCell(2).setCellValue("项目交付");
+            row.createCell(3).setCellValue(1000.0);
+            workbook.write(output);
+            return new MockMultipartFile("file", "income.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", output.toByteArray());
+        }
+    }
+
     private void stubSummaryData(List<RevenueMonthlyCost> costs, List<RevenueMonthlyIncome> incomes,
                                  List<RevenueManualEntry> manualEntries) {
         when(costMapper.selectList(any())).thenReturn(costs);
