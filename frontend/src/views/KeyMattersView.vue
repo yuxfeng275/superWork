@@ -475,6 +475,17 @@ function formatChineseDay(value: string) {
   }).format(parseDate(value))
 }
 
+function formatHistoryTimestamp(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
 function previousWeekStart(value: string) {
   const date = parseDate(value)
   date.setDate(date.getDate() - 7)
@@ -2393,6 +2404,23 @@ onBeforeUnmount(() => {
                   </div>
                 </header>
                 <p>{{ update.progressSummary }}</p>
+                <dl v-if="update.issues || update.nextWeekPlan || update.supportNeeded" class="history-extra">
+                  <div v-if="update.issues" class="history-extra-item risk">
+                    <dt>问题 / 风险</dt>
+                    <dd>{{ update.issues }}</dd>
+                  </div>
+                  <div v-if="update.nextWeekPlan" class="history-extra-item plan">
+                    <dt>下周计划</dt>
+                    <dd>{{ update.nextWeekPlan }}</dd>
+                  </div>
+                  <div v-if="update.supportNeeded" class="history-extra-item support">
+                    <dt>需协调 / 支持</dt>
+                    <dd>{{ update.supportNeeded }}</dd>
+                  </div>
+                </dl>
+                <time v-if="update.updatedAt" class="history-updated" :datetime="update.updatedAt">
+                  更新于 {{ formatHistoryTimestamp(update.updatedAt) }}
+                </time>
               </article>
             </li>
           </ol>
@@ -5811,6 +5839,60 @@ button:focus-visible {
   color: #334155;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.presentation-history-item .history-extra {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.presentation-history-item .history-extra-item {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border-left: 3px solid #dbe4ee;
+  border-radius: 0 8px 8px 0;
+  background: #f8fafc;
+}
+
+.presentation-history-item .history-extra-item.risk {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.presentation-history-item .history-extra-item.plan {
+  border-left-color: var(--km-primary);
+  background: #eff6ff;
+}
+
+.presentation-history-item .history-extra-item.support {
+  border-left-color: #8b5cf6;
+  background: #f5f3ff;
+}
+
+.presentation-history-item .history-extra-item dt {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.presentation-history-item .history-extra-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.presentation-history-item .history-updated {
+  display: block;
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 11px;
 }
 
 .presentation-history-empty {

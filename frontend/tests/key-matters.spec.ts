@@ -71,7 +71,11 @@ const coreMatters = [
         weekStartDate: '2026-07-27',
         status: '推进中',
         progress: 40,
-        progressSummary: '完成方案评审'
+        progressSummary: '完成方案评审',
+        issues: '评审结论待归档',
+        nextWeekPlan: '启动核心链路联调',
+        supportNeeded: '确认联调资源排期',
+        updatedAt: '2026-07-31T18:20:00'
       }
     ]
   },
@@ -465,6 +469,14 @@ test('周会演示按负责人和项目分组并展示结构化简报', async ({
   await expect(stage).toBeVisible()
   await expect(history).toBeVisible()
   await expect(history).toContainText('7月27日周一')
+  await expect(history).toContainText('完成方案评审')
+  await expect(history).toContainText('评审结论待归档')
+  await expect(history).toContainText('启动核心链路联调')
+  await expect(history).toContainText('确认联调资源排期')
+  await expect(history).toContainText('更新于')
+  if (process.env.CAPTURE_KEY_MATTERS === '1') {
+    await page.screenshot({ path: testInfo.outputPath('presentation-history.png'), fullPage: true })
+  }
   await expect(history).toContainText('完成方案评审')
   await expect(history).toContainText('推进中')
   await expect(history).toContainText('40%')
