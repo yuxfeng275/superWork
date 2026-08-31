@@ -2,6 +2,7 @@ package com.bu.management.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
@@ -17,6 +18,7 @@ public class RevenueImportBatch {
     private Long id;
     /** worklog/cost */
     private String importType;
+    @TableField("`year_month`")
     private String yearMonth;
     private String fileName;
     private Integer totalCount;

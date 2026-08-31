@@ -38,20 +38,14 @@ class RevenueMappingResolverTest {
         BusinessLine member = line(3L, "会员通");
         lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom, saas, member));
 
-        lenient().when(projectMapper.selectList(any())).thenAnswer(invocation -> {
-            LambdaQueryWrapper<Project> wrapper = invocation.getArgument(0);
-            List<Project> all = List.of(
-                    project(11L, 1L, "皇家项目"),
-                    project(12L, 1L, "Speedo"),
-                    project(13L, 1L, "澳优"),
-                    project(14L, 1L, "飞鹤"),
-                    project(21L, 2L, "逢时"),
-                    project(22L, 2L, "黄天鹅")
-            );
-            String sql = wrapper.getSqlSet() == null ? "" : wrapper.getSqlSet();
-            // Mockito 下不解 SQL，直接按测试场景全量返回，由 resolver 内部按业务线过滤
-            return all;
-        });
+        lenient().when(projectMapper.selectList(any())).thenAnswer(invocation -> List.of(
+                project(11L, 1L, "皇家项目"),
+                project(12L, 1L, "Speedo"),
+                project(13L, 1L, "澳优"),
+                project(14L, 1L, "飞鹤"),
+                project(21L, 2L, "逢时"),
+                project(22L, 2L, "黄天鹅")
+        ));
     }
 
     private BusinessLine line(Long id, String name) {

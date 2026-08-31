@@ -2,6 +2,7 @@ package com.bu.management.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 public class RevenueEstimateEntry {
     @TableId(type = IdType.AUTO)
     private Long id;
+    @TableField("`year_month`")
     private String yearMonth;
     private Long businessLineId;
     /** NULL=业务线级（项目集/商机集合/其他） */

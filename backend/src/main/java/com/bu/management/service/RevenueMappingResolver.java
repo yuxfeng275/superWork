@@ -95,6 +95,8 @@ public class RevenueMappingResolver {
         String keyword;
         if (raw.contains("会员通")) {
             keyword = "会员通";
+        } else if (raw.contains("精准")) {
+            keyword = "精准";
         } else if (lower.contains("saas")) {
             keyword = "saas";
         } else if (raw.contains("定制")) {
@@ -116,9 +118,9 @@ public class RevenueMappingResolver {
         if (!StringUtils.hasText(token)) {
             return null;
         }
+        // 营收统计不限项目状态：已完结（status=4）项目仍会产生工时与成本
         List<Project> candidates = projectMapper.selectList(new LambdaQueryWrapper<Project>()
-                .eq(Project::getBusinessLineId, businessLineId)
-                .eq(Project::getStatus, 1));
+                .eq(Project::getBusinessLineId, businessLineId));
         String needle = normalize(token);
         for (Project project : candidates) {
             String name = normalize(project.getName());
@@ -162,7 +164,7 @@ public class RevenueMappingResolver {
         }
         Set<String> tags = new LinkedHashSet<>();
         List<String> keywords = new ArrayList<>();
-        projectMapper.selectList(new LambdaQueryWrapper<Project>().eq(Project::getStatus, 1))
+        projectMapper.selectList(null)
                 .forEach(project -> keywords.add(normalize(project.getName())));
         salesProjectMapper.selectList(null)
                 .forEach(item -> keywords.add(item.getName()));
