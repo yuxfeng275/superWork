@@ -150,13 +150,14 @@ public class RevenueImportService {
             throw new IllegalArgumentException("未解析到成本数据，请确认上传的是成本分析_项目 Excel");
         }
 
-        String yearMonth = parsed.get(0).getYearMonth();
-        monthService.assertNotClosed(yearMonth);
-        RevenueImportBatch batch = newBatch("cost", yearMonth, file.getOriginalFilename(), userId);
+        List<String> months = parsed.stream().map(RevenueCostEntry::getYearMonth).distinct().sorted().toList();
+        months.forEach(monthService::assertNotClosed);
+        String batchMonth = months.size() == 1 ? months.get(0) : months.get(0) + "~" + months.get(months.size() - 1);
+        RevenueImportBatch batch = newBatch("cost", batchMonth, file.getOriginalFilename(), userId);
         parsed.forEach(item -> item.setBatchId(batch.getId()));
 
-        costEntryMapper.delete(new LambdaQueryWrapper<RevenueCostEntry>()
-                .eq(RevenueCostEntry::getYearMonth, yearMonth));
+        months.forEach(month -> costEntryMapper.delete(new LambdaQueryWrapper<RevenueCostEntry>()
+                .eq(RevenueCostEntry::getYearMonth, month)));
         parsed.forEach(costEntryMapper::insert);
         return finishBatch(batch, parsed.size(),
                 (int) parsed.stream().filter(item -> item.getPending() == 0).count());
