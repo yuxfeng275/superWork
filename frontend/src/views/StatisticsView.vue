@@ -124,6 +124,12 @@ interface ProjectOption {
   id: number
   name: string
   parentId?: number | null
+  businessLineId?: number | null
+}
+
+interface BusinessLineOption {
+  id: number
+  name: string
 }
 
 interface UserOption {
@@ -186,6 +192,7 @@ const period = ref<[string, string]>([
 const planWindow = ref(10)
 const dashboard = ref<Dashboard>(emptyDashboard())
 const projects = ref<ProjectOption[]>([])
+const businessLines = ref<BusinessLineOption[]>([])
 const users = ref<UserOption[]>([])
 const projectMappings = ref<YunxiaoProjectMapping[]>([])
 const userMappings = ref<YunxiaoUserMapping[]>([])
@@ -405,16 +412,21 @@ const loadDashboard = async () => {
 
 const loadBaseData = async () => {
   try {
-    const [projectPayload, userPayload] = await Promise.all([
+    const [projectPayload, userPayload, businessLinePayload] = await Promise.all([
       api.getProjects({ page: 1, size: 500 }),
-      api.getUsers({ page: 1, size: 500, status: 1 })
+      api.getUsers({ page: 1, size: 500, status: 1 }),
+      api.getBusinessLines({ page: 1, size: 100, status: 1 }).catch(() => null)
     ])
     projects.value = normalizeRecords<ProjectOption>(projectPayload)
     users.value = normalizeRecords<UserOption>(userPayload)
       .filter(item => item.username !== 'admin')
+    businessLines.value = businessLinePayload
+      ? normalizeRecords<BusinessLineOption>(businessLinePayload)
+      : []
   } catch {
     projects.value = []
     users.value = []
+    businessLines.value = []
   }
 }
 
@@ -710,6 +722,17 @@ interface MappingRow {
   projectId: number
   mapping: YunxiaoProjectMapping | null
   children?: MappingRow[]
+}
+
+const businessLineName = (id?: number | null) =>
+  id ? businessLines.value.find(item => item.id === id)?.name || '' : ''
+
+const projectBusinessLineName = (projectId?: number) => {
+  const project = projects.value.find(item => item.id === projectId)
+  if (!project) return ''
+  if (project.businessLineId) return businessLineName(project.businessLineId)
+  const root = rootProjectOf(projectId)
+  return root && root.id !== project.id ? businessLineName(root.businessLineId) : ''
 }
 
 const rootProjectOf = (projectId?: number) => {
@@ -1223,7 +1246,10 @@ onMounted(refresh)
           >
             <el-table-column label="本地项目" min-width="200">
               <template #default="{ row }">
-                <span :class="{ 'mapping-root-name': row.children }">{{ projectName(row.projectId) }}</span>
+                <div class="mapping-project-cell">
+                  <span :class="{ 'mapping-root-name': row.children }">{{ projectName(row.projectId) }}</span>
+                  <small v-if="projectBusinessLineName(row.projectId)">{{ projectBusinessLineName(row.projectId) }}</small>
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="云效项目ID" min-width="220">
@@ -1702,6 +1728,16 @@ onMounted(refresh)
 
 .mapping-root-name {
   font-weight: 700;
+}
+
+.mapping-project-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.mapping-project-cell small {
+  color: var(--gray-500, #8a94a6);
+  font-size: 12px;
 }
 
 .person-cell {

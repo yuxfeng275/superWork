@@ -404,11 +404,20 @@ test('项目映射按主子项目树形展示并显示云效项目名称', async
       code: 200,
       data: {
         records: [
-          { id: 1, name: '皇家 omniCRM', parentId: null },
-          { id: 2, name: '会员通积分子项目', parentId: 1 }
+          { id: 1, name: '皇家 omniCRM', parentId: null, businessLineId: 3 },
+          { id: 2, name: '会员通积分子项目', parentId: 1, businessLineId: null }
         ],
         total: 2
       }
+    })
+  }))
+  await page.unroute('**/api/business-lines**')
+  await page.route('**/api/business-lines**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      code: 200,
+      data: { records: [{ id: 3, name: '定制开发' }], total: 1 }
     })
   }))
   await page.unroute('**/api/yunxiao/project-mappings')
@@ -434,9 +443,11 @@ test('项目映射按主子项目树形展示并显示云效项目名称', async
   const rows = table.locator('tbody tr')
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText('皇家 omniCRM')
+  await expect(rows.nth(0)).toContainText('定制开发')
   await expect(rows.nth(0)).toContainText('皇家 omniCRM · ROYAL')
   await expect(rows.nth(0).locator('.mapping-root-name')).toBeVisible()
   await expect(rows.nth(1)).toContainText('会员通积分子项目')
+  await expect(rows.nth(1)).toContainText('定制开发')
   await expect(rows.nth(1)).toContainText('云效项目 1 · CODE1')
   await expect(rows.nth(1).locator('.el-table__indent')).toHaveCount(1)
   if (process.env.CAPTURE_BU_DASHBOARD === '1') {
