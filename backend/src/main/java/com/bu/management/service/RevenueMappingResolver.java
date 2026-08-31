@@ -3,9 +3,11 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
+import com.bu.management.entity.RevenueNameMapping;
 import com.bu.management.entity.RevenueSalesProject;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.RevenueNameMappingMapper;
 import com.bu.management.mapper.RevenueSalesProjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -38,6 +40,7 @@ public class RevenueMappingResolver {
     private final BusinessLineMapper businessLineMapper;
     private final ProjectMapper projectMapper;
     private final RevenueSalesProjectMapper salesProjectMapper;
+    private final RevenueNameMappingMapper nameMappingMapper;
 
     public enum WorkType { PROJECT, SALES }
 
@@ -49,7 +52,13 @@ public class RevenueMappingResolver {
     }
 
     public Resolved resolve(String rawBusinessLine, String rawProjectName) {
-        Long businessLineId = matchBusinessLine(rawBusinessLine);
+        // 人工映射记忆优先：待映射清单里确认过的归属，后续导入直接套用
+        RevenueNameMapping remembered = rawProjectName == null ? null : nameMappingMapper.selectOne(
+                new LambdaQueryWrapper<RevenueNameMapping>()
+                        .eq(RevenueNameMapping::getRawBusinessLine, rawBusinessLine)
+                        .eq(RevenueNameMapping::getRawProjectName, rawProjectName));
+        Long rememberedProjectId = remembered == null ? null : remembered.getProjectId();
+        Long businessLineId = remembered != null ? remembered.getBusinessLineId() : matchBusinessLine(rawBusinessLine);
         String projectPart = rawProjectName == null ? "" : rawProjectName.trim();
         String tag = null;
         Matcher matcher = TYPE_SUFFIX.matcher(projectPart);
@@ -80,8 +89,16 @@ public class RevenueMappingResolver {
                     "sales", SalesKind.SPECIFIC.name().toLowerCase(), token, false, businessLineId == null);
         }
 
-        Long projectId = businessLineId == null ? null : matchProject(businessLineId, token);
-        boolean pending = businessLineId == null || projectId == null;
+        Long projectId;
+        boolean pending;
+        if (remembered != null) {
+            // 记忆中的 projectId 为空 = 人工确认为业务线级，视为已映射
+            projectId = rememberedProjectId;
+            pending = false;
+        } else {
+            projectId = businessLineId == null ? null : matchProject(businessLineId, token);
+            pending = businessLineId == null || projectId == null;
+        }
         return new Resolved(businessLineId, projectId, null, "project", null, token, false, pending);
     }
 

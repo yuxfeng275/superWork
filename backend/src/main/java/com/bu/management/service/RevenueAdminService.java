@@ -3,11 +3,13 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.RevenueCostEntry;
 import com.bu.management.entity.RevenueEstimateEntry;
+import com.bu.management.entity.RevenueNameMapping;
 import com.bu.management.entity.RevenueSalesProject;
 import com.bu.management.entity.RevenueWorklogEntry;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.mapper.RevenueCostEntryMapper;
 import com.bu.management.mapper.RevenueEstimateEntryMapper;
+import com.bu.management.mapper.RevenueNameMappingMapper;
 import com.bu.management.mapper.RevenueSalesProjectMapper;
 import com.bu.management.mapper.RevenueWorklogEntryMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -38,6 +40,7 @@ public class RevenueAdminService {
     private final SalesOpportunityMapper opportunityMapper;
     private final RevenueMonthService monthService;
     private final RevenueMappingResolver mappingResolver;
+    private final RevenueNameMappingMapper nameMappingMapper;
 
     /** 历史完结人均成本：该项目全部完结月的成本合计 ÷ 人月合计（元/人月） */
     public BigDecimal historicalUnitPrice(Long projectId) {
@@ -130,8 +133,11 @@ public class RevenueAdminService {
         return result;
     }
 
-    /** 人工指定归属：业务线必选；projectId 为空视为业务线级（项目集/商机集合/其他按 salesKind 保持） */
-    public void resolvePending(String type, Long id, Long businessLineId, Long projectId) {
+    /**
+     * 人工指定归属：业务线必选；projectId 为空视为业务线级（项目集/商机集合/其他按 salesKind 保持）。
+     * 同时把「原始业务线名 + 原始项目名 → 归属」写入映射记忆，后续导入自动套用。
+     */
+    public void resolvePending(String type, Long id, Long businessLineId, Long projectId, Long userId) {
         if (businessLineId == null) {
             throw new IllegalArgumentException("请选择归属业务线");
         }
@@ -151,6 +157,7 @@ public class RevenueAdminService {
             }
             entry.setPending(0);
             worklogEntryMapper.updateById(entry);
+            rememberMapping(entry.getBusinessLineName(), entry.getProjectNameRaw(), businessLineId, projectId, userId);
             return;
         }
         if ("cost".equals(type)) {
@@ -164,9 +171,33 @@ public class RevenueAdminService {
             }
             entry.setPending(0);
             costEntryMapper.updateById(entry);
+            rememberMapping(entry.getBusinessLineName(), entry.getProjectNameRaw(), businessLineId, projectId, userId);
             return;
         }
         throw new IllegalArgumentException("未知明细类型: " + type);
+    }
+
+    private void rememberMapping(String rawBusinessLine, String rawProjectName,
+                                 Long businessLineId, Long projectId, Long userId) {
+        if (!StringUtils.hasText(rawBusinessLine) || !StringUtils.hasText(rawProjectName)) {
+            return;
+        }
+        RevenueNameMapping mapping = nameMappingMapper.selectOne(new LambdaQueryWrapper<RevenueNameMapping>()
+                .eq(RevenueNameMapping::getRawBusinessLine, rawBusinessLine)
+                .eq(RevenueNameMapping::getRawProjectName, rawProjectName));
+        if (mapping == null) {
+            mapping = new RevenueNameMapping();
+            mapping.setRawBusinessLine(rawBusinessLine);
+            mapping.setRawProjectName(rawProjectName);
+            mapping.setCreatedBy(userId);
+            mapping.setBusinessLineId(businessLineId);
+            mapping.setProjectId(projectId);
+            nameMappingMapper.insert(mapping);
+        } else {
+            mapping.setBusinessLineId(businessLineId);
+            mapping.setProjectId(projectId);
+            nameMappingMapper.updateById(mapping);
+        }
     }
 
     public List<Map<String, Object>> listSalesProjects() {

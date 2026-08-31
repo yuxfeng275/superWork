@@ -3,9 +3,11 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
+import com.bu.management.entity.RevenueNameMapping;
 import com.bu.management.entity.RevenueSalesProject;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.RevenueNameMappingMapper;
 import com.bu.management.mapper.RevenueSalesProjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,12 +28,14 @@ class RevenueMappingResolverTest {
     @Mock private BusinessLineMapper businessLineMapper;
     @Mock private ProjectMapper projectMapper;
     @Mock private RevenueSalesProjectMapper salesProjectMapper;
+    @Mock private RevenueNameMappingMapper nameMappingMapper;
 
     private RevenueMappingResolver resolver;
 
     @BeforeEach
     void setUp() {
-        resolver = new RevenueMappingResolver(businessLineMapper, projectMapper, salesProjectMapper);
+        resolver = new RevenueMappingResolver(businessLineMapper, projectMapper, salesProjectMapper, nameMappingMapper);
+        lenient().when(nameMappingMapper.selectOne(any())).thenReturn(null);
 
         BusinessLine custom = line(1L, "全渠道云鹿定制");
         BusinessLine saas = line(2L, "全渠道云鹿SAAS");
@@ -140,6 +144,36 @@ class RevenueMappingResolverTest {
         assertThat(resolved.businessLineId()).isEqualTo(1L);
         assertThat(resolved.projectId()).isNull();
         assertThat(resolved.pending()).isTrue();
+    }
+
+    @Test
+    void rememberedMappingWinsOverKeywordMatching() {
+        // 文件把逢时挂在定制线下：首次人工指定到 SAAS/逢时 后，后续导入自动套用
+        RevenueNameMapping remembered = new RevenueNameMapping();
+        remembered.setRawBusinessLine("全域-全渠道-全域云鹿定制");
+        remembered.setRawProjectName("逢时项目【产研】");
+        remembered.setBusinessLineId(2L);
+        remembered.setProjectId(21L);
+        when(nameMappingMapper.selectOne(any())).thenReturn(remembered);
+
+        RevenueMappingResolver.Resolved resolved = resolver.resolve("全域-全渠道-全域云鹿定制", "逢时项目【产研】");
+        assertThat(resolved.businessLineId()).isEqualTo(2L);
+        assertThat(resolved.projectId()).isEqualTo(21L);
+        assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void rememberedLineLevelMappingIsNotPending() {
+        RevenueNameMapping remembered = new RevenueNameMapping();
+        remembered.setRawBusinessLine("全域-全渠道-全域云鹿定制");
+        remembered.setRawProjectName("陌生项目【交付】");
+        remembered.setBusinessLineId(1L);
+        remembered.setProjectId(null);   // 人工确认为业务线级
+        when(nameMappingMapper.selectOne(any())).thenReturn(remembered);
+
+        RevenueMappingResolver.Resolved resolved = resolver.resolve("全域-全渠道-全域云鹿定制", "陌生项目【交付】");
+        assertThat(resolved.projectId()).isNull();
+        assertThat(resolved.pending()).isFalse();
     }
 
     @Test

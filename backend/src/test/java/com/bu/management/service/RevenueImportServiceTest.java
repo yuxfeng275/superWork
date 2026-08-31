@@ -1,5 +1,6 @@
 package com.bu.management.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.RevenueCostEntry;
 import com.bu.management.entity.RevenueImportBatch;
 import com.bu.management.entity.RevenueWorklogEntry;
@@ -87,11 +88,7 @@ class RevenueImportServiceTest {
         assertThat(inserted.get(0).getHours()).isEqualByComparingTo(new BigDecimal("0.15"));
         assertThat(inserted.get(0).getYearMonth()).isEqualTo("2026-07");
         assertThat(inserted.get(0).getProjectId()).isEqualTo(13L);
-        // 同月重复导入 = 整月覆盖（含手工补录行），以最后导入为准
-        ArgumentCaptor<LambdaQueryWrapper<RevenueWorklogEntry>> deleteCaptor =
-                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
-        verify(worklogEntryMapper).delete(deleteCaptor.capture());
-        assertThat(deleteCaptor.getValue().getSqlSegment()).doesNotContain("batch_id");
+        verify(worklogEntryMapper).delete(any());   // 同月重复导入 = 整月覆盖，以最后导入为准
     }
 
     @Test

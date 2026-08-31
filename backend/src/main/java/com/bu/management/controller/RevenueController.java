@@ -159,8 +159,9 @@ public class RevenueController {
     @RequirePermission({"revenue:manage"})
     @Operation(summary = "人工指定待映射明细归属")
     public Result<Void> resolvePending(@PathVariable String type, @PathVariable Long id,
-                                       @RequestBody Map<String, Long> body) {
-        adminService.resolvePending(type, id, body.get("businessLineId"), body.get("projectId"));
+                                       @RequestBody Map<String, Long> body,
+                                       @RequestAttribute("userId") Long userId) {
+        adminService.resolvePending(type, id, body.get("businessLineId"), body.get("projectId"), userId);
         return Result.success();
     }
 

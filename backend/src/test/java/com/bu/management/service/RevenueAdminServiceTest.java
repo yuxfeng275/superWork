@@ -5,6 +5,7 @@ import com.bu.management.entity.RevenueEstimateEntry;
 import com.bu.management.entity.RevenueWorklogEntry;
 import com.bu.management.mapper.RevenueCostEntryMapper;
 import com.bu.management.mapper.RevenueMonthCloseMapper;
+import com.bu.management.mapper.RevenueNameMappingMapper;
 import com.bu.management.mapper.RevenueEstimateEntryMapper;
 import com.bu.management.mapper.RevenueSalesProjectMapper;
 import com.bu.management.mapper.RevenueWorklogEntryMapper;
@@ -35,6 +36,7 @@ class RevenueAdminServiceTest {
     @Mock private SalesOpportunityMapper opportunityMapper;
     @Mock private RevenueMonthCloseMapper monthCloseMapper;
     @Mock private RevenueMappingResolver mappingResolver;
+    @Mock private RevenueNameMappingMapper nameMappingMapper;
 
     private RevenueAdminService service;
 
@@ -52,7 +54,7 @@ class RevenueAdminServiceTest {
             }
         };
         return new RevenueAdminService(estimateEntryMapper, worklogEntryMapper, costEntryMapper,
-                salesProjectMapper, opportunityMapper, monthService, mappingResolver);
+                salesProjectMapper, opportunityMapper, monthService, mappingResolver, nameMappingMapper);
     }
 
     private RevenueCostEntry closedCost(Long projectId, String hours, String cost) {
@@ -178,7 +180,7 @@ class RevenueAdminServiceTest {
         entry.setPending(1);
         when(worklogEntryMapper.selectById(5L)).thenReturn(entry);
 
-        service.resolvePending("worklog", 5L, 1L, 11L);
+        service.resolvePending("worklog", 5L, 1L, 11L, 16L);
         assertThat(entry.getBusinessLineId()).isEqualTo(1L);
         assertThat(entry.getProjectId()).isEqualTo(11L);
         assertThat(entry.getPending()).isEqualTo(0);
