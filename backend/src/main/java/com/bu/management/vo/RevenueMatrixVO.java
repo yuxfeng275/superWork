@@ -64,6 +64,8 @@ public class RevenueMatrixVO {
     public static class LineBlock {
         private Long businessLineId;
         private String businessLineName;
+        /** full=项目+销售明细行 / aggregate=项目销售两行聚合 / simple=单行汇总 */
+        private String mode;
         private List<Section> sections = new ArrayList<>();
         private List<Cell> monthTotals = new ArrayList<>();
         private Cell totals;

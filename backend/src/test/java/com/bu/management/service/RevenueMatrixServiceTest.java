@@ -49,7 +49,16 @@ class RevenueMatrixServiceTest {
         BusinessLine custom = new BusinessLine();
         custom.setId(1L);
         custom.setName("全渠道云鹿定制");
-        lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom));
+        custom.setRevenueMode("full");
+        BusinessLine member = new BusinessLine();
+        member.setId(3L);
+        member.setName("会员通");
+        member.setRevenueMode("aggregate");
+        BusinessLine product = new BusinessLine();
+        product.setId(5L);
+        product.setName("全渠道产品");
+        product.setRevenueMode("simple");
+        lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom, member, product));
 
         Project royal = project(11L, 1L, null, "皇家项目");
         Project pms = project(15L, 1L, 11L, "PMS");
@@ -150,19 +159,70 @@ class RevenueMatrixServiceTest {
     }
 
     @Test
-    void fixedRowsExistPerBusinessLine() {
+    void fullModeHasProjectAndSalesPoolRowsWithoutLinePool() {
         lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of());
         lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of());
         lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
 
-        RevenueMatrixVO matrix = service.getMatrix(2026);
-        RevenueMatrixVO.LineBlock block = matrix.getLines().get(0);
+        RevenueMatrixVO.LineBlock block = service.getMatrix(2026).getLines().get(0);
+        assertThat(block.getMode()).isEqualTo("full");
         List<String> projectRowKeys = block.getSections().get(0).getRows().stream()
                 .map(RevenueMatrixVO.Row::getRowKey).toList();
         List<String> salesRowKeys = block.getSections().get(1).getRows().stream()
                 .map(RevenueMatrixVO.Row::getRowKey).toList();
-        assertThat(projectRowKeys).contains("lp-1", "p-11");
-        assertThat(projectRowKeys).doesNotContain("p-15");      // 子项目不单独成行
+        assertThat(projectRowKeys).containsExactly("p-11");     // 无项目集行，子项目不单独成行
         assertThat(salesRowKeys).contains("pool-1", "other-1");
+    }
+
+    @Test
+    void lineLevelProjectHoursFoldIntoOtherRowInFullMode() {
+        // 业务线级【项目】（projectId=null, workType=project）并入「其他」行
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
+                worklog("2026-07", 1L, null, "0.3")
+        ));
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock block = service.getMatrix(2026).getLines().get(0);
+        RevenueMatrixVO.Row other = block.getSections().get(1).getRows().stream()
+                .filter(row -> row.getRowKey().equals("other-1")).findFirst().orElseThrow();
+        assertThat(other.getMonths().get(6).getHours()).isEqualByComparingTo("0.3");
+        assertThat(other.getMonths().get(6).getSource()).isEqualTo("actual");
+    }
+
+    @Test
+    void aggregateModeCollapsesToTwoRows() {
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
+                worklog("2026-07", 3L, null, "1.5")              // 会员通业务线级项目工时
+        ));
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock member = service.getMatrix(2026).getLines().stream()
+                .filter(block -> block.getBusinessLineId() == 3L).findFirst().orElseThrow();
+        assertThat(member.getMode()).isEqualTo("aggregate");
+        assertThat(member.getSections().get(0).getRows())
+                .extracting(RevenueMatrixVO.Row::getRowKey).containsExactly("agg-project-3");
+        assertThat(member.getSections().get(1).getRows())
+                .extracting(RevenueMatrixVO.Row::getRowKey).containsExactly("agg-sales-3");
+        assertThat(member.getSections().get(0).getRows().get(0).getMonths().get(6).getHours())
+                .isEqualByComparingTo("1.5");
+    }
+
+    @Test
+    void simpleModeCollapsesToSingleRow() {
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
+                worklog("2026-07", 5L, null, "0.2")
+        ));
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock product = service.getMatrix(2026).getLines().stream()
+                .filter(block -> block.getBusinessLineId() == 5L).findFirst().orElseThrow();
+        assertThat(product.getMode()).isEqualTo("simple");
+        List<RevenueMatrixVO.Row> allRows = product.getSections().stream()
+                .flatMap(section -> section.getRows().stream()).toList();
+        assertThat(allRows).extracting(RevenueMatrixVO.Row::getRowKey).containsExactly("simple-5");
+        assertThat(allRows.get(0).getMonths().get(6).getHours()).isEqualByComparingTo("0.2");
     }
 }

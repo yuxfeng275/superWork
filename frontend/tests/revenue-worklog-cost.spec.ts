@@ -15,14 +15,11 @@ const matrix = {
     {
       businessLineId: 1,
       businessLineName: '全渠道云鹿定制',
+      mode: 'full',
       sections: [
         {
           type: 'project',
           rows: [
-            {
-              rowKey: 'lp-1', name: '项目集', kind: 'line_pool',
-              months: cells({}), totals: { ...emptyCell }
-            },
             {
               rowKey: 'p-11', name: '皇家项目', kind: 'project', projectId: 11, unitPrice: 22790.7,
               months: cells({ 6: { hours: 4.3, cost: 98000, source: 'actual' }, 8: { hours: 1.5, cost: 30000, source: 'estimate', estimateCount: 1 } }),
@@ -53,6 +50,49 @@ const matrix = {
       ],
       monthTotals: cells({ 6: { hours: 5.3, cost: 123233, source: 'actual' }, 8: { hours: 1.5, cost: 30000, source: 'estimate' } }),
       totals: { hours: 6.8, cost: 153233, source: 'mixed' }
+    },
+    {
+      businessLineId: 3,
+      businessLineName: '会员通',
+      mode: 'aggregate',
+      sections: [
+        {
+          type: 'project',
+          rows: [{
+            rowKey: 'agg-project-3', name: '项目', kind: 'agg_project',
+            months: cells({ 6: { hours: 1.6, cost: 33695, source: 'actual' } }),
+            totals: { hours: 1.6, cost: 33695, source: 'actual' }
+          }]
+        },
+        {
+          type: 'sales',
+          rows: [{
+            rowKey: 'agg-sales-3', name: '销售', kind: 'agg_sales',
+            months: cells({ 6: { hours: 0.7, cost: 14680, source: 'actual' } }),
+            totals: { hours: 0.7, cost: 14680, source: 'actual' }
+          }]
+        }
+      ],
+      monthTotals: cells({ 6: { hours: 2.3, cost: 48375, source: 'actual' } }),
+      totals: { hours: 2.3, cost: 48375, source: 'actual' }
+    },
+    {
+      businessLineId: 5,
+      businessLineName: '全渠道产品',
+      mode: 'simple',
+      sections: [
+        {
+          type: 'project',
+          rows: [{
+            rowKey: 'simple-5', name: '全渠道产品', kind: 'simple',
+            months: cells({ 6: { hours: 0.4, cost: 8000, source: 'actual' } }),
+            totals: { hours: 0.4, cost: 8000, source: 'actual' }
+          }]
+        },
+        { type: 'sales', rows: [] }
+      ],
+      monthTotals: cells({ 6: { hours: 0.4, cost: 8000, source: 'actual' } }),
+      totals: { hours: 0.4, cost: 8000, source: 'actual' }
     }
   ],
   monthTotals: cells({ 6: { hours: 5.3, cost: 123233, source: 'actual' }, 8: { hours: 1.5, cost: 30000, source: 'estimate' } }),
@@ -114,8 +154,7 @@ test('营收矩阵展示完结实际值与未完结预估', async ({ page }, tes
   const table = page.locator('.matrix-table')
   await expect(table).toBeVisible()
 
-  // 行结构：固定行 + 项目行 + 销售行
-  await expect(table).toContainText('项目集')
+  // 行结构：项目行 + 销售行（项目集已移除）
   await expect(table).toContainText('皇家项目')
   await expect(table).toContainText('京博')
   await expect(table).toContainText('商机:京博智慧园区')
@@ -200,6 +239,34 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
     workType: 'project',
     description: '皇家二期联调支持'
   })
+})
+
+test('会员通聚合为项目销售两行且简单业务线单行不可下钻', async ({ page }) => {
+  await page.goto('/revenue')
+  const table = page.locator('.matrix-table')
+
+  // 项目集行全局移除
+  await expect(table.locator('td.col-project').getByText('项目集', { exact: true })).toHaveCount(0)
+
+  // 会员通：项目/销售两个聚合行，数值正确
+  const memberProjectRow = table.locator('tr', {
+    has: page.locator('td.col-project').getByText('项目', { exact: true })
+  })
+  await expect(memberProjectRow).toContainText('3.37')
+  await expect(memberProjectRow).toContainText('1.6')
+  const memberSalesRow = table.locator('tr', {
+    has: page.locator('td.col-project').getByText('销售', { exact: true })
+  })
+  await expect(memberSalesRow).toContainText('1.47')
+  await expect(memberSalesRow).toContainText('0.7')
+  // 商机集合只剩定制线一行（会员通不拆销售细分）
+  await expect(table.locator('td.col-project').getByText('商机集合', { exact: true })).toHaveCount(1)
+
+  // 全渠道产品：单行，类型列为 —，单元格不可点击
+  const productRow = table.locator('tbody tr:not(.line-total-row)', { hasText: '全渠道产品' })
+  await expect(productRow).toContainText('0.8')
+  await expect(productRow.locator('.col-type')).toHaveText('—')
+  await expect(productRow.locator('td.cell.clickable')).toHaveCount(0)
 })
 
 test('点击未完结月表头可标记完结', async ({ page }) => {

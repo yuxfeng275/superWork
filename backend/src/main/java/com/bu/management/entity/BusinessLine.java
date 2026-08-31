@@ -39,6 +39,11 @@ public class BusinessLine {
     private Integer status;
 
     /**
+     * 营收矩阵展示模式：full=项目+销售明细行 / aggregate=项目销售两行聚合 / simple=单行汇总
+     */
+    private String revenueMode;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createdAt;

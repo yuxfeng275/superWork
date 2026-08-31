@@ -18,6 +18,7 @@ import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.vo.RevenueMatrixVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -60,6 +61,10 @@ public class RevenueMatrixService {
         List<BusinessLine> lines = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
                 .eq(BusinessLine::getStatus, 1)
                 .orderByAsc(BusinessLine::getId));
+        Map<Long, String> lineModes = lines.stream()
+                .collect(Collectors.toMap(BusinessLine::getId,
+                        line -> StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full",
+                        (a, b) -> a));
         Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
                 .collect(Collectors.toMap(Project::getId, Function.identity(), (a, b) -> a));
         Map<Long, RevenueSalesProject> salesById = salesProjectMapper.selectList(null).stream()
@@ -76,26 +81,33 @@ public class RevenueMatrixService {
         List<RevenueEstimateEntry> estimates = estimateEntryMapper.selectList(new LambdaQueryWrapper<RevenueEstimateEntry>()
                 .likeRight(RevenueEstimateEntry::getYearMonth, year + "-"));
 
-        // 行注册：固定行（项目集/商机集合/其他）+ 根项目行 + 具体销售项目行
+        // 行注册：按业务线展示模式建行（full=项目+销售明细 / aggregate=两行聚合 / simple=单行）
         Map<Long, Map<String, RevenueMatrixVO.Row>> rowsByLine = new LinkedHashMap<>();
         for (BusinessLine line : lines) {
             Map<String, RevenueMatrixVO.Row> rows = new LinkedHashMap<>();
-            rows.put("lp-" + line.getId(), newRow("lp-" + line.getId(), "项目集", "line_pool", line.getId()));
-            projectsById.values().stream()
-                    .filter(p -> Objects.equals(p.getBusinessLineId(), line.getId()) && p.getParentId() == null)
-                    .sorted(Comparator.comparing(Project::getId))
-                    .forEach(p -> rows.put("p-" + p.getId(), newRow("p-" + p.getId(), p.getName(), "project", line.getId())));
-            salesById.values().stream()
-                    .filter(s -> Objects.equals(s.getBusinessLineId(), line.getId()))
-                    .forEach(s -> {
-                        RevenueMatrixVO.Row row = newRow("sp-" + s.getId(), s.getName(), "sales_specific", line.getId());
-                        row.setSalesProjectId(s.getId());
-                        row.setOpportunityId(s.getOpportunityId());
-                        row.setOpportunityName(s.getOpportunityId() == null ? null : opportunityNames.get(s.getOpportunityId()));
-                        rows.put(row.getRowKey(), row);
-                    });
-            rows.put("pool-" + line.getId(), newRow("pool-" + line.getId(), "商机集合", "pool", line.getId()));
-            rows.put("other-" + line.getId(), newRow("other-" + line.getId(), "其他", "other", line.getId()));
+            String mode = lineModes.get(line.getId());
+            if ("simple".equals(mode)) {
+                rows.put("simple-" + line.getId(), newRow("simple-" + line.getId(), line.getName(), "simple", line.getId()));
+            } else if ("aggregate".equals(mode)) {
+                rows.put("agg-project-" + line.getId(), newRow("agg-project-" + line.getId(), "项目", "agg_project", line.getId()));
+                rows.put("agg-sales-" + line.getId(), newRow("agg-sales-" + line.getId(), "销售", "agg_sales", line.getId()));
+            } else {
+                projectsById.values().stream()
+                        .filter(p -> Objects.equals(p.getBusinessLineId(), line.getId()) && p.getParentId() == null)
+                        .sorted(Comparator.comparing(Project::getId))
+                        .forEach(p -> rows.put("p-" + p.getId(), newRow("p-" + p.getId(), p.getName(), "project", line.getId())));
+                salesById.values().stream()
+                        .filter(s -> Objects.equals(s.getBusinessLineId(), line.getId()))
+                        .forEach(s -> {
+                            RevenueMatrixVO.Row row = newRow("sp-" + s.getId(), s.getName(), "sales_specific", line.getId());
+                            row.setSalesProjectId(s.getId());
+                            row.setOpportunityId(s.getOpportunityId());
+                            row.setOpportunityName(s.getOpportunityId() == null ? null : opportunityNames.get(s.getOpportunityId()));
+                            rows.put(row.getRowKey(), row);
+                        });
+                rows.put("pool-" + line.getId(), newRow("pool-" + line.getId(), "商机集合", "pool", line.getId()));
+                rows.put("other-" + line.getId(), newRow("other-" + line.getId(), "其他", "other", line.getId()));
+            }
             rowsByLine.put(line.getId(), rows);
         }
 
@@ -106,7 +118,7 @@ public class RevenueMatrixService {
                 continue;
             }
             String key = cellKey(entry.getYearMonth(), rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(),
-                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById));
+                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes));
             if (key != null) {
                 worklogHours.merge(key, entry.getHours(), BigDecimal::add);
             }
@@ -117,7 +129,7 @@ public class RevenueMatrixService {
                 continue;
             }
             String key = cellKey(entry.getYearMonth(), rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(),
-                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById));
+                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes));
             if (key == null) {
                 continue;
             }
@@ -133,7 +145,7 @@ public class RevenueMatrixService {
             if (closed.contains(entry.getYearMonth())) {
                 continue;
             }
-            String rowKey = estimateRowKey(entry, projectsById);
+            String rowKey = estimateRowKey(entry, projectsById, lineModes);
             String key = cellKey(entry.getYearMonth(), rowKey);
             BigDecimal[] pair = estimateValues.computeIfAbsent(key, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
             pair[0] = pair[0].add(entry.getPersonMonths());
@@ -203,10 +215,12 @@ public class RevenueMatrixService {
                 row.setTotals(rowTotal);
                 lineTotal[0] = lineTotal[0].add(rowTotal.getHours());
                 lineTotal[1] = lineTotal[1].add(rowTotal.getCost());
-                if (row.getRowKey().startsWith("p-") || row.getRowKey().startsWith("lp-")) {
+                if (isProjectKind(row.getKind())) {
                     overviewProject[0] = overviewProject[0].add(rowTotal.getHours());
-                } else {
+                } else if (!"simple".equals(row.getKind())) {
                     overviewSales[0] = overviewSales[0].add(rowTotal.getHours());
+                } else {
+                    overviewProject[0] = overviewProject[0].add(rowTotal.getHours());
                 }
             }
 
@@ -220,13 +234,14 @@ public class RevenueMatrixService {
             RevenueMatrixVO.Section salesSection = new RevenueMatrixVO.Section();
             salesSection.setType("sales");
             rows.values().forEach(row -> {
-                if (row.getRowKey().startsWith("p-") || row.getRowKey().startsWith("lp-")) {
+                if (isProjectKind(row.getKind()) || "simple".equals(row.getKind())) {
                     projectSection.getRows().add(row);
                 } else {
                     salesSection.getRows().add(row);
                 }
             });
             block.setSections(List.of(projectSection, salesSection));
+            block.setMode(lineModes.get(line.getId()));
             matrix.getLines().add(block);
             grand[0] = grand[0].add(lineTotal[0]);
             grand[1] = grand[1].add(lineTotal[1]);
@@ -277,7 +292,7 @@ public class RevenueMatrixService {
                             .eq(RevenueEstimateEntry::getYearMonth, yearMonth)
                             .eq(RevenueEstimateEntry::getBusinessLineId, businessLineId))
                     .stream()
-                    .filter(entry -> estimateRowKey(entry, rootProjectMap()).equals(rowKey))
+                    .filter(entry -> estimateRowKey(entry, rootProjectMap(), lineModes()).equals(rowKey))
                     .toList());
         }
         return result;
@@ -290,12 +305,31 @@ public class RevenueMatrixService {
 
     private boolean rowKeyMatches(String workType, String salesKind, Long projectId, Long salesProjectId,
                                   Long businessLineId, String rowKey) {
-        String key = rowKeyOf(businessLineId, workType, salesKind, projectId, salesProjectId, rootProjectMap());
+        String key = rowKeyOf(businessLineId, workType, salesKind, projectId, salesProjectId,
+                rootProjectMap(), lineModes());
         return Objects.equals(key, rowKey);
     }
 
+    private Map<Long, String> lineModes() {
+        return businessLineMapper.selectList(null).stream()
+                .collect(Collectors.toMap(BusinessLine::getId,
+                        line -> StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full",
+                        (a, b) -> a));
+    }
+
+    private boolean isProjectKind(String kind) {
+        return "project".equals(kind) || "agg_project".equals(kind) || "line_pool".equals(kind);
+    }
+
     private String rowKeyOf(Long businessLineId, String workType, String salesKind, Long projectId,
-                            Long salesProjectId, Map<Long, Project> projectsById) {
+                            Long salesProjectId, Map<Long, Project> projectsById, Map<Long, String> lineModes) {
+        String mode = lineModes.getOrDefault(businessLineId, "full");
+        if ("simple".equals(mode)) {
+            return "simple-" + businessLineId;
+        }
+        if ("aggregate".equals(mode)) {
+            return "project".equals(workType) ? "agg-project-" + businessLineId : "agg-sales-" + businessLineId;
+        }
         if ("sales".equals(workType)) {
             if ("specific".equals(salesKind) && salesProjectId != null) {
                 return "sp-" + salesProjectId;
@@ -305,8 +339,9 @@ public class RevenueMatrixService {
             }
             return "other-" + businessLineId;
         }
+        // full 模式无项目集行：业务线级【项目】并入「其他」
         if (projectId == null) {
-            return "lp-" + businessLineId;
+            return "other-" + businessLineId;
         }
         Project project = projectsById.get(projectId);
         while (project != null && project.getParentId() != null) {
@@ -315,9 +350,9 @@ public class RevenueMatrixService {
         return project == null ? null : "p-" + project.getId();
     }
 
-    private String estimateRowKey(RevenueEstimateEntry entry, Map<Long, Project> projectsById) {
+    private String estimateRowKey(RevenueEstimateEntry entry, Map<Long, Project> projectsById, Map<Long, String> lineModes) {
         return rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(), entry.getSalesKind(),
-                entry.getProjectId(), entry.getSalesProjectId(), projectsById);
+                entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes);
     }
 
     private RevenueMatrixVO.Row newRow(String rowKey, String name, String kind, Long businessLineId) {

@@ -16,6 +16,7 @@ export interface RevenueMonthInfo {
 }
 
 export type RevenueRowKind = 'project' | 'line_pool' | 'sales_specific' | 'pool' | 'other'
+  | 'agg_project' | 'agg_sales' | 'simple'
 
 export interface RevenueRow {
   rowKey: string
@@ -39,6 +40,8 @@ export interface RevenueSection {
 export interface RevenueLineBlock {
   businessLineId: number
   businessLineName: string
+  /** full=项目+销售明细行 / aggregate=项目销售两行聚合 / simple=单行汇总 */
+  mode: 'full' | 'aggregate' | 'simple'
   sections: RevenueSection[]
   monthTotals: RevenueCell[]
   totals: RevenueCell

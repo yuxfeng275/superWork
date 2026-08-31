@@ -126,6 +126,7 @@ const cellContext = reactive({ yearMonth: '', lineId: 0, rowKey: '', title: '', 
 const cellDetail = ref<RevenueCellDetail | null>(null)
 
 const openCell = async (lineId: number, lineName: string, row: RevenueRow, monthIndex: number) => {
+  if (row.kind === 'simple') return   // 单行汇总业务线不提供下钻
   const month = matrix.value?.months[monthIndex]
   if (!month) return
   cellContext.yearMonth = month.yearMonth
@@ -175,8 +176,10 @@ const estimatePayload = () => {
   const kindMap: Record<string, { workType: string; salesKind?: string | null }> = {
     project: { workType: 'project' },
     line_pool: { workType: 'project' },
+    agg_project: { workType: 'project' },
     sales_specific: { workType: 'sales', salesKind: 'specific' },
     pool: { workType: 'sales', salesKind: 'pool' },
+    agg_sales: { workType: 'sales' },
     other: { workType: 'sales', salesKind: 'other' }
   }
   const kind = kindMap[row?.kind || 'project'] || kindMap.project
@@ -432,7 +435,7 @@ onMounted(loadMatrix)
               <tbody>
                 <tr v-for="item in flatRows" :key="item.lineId + '-' + item.row.rowKey">
                   <td v-if="item.lineSpan" class="col-line" :rowspan="item.lineSpan">{{ item.lineName }}</td>
-                  <td v-if="item.sectionSpan" class="col-type" :rowspan="item.sectionSpan">{{ item.sectionLabel }}</td>
+                  <td v-if="item.sectionSpan" class="col-type" :rowspan="item.sectionSpan">{{ item.row.kind === 'simple' ? '—' : item.sectionLabel }}</td>
                   <td class="col-project">
                     {{ item.row.name }}
                     <small v-if="item.row.opportunityName" class="opp-tag">商机:{{ item.row.opportunityName }}</small>
@@ -442,7 +445,7 @@ onMounted(loadMatrix)
                     v-for="(cell, monthIndex) in item.row.months"
                     :key="monthIndex"
                     class="col-month cell"
-                    :class="[cell.source, { clickable: true }]"
+                    :class="[cell.source, { clickable: item.row.kind !== 'simple' }]"
                     @click="openCell(item.lineId, item.lineName, item.row, monthIndex)"
                   >
                     <template v-if="cell.source">
