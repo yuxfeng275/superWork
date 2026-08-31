@@ -117,6 +117,16 @@ test.beforeEach(async ({ page }) => {
     contentType: 'application/json',
     body: JSON.stringify({ code: 200, data: { records: [], total: 0 } })
   }))
+  await page.route('**/api/business-lines**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: { records: [], total: 0 } })
+  }))
+  await page.route('**/api/yunxiao/analysis', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: { byOwner: [], total: 0, requirements: 0, tasks: 0, delayed: 0 } })
+  }))
   await page.route('**/api/bu-dashboard**', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
