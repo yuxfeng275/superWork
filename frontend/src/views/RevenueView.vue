@@ -6,6 +6,8 @@ import type { UploadFile } from 'element-plus'
 import { api } from '@/utils/api'
 import type {
   RevenueCellDetail,
+  RevenueCostEntry,
+  RevenueWorklogEntry,
   RevenueEstimateEntry,
   RevenueImportBatch,
   RevenueMatrix,
@@ -232,6 +234,109 @@ const removeEstimate = async (entry: RevenueEstimateEntry) => {
     cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
   } catch (error) {
     ElMessage.error(errorMessage(error, '预估删除失败'))
+  }
+}
+
+// ---------- 完结月手工补录/修改 ----------
+const entryDialog = ref(false)
+const entrySaving = ref(false)
+const entryKind = ref<'worklog' | 'cost'>('worklog')
+const entryForm = reactive({
+  id: undefined as number | undefined,
+  employeeName: '',
+  department: '',
+  hours: 0.1,
+  workNote: '',
+  specialNote: '',
+  projectNameRaw: '',
+  employeeCount: undefined as number | undefined,
+  costAmount: 0,
+  personMonthCost: undefined as number | undefined
+})
+
+const openEntryDialog = (kind: 'worklog' | 'cost', entry?: Partial<RevenueWorklogEntry & RevenueCostEntry>) => {
+  entryKind.value = kind
+  entryForm.id = entry?.id
+  entryForm.employeeName = entry?.employeeName || ''
+  entryForm.department = entry?.department || ''
+  entryForm.hours = entry ? Number(entry.hours) : 0.1
+  entryForm.workNote = entry?.workNote || ''
+  entryForm.specialNote = entry?.specialNote || ''
+  entryForm.projectNameRaw = entry?.projectNameRaw || (estimateRowContext.value?.name ?? '') + '（手工补录）'
+  entryForm.employeeCount = entry?.employeeCount ?? undefined
+  entryForm.costAmount = entry ? Number(entry.costAmount) : 0
+  entryForm.personMonthCost = entry?.personMonthCost ?? undefined
+  entryDialog.value = true
+}
+
+const saveEntry = async () => {
+  if (entryForm.hours < 0) {
+    ElMessage.warning('人月不能为负')
+    return
+  }
+  entrySaving.value = true
+  const row = estimateRowContext.value
+  const kindPayload = estimatePayload()
+  try {
+    if (entryKind.value === 'worklog') {
+      const payload = {
+        yearMonth: cellContext.yearMonth,
+        businessLineId: cellContext.lineId,
+        projectId: row?.projectId ?? null,
+        salesProjectId: row?.salesProjectId ?? null,
+        workType: kindPayload.workType,
+        salesKind: kindPayload.salesKind ?? null,
+        employeeName: entryForm.employeeName.trim(),
+        department: entryForm.department.trim(),
+        hours: entryForm.hours,
+        workNote: entryForm.workNote.trim(),
+        specialNote: entryForm.specialNote.trim(),
+        projectNameRaw: entryForm.projectNameRaw
+      }
+      if (entryForm.id) await api.updateRevenueWorklogEntry(entryForm.id, payload)
+      else await api.createRevenueWorklogEntry(payload)
+    } else {
+      const payload = {
+        yearMonth: cellContext.yearMonth,
+        businessLineId: cellContext.lineId,
+        projectId: row?.projectId ?? null,
+        salesProjectId: row?.salesProjectId ?? null,
+        workType: kindPayload.workType,
+        salesKind: kindPayload.salesKind ?? null,
+        projectNameRaw: entryForm.projectNameRaw,
+        employeeCount: entryForm.employeeCount ?? null,
+        hours: entryForm.hours,
+        costAmount: entryForm.costAmount,
+        personMonthCost: entryForm.personMonthCost ?? null
+      }
+      if (entryForm.id) await api.updateRevenueCostEntry(entryForm.id, payload)
+      else await api.createRevenueCostEntry(payload)
+    }
+    ElMessage.success('明细已保存')
+    entryDialog.value = false
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '明细保存失败'))
+  } finally {
+    entrySaving.value = false
+  }
+}
+
+const removeEntry = async (kind: 'worklog' | 'cost', id: number) => {
+  try {
+    await ElMessageBox.confirm('删除该条明细？', '删除明细', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    if (kind === 'worklog') await api.deleteRevenueWorklogEntry(id)
+    else await api.deleteRevenueCostEntry(id)
+    ElMessage.success('明细已删除')
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '明细删除失败'))
   }
 }
 
@@ -652,27 +757,45 @@ onMounted(loadMatrix)
         <template v-if="cellDetail">
           <template v-if="cellDetail.closed">
             <section>
-              <h4>工时明细（{{ cellDetail.worklogEntries?.length || 0 }}）</h4>
-              <el-table :data="cellDetail.worklogEntries || []" class="data-table" empty-text="该月无工时明细">
+              <div class="estimate-head">
+                <h4>工时明细（{{ cellDetail.worklogEntries?.length || 0 }}）</h4>
+                <el-button type="primary" size="small" @click="openEntryDialog('worklog')">新增工时</el-button>
+              </div>
+              <el-table :data="cellDetail.worklogEntries || []" class="data-table" empty-text="该月无工时明细，可点击右上角补录">
                 <el-table-column prop="employeeName" label="姓名" width="90" />
                 <el-table-column prop="department" label="部门" min-width="130" show-overflow-tooltip />
                 <el-table-column prop="hours" label="人月" width="80" />
-                <el-table-column prop="workNote" label="工作说明" min-width="220" show-overflow-tooltip />
-                <el-table-column label="标签" min-width="140">
+                <el-table-column prop="workNote" label="工作说明" min-width="200" show-overflow-tooltip />
+                <el-table-column label="标签" min-width="120">
                   <template #default="{ row }">
                     <el-tag v-for="tag in (row.tags || '').split(',').filter(Boolean)" :key="tag" size="small" style="margin-right: 4px">{{ tag }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="110">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openEntryDialog('worklog', row)">编辑</el-button>
+                    <el-button link type="danger" @click="removeEntry('worklog', row.id)">删除</el-button>
                   </template>
                 </el-table-column>
               </el-table>
             </section>
             <section style="margin-top: 16px">
-              <h4>成本明细（{{ cellDetail.costEntries?.length || 0 }}）</h4>
-              <el-table :data="cellDetail.costEntries || []" class="data-table" empty-text="该月无成本明细">
-                <el-table-column prop="projectNameRaw" label="项目" min-width="180" show-overflow-tooltip />
+              <div class="estimate-head">
+                <h4>成本明细（{{ cellDetail.costEntries?.length || 0 }}）</h4>
+                <el-button type="primary" size="small" @click="openEntryDialog('cost')">新增成本</el-button>
+              </div>
+              <el-table :data="cellDetail.costEntries || []" class="data-table" empty-text="该月无成本明细，可点击右上角补录">
+                <el-table-column prop="projectNameRaw" label="项目" min-width="160" show-overflow-tooltip />
                 <el-table-column prop="employeeCount" label="人数" width="70" />
                 <el-table-column prop="hours" label="人月" width="80" />
                 <el-table-column label="成本(元)" width="110"><template #default="{ row }">{{ row.costAmount }}</template></el-table-column>
                 <el-table-column label="人月成本(元)" width="120"><template #default="{ row }">{{ row.personMonthCost ?? '—' }}</template></el-table-column>
+                <el-table-column label="操作" width="110">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openEntryDialog('cost', row)">编辑</el-button>
+                    <el-button link type="danger" @click="removeEntry('cost', row.id)">删除</el-button>
+                  </template>
+                </el-table-column>
               </el-table>
             </section>
           </template>
@@ -704,6 +827,49 @@ onMounted(loadMatrix)
         </template>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="entryDialog" :title="`${entryForm.id ? '编辑' : '新增'}${entryKind === 'worklog' ? '工时' : '成本'}明细`" width="min(520px, 94vw)">
+      <el-form label-position="top">
+        <template v-if="entryKind === 'worklog'">
+          <el-form-item label="姓名">
+            <el-input v-model="entryForm.employeeName" maxlength="50" placeholder="填写人姓名，可留空" />
+          </el-form-item>
+          <el-form-item label="部门">
+            <el-input v-model="entryForm.department" maxlength="100" placeholder="可留空" />
+          </el-form-item>
+          <el-form-item label="人月">
+            <el-input-number v-model="entryForm.hours" :min="0.01" :max="100" :step="0.05" :precision="4" />
+          </el-form-item>
+          <el-form-item label="工作说明">
+            <el-input v-model="entryForm.workNote" type="textarea" :rows="3" maxlength="500" placeholder="商机集合行的标签由工作说明自动识别" />
+          </el-form-item>
+          <el-form-item label="特殊说明">
+            <el-input v-model="entryForm.specialNote" maxlength="200" placeholder="可留空" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="项目名（原始口径）">
+            <el-input v-model="entryForm.projectNameRaw" maxlength="200" />
+          </el-form-item>
+          <el-form-item label="人数">
+            <el-input-number v-model="entryForm.employeeCount" :min="0" :max="500" placeholder="可留空" />
+          </el-form-item>
+          <el-form-item label="人月">
+            <el-input-number v-model="entryForm.hours" :min="0" :max="100" :step="0.05" :precision="4" />
+          </el-form-item>
+          <el-form-item label="工时成本（元）">
+            <el-input-number v-model="entryForm.costAmount" :min="0" :precision="2" :step="1000" />
+          </el-form-item>
+          <el-form-item label="人月成本（元）">
+            <el-input-number v-model="entryForm.personMonthCost" :min="0" :precision="2" placeholder="可留空" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="entryDialog = false">取消</el-button>
+        <el-button type="primary" :loading="entrySaving" @click="saveEntry">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="estimateDialog" :title="estimateForm.id ? '编辑预估' : '新增预估'" width="min(480px, 94vw)">
       <el-form label-position="top">

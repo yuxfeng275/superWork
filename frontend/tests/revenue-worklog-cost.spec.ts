@@ -269,6 +269,34 @@ test('会员通聚合为项目销售两行且简单业务线单行不可下钻',
   await expect(productRow.locator('td.cell.clickable')).toHaveCount(0)
 })
 
+test('完结月单元格支持补录和修改工时明细', async ({ page }) => {
+  await page.goto('/revenue')
+  const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
+  await royalRow.locator('td.actual').first().click()
+
+  const drawer = page.getByRole('dialog')
+  await expect(drawer.getByRole('button', { name: '新增工时' })).toBeVisible()
+  await expect(drawer.getByRole('button', { name: '新增成本' })).toBeVisible()
+
+  // 编辑已有工时明细
+  await drawer.getByRole('button', { name: '编辑' }).first().click()
+  const editDialog = page.getByRole('dialog', { name: '编辑工时明细' })
+  await expect(editDialog).toBeVisible()
+  await expect(editDialog.locator('input').first()).toHaveValue('翁擎天')
+
+  const updateRequest = page.waitForRequest(request =>
+    request.url().includes('/api/revenue/worklog-entries/') && request.method() === 'PUT')
+  await page.route('**/api/revenue/worklog-entries/*', route => fulfill(route, { id: 1 }))
+  await editDialog.getByRole('button', { name: '保存' }).click()
+  expect((await updateRequest).postDataJSON()).toMatchObject({
+    yearMonth: '2026-07',
+    businessLineId: 1,
+    projectId: 11,
+    workType: 'project',
+    hours: 0.15
+  })
+})
+
 test('点击未完结月表头可标记完结', async ({ page }) => {
   await page.goto('/revenue')
   let closedMonth = ''

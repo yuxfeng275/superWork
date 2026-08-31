@@ -1474,6 +1474,42 @@ class ApiService {
   async getRevenueOpportunityOptions(): Promise<RevenueOpportunityOption[]> {
     return this.request<RevenueOpportunityOption[]>('/api/revenue/opportunity-options')
   }
+
+  async createRevenueWorklogEntry(data: Partial<RevenueWorklogEntry>): Promise<RevenueWorklogEntry> {
+    return this.request<RevenueWorklogEntry>('/api/revenue/worklog-entries', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateRevenueWorklogEntry(id: number, data: Partial<RevenueWorklogEntry>): Promise<RevenueWorklogEntry> {
+    return this.request<RevenueWorklogEntry>(`/api/revenue/worklog-entries/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteRevenueWorklogEntry(id: number): Promise<void> {
+    await this.request<void>(`/api/revenue/worklog-entries/${id}`, { method: 'DELETE' })
+  }
+
+  async createRevenueCostEntry(data: Partial<RevenueCostEntry>): Promise<RevenueCostEntry> {
+    return this.request<RevenueCostEntry>('/api/revenue/cost-entries', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateRevenueCostEntry(id: number, data: Partial<RevenueCostEntry>): Promise<RevenueCostEntry> {
+    return this.request<RevenueCostEntry>(`/api/revenue/cost-entries/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteRevenueCostEntry(id: number): Promise<void> {
+    await this.request<void>(`/api/revenue/cost-entries/${id}`, { method: 'DELETE' })
+  }
 }
 
 export const api = new ApiService()

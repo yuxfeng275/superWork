@@ -121,6 +121,56 @@ class RevenueAdminServiceTest {
     }
 
     @Test
+    void manualWorklogEntryBypassesClosureAndTagsPool() {
+        service = serviceWithClosed("2026-07");   // 完结月也允许手工补录
+        RevenueWorklogEntry request = new RevenueWorklogEntry();
+        request.setYearMonth("2026-07");
+        request.setBusinessLineId(1L);
+        request.setWorkType("sales");
+        request.setSalesKind("pool");
+        request.setHours(new BigDecimal("0.5"));
+        request.setWorkNote("皇家续费沟通");
+        when(mappingResolver.tagWorkNote("皇家续费沟通")).thenReturn("皇家");
+
+        RevenueWorklogEntry created = service.createWorklogEntry(request, 16L);
+        assertThat(created.getBatchId()).isNull();
+        assertThat(created.getPending()).isEqualTo(0);
+        assertThat(created.getCreatedBy()).isEqualTo(16L);
+        assertThat(created.getTags()).isEqualTo("皇家");
+    }
+
+    @Test
+    void updateWorklogEntryPreservesBatchAndCreator() {
+        RevenueWorklogEntry existing = new RevenueWorklogEntry();
+        existing.setId(5L);
+        existing.setBatchId(3L);
+        existing.setPending(0);
+        existing.setCreatedBy(7L);
+        when(worklogEntryMapper.selectById(5L)).thenReturn(existing);
+        when(worklogEntryMapper.updateById(any())).thenReturn(1);
+
+        RevenueWorklogEntry request = new RevenueWorklogEntry();
+        request.setYearMonth("2026-07");
+        request.setBusinessLineId(1L);
+        request.setWorkType("project");
+        request.setHours(new BigDecimal("0.8"));
+        service.updateWorklogEntry(5L, request);
+        assertThat(request.getBatchId()).isEqualTo(3L);
+        assertThat(request.getCreatedBy()).isEqualTo(7L);
+    }
+
+    @Test
+    void manualCostEntryValidatesAmounts() {
+        RevenueCostEntry request = new RevenueCostEntry();
+        request.setYearMonth("2026-07");
+        request.setBusinessLineId(1L);
+        request.setHours(new BigDecimal("0.5"));
+        request.setCostAmount(new BigDecimal("-1"));
+        assertThatThrownBy(() -> service.createCostEntry(request, 16L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void resolvePendingAssignsBusinessLineAndProject() {
         RevenueWorklogEntry entry = new RevenueWorklogEntry();
         entry.setId(5L);

@@ -36,5 +36,6 @@ public class RevenueCostEntry {
     /** 人月成本（元/人月） */
     private BigDecimal personMonthCost;
     private Integer pending;
+    private Long createdBy;
     private LocalDateTime createdAt;
 }

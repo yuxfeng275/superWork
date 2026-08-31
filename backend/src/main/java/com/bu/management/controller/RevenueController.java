@@ -4,8 +4,10 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RevenueImportResultVO;
 import com.bu.management.entity.RevenueEstimateEntry;
 import com.bu.management.entity.RevenueImportBatch;
+import com.bu.management.entity.RevenueCostEntry;
 import com.bu.management.entity.RevenueMonthClose;
 import com.bu.management.entity.RevenueSalesProject;
+import com.bu.management.entity.RevenueWorklogEntry;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.service.RevenueAdminService;
 import com.bu.management.service.RevenueImportService;
@@ -175,6 +177,54 @@ public class RevenueController {
     public Result<RevenueSalesProject> bindOpportunity(@PathVariable Long id,
                                                        @RequestBody Map<String, Long> body) {
         return Result.success(adminService.bindOpportunity(id, body.get("opportunityId")));
+    }
+
+    @PostMapping("/worklog-entries")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "手工补录工时明细（完结月可用）")
+    public Result<RevenueWorklogEntry> createWorklogEntry(@RequestBody RevenueWorklogEntry request,
+                                                          @RequestAttribute("userId") Long userId) {
+        return Result.success(adminService.createWorklogEntry(request, userId));
+    }
+
+    @PutMapping("/worklog-entries/{id}")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "修改工时明细")
+    public Result<RevenueWorklogEntry> updateWorklogEntry(@PathVariable Long id,
+                                                          @RequestBody RevenueWorklogEntry request) {
+        return Result.success(adminService.updateWorklogEntry(id, request));
+    }
+
+    @DeleteMapping("/worklog-entries/{id}")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "删除工时明细")
+    public Result<Void> deleteWorklogEntry(@PathVariable Long id) {
+        adminService.deleteWorklogEntry(id);
+        return Result.success();
+    }
+
+    @PostMapping("/cost-entries")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "手工补录成本明细（完结月可用）")
+    public Result<RevenueCostEntry> createCostEntry(@RequestBody RevenueCostEntry request,
+                                                    @RequestAttribute("userId") Long userId) {
+        return Result.success(adminService.createCostEntry(request, userId));
+    }
+
+    @PutMapping("/cost-entries/{id}")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "修改成本明细")
+    public Result<RevenueCostEntry> updateCostEntry(@PathVariable Long id,
+                                                    @RequestBody RevenueCostEntry request) {
+        return Result.success(adminService.updateCostEntry(id, request));
+    }
+
+    @DeleteMapping("/cost-entries/{id}")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "删除成本明细")
+    public Result<Void> deleteCostEntry(@PathVariable Long id) {
+        adminService.deleteCostEntry(id);
+        return Result.success();
     }
 
     @GetMapping("/opportunity-options")

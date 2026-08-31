@@ -39,5 +39,6 @@ public class RevenueWorklogEntry {
     /** 商机集合自动标签，逗号分隔 */
     private String tags;
     private Integer pending;
+    private Long createdBy;
     private LocalDateTime createdAt;
 }

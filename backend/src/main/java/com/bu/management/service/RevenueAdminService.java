@@ -200,6 +200,109 @@ public class RevenueAdminService {
         return salesProject;
     }
 
+    /**
+     * 手工补录工时明细（完结月补录/修正通道；导入仍要求未完结）。
+     * batch_id 为 NULL，created_by 记录录入人；商机集合行自动打标签。
+     */
+    public RevenueWorklogEntry createWorklogEntry(RevenueWorklogEntry request, Long userId) {
+        validateWorklogEntry(request);
+        request.setId(null);
+        request.setBatchId(null);
+        request.setPending(0);
+        request.setCreatedBy(userId);
+        request.setCreatedAt(LocalDateTime.now());
+        if ("pool".equals(request.getSalesKind())) {
+            request.setTags(mappingResolver.tagWorkNote(request.getWorkNote()));
+        }
+        worklogEntryMapper.insert(request);
+        return request;
+    }
+
+    public RevenueWorklogEntry updateWorklogEntry(Long id, RevenueWorklogEntry request) {
+        RevenueWorklogEntry existing = worklogEntryMapper.selectById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("工时明细不存在");
+        }
+        validateWorklogEntry(request);
+        request.setId(id);
+        request.setBatchId(existing.getBatchId());
+        request.setPending(existing.getPending());
+        request.setCreatedBy(existing.getCreatedBy());
+        request.setCreatedAt(existing.getCreatedAt());
+        if ("pool".equals(request.getSalesKind())) {
+            request.setTags(mappingResolver.tagWorkNote(request.getWorkNote()));
+        }
+        worklogEntryMapper.updateById(request);
+        return worklogEntryMapper.selectById(id);
+    }
+
+    public void deleteWorklogEntry(Long id) {
+        if (worklogEntryMapper.selectById(id) == null) {
+            throw new IllegalArgumentException("工时明细不存在");
+        }
+        worklogEntryMapper.deleteById(id);
+    }
+
+    public RevenueCostEntry createCostEntry(RevenueCostEntry request, Long userId) {
+        validateCostEntry(request);
+        request.setId(null);
+        request.setBatchId(null);
+        request.setPending(0);
+        request.setCreatedBy(userId);
+        request.setCreatedAt(LocalDateTime.now());
+        costEntryMapper.insert(request);
+        return request;
+    }
+
+    public RevenueCostEntry updateCostEntry(Long id, RevenueCostEntry request) {
+        RevenueCostEntry existing = costEntryMapper.selectById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("成本明细不存在");
+        }
+        validateCostEntry(request);
+        request.setId(id);
+        request.setBatchId(existing.getBatchId());
+        request.setPending(existing.getPending());
+        request.setCreatedBy(existing.getCreatedBy());
+        request.setCreatedAt(existing.getCreatedAt());
+        costEntryMapper.updateById(request);
+        return costEntryMapper.selectById(id);
+    }
+
+    public void deleteCostEntry(Long id) {
+        if (costEntryMapper.selectById(id) == null) {
+            throw new IllegalArgumentException("成本明细不存在");
+        }
+        costEntryMapper.deleteById(id);
+    }
+
+    private void validateWorklogEntry(RevenueWorklogEntry request) {
+        if (!StringUtils.hasText(request.getYearMonth()) || request.getBusinessLineId() == null
+                || request.getHours() == null || request.getHours().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("月份、业务线和人月不能为空，人月必须大于 0");
+        }
+        if (!StringUtils.hasText(request.getWorkType())) {
+            request.setWorkType("project");
+        }
+        if (!StringUtils.hasText(request.getProjectNameRaw())) {
+            request.setProjectNameRaw("手工补录");
+        }
+    }
+
+    private void validateCostEntry(RevenueCostEntry request) {
+        if (!StringUtils.hasText(request.getYearMonth()) || request.getBusinessLineId() == null
+                || request.getHours() == null || request.getHours().compareTo(BigDecimal.ZERO) < 0
+                || request.getCostAmount() == null || request.getCostAmount().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("月份、业务线、人月和成本不能为空，且金额不能为负");
+        }
+        if (!StringUtils.hasText(request.getWorkType())) {
+            request.setWorkType("project");
+        }
+        if (!StringUtils.hasText(request.getProjectNameRaw())) {
+            request.setProjectNameRaw("手工补录");
+        }
+    }
+
     public List<SalesOpportunity> listOpportunityOptions() {
         return opportunityMapper.selectList(new LambdaQueryWrapper<SalesOpportunity>()
                 .orderByDesc(SalesOpportunity::getId));
