@@ -1,120 +1,154 @@
-export type RevenueEntryType = 'h2_estimate' | 'partner_cost' | 'server_cost' | 'other_cost'
+// 营收管理（工时与成本）类型定义
+// 金额单位：元；工时单位：人月。前端展示层负责换算为万元。
 
-export interface RevenueMonthlyTrendItem {
-  month: string
-  income: number
+export type RevenueCellSource = 'actual' | 'estimate' | 'mixed' | null
+
+export interface RevenueCell {
+  hours: number
   cost: number
+  source: RevenueCellSource
+  estimateCount?: number | null
 }
 
-export interface RevenueMonthlyData {
-  month: string
-  income: number
-  hours: number | null
-  cost: number
+export interface RevenueMonthInfo {
+  yearMonth: string
+  closed: boolean
 }
 
-export interface RevenueProjectSummary {
-  projectId: number
-  projectName: string
-  h1Receivable: number
-  h2Receivable: number
-  h1Hours: number | null
-  h2Hours: number | null
-  h1DeliveryCost: number
-  h2DeliveryCost: number
-  h2Estimate: number | null
-  partnerCost: number
-  serverCost: number
-  otherCost: number
-  totalCost: number
-  profit: number
-  profitRate: number | null
-  months: RevenueMonthlyData[]
+export type RevenueRowKind = 'project' | 'line_pool' | 'sales_specific' | 'pool' | 'other'
+
+export interface RevenueRow {
+  rowKey: string
+  name: string
+  kind: RevenueRowKind
+  projectId?: number | null
+  salesProjectId?: number | null
+  opportunityId?: number | null
+  opportunityName?: string | null
+  /** 累计完结人均成本（元/人月） */
+  unitPrice?: number | null
+  months: RevenueCell[]
+  totals: RevenueCell
 }
 
-export interface RevenueBusinessLineSummary {
+export interface RevenueSection {
+  type: 'project' | 'sales'
+  rows: RevenueRow[]
+}
+
+export interface RevenueLineBlock {
   businessLineId: number
   businessLineName: string
-  type: 'project_breakdown' | 'business_line_summary' | string
-  h1Receivable: number
-  h2Receivable: number
-  h1Hours: number | null
-  h2Hours: number | null
-  h1DeliveryCost: number
-  h2DeliveryCost: number
-  h2Estimate: number | null
-  partnerCost: number
-  serverCost: number
-  otherCost: number
-  totalCost: number
-  profit: number
-  profitRate: number | null
-  projects: RevenueProjectSummary[]
-  months: RevenueMonthlyData[]
+  sections: RevenueSection[]
+  monthTotals: RevenueCell[]
+  totals: RevenueCell
 }
 
-export interface RevenueSummary {
+export interface RevenueOverview {
+  totalHours: number
+  projectHours: number
+  salesHours: number
+  totalCost: number
+  avgUnitPrice?: number | null
+  closedMonthCount: number
+}
+
+export interface RevenueMatrix {
   year: number
-  h1Receivable: number
-  h2Receivable: number
-  h1Hours: number | null
-  h2Hours: number | null
-  h1DeliveryCost: number
-  h2DeliveryCost: number
-  h2Estimate: number | null
-  partnerCost: number
-  serverCost: number
-  otherCost: number
-  totalCost: number
-  profit: number
-  profitRate: number | null
-  monthlyTrend: RevenueMonthlyTrendItem[]
-  businessLines: RevenueBusinessLineSummary[]
+  months: RevenueMonthInfo[]
+  lines: RevenueLineBlock[]
+  monthTotals: RevenueCell[]
+  grandTotal: RevenueCell
+  overview: RevenueOverview
 }
 
-export interface RevenueImportResult {
-  successCount: number
-  newMappingCount: number
-  pendingMappingCount: number
-  skippedCount: number
-  errors: string[]
-}
-
-export interface RevenueInitResult {
-  importedProjectCount: number
-  costRowCount: number
-  manualRowCount: number
-  errors: string[]
-}
-
-export interface RevenueMapping {
+export interface RevenueWorklogEntry {
   id: number
-  sourceType: string
-  sourceName: string
-  projectId: number | null
-  businessLineId: number | null
-  category: 'delivery' | 'sales' | 'product' | string
-  status: number
+  yearMonth: string
+  businessLineName: string
+  businessLineId?: number | null
+  projectNameRaw: string
+  projectId?: number | null
+  workType: string
+  salesKind?: string | null
+  salesProjectId?: number | null
+  employeeNo?: string
+  employeeName?: string
+  department?: string
+  hours: number
+  workNote?: string
+  specialNote?: string
+  tags?: string
+  pending: number
 }
 
-export interface RevenueImportRecord {
+export interface RevenueCostEntry {
   id: number
-  importType: 'cost' | 'income' | string
+  yearMonth: string
+  businessLineName: string
+  businessLineId?: number | null
+  projectNameRaw: string
+  projectId?: number | null
+  workType: string
+  salesKind?: string | null
+  employeeCount?: number | null
+  hours: number
+  costAmount: number
+  personMonthCost?: number | null
+  pending: number
+}
+
+export interface RevenueCellDetail {
+  closed: boolean
+  worklogEntries?: RevenueWorklogEntry[]
+  costEntries?: RevenueCostEntry[]
+  estimates?: RevenueEstimateEntry[]
+}
+
+export interface RevenueEstimateEntry {
+  id: number
+  yearMonth: string
+  businessLineId: number
+  projectId?: number | null
+  workType: string
+  salesKind?: string | null
+  salesProjectId?: number | null
+  description: string
+  personMonths: number
+  unitPrice?: number | null
+  amount?: number | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface RevenueImportBatch {
+  id: number
+  importType: 'worklog' | 'cost'
+  yearMonth: string
   fileName: string
+  totalCount: number
   successCount: number
-  newMappingCount: number
-  pendingMappingCount: number
-  errorCount: number
-  createdBy: number | null
+  pendingCount: number
   createdAt: string
 }
 
-export interface RevenueManualEntryDTO {
+export interface RevenueImportResult {
+  batchId: number
+  totalCount: number
+  successCount: number
+  pendingCount: number
+}
+
+export interface RevenueSalesProject {
   id: number
-  yearMonth: string
-  projectId: number | null
   businessLineId: number
-  entryType: RevenueEntryType
-  amount: number
-  remark: string | null
+  name: string
+  opportunityId?: number | null
+  opportunityName?: string | null
+}
+
+export interface RevenueOpportunityOption {
+  id: number
+  name: string
+  customer?: string
 }

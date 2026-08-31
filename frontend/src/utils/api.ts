@@ -1,12 +1,15 @@
 import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
-  RevenueImportRecord,
+  RevenueCellDetail,
+  RevenueCostEntry,
+  RevenueEstimateEntry,
+  RevenueImportBatch,
   RevenueImportResult,
-  RevenueInitResult,
-  RevenueManualEntryDTO,
-  RevenueMapping,
-  RevenueSummary
+  RevenueMatrix,
+  RevenueOpportunityOption,
+  RevenueSalesProject,
+  RevenueWorklogEntry
 } from '@/types/revenue'
 import type {
   EmailAccount,
@@ -1382,17 +1385,26 @@ class ApiService {
     return this.request<string[]>('/api/seeyon-oa/sync', { method: 'POST' })
   }
 
-  // Revenue management APIs
-  async getRevenueSummary(year: number): Promise<RevenueSummary> {
-    return this.request<RevenueSummary>(`/api/revenue/summary?year=${year}`)
+  // Revenue management APIs（工时与成本）
+  async getRevenueMatrix(year: number): Promise<RevenueMatrix> {
+    return this.request<RevenueMatrix>(`/api/revenue/matrix?year=${year}`)
   }
 
-  async getRevenueImportRecords(importType?: string): Promise<RevenueImportRecord[]> {
-    const query = importType ? `?importType=${encodeURIComponent(importType)}` : ''
-    return this.request<RevenueImportRecord[]>(`/api/revenue/imports${query}`)
+  async getRevenueCellDetail(yearMonth: string, businessLineId: number, rowKey: string): Promise<RevenueCellDetail> {
+    const query = new URLSearchParams({ yearMonth, businessLineId: String(businessLineId), rowKey })
+    return this.request<RevenueCellDetail>(`/api/revenue/cell-detail?${query}`)
   }
 
-  async importCostExcel(file: File): Promise<RevenueImportResult> {
+  async importRevenueWorklog(file: File, yearMonth: string): Promise<RevenueImportResult> {
+    const body = new FormData()
+    body.append('file', file)
+    return this.request<RevenueImportResult>(`/api/revenue/import/worklog?yearMonth=${yearMonth}`, {
+      method: 'POST',
+      body
+    })
+  }
+
+  async importRevenueCost(file: File): Promise<RevenueImportResult> {
     const body = new FormData()
     body.append('file', file)
     return this.request<RevenueImportResult>('/api/revenue/import/cost', {
@@ -1401,63 +1413,66 @@ class ApiService {
     })
   }
 
-  async importIncomeExcel(file: File): Promise<RevenueImportResult> {
-    const body = new FormData()
-    body.append('file', file)
-    return this.request<RevenueImportResult>('/api/revenue/import/income', {
+  async getRevenueImportBatches(importType?: string): Promise<RevenueImportBatch[]> {
+    const query = importType ? `?importType=${encodeURIComponent(importType)}` : ''
+    return this.request<RevenueImportBatch[]>(`/api/revenue/imports${query}`)
+  }
+
+  async closeRevenueMonth(yearMonth: string): Promise<void> {
+    await this.request<void>(`/api/revenue/months/${yearMonth}/close`, { method: 'POST' })
+  }
+
+  async reopenRevenueMonth(yearMonth: string): Promise<void> {
+    await this.request<void>(`/api/revenue/months/${yearMonth}/reopen`, { method: 'POST' })
+  }
+
+  async getRevenueEstimates(yearMonth?: string): Promise<RevenueEstimateEntry[]> {
+    const query = yearMonth ? `?yearMonth=${encodeURIComponent(yearMonth)}` : ''
+    return this.request<RevenueEstimateEntry[]>(`/api/revenue/estimates${query}`)
+  }
+
+  async createRevenueEstimate(data: Partial<RevenueEstimateEntry>): Promise<RevenueEstimateEntry> {
+    return this.request<RevenueEstimateEntry>('/api/revenue/estimates', {
       method: 'POST',
-      body
+      body: JSON.stringify(data)
     })
   }
 
-  async initRevenueFromWorkbook(file: File, year: number): Promise<RevenueInitResult> {
-    const body = new FormData()
-    body.append('file', file)
-    return this.request<RevenueInitResult>(`/api/revenue/init?year=${year}`, {
-      method: 'POST',
-      body
-    })
-  }
-
-  async getRevenueMappings(sourceType?: string): Promise<RevenueMapping[]> {
-    const query = sourceType ? `?sourceType=${encodeURIComponent(sourceType)}` : ''
-    return this.request<RevenueMapping[]>(`/api/revenue/mappings${query}`)
-  }
-
-  async updateRevenueMapping(id: number, data: Partial<RevenueMapping>): Promise<void> {
-    await this.request<RevenueMapping>(`/api/revenue/mappings/${id}`, {
+  async updateRevenueEstimate(id: number, data: Partial<RevenueEstimateEntry>): Promise<RevenueEstimateEntry> {
+    return this.request<RevenueEstimateEntry>(`/api/revenue/estimates/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     })
   }
 
-  async getRevenueManualEntries(yearMonth: string): Promise<RevenueManualEntryDTO[]> {
-    const query = new URLSearchParams()
-    query.set('yearMonth', yearMonth)
-    return this.request<RevenueManualEntryDTO[]>(`/api/revenue/manual?${query}`)
+  async deleteRevenueEstimate(id: number): Promise<void> {
+    await this.request<void>(`/api/revenue/estimates/${id}`, { method: 'DELETE' })
   }
 
-  async createRevenueManualEntry(
-    data: Omit<RevenueManualEntryDTO, 'id'>
-  ): Promise<RevenueManualEntryDTO> {
-    return this.request<RevenueManualEntryDTO>('/api/revenue/manual', {
+  async getRevenuePending(): Promise<{ worklog: RevenueWorklogEntry[]; cost: RevenueCostEntry[] }> {
+    return this.request<{ worklog: RevenueWorklogEntry[]; cost: RevenueCostEntry[] }>('/api/revenue/pending')
+  }
+
+  async resolveRevenuePending(type: 'worklog' | 'cost', id: number, businessLineId: number, projectId?: number): Promise<void> {
+    await this.request<void>(`/api/revenue/pending/${type}/${id}/resolve`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify({ businessLineId, projectId: projectId ?? null })
     })
   }
 
-  async updateRevenueManualEntry(
-    id: number,
-    data: RevenueManualEntryDTO
-  ): Promise<RevenueManualEntryDTO> {
-    return this.request<RevenueManualEntryDTO>(`/api/revenue/manual/${id}`, {
+  async getRevenueSalesProjects(): Promise<RevenueSalesProject[]> {
+    return this.request<RevenueSalesProject[]>('/api/revenue/sales-projects')
+  }
+
+  async bindRevenueSalesProject(id: number, opportunityId: number | null): Promise<void> {
+    await this.request<void>(`/api/revenue/sales-projects/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify({ opportunityId })
     })
   }
 
-  async deleteRevenueManualEntry(id: number): Promise<void> {
-    return this.request<void>(`/api/revenue/manual/${id}`, { method: 'DELETE' })
+  async getRevenueOpportunityOptions(): Promise<RevenueOpportunityOption[]> {
+    return this.request<RevenueOpportunityOption[]>('/api/revenue/opportunity-options')
   }
 }
 

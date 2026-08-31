@@ -2,14 +2,11 @@ package com.bu.management.dto;
 
 import lombok.Data;
 
-import java.util.ArrayList;
-import java.util.List;
-
 @Data
 public class RevenueImportResultVO {
+    private Long batchId;
+    private Integer totalCount = 0;
     private Integer successCount = 0;
-    private Integer newMappingCount = 0;
-    private Integer pendingMappingCount = 0;
-    private Integer skippedCount = 0;
-    private List<String> errors = new ArrayList<>();
+    /** 待映射行数（业务线或项目未匹配） */
+    private Integer pendingCount = 0;
 }
