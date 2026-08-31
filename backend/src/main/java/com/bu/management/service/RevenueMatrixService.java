@@ -42,6 +42,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RevenueMatrixService {
 
+    /** 营收口径项目合并：佳贝艾特/海普诺凯 为澳优的组成部分，矩阵统一并入澳优行 */
+    private static final Map<String, String> PROJECT_ALIASES = Map.of(
+            "佳贝艾特", "澳优",
+            "海普诺凯", "澳优");
+
     private final RevenueWorklogEntryMapper worklogEntryMapper;
     private final RevenueCostEntryMapper costEntryMapper;
     private final RevenueEstimateEntryMapper estimateEntryMapper;
@@ -67,6 +72,7 @@ public class RevenueMatrixService {
                         (a, b) -> a));
         Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
                 .collect(Collectors.toMap(Project::getId, Function.identity(), (a, b) -> a));
+        Map<Long, Long> aliasToRoot = aliasMap(projectsById);
         Map<Long, RevenueSalesProject> salesById = salesProjectMapper.selectList(null).stream()
                 .collect(Collectors.toMap(RevenueSalesProject::getId, Function.identity(), (a, b) -> a));
         Map<Long, String> opportunityNames = opportunityMapper.selectList(null).stream()
@@ -94,6 +100,7 @@ public class RevenueMatrixService {
             } else {
                 projectsById.values().stream()
                         .filter(p -> Objects.equals(p.getBusinessLineId(), line.getId()) && p.getParentId() == null)
+                        .filter(p -> !aliasToRoot.containsKey(p.getId()))
                         .sorted(Comparator.comparing(Project::getId))
                         .forEach(p -> rows.put("p-" + p.getId(), newRow("p-" + p.getId(), p.getName(), "project", line.getId())));
                 salesById.values().stream()
@@ -118,7 +125,8 @@ public class RevenueMatrixService {
                 continue;
             }
             String key = cellKey(entry.getYearMonth(), rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(),
-                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes));
+                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes,
+                    aliasToRoot));
             if (key != null) {
                 worklogHours.merge(key, entry.getHours(), BigDecimal::add);
             }
@@ -129,7 +137,8 @@ public class RevenueMatrixService {
                 continue;
             }
             String key = cellKey(entry.getYearMonth(), rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(),
-                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes));
+                    entry.getSalesKind(), entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes,
+                    aliasToRoot));
             if (key == null) {
                 continue;
             }
@@ -145,7 +154,7 @@ public class RevenueMatrixService {
             if (closed.contains(entry.getYearMonth())) {
                 continue;
             }
-            String rowKey = estimateRowKey(entry, projectsById, lineModes);
+            String rowKey = estimateRowKey(entry, projectsById, lineModes, aliasToRoot);
             String key = cellKey(entry.getYearMonth(), rowKey);
             BigDecimal[] pair = estimateValues.computeIfAbsent(key, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
             pair[0] = pair[0].add(entry.getPersonMonths());
@@ -305,9 +314,27 @@ public class RevenueMatrixService {
 
     private boolean rowKeyMatches(String workType, String salesKind, Long projectId, Long salesProjectId,
                                   Long businessLineId, String rowKey) {
+        Map<Long, Project> projectsById = rootProjectMap();
         String key = rowKeyOf(businessLineId, workType, salesKind, projectId, salesProjectId,
-                rootProjectMap(), lineModes());
+                projectsById, lineModes(), aliasMap(projectsById));
         return Objects.equals(key, rowKey);
+    }
+
+    /** 别名归并：源项目 ID → 目标根项目 ID（同业务线内按名称解析；目标缺失则不合并） */
+    private Map<Long, Long> aliasMap(Map<Long, Project> projectsById) {
+        Map<Long, Long> aliasToRoot = new HashMap<>();
+        PROJECT_ALIASES.forEach((sourceName, targetName) -> {
+            List<Project> sources = projectsById.values().stream()
+                    .filter(p -> sourceName.equals(p.getName())).toList();
+            for (Project source : sources) {
+                projectsById.values().stream()
+                        .filter(p -> targetName.equals(p.getName())
+                                && Objects.equals(p.getBusinessLineId(), source.getBusinessLineId()))
+                        .findFirst()
+                        .ifPresent(target -> aliasToRoot.put(source.getId(), target.getId()));
+            }
+        });
+        return aliasToRoot;
     }
 
     private Map<Long, String> lineModes() {
@@ -323,6 +350,13 @@ public class RevenueMatrixService {
 
     private String rowKeyOf(Long businessLineId, String workType, String salesKind, Long projectId,
                             Long salesProjectId, Map<Long, Project> projectsById, Map<Long, String> lineModes) {
+        return rowKeyOf(businessLineId, workType, salesKind, projectId, salesProjectId, projectsById, lineModes,
+                Map.of());
+    }
+
+    private String rowKeyOf(Long businessLineId, String workType, String salesKind, Long projectId,
+                            Long salesProjectId, Map<Long, Project> projectsById, Map<Long, String> lineModes,
+                            Map<Long, Long> aliasToRoot) {
         String mode = lineModes.getOrDefault(businessLineId, "full");
         if ("simple".equals(mode)) {
             return "simple-" + businessLineId;
@@ -347,12 +381,22 @@ public class RevenueMatrixService {
         while (project != null && project.getParentId() != null) {
             project = projectsById.get(project.getParentId());
         }
-        return project == null ? null : "p-" + project.getId();
+        if (project == null) {
+            return null;
+        }
+        Long rootId = aliasToRoot.getOrDefault(project.getId(), project.getId());
+        return "p-" + rootId;
     }
 
-    private String estimateRowKey(RevenueEstimateEntry entry, Map<Long, Project> projectsById, Map<Long, String> lineModes) {
+    private String estimateRowKey(RevenueEstimateEntry entry, Map<Long, Project> projectsById,
+                                  Map<Long, String> lineModes) {
+        return estimateRowKey(entry, projectsById, lineModes, Map.of());
+    }
+
+    private String estimateRowKey(RevenueEstimateEntry entry, Map<Long, Project> projectsById,
+                                  Map<Long, String> lineModes, Map<Long, Long> aliasToRoot) {
         return rowKeyOf(entry.getBusinessLineId(), entry.getWorkType(), entry.getSalesKind(),
-                entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes);
+                entry.getProjectId(), entry.getSalesProjectId(), projectsById, lineModes, aliasToRoot);
     }
 
     private RevenueMatrixVO.Row newRow(String rowKey, String name, String kind, Long businessLineId) {

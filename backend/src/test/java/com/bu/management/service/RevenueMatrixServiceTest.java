@@ -62,7 +62,10 @@ class RevenueMatrixServiceTest {
 
         Project royal = project(11L, 1L, null, "皇家项目");
         Project pms = project(15L, 1L, 11L, "PMS");
-        lenient().when(projectMapper.selectList(null)).thenReturn(List.of(royal, pms));
+        Project aoyou = project(24L, 1L, null, "澳优");
+        Project jiabe = project(8L, 1L, null, "佳贝艾特");
+        Project hipro = project(9L, 1L, null, "海普诺凯");
+        lenient().when(projectMapper.selectList(null)).thenReturn(List.of(royal, pms, aoyou, jiabe, hipro));
         lenient().when(salesProjectMapper.selectList(null)).thenReturn(List.of());
         lenient().when(opportunityMapper.selectList(null)).thenReturn(List.of());
         lenient().when(monthService.closedMonths()).thenReturn(Set.of("2026-07"));
@@ -170,7 +173,7 @@ class RevenueMatrixServiceTest {
                 .map(RevenueMatrixVO.Row::getRowKey).toList();
         List<String> salesRowKeys = block.getSections().get(1).getRows().stream()
                 .map(RevenueMatrixVO.Row::getRowKey).toList();
-        assertThat(projectRowKeys).containsExactly("p-11");     // 无项目集行，子项目不单独成行
+        assertThat(projectRowKeys).containsExactly("p-11", "p-24"); // 无项目集行；佳贝/海普并入澳优不单独成行
         assertThat(salesRowKeys).contains("pool-1", "other-1");
     }
 
@@ -207,6 +210,26 @@ class RevenueMatrixServiceTest {
                 .extracting(RevenueMatrixVO.Row::getRowKey).containsExactly("agg-sales-3");
         assertThat(member.getSections().get(0).getRows().get(0).getMonths().get(6).getHours())
                 .isEqualByComparingTo("1.5");
+    }
+
+    @Test
+    void jiabeAiteAndHiproRollIntoAoyouRow() {
+        // 佳贝艾特(8) + 海普诺凯(9) 的工时并入澳优(24)
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
+                worklog("2026-07", 1L, 8L, "0.6"),
+                worklog("2026-07", 1L, 9L, "0.4"),
+                worklog("2026-07", 1L, 24L, "1.383")
+        ));
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock block = service.getMatrix(2026).getLines().get(0);
+        List<RevenueMatrixVO.Row> projectRows = block.getSections().get(0).getRows();
+        assertThat(projectRows).extracting(RevenueMatrixVO.Row::getRowKey)
+                .doesNotContain("p-8", "p-9");
+        RevenueMatrixVO.Row aoyouRow = projectRows.stream()
+                .filter(row -> row.getRowKey().equals("p-24")).findFirst().orElseThrow();
+        assertThat(aoyouRow.getMonths().get(6).getHours()).isEqualByComparingTo("2.383");
     }
 
     @Test
