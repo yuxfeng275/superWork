@@ -172,12 +172,12 @@ test('营收矩阵展示完结实际值与未完结预估', async ({ page }, tes
 
   // 完结月表头带「完」标记，合计行存在
   await expect(table.locator('.month-head.closed')).toHaveCount(7)
-  await expect(table.locator('.grand-total-row')).toContainText('15.32')
+  await expect(table.locator('.grand-total-row')).toContainText('20.96')
 
   // 概览卡
   await expect(page.locator('.overview-strip')).toContainText('年度总工时')
-  await expect(page.locator('.overview-strip')).toContainText('6.8')
-  await expect(page.locator('.overview-strip')).toContainText('2.25')   // 综合单价 万/人月
+  await expect(page.locator('.overview-strip')).toContainText('9.5')
+  await expect(page.locator('.overview-strip')).toContainText('2.21')   // 综合单价 万/人月
 
   if (process.env.CAPTURE_REVENUE === '1') {
     await page.screenshot({ path: testInfo.outputPath('revenue-matrix.png'), fullPage: true })
@@ -295,6 +295,38 @@ test('完结月单元格支持补录和修改工时明细', async ({ page }) => 
     workType: 'project',
     hours: 0.15
   })
+})
+
+test('业务线和项目筛选联动合计与概览', async ({ page }) => {
+  await page.goto('/revenue')
+  const table = page.locator('.matrix-table')
+  await expect(table).toContainText('皇家项目')
+
+  // 无筛选时：合计行显示全量
+  await expect(table.locator('.grand-total-row')).toContainText('20.96')
+
+  // 按项目筛选：只显示皇家项目行，合计随之为皇家的数字（12.8 万 / 5.8 人月）
+  await page.locator('.el-loading-mask').waitFor({ state: 'hidden' })
+  const projectSelect = page.locator('.matrix-toolbar .el-select', {
+    has: page.getByRole('combobox', { name: '项目筛选' })
+  })
+  await projectSelect.locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: /皇家项目/ }).click()
+  await expect(table).toContainText('皇家项目')
+  await expect(table).not.toContainText('商机集合')
+  await expect(table).not.toContainText('全渠道产品')
+  await expect(table.locator('.grand-total-row')).toContainText('12.8')
+  await expect(page.locator('.overview-strip')).toContainText('5.8')
+
+  // 再按业务线筛选会员通：项目选项随之收窄（只剩会员通线下项目，夹具中无 → 无匹配行）
+  await page.locator('.matrix-toolbar .el-select', {
+    has: page.getByRole('combobox', { name: '业务线筛选' })
+  }).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '会员通' }).click()
+  // 项目筛选被清空 → 显示会员通全部行
+  await expect(table).toContainText('会员通')
+  await expect(table).not.toContainText('皇家项目')
+  await expect(table.locator('.grand-total-row')).toContainText('4.84')
 })
 
 test('点击未完结月表头可标记完结', async ({ page }) => {

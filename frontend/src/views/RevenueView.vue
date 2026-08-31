@@ -5,6 +5,7 @@ import { Refresh, Upload } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
 import { api } from '@/utils/api'
 import type {
+  RevenueCell,
   RevenueCellDetail,
   RevenueCostEntry,
   RevenueWorklogEntry,
@@ -53,10 +54,100 @@ const formatWan = (value?: number | null) => {
   return (Math.round(num * 100) / 100).toLocaleString('zh-CN')
 }
 
+const filterLineIds = ref<number[]>([])
+const filterProjectIds = ref<number[]>([])
+
+const projectFilterOptions = computed(() => {
+  if (!matrix.value) return []
+  return matrix.value.lines
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
+    .flatMap(line => line.sections.flatMap(s => s.rows).map(row => ({ row, lineName: line.businessLineName })))
+    .filter(item => item.row.kind === 'project' && item.row.projectId != null)
+    .map(item => ({ id: item.row.projectId as number, label: `${item.lineName} / ${item.row.name}` }))
+})
+
+const sumCells = (rows: RevenueRow[]) => {
+  const months = Array.from({ length: 12 }, () => ({ hours: 0, cost: 0, source: null as RevenueCell['source'] }))
+  const totals = { hours: 0, cost: 0, source: null as RevenueCell['source'] }
+  rows.forEach(row => {
+    row.months.forEach((cell, i) => {
+      months[i].hours += Number(cell.hours || 0)
+      months[i].cost += Number(cell.cost || 0)
+      if (cell.source) months[i].source = months[i].source && months[i].source !== cell.source ? 'mixed' : cell.source
+    })
+    totals.hours += Number(row.totals?.hours || 0)
+    totals.cost += Number(row.totals?.cost || 0)
+    if (row.totals?.source) totals.source = totals.source && totals.source !== row.totals.source ? 'mixed' : row.totals.source
+  })
+  return { months, totals }
+}
+
+const filteredLines = computed(() => {
+  if (!matrix.value) return []
+  const projectFilterActive = filterProjectIds.value.length > 0
+  return matrix.value.lines
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
+    .map(line => {
+      const sections = line.sections.map(section => ({
+        ...section,
+        rows: section.rows.filter(row => {
+          if (!projectFilterActive) return true
+          return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
+        })
+      })).filter(section => section.rows.length > 0)
+      const visibleRows = sections.flatMap(s => s.rows)
+      const { months, totals } = sumCells(visibleRows)
+      return { ...line, sections, monthTotals: months, totals }
+    })
+    .filter(line => line.sections.length > 0)
+})
+
+const filteredMonthTotals = computed(() => {
+  const totals = Array.from({ length: 12 }, () => ({ hours: 0, cost: 0, source: null as RevenueCell['source'] }))
+  filteredLines.value.forEach(line => {
+    line.monthTotals.forEach((cell, i) => {
+      totals[i].hours += Number(cell.hours || 0)
+      totals[i].cost += Number(cell.cost || 0)
+      if (cell.source) totals[i].source = totals[i].source && totals[i].source !== cell.source ? 'mixed' : cell.source
+    })
+  })
+  return totals
+})
+
+const filteredGrandTotal = computed(() => {
+  const total = { hours: 0, cost: 0, source: null as RevenueCell['source'] }
+  filteredLines.value.forEach(line => {
+    total.hours += Number(line.totals.hours || 0)
+    total.cost += Number(line.totals.cost || 0)
+    if (line.totals.source) total.source = total.source && total.source !== line.totals.source ? 'mixed' : line.totals.source
+  })
+  return total
+})
+
+const filteredOverview = computed(() => {
+  const allRows = filteredLines.value.flatMap(line => line.sections.flatMap(s => s.rows))
+  const projectHours = allRows
+    .filter(row => ['project', 'agg_project', 'line_pool', 'simple'].includes(row.kind))
+    .reduce((sum, row) => sum + Number(row.totals?.hours || 0), 0)
+  const salesHours = allRows
+    .filter(row => !['project', 'agg_project', 'line_pool', 'simple'].includes(row.kind))
+    .reduce((sum, row) => sum + Number(row.totals?.hours || 0), 0)
+  const totalHours = projectHours + salesHours
+  const totalCost = Number(filteredGrandTotal.value.cost || 0)
+  return {
+    totalHours,
+    projectHours,
+    salesHours,
+    totalCost,
+    avgUnitPrice: totalHours > 0 ? totalCost / totalHours : null,
+    closedMonthCount: matrix.value?.overview.closedMonthCount ?? 0
+  }
+})
+
 const flatRows = computed<FlatRow[]>(() => {
   if (!matrix.value) return []
   const result: FlatRow[] = []
-  matrix.value.lines.forEach(line => {
+  filteredLines.value.forEach(line => {
     const lineRows: FlatRow[] = []
     line.sections.forEach(section => {
       section.rows.forEach((row, index) => {
@@ -494,15 +585,40 @@ onMounted(loadMatrix)
       <el-tab-pane label="工时 & 成本" name="matrix">
         <template v-if="matrix">
           <section class="overview-strip" aria-label="年度概览">
-            <div class="overview-cell"><span>年度总工时</span><strong>{{ formatHours(matrix.overview.totalHours) }}</strong><small>人月</small></div>
-            <div class="overview-cell"><span>项目工时</span><strong>{{ formatHours(matrix.overview.projectHours) }}</strong><small>人月</small></div>
-            <div class="overview-cell"><span>销售工时</span><strong>{{ formatHours(matrix.overview.salesHours) }}</strong><small>人月</small></div>
-            <div class="overview-cell"><span>年度总成本</span><strong>{{ formatWan(matrix.overview.totalCost) }}</strong><small>万元</small></div>
-            <div class="overview-cell"><span>综合单价</span><strong>{{ matrix.overview.avgUnitPrice == null ? '—' : formatWan(matrix.overview.avgUnitPrice) }}</strong><small>万/人月</small></div>
-            <div class="overview-cell"><span>已完结月份</span><strong>{{ matrix.overview.closedMonthCount }}</strong><small>/ 12</small></div>
+            <div class="overview-cell"><span>年度总工时</span><strong>{{ formatHours(filteredOverview.totalHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>项目工时</span><strong>{{ formatHours(filteredOverview.projectHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>销售工时</span><strong>{{ formatHours(filteredOverview.salesHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>年度总成本</span><strong>{{ formatWan(filteredOverview.totalCost) }}</strong><small>万元</small></div>
+            <div class="overview-cell"><span>综合单价</span><strong>{{ filteredOverview.avgUnitPrice == null ? '—' : formatWan(filteredOverview.avgUnitPrice) }}</strong><small>万/人月</small></div>
+            <div class="overview-cell"><span>已完结月份</span><strong>{{ filteredOverview.closedMonthCount }}</strong><small>/ 12</small></div>
           </section>
 
           <div class="matrix-toolbar">
+            <el-select
+              v-model="filterLineIds"
+              multiple
+              clearable
+              collapse-tags
+              :max-collapse-tags="2"
+              placeholder="业务线（默认全部）"
+              aria-label="业务线筛选"
+              style="width: 220px"
+              @change="filterProjectIds = []"
+            >
+              <el-option v-for="line in matrix.lines" :key="line.businessLineId" :label="line.businessLineName" :value="line.businessLineId" />
+            </el-select>
+            <el-select
+              v-model="filterProjectIds"
+              multiple
+              clearable
+              collapse-tags
+              :max-collapse-tags="2"
+              placeholder="项目（默认全部，选中后只显示所选项目）"
+              aria-label="项目筛选"
+              style="width: 260px"
+            >
+              <el-option v-for="p in projectFilterOptions" :key="p.id" :label="p.label" :value="p.id" />
+            </el-select>
             <el-radio-group v-model="displayMode" aria-label="展示内容">
               <el-radio-button value="merge">工时 + 成本</el-radio-button>
               <el-radio-button value="hours">仅工时</el-radio-button>
@@ -565,7 +681,7 @@ onMounted(loadMatrix)
                     <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(item.row.totals.hours) }}</span>
                   </td>
                 </tr>
-                <template v-for="line in matrix.lines" :key="'total-' + line.businessLineId">
+                <template v-for="line in filteredLines" :key="'total-' + line.businessLineId">
                   <tr class="line-total-row">
                     <td class="col-line">{{ line.businessLineName }}</td>
                     <td class="col-type" colspan="2">小计</td>
@@ -584,13 +700,13 @@ onMounted(loadMatrix)
                   <td class="col-line">合计</td>
                   <td class="col-type" colspan="2"></td>
                   <td class="col-price">—</td>
-                  <td v-for="(cell, i) in matrix.monthTotals" :key="i" class="col-month cell total">
+                  <td v-for="(cell, i) in filteredMonthTotals" :key="i" class="col-month cell total">
                     <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
                     <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
                   </td>
                   <td class="col-total cell total">
-                    <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(matrix.grandTotal.cost) }}</span>
-                    <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(matrix.grandTotal.hours) }}</span>
+                    <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(filteredGrandTotal.cost) }}</span>
+                    <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(filteredGrandTotal.hours) }}</span>
                   </td>
                 </tr>
               </tbody>
