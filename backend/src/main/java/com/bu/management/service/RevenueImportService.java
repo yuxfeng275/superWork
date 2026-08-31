@@ -96,10 +96,9 @@ public class RevenueImportService {
             throw new IllegalArgumentException("未解析到工时数据，请确认上传的是工时数据_业务线明细 Excel");
         }
 
-        // 整月替换只针对导入来源的行；手工补录（batch_id 为空）保留
+        // 整月覆盖：以导入文件为准（含手工补录行），导入后可在页面手工调整
         worklogEntryMapper.delete(new LambdaQueryWrapper<RevenueWorklogEntry>()
-                .eq(RevenueWorklogEntry::getYearMonth, yearMonth)
-                .isNotNull(RevenueWorklogEntry::getBatchId));
+                .eq(RevenueWorklogEntry::getYearMonth, yearMonth));
         parsed.forEach(worklogEntryMapper::insert);
         return finishBatch(batch, parsed.size(),
                 (int) parsed.stream().filter(item -> item.getPending() == 0).count());
@@ -158,10 +157,9 @@ public class RevenueImportService {
         RevenueImportBatch batch = newBatch("cost", batchMonth, file.getOriginalFilename(), userId);
         parsed.forEach(item -> item.setBatchId(batch.getId()));
 
-        // 同上：只替换导入来源的行，保留手工补录
+        // 整月覆盖：以导入文件为准（含手工补录行），导入后可在页面手工调整
         months.forEach(month -> costEntryMapper.delete(new LambdaQueryWrapper<RevenueCostEntry>()
-                .eq(RevenueCostEntry::getYearMonth, month)
-                .isNotNull(RevenueCostEntry::getBatchId)));
+                .eq(RevenueCostEntry::getYearMonth, month)));
         parsed.forEach(costEntryMapper::insert);
         return finishBatch(batch, parsed.size(),
                 (int) parsed.stream().filter(item -> item.getPending() == 0).count());

@@ -87,11 +87,11 @@ class RevenueImportServiceTest {
         assertThat(inserted.get(0).getHours()).isEqualByComparingTo(new BigDecimal("0.15"));
         assertThat(inserted.get(0).getYearMonth()).isEqualTo("2026-07");
         assertThat(inserted.get(0).getProjectId()).isEqualTo(13L);
-        // 同月重复导入 = 替换导入来源行；手工补录（batch_id 为空）保留
+        // 同月重复导入 = 整月覆盖（含手工补录行），以最后导入为准
         ArgumentCaptor<LambdaQueryWrapper<RevenueWorklogEntry>> deleteCaptor =
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(worklogEntryMapper).delete(deleteCaptor.capture());
-        assertThat(deleteCaptor.getValue().getSqlSegment()).contains("batch_id IS NOT NULL");
+        assertThat(deleteCaptor.getValue().getSqlSegment()).doesNotContain("batch_id");
     }
 
     @Test
