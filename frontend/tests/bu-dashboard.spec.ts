@@ -394,3 +394,52 @@ test('人员映射从云效成员列表选择并保存用户ID', async ({ page }
     yunxiaoUserId: 'yunxiao-user-yufeng'
   })
 })
+
+test('项目映射按主子项目树形展示并显示云效项目名称', async ({ page }, testInfo) => {
+  await page.unroute('**/api/projects**')
+  await page.route('**/api/projects**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      code: 200,
+      data: {
+        records: [
+          { id: 1, name: '皇家 omniCRM', parentId: null },
+          { id: 2, name: '会员通积分子项目', parentId: 1 }
+        ],
+        total: 2
+      }
+    })
+  }))
+  await page.unroute('**/api/yunxiao/project-mappings')
+  await page.route('**/api/yunxiao/project-mappings', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      code: 200,
+      data: [
+        { id: 11, projectId: 1, yunxiaoProjectId: 'yunxiao-project-royal', workitemTypeId: 'type-req', category: 'Req', syncEnabled: 1, lastSyncStatus: 'SUCCESS' },
+        { id: 12, projectId: 2, yunxiaoProjectId: 'yunxiao-project-1', workitemTypeId: '', category: 'Req', syncEnabled: 1, lastSyncStatus: 'SUCCESS' }
+      ]
+    })
+  }))
+
+  await page.goto('/statistics')
+  await page.getByRole('tab', { name: '云效配置' }).click()
+
+  const section = page.locator('.mapping-section').filter({ hasText: '项目映射' })
+  const table = section.locator('.data-table')
+  await expect(table.getByRole('columnheader', { name: '云效项目名称' })).toBeVisible()
+
+  const rows = table.locator('tbody tr')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText('皇家 omniCRM')
+  await expect(rows.nth(0)).toContainText('皇家 omniCRM · ROYAL')
+  await expect(rows.nth(0).locator('.mapping-root-name')).toBeVisible()
+  await expect(rows.nth(1)).toContainText('会员通积分子项目')
+  await expect(rows.nth(1)).toContainText('云效项目 1 · CODE1')
+  await expect(rows.nth(1).locator('.el-table__indent')).toHaveCount(1)
+  if (process.env.CAPTURE_BU_DASHBOARD === '1') {
+    await section.screenshot({ path: testInfo.outputPath('project-mapping-tree.png') })
+  }
+})

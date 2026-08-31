@@ -123,6 +123,7 @@ interface Dashboard {
 interface ProjectOption {
   id: number
   name: string
+  parentId?: number | null
 }
 
 interface UserOption {
@@ -425,6 +426,7 @@ const loadMappings = async () => {
     ])
     projectMappings.value = projectData || []
     userMappings.value = userData || []
+    void loadYunxiaoProjects()
   } catch (error: unknown) {
     ElMessage.error(errorMessage(error, '云效映射加载失败'))
   }
@@ -697,6 +699,53 @@ const projectName = (id: number) => projects.value.find(item => item.id === id)?
 const userName = (id: number) => users.value.find(item => item.id === id)?.realName || `用户 #${id}`
 const yunxiaoProjectLabel = (project: YunxiaoProjectOption) =>
   project.customCode ? `${project.name} · ${project.customCode}` : project.name
+const yunxiaoProjectName = (id?: string) => {
+  if (!id) return ''
+  const project = yunxiaoProjects.value.find(item => item.id === id)
+  return project ? yunxiaoProjectLabel(project) : ''
+}
+
+interface MappingRow {
+  key: string
+  projectId: number
+  mapping: YunxiaoProjectMapping | null
+  children?: MappingRow[]
+}
+
+const rootProjectOf = (projectId?: number) => {
+  let current = projects.value.find(item => item.id === projectId)
+  const visited = new Set<number>()
+  while (current?.parentId != null && !visited.has(current.id)) {
+    visited.add(current.id)
+    current = projects.value.find(item => item.id === current!.parentId)
+  }
+  return current
+}
+
+const projectMappingTree = computed<MappingRow[]>(() => {
+  const groups = new Map<string, { root?: ProjectOption; mappings: YunxiaoProjectMapping[] }>()
+  projectMappings.value.forEach(mapping => {
+    const root = rootProjectOf(mapping.projectId)
+    const key = root ? `project-${root.id}` : `missing-${mapping.projectId ?? mapping.id}`
+    const group = groups.get(key) || { root, mappings: [] }
+    group.mappings.push(mapping)
+    groups.set(key, group)
+  })
+  return Array.from(groups.values())
+    .map(group => {
+      const ownMapping = group.mappings.find(item => item.projectId === group.root?.id) ?? null
+      const children = group.mappings
+        .filter(item => item !== ownMapping)
+        .map(item => ({ key: `mapping-${item.id}`, projectId: item.projectId, mapping: item }))
+      return {
+        key: group.root ? `project-${group.root.id}` : `missing-${group.mappings[0]?.id}`,
+        projectId: group.root?.id ?? group.mappings[0]?.projectId,
+        mapping: ownMapping,
+        children: children.length ? children : undefined
+      }
+    })
+    .sort((left, right) => projectName(left.projectId).localeCompare(projectName(right.projectId), 'zh-CN'))
+})
 const yunxiaoMemberLabel = (member: YunxiaoMemberOption) =>
   member.email ? `${member.name} · ${member.email}` : member.name
 
@@ -1164,16 +1213,36 @@ onMounted(refresh)
             </div>
             <el-button :icon="Plus" @click="openProjectMappingDialog()">新增映射</el-button>
           </div>
-          <el-table :data="projectMappings" class="data-table" empty-text="尚未配置项目映射">
-            <el-table-column label="本地项目" min-width="180">
-              <template #default="{ row }">{{ projectName(row.projectId) }}</template>
+          <el-table
+            :data="projectMappingTree"
+            class="data-table"
+            empty-text="尚未配置项目映射"
+            row-key="key"
+            :tree-props="{ children: 'children' }"
+            default-expand-all
+          >
+            <el-table-column label="本地项目" min-width="200">
+              <template #default="{ row }">
+                <span :class="{ 'mapping-root-name': row.children }">{{ projectName(row.projectId) }}</span>
+              </template>
             </el-table-column>
-            <el-table-column prop="yunxiaoProjectId" label="云效项目ID" min-width="220" />
-            <el-table-column prop="workitemTypeId" label="需求工作项类型ID" min-width="220" />
-            <el-table-column prop="lastSyncStatus" label="同步状态" width="110" />
+            <el-table-column label="云效项目ID" min-width="220">
+              <template #default="{ row }">{{ row.mapping?.yunxiaoProjectId || '' }}</template>
+            </el-table-column>
+            <el-table-column label="云效项目名称" min-width="180">
+              <template #default="{ row }">
+                {{ row.mapping ? yunxiaoProjectName(row.mapping.yunxiaoProjectId) || '云效列表未返回' : '' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="需求工作项类型ID" min-width="200">
+              <template #default="{ row }">{{ row.mapping?.workitemTypeId || '' }}</template>
+            </el-table-column>
+            <el-table-column label="同步状态" width="110">
+              <template #default="{ row }">{{ row.mapping?.lastSyncStatus || '' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
-                <el-button circle :icon="Edit" title="编辑项目映射" @click="openProjectMappingDialog(row)" />
+                <el-button v-if="row.mapping" circle :icon="Edit" title="编辑项目映射" @click="openProjectMappingDialog(row.mapping)" />
               </template>
             </el-table-column>
           </el-table>
@@ -1629,6 +1698,10 @@ onMounted(refresh)
 
 .data-table {
   width: 100%;
+}
+
+.mapping-root-name {
+  font-weight: 700;
 }
 
 .person-cell {
