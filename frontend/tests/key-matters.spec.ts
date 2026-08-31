@@ -392,6 +392,13 @@ test('台账可查看状态、详情并维护本周进展', async ({ page }, tes
   await expect(detail.getByLabel('事项关键信息')).toContainText('皇家全渠道定制项目')
   await expect(detail.getByLabel('最新周进展')).toContainText('下一步行动')
   await expect(detail.getByLabel('周进展记录')).toContainText('+20%')
+  await expect(detail.getByLabel('周进展记录')).toContainText('评审结论待归档')
+  await expect(detail.getByLabel('周进展记录')).toContainText('启动核心链路联调')
+  await expect(detail.getByLabel('周进展记录')).toContainText('确认联调资源排期')
+  await expect(detail.getByLabel('周进展记录')).toContainText('更新于')
+  if (process.env.CAPTURE_KEY_MATTERS === '1') {
+    await detail.getByLabel('周进展记录').screenshot({ path: testInfo.outputPath('detail-history.png') })
+  }
 
   await page.setViewportSize({ width: 390, height: 844 })
   const detailOverflow = await page.evaluate(() =>
