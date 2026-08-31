@@ -604,7 +604,7 @@ onMounted(loadMatrix)
         <div class="import-grid">
           <section class="import-card">
             <h4>工时明细导入</h4>
-            <p>工时数据_业务线明细 Excel；同月重复导入将整月替换；已完结月份不可导入。</p>
+            <p>工时数据_业务线明细 Excel；同月重复导入替换该月的导入数据（手工补录保留）；已完结月份不可导入。</p>
             <el-date-picker v-model="worklogMonth" type="month" value-format="YYYY-MM" aria-label="工时归属月份" />
             <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls"
               :on-change="(f: UploadFile) => { worklogFile = f.raw ?? null }">
@@ -615,7 +615,7 @@ onMounted(loadMatrix)
           </section>
           <section class="import-card">
             <h4>成本明细导入</h4>
-            <p>成本分析_项目 Excel，月份取自文件内「月份」列；同月重复导入将整月替换。</p>
+            <p>成本分析_项目 Excel，月份取自文件内「月份」列；同月重复导入替换该月的导入数据（手工补录保留）。</p>
             <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls"
               :on-change="(f: UploadFile) => { costFile = f.raw ?? null }">
               <el-button :icon="Upload">选择文件</el-button>
