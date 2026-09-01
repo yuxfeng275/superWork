@@ -263,8 +263,9 @@ const cellContext = reactive({ yearMonth: '', lineId: 0, rowKey: '', title: '', 
 const cellDetail = ref<RevenueCellDetail | null>(null)
 
 const openCell = async (lineId: number, lineName: string, row: RevenueRow, monthIndex: number) => {
-  if (row.kind === 'simple') return   // 单行汇总业务线不提供下钻
   const month = matrix.value?.months[monthIndex]
+  // 单行汇总业务线：完结月不提供下钻，未完结月可录入预估
+  if (row.kind === 'simple' && month?.closed) return
   if (!month) return
   cellContext.yearMonth = month.yearMonth
   cellContext.lineId = lineId
@@ -357,7 +358,8 @@ const estimatePayload = () => {
     sales_specific: { workType: 'sales', salesKind: 'specific' },
     pool: { workType: 'sales', salesKind: 'pool' },
     agg_sales: { workType: 'sales' },
-    other: { workType: 'sales', salesKind: 'other' }
+    other: { workType: 'sales', salesKind: 'other' },
+    simple: { workType: 'project' }
   }
   const kind = kindMap[row?.kind || 'project'] || kindMap.project
   return {
@@ -777,7 +779,7 @@ onMounted(loadMatrix)
                       v-for="(cell, monthIndex) in item.row.months"
                       :key="monthIndex"
                       class="col-month cell"
-                      :class="[cell.source, { clickable: item.row.kind !== 'simple' }]"
+                      :class="[cell.source, { clickable: item.row.kind !== 'simple' || !matrix.months[monthIndex].closed }]"
                       @click="openCell(item.lineId, item.lineName, item.row, monthIndex)"
                     >
                       <template v-if="cell.source">

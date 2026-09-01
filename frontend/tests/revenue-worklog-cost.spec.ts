@@ -117,13 +117,14 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/revenue/matrix**', route => fulfill(route, matrix))
   await page.route('**/api/revenue/cell-detail**', route => {
     const url = new URL(route.request().url())
-    if (url.searchParams.get('yearMonth') === '2026-09') {
+    const yearMonth = url.searchParams.get('yearMonth')
+    if (yearMonth !== '2026-07') {
       return fulfill(route, {
         closed: false,
-        estimates: [{
+        estimates: yearMonth === '2026-09' ? [{
           id: 51, yearMonth: '2026-09', businessLineId: 1, projectId: 11, workType: 'project',
           description: '黄天鹅物码项目支持', personMonths: 1.5, unitPrice: 22790.7, amount: 34186.05
-        }]
+        }] : []
       })
     }
     return fulfill(route, {
@@ -299,11 +300,11 @@ test('会员通聚合为项目销售两行且简单业务线单行不可下钻',
   // 商机集合只剩定制线一行（会员通不拆销售细分）
   await expect(table.locator('td.col-project').getByText('商机集合', { exact: true })).toHaveCount(1)
 
-  // 全渠道产品：单行，类型列为 —，单元格不可点击
+  // 全渠道产品：单行，类型列为 —，完结月实际格不可点击（未完结月可录预估）
   const productRow = table.locator('tbody tr:not(.line-total-row)', { hasText: '全渠道产品' })
   await expect(productRow).toContainText('0.8')
   await expect(productRow.locator('.col-type')).toHaveText('—')
-  await expect(productRow.locator('td.cell.clickable')).toHaveCount(0)
+  await expect(productRow.locator('td.actual.clickable')).toHaveCount(0)
 })
 
 test('完结月单元格支持补录和修改工时明细', async ({ page }) => {
@@ -399,6 +400,37 @@ test('业务线和项目筛选联动合计与概览', async ({ page }) => {
   // 重置恢复全量
   await page.locator('.filter-pill.reset').click()
   await expect(table.locator('.grand-total-row')).toContainText('20.96')
+})
+
+test('全渠道产品未完结月可录入预估，完结月仍不可下钻', async ({ page }) => {
+  await page.goto('/revenue')
+  const productRow = page.locator('.matrix-table tbody tr:not(.line-total-row)', { hasText: '全渠道产品' })
+
+  // 完结月（7月实际格）不可点击
+  await expect(productRow.locator('td.actual.clickable')).toHaveCount(0)
+  // 未完结月（8月空格）可点击
+  const augustCell = productRow.locator('td.col-month').nth(7)
+  await expect(augustCell).toHaveClass(/clickable/)
+  await augustCell.click()
+
+  const drawer = page.getByRole('dialog')
+  await expect(drawer).toContainText('预估明细')
+
+  const posted: { yearMonth: string; businessLineId: number; workType: string }[] = []
+  await page.route('**/api/revenue/estimates', route => {
+    if (route.request().method() === 'POST') {
+      posted.push(route.request().postDataJSON())
+      return fulfill(route, { id: 60 })
+    }
+    return fulfill(route, [])
+  })
+  await drawer.getByRole('button', { name: '新增预估' }).click()
+  const dialog = page.getByRole('dialog', { name: '新增预估' })
+  await dialog.getByPlaceholder('例如：黄天鹅物码项目支持').fill('产品迭代投入')
+  await dialog.getByRole('button', { name: '保存' }).click()
+  expect(posted).toHaveLength(1)
+  expect(posted[0]).toMatchObject({ yearMonth: '2026-08', businessLineId: 5, workType: 'project', description: '产品迭代投入', personMonths: 1
+  })
 })
 
 test('点击未完结月表头可标记完结', async ({ page }) => {
