@@ -233,6 +233,25 @@ class RevenueMatrixServiceTest {
     }
 
     @Test
+    void simpleLineKeepsHoursButHidesCost() {
+        // simple 业务线（全渠道产品）成本计入公司公共投入：矩阵只显示工时
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-07", 5L, null, "1.0", "15455")
+        ));
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock product = service.getMatrix(2026).getLines().stream()
+                .filter(block -> block.getBusinessLineId() == 5L).findFirst().orElseThrow();
+        RevenueMatrixVO.Row row = product.getSections().get(0).getRows().get(0);
+        RevenueMatrixVO.Cell july = row.getMonths().get(6);
+        assertThat(july.getHours()).isEqualByComparingTo("1.0");
+        assertThat(july.getCost()).isEqualByComparingTo("0");
+        assertThat(row.getUnitPrice()).isNull();
+        assertThat(product.getTotals().getCost()).isEqualByComparingTo("0");
+    }
+
+    @Test
     void simpleModeCollapsesToSingleRow() {
         lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
                 worklog("2026-07", 5L, null, "0.2")

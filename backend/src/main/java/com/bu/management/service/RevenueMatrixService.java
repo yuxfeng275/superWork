@@ -144,7 +144,10 @@ public class RevenueMatrixService {
             }
             BigDecimal[] pair = costValues.computeIfAbsent(key, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
             pair[0] = pair[0].add(entry.getHours());
-            pair[1] = pair[1].add(entry.getCostAmount());
+            // simple 模式业务线（全渠道产品/海外等）成本计入公司公共投入，只统计工时
+            if (!key.startsWith("simple-", key.indexOf('|') + 1)) {
+                pair[1] = pair[1].add(entry.getCostAmount());
+            }
         }
 
         // 未完结月预估
@@ -193,7 +196,8 @@ public class RevenueMatrixService {
                 row.setMonths(emptyCells());
                 RevenueMatrixVO.Cell rowTotal = emptyCell();
                 BigDecimal[] closedPair = closedTotals.get(row.getRowKey());
-                if (closedPair != null && closedPair[0].compareTo(BigDecimal.ZERO) > 0) {
+                if (closedPair != null && closedPair[0].compareTo(BigDecimal.ZERO) > 0
+                        && closedPair[1].compareTo(BigDecimal.ZERO) > 0) {
                     row.setUnitPrice(closedPair[1].divide(closedPair[0], 2, RoundingMode.HALF_UP));
                 }
                 for (int i = 0; i < 12; i++) {
