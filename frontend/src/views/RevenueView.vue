@@ -734,7 +734,8 @@ onMounted(loadMatrix)
                       <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(item.row.totals.hours) }}</span>
                     </td>
                   </tr>
-                  <tr class="line-total-row">
+                  <!-- 单行汇总的业务线（海外/全渠道产品/全域精准）不需要小计 -->
+                  <tr v-if="line.mode !== 'simple'" class="line-total-row">
                     <td class="col-line">{{ line.businessLineName }}</td>
                     <td class="col-type" colspan="2">小计</td>
                     <td class="col-price">—</td>

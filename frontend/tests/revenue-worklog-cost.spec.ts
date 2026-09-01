@@ -331,6 +331,10 @@ test('筛选 pill 支持多选且小计紧随业务线', async ({ page }) => {
   // 重置
   await page.locator('.filter-pill.reset').click()
   await expect(table.locator('.grand-total-row')).toContainText('20.96')
+
+  // 单行汇总业务线（全渠道产品）不渲染小计行，全表只有定制和会员通两个小计
+  await expect(table.locator('tbody tr.line-total-row')).toHaveCount(2)
+  await expect(table.locator('tbody tr.line-total-row', { hasText: '全渠道产品' })).toHaveCount(0)
 })
 
 test('业务线和项目筛选联动合计与概览', async ({ page }) => {
