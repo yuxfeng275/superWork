@@ -302,31 +302,33 @@ test('业务线和项目筛选联动合计与概览', async ({ page }) => {
   const table = page.locator('.matrix-table')
   await expect(table).toContainText('皇家项目')
 
+  // 筛选条在概览卡上方
+  const filterRow = page.locator('.filter-row')
+  await expect(filterRow).toBeVisible()
+  const filterBox = await filterRow.boundingBox()
+  const overviewBox = await page.locator('.overview-strip').boundingBox()
+  expect(filterBox!.y).toBeLessThan(overviewBox!.y)
+
   // 无筛选时：合计行显示全量
   await expect(table.locator('.grand-total-row')).toContainText('20.96')
 
-  // 按项目筛选：只显示皇家项目行，合计随之为皇家的数字（12.8 万 / 5.8 人月）
-  await page.locator('.el-loading-mask').waitFor({ state: 'hidden' })
-  const projectSelect = page.locator('.matrix-toolbar .el-select', {
-    has: page.getByRole('combobox', { name: '项目筛选' })
-  })
-  await projectSelect.locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: /皇家项目/ }).click()
+  // pill 筛选项目：只显示皇家项目行，合计随之为皇家的数字（12.8 万 / 5.8 人月）
+  await page.locator('.filter-pills[aria-label="项目筛选"] .filter-pill', { hasText: '皇家项目' }).click()
   await expect(table).toContainText('皇家项目')
   await expect(table).not.toContainText('商机集合')
   await expect(table).not.toContainText('全渠道产品')
   await expect(table.locator('.grand-total-row')).toContainText('12.8')
   await expect(page.locator('.overview-strip')).toContainText('5.8')
 
-  // 再按业务线筛选会员通：项目选项随之收窄（只剩会员通线下项目，夹具中无 → 无匹配行）
-  await page.locator('.matrix-toolbar .el-select', {
-    has: page.getByRole('combobox', { name: '业务线筛选' })
-  }).locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: '会员通' }).click()
-  // 项目筛选被清空 → 显示会员通全部行
+  // pill 筛选业务线会员通：项目筛选被重置，显示会员通全部行
+  await page.locator('.filter-pills[aria-label="业务线筛选"] .filter-pill', { hasText: '会员通' }).click()
   await expect(table).toContainText('会员通')
   await expect(table).not.toContainText('皇家项目')
   await expect(table.locator('.grand-total-row')).toContainText('4.84')
+
+  // 重置恢复全量
+  await page.locator('.filter-pill.reset').click()
+  await expect(table.locator('.grand-total-row')).toContainText('20.96')
 })
 
 test('点击未完结月表头可标记完结', async ({ page }) => {

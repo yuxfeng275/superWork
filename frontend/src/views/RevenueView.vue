@@ -54,16 +54,22 @@ const formatWan = (value?: number | null) => {
   return (Math.round(num * 100) / 100).toLocaleString('zh-CN')
 }
 
-const filterLineIds = ref<number[]>([])
-const filterProjectIds = ref<number[]>([])
+// 业务线/项目筛选：参照需求管理的 pill 风格，单选切换；null=全部
+const filterLineId = ref<number | null>(null)
+const filterProjectId = ref<number | null>(null)
+
+const selectLineFilter = (id: number | null) => {
+  filterLineId.value = id
+  filterProjectId.value = null
+}
 
 const projectFilterOptions = computed(() => {
   if (!matrix.value) return []
   return matrix.value.lines
-    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
-    .flatMap(line => line.sections.flatMap(s => s.rows).map(row => ({ row, lineName: line.businessLineName })))
-    .filter(item => item.row.kind === 'project' && item.row.projectId != null)
-    .map(item => ({ id: item.row.projectId as number, label: `${item.lineName} / ${item.row.name}` }))
+    .filter(line => filterLineId.value == null || line.businessLineId === filterLineId.value)
+    .flatMap(line => line.sections.flatMap(s => s.rows))
+    .filter(row => row.kind === 'project' && row.projectId != null)
+    .map(row => ({ id: row.projectId as number, name: row.name }))
 })
 
 const sumCells = (rows: RevenueRow[]) => {
@@ -84,15 +90,15 @@ const sumCells = (rows: RevenueRow[]) => {
 
 const filteredLines = computed(() => {
   if (!matrix.value) return []
-  const projectFilterActive = filterProjectIds.value.length > 0
+  const projectFilterActive = filterProjectId.value != null
   return matrix.value.lines
-    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
+    .filter(line => filterLineId.value == null || line.businessLineId === filterLineId.value)
     .map(line => {
       const sections = line.sections.map(section => ({
         ...section,
         rows: section.rows.filter(row => {
           if (!projectFilterActive) return true
-          return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
+          return row.kind === 'project' && row.projectId === filterProjectId.value
         })
       })).filter(section => section.rows.length > 0)
       const visibleRows = sections.flatMap(s => s.rows)
@@ -584,6 +590,30 @@ onMounted(loadMatrix)
     <el-tabs v-model="activeTab" class="revenue-tabs" @tab-change="handleTabChange">
       <el-tab-pane label="工时 & 成本" name="matrix">
         <template v-if="matrix">
+          <div class="filter-row" aria-label="营收筛选">
+            <div class="filter-pills" aria-label="业务线筛选">
+              <button class="filter-pill" :class="{ active: filterLineId == null }" @click="selectLineFilter(null)">全部业务线</button>
+              <button
+                v-for="line in matrix.lines"
+                :key="line.businessLineId"
+                class="filter-pill"
+                :class="{ active: filterLineId === line.businessLineId }"
+                @click="selectLineFilter(line.businessLineId)"
+              >{{ line.businessLineName }}</button>
+            </div>
+            <div class="filter-pills" aria-label="项目筛选">
+              <button class="filter-pill" :class="{ active: filterProjectId == null }" @click="filterProjectId = null">全部项目</button>
+              <button
+                v-for="p in projectFilterOptions"
+                :key="p.id"
+                class="filter-pill"
+                :class="{ active: filterProjectId === p.id }"
+                @click="filterProjectId = p.id"
+              >{{ p.name }}</button>
+              <button v-if="filterLineId != null || filterProjectId != null" class="filter-pill reset" @click="selectLineFilter(null); filterProjectId = null">重置</button>
+            </div>
+          </div>
+
           <section class="overview-strip" aria-label="年度概览">
             <div class="overview-cell"><span>年度总工时</span><strong>{{ formatHours(filteredOverview.totalHours) }}</strong><small>人月</small></div>
             <div class="overview-cell"><span>项目工时</span><strong>{{ formatHours(filteredOverview.projectHours) }}</strong><small>人月</small></div>
@@ -594,31 +624,6 @@ onMounted(loadMatrix)
           </section>
 
           <div class="matrix-toolbar">
-            <el-select
-              v-model="filterLineIds"
-              multiple
-              clearable
-              collapse-tags
-              :max-collapse-tags="2"
-              placeholder="业务线（默认全部）"
-              aria-label="业务线筛选"
-              style="width: 220px"
-              @change="filterProjectIds = []"
-            >
-              <el-option v-for="line in matrix.lines" :key="line.businessLineId" :label="line.businessLineName" :value="line.businessLineId" />
-            </el-select>
-            <el-select
-              v-model="filterProjectIds"
-              multiple
-              clearable
-              collapse-tags
-              :max-collapse-tags="2"
-              placeholder="项目（默认全部，选中后只显示所选项目）"
-              aria-label="项目筛选"
-              style="width: 260px"
-            >
-              <el-option v-for="p in projectFilterOptions" :key="p.id" :label="p.label" :value="p.id" />
-            </el-select>
             <el-radio-group v-model="displayMode" aria-label="展示内容">
               <el-radio-button value="merge">工时 + 成本</el-radio-button>
               <el-radio-button value="hours">仅工时</el-radio-button>
@@ -1043,6 +1048,48 @@ onMounted(loadMatrix)
 .head-actions {
   display: flex;
   gap: 8px;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.filter-pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-pill {
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  border: 1px solid var(--gray-300, #d4d9e3);
+  background: #fff;
+  color: var(--gray-600, #4d5a70);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.filter-pill:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+
+.filter-pill.active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: #fff;
+}
+
+.filter-pill.reset {
+  border-style: dashed;
+  color: var(--gray-500, #8a94a6);
 }
 
 .overview-strip {
