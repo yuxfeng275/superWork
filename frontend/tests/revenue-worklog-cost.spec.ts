@@ -192,13 +192,35 @@ test('切换仅工时后单元格不再显示成本', async ({ page }) => {
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await expect(royalRow.locator('td.actual').first()).toContainText('9.8')
 
-  await page.locator('.el-radio-button', { hasText: '仅工时' }).click()
+  await page.locator('.segment-switch[aria-label="展示内容"] button', { hasText: '仅工时' }).click()
   await expect(royalRow.locator('td.actual').first()).not.toContainText('9.8')
   await expect(royalRow.locator('td.actual').first()).toContainText('4.3')
 
-  await page.locator('.el-radio-button', { hasText: '仅成本' }).click()
+  await page.locator('.segment-switch[aria-label="展示内容"] button', { hasText: '仅成本' }).click()
   await expect(royalRow.locator('td.actual').first()).toContainText('9.8')
   await expect(royalRow.locator('td.actual').first()).not.toContainText('4.3')
+})
+
+test('只看实际口径隐藏预估且合计同步剔除', async ({ page }) => {
+  await page.goto('/revenue')
+  const table = page.locator('.matrix-table')
+  const royalRow = table.locator('tr', { hasText: '皇家项目' })
+
+  // 含预估：9 月预估格可见，皇家合计含预估 5.8 人月，总成本含预估 3 万
+  await expect(royalRow.locator('td.estimate').first()).toContainText('预')
+  await expect(royalRow.locator('td.col-total')).toContainText('5.8')
+  await expect(table.locator('.grand-total-row')).toContainText('20.96')
+
+  await page.locator('.segment-switch[aria-label="数据口径"] button', { hasText: '只看实际' }).click()
+  await expect(royalRow.locator('td.estimate')).toHaveCount(0)
+  await expect(royalRow.locator('td.col-total')).toContainText('4.3')
+  await expect(royalRow.locator('td.col-total')).not.toContainText('5.8')
+  await expect(table.locator('.grand-total-row')).toContainText('17.96')
+  await expect(table.locator('.grand-total-row')).not.toContainText('20.96')
+  await expect(page.locator('.overview-strip')).toContainText('8')   // 总工时 9.5 减预估 1.5
+
+  await page.locator('.segment-switch[aria-label="数据口径"] button', { hasText: '含预估' }).click()
+  await expect(royalRow.locator('td.estimate').first()).toContainText('预')
 })
 
 test('完结月单元格下钻展示工时与成本明细及预估偏差', async ({ page }) => {

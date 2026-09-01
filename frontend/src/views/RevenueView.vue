@@ -35,6 +35,8 @@ const year = ref(currentYear)
 const loading = ref(false)
 const matrix = ref<RevenueMatrix | null>(null)
 const displayMode = ref<'merge' | 'hours' | 'cost'>('merge')
+// 数据口径：true=含预估，false=只看实际
+const showEstimates = ref(true)
 const activeTab = ref('matrix')
 
 const errorMessage = (error: unknown, fallback: string) =>
@@ -83,18 +85,41 @@ const projectFilterOptions = computed(() => {
 
 const sumCells = (rows: RevenueRow[]) => {
   const months = Array.from({ length: 12 }, () => ({ hours: 0, cost: 0, source: null as RevenueCell['source'] }))
-  const totals = { hours: 0, cost: 0, source: null as RevenueCell['source'] }
   rows.forEach(row => {
     row.months.forEach((cell, i) => {
       months[i].hours += Number(cell.hours || 0)
       months[i].cost += Number(cell.cost || 0)
       if (cell.source) months[i].source = months[i].source && months[i].source !== cell.source ? 'mixed' : cell.source
     })
-    totals.hours += Number(row.totals?.hours || 0)
-    totals.cost += Number(row.totals?.cost || 0)
-    if (row.totals?.source) totals.source = totals.source && totals.source !== row.totals.source ? 'mixed' : row.totals.source
   })
+  const totals = months.reduce((acc, cell) => ({
+    hours: acc.hours + cell.hours,
+    cost: acc.cost + cell.cost,
+    source: cell.source == null ? acc.source
+      : acc.source == null ? cell.source
+      : acc.source === cell.source ? acc.source : 'mixed'
+  }), { hours: 0, cost: 0, source: null as RevenueCell['source'] })
   return { months, totals }
+}
+
+// 「只看实际」口径：预估格按空值参与汇总
+const visibleMonths = (row: RevenueRow) => showEstimates.value
+  ? row.months
+  : row.months.map(cell => cell.source === 'estimate'
+      ? { hours: 0, cost: 0, source: null as RevenueCell['source'] }
+      : cell)
+
+const rowWithVisibleMonths = (row: RevenueRow): RevenueRow => {
+  const months = visibleMonths(row)
+  if (showEstimates.value) return row
+  const totals = months.reduce((acc, cell) => ({
+    hours: acc.hours + cell.hours,
+    cost: acc.cost + cell.cost,
+    source: cell.source == null ? acc.source
+      : acc.source == null ? cell.source
+      : acc.source === cell.source ? acc.source : 'mixed'
+  }), { hours: 0, cost: 0, source: null as RevenueCell['source'] })
+  return { ...row, months, totals }
 }
 
 const filteredLines = computed(() => {
@@ -105,10 +130,12 @@ const filteredLines = computed(() => {
     .map(line => {
       const sections = line.sections.map(section => ({
         ...section,
-        rows: section.rows.filter(row => {
-          if (!projectFilterActive) return true
-          return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
-        })
+        rows: section.rows
+          .filter(row => {
+            if (!projectFilterActive) return true
+            return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
+          })
+          .map(rowWithVisibleMonths)
       })).filter(section => section.rows.length > 0)
       const visibleRows = sections.flatMap(s => s.rows)
       const { months, totals } = sumCells(visibleRows)
@@ -684,11 +711,17 @@ onMounted(loadMatrix)
               >{{ p.name }}</button>
               <button v-if="filterLineIds.length || filterProjectIds.length" class="filter-pill reset" @click="resetFilters">重置</button>
             </div>
-            <el-radio-group v-model="displayMode" class="display-mode-switch" aria-label="展示内容">
-              <el-radio-button value="merge">工时 + 成本</el-radio-button>
-              <el-radio-button value="hours">仅工时</el-radio-button>
-              <el-radio-button value="cost">仅成本</el-radio-button>
-            </el-radio-group>
+            <div class="switch-group">
+              <div class="segment-switch" aria-label="数据口径">
+                <button :class="{ active: showEstimates }" @click="showEstimates = true">含预估</button>
+                <button :class="{ active: !showEstimates }" @click="showEstimates = false">只看实际</button>
+              </div>
+              <div class="segment-switch" aria-label="展示内容">
+                <button :class="{ active: displayMode === 'merge' }" @click="displayMode = 'merge'">工时 + 成本</button>
+                <button :class="{ active: displayMode === 'hours' }" @click="displayMode = 'hours'">仅工时</button>
+                <button :class="{ active: displayMode === 'cost' }" @click="displayMode = 'cost'">仅成本</button>
+              </div>
+            </div>
           </div>
 
           <section class="overview-strip" aria-label="年度概览">
@@ -1233,9 +1266,44 @@ onMounted(loadMatrix)
   margin-bottom: 10px;
 }
 
-.display-mode-switch {
+.switch-group {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
+}
+
+.segment-switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  gap: 2px;
+}
+
+.segment-switch button {
+  border: 0;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.segment-switch button:hover {
+  color: var(--el-color-primary);
+}
+
+.segment-switch button.active {
+  background: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 16%);
 }
 
 .matrix-legend {
