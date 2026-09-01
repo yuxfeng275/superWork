@@ -569,7 +569,10 @@ const handleTaskStatusChange = (task: TaskOverviewItem, event: Event) => {
   void changeTaskStatus(task, value)
 }
 
+const activeMainTab = ref<'detail' | 'analysis'>('detail')
+
 const handleAnalysisSelect = (section: string, item: WorkItemDistributionItem) => {
+  activeMainTab.value = 'detail'
   if (section === 'status') selectedStatus.value = item.key
   if (section === 'project' && /^\d+$/.test(item.key)) {
     activeView.value = 'project'
@@ -805,7 +808,13 @@ onMounted(async () => {
       </div>
     </div>
 
+    <div class="view-toggle main-tab-toggle" role="tablist" aria-label="任务页面视图">
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'detail'" :class="{ active: activeMainTab === 'detail' }" @click="activeMainTab = 'detail'">任务明细</button>
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'analysis'" :class="{ active: activeMainTab === 'analysis' }" @click="activeMainTab = 'analysis'">执行分析</button>
+    </div>
+
     <WorkItemAnalysisPanel
+      v-if="activeMainTab === 'analysis'"
       title="任务执行分析"
       subtitle="查看任务状态、资源分布与工时执行偏差"
       :analysis="analysis"
@@ -819,6 +828,7 @@ onMounted(async () => {
       </div>
     </WorkItemAnalysisPanel>
 
+    <template v-if="activeMainTab === 'detail'">
     <section class="task-detail-heading"><div><h2>任务明细</h2><p>按项目或人员下钻查看具体任务</p></div></section>
 
     <div class="filter-section">
@@ -977,6 +987,8 @@ onMounted(async () => {
         </div>
       </section>
     </div>
+
+    </template>
 
     <el-drawer
       v-model="taskDetailVisible"
@@ -1204,6 +1216,41 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.main-tab-toggle {
+  margin-bottom: 14px;
+  width: fit-content;
+}
+
+.view-toggle {
+  display: flex;
+  background: var(--gray-100);
+  border-radius: var(--radius-md, 8px);
+  padding: 3px;
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-btn:hover {
+  color: var(--gray-800);
+}
+
+.view-btn.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgb(0 0 0 / 8%));
+}
 .tasks-page {
   display: flex;
   flex-direction: column;

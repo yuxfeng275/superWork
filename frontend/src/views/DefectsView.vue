@@ -122,7 +122,10 @@ const selectStatus = (status: NormalizedWorkItemStatus | '') => {
   search()
 }
 
+const activeMainTab = ref<'detail' | 'analysis'>('detail')
+
 const handleAnalysisSelect = (section: string, item: WorkItemDistributionItem) => {
+  activeMainTab.value = 'detail'
   if (section === 'status') filters.normalizedStatus = item.key as NormalizedWorkItemStatus
   if (section === 'project' && /^\d+$/.test(item.key)) filters.projectId = Number(item.key)
   if (section === 'owner') {
@@ -166,6 +169,12 @@ onMounted(loadDefects)
       <el-tag type="warning" effect="plain">云效只读</el-tag>
     </header>
 
+    <div class="view-toggle main-tab-toggle" role="tablist" aria-label="缺陷页面视图">
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'detail'" :class="{ active: activeMainTab === 'detail' }" @click="activeMainTab = 'detail'">缺陷明细</button>
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'analysis'" :class="{ active: activeMainTab === 'analysis' }" @click="activeMainTab = 'analysis'">结构分析</button>
+    </div>
+
+    <template v-if="activeMainTab === 'detail'">
     <section class="summary-band" aria-label="缺陷状态汇总">
       <button type="button" :class="{ active: !filters.normalizedStatus }" @click="selectStatus('')">
         <span>全部缺陷</span><strong>{{ summary.totalCount }}</strong>
@@ -181,7 +190,10 @@ onMounted(loadDefects)
       </button>
     </section>
 
+    </template>
+
     <WorkItemAnalysisPanel
+      v-if="activeMainTab === 'analysis'"
       title="缺陷结构分析"
       subtitle="聚焦未关闭缺陷、项目集中度与责任人分布"
       :analysis="analysis"
@@ -189,6 +201,7 @@ onMounted(loadDefects)
       @select="handleAnalysisSelect"
     />
 
+    <template v-if="activeMainTab === 'detail'">
     <section class="detail-section-heading">
       <div><h2>缺陷明细</h2><p>通过分析区或筛选器定位具体缺陷</p></div>
     </section>
@@ -260,6 +273,7 @@ onMounted(loadDefects)
         @current-change="handlePageChange"
       />
     </footer>
+    </template>
 
     <el-drawer v-model="detailVisible" size="480px" destroy-on-close>
       <template #header>
@@ -291,6 +305,41 @@ onMounted(loadDefects)
 </template>
 
 <style scoped>
+.main-tab-toggle {
+  margin-bottom: 14px;
+  width: fit-content;
+}
+
+.view-toggle {
+  display: flex;
+  background: var(--gray-100);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-btn:hover {
+  color: var(--gray-800);
+}
+
+.view-btn.active {
+  background: white;
+  color: var(--el-color-primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}
 .defects-page { padding: 24px; min-width: 0; color: #252a31; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-header h1 { margin: 0; font-size: 24px; letter-spacing: 0; }

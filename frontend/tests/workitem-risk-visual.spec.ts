@@ -64,6 +64,7 @@ test.beforeEach(async ({ page }) => {
 test('风险看板桌面布局截图', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/tasks')
+  await page.getByRole('tab', { name: '执行分析' }).click()
   await expect(page.locator('.risk-dashboard')).toBeVisible()
   await page.screenshot({ path: 'test-results/workitem-risk-desktop.png', fullPage: true })
 })
@@ -71,6 +72,7 @@ test('风险看板桌面布局截图', async ({ page }) => {
 test('风险看板移动布局截图', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/tasks')
+  await page.getByRole('tab', { name: '执行分析' }).click()
   await expect(page.locator('.risk-dashboard')).toBeVisible()
   await page.screenshot({ path: 'test-results/workitem-risk-mobile.png', fullPage: true })
   await page.locator('.risk-dashboard').screenshot({ path: 'test-results/workitem-risk-mobile-panel.png' })

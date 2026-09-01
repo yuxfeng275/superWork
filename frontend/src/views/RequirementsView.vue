@@ -444,7 +444,10 @@ const toggleFilter = (key: 'status' | 'type' | 'priority', value: string) => {
   }
 }
 
+const activeMainTab = ref<'detail' | 'analysis'>('detail')
+
 const handleAnalysisSelect = (section: string, item: WorkItemDistributionItem) => {
+  activeMainTab.value = 'detail'
   if (section === 'status') {
     const matchingStatuses = tableData.value
       .filter(requirement => requirement.normalizedStatus === item.key)
@@ -1015,7 +1018,13 @@ const getStatusBadgeClass = (status: string) => {
       </div>
     </div>
 
+    <div class="view-toggle main-tab-toggle" role="tablist" aria-label="需求页面视图">
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'detail'" :class="{ active: activeMainTab === 'detail' }" @click="activeMainTab = 'detail'">需求明细</button>
+      <button class="view-btn" role="tab" :aria-selected="activeMainTab === 'analysis'" :class="{ active: activeMainTab === 'analysis' }" @click="activeMainTab = 'analysis'">结构分析</button>
+    </div>
+
     <WorkItemAnalysisPanel
+      v-if="activeMainTab === 'analysis'"
       title="需求结构分析"
       subtitle="从状态、项目、来源和优先级识别需求结构与交付压力"
       :analysis="analysis"
@@ -1023,6 +1032,7 @@ const getStatusBadgeClass = (status: string) => {
       @select="handleAnalysisSelect"
     />
 
+    <template v-if="activeMainTab === 'detail'">
     <section class="requirement-detail-heading"><div><h2>需求明细</h2><p>保留完整业务操作，并支持从分析结果快速下钻</p></div></section>
 
     <!-- 项目选择器 -->
@@ -1184,6 +1194,8 @@ const getStatusBadgeClass = (status: string) => {
         </div>
       </div>
     </div>
+
+    </template>
 
     <!-- 新建需求弹窗 -->
     <div class="modal-overlay" v-if="showCreateModal" @click.self="showCreateModal = false">
@@ -1647,6 +1659,11 @@ const getStatusBadgeClass = (status: string) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.main-tab-toggle {
+  margin-bottom: 14px;
+  width: fit-content;
 }
 
 .view-toggle {
