@@ -612,6 +612,11 @@ onMounted(loadMatrix)
               >{{ p.name }}</button>
               <button v-if="filterLineId != null || filterProjectId != null" class="filter-pill reset" @click="selectLineFilter(null); filterProjectId = null">重置</button>
             </div>
+            <el-radio-group v-model="displayMode" class="display-mode-switch" aria-label="展示内容">
+              <el-radio-button value="merge">工时 + 成本</el-radio-button>
+              <el-radio-button value="hours">仅工时</el-radio-button>
+              <el-radio-button value="cost">仅成本</el-radio-button>
+            </el-radio-group>
           </div>
 
           <section class="overview-strip" aria-label="年度概览">
@@ -624,11 +629,6 @@ onMounted(loadMatrix)
           </section>
 
           <div class="matrix-toolbar">
-            <el-radio-group v-model="displayMode" aria-label="展示内容">
-              <el-radio-button value="merge">工时 + 成本</el-radio-button>
-              <el-radio-button value="hours">仅工时</el-radio-button>
-              <el-radio-button value="cost">仅成本</el-radio-button>
-            </el-radio-group>
             <span class="matrix-legend">
               <i class="legend-swatch actual" />实际（已完结）
               <i class="legend-swatch estimate" />预估
@@ -1125,9 +1125,14 @@ onMounted(loadMatrix)
 .matrix-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.display-mode-switch {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .matrix-legend {
