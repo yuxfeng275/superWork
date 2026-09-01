@@ -77,7 +77,8 @@ public class RevenueImportService {
                 entry.setWorkNote(cellText(formatter, row, 6));
                 entry.setSpecialNote(cellText(formatter, row, 7));
 
-                RevenueMappingResolver.Resolved resolved = mappingResolver.resolve(businessLine, projectName);
+                RevenueMappingResolver.Resolved resolved = mappingResolver.resolve(businessLine, projectName,
+                        entry.getWorkNote());
                 entry.setBusinessLineId(resolved.businessLineId());
                 entry.setProjectId(resolved.projectId());
                 entry.setWorkType(resolved.workType());
@@ -135,7 +136,8 @@ public class RevenueImportService {
                 entry.setCostAmount(cost);
                 entry.setPersonMonthCost(parseDecimal(cellText(formatter, row, 7)));
 
-                RevenueMappingResolver.Resolved resolved = mappingResolver.resolve(businessLine, projectName);
+                // 成本文件无工作说明，业务线级【项目】无法推断内容，将进待映射由人工确认
+                RevenueMappingResolver.Resolved resolved = mappingResolver.resolve(businessLine, projectName, null);
                 entry.setBusinessLineId(resolved.businessLineId());
                 entry.setProjectId(resolved.projectId());
                 entry.setWorkType(resolved.workType());

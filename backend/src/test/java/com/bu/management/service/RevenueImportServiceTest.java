@@ -76,7 +76,7 @@ class RevenueImportServiceTest {
                 List.of("01165", "翁擎天", "全域业务拓展部", "全域-全渠道-全域云鹿定制", "澳优项目【交付】", "0.15", "佳贝日常问题", ""),
                 List.of("01333", "熊雪聪", "全域业务拓展部", "全域-全渠道-会员通", "全域-全渠道-会员通【销售】", "0.227", "会员通售前", "")
         ));
-        lenient().when(mappingResolver.resolve(any(), any())).thenAnswer(invocation ->
+        lenient().when(mappingResolver.resolve(any(), any(), any())).thenAnswer(invocation ->
                 new RevenueMappingResolver.Resolved(1L, 13L, null, "project", null, "澳优", false, false));
 
         service.importWorklog(file, "2026-07", 16L);
@@ -97,7 +97,7 @@ class RevenueImportServiceTest {
                 List.of("月份", "业务线名称", "项目名", "员工数", "项目数", "工时", "工时成本", "人月成本"),
                 List.of("2026-07", "全域-全渠道-全域云鹿定制", "澳优项目【交付】", "14", "1", "2.4", "38098", "15987")
         ));
-        lenient().when(mappingResolver.resolve(any(), any())).thenAnswer(invocation ->
+        lenient().when(mappingResolver.resolve(any(), any(), any())).thenAnswer(invocation ->
                 new RevenueMappingResolver.Resolved(1L, 13L, null, "project", null, "澳优", false, false));
 
         service.importCost(file, 16L);

@@ -52,8 +52,19 @@ public class RevenueMappingResolver {
     }
 
     public Resolved resolve(String rawBusinessLine, String rawProjectName) {
+        return resolve(rawBusinessLine, rawProjectName, null);
+    }
+
+    /**
+     * 解析归属。业务线级【项目】（非销售）在 full 模式业务线下不再默认进「其他」：
+     * 先按工作说明推断项目（唯一命中才落，含 佳贝/海普→澳优 归并），推断不出进待映射。
+     * 业务线级行内容各异，不适用映射记忆。
+     */
+    public Resolved resolve(String rawBusinessLine, String rawProjectName, String workNote) {
+        boolean lineLevelRaw = rawProjectName != null && rawBusinessLine != null
+                && rawProjectName.trim().startsWith(rawBusinessLine.trim());
         // 人工映射记忆优先：待映射清单里确认过的归属，后续导入直接套用
-        RevenueNameMapping remembered = rawProjectName == null ? null : nameMappingMapper.selectOne(
+        RevenueNameMapping remembered = rawProjectName == null || lineLevelRaw ? null : nameMappingMapper.selectOne(
                 new LambdaQueryWrapper<RevenueNameMapping>()
                         .eq(RevenueNameMapping::getRawBusinessLine, rawBusinessLine)
                         .eq(RevenueNameMapping::getRawProjectName, rawProjectName));
@@ -74,10 +85,16 @@ public class RevenueMappingResolver {
 
         boolean lineLevel = projectPart.equals(rawBusinessLine == null ? null : rawBusinessLine.trim());
         if (lineLevel) {
-            // 业务线级：【销售】进商机集合，【交付/产研】进项目集
+            // 业务线级：【销售】进商机集合
             if ("销售".equals(tag)) {
                 return new Resolved(businessLineId, null, null, "sales",
                         SalesKind.POOL.name().toLowerCase(), projectPart, true, businessLineId == null);
+            }
+            // 非销售：full 模式线先按工作内容推断项目，唯一命中才落，否则待映射
+            if ("full".equals(lineMode(businessLineId))) {
+                Long inferred = inferProject(businessLineId, workNote);
+                return new Resolved(businessLineId, inferred, null, "project", null,
+                        projectPart, true, inferred == null);
             }
             return new Resolved(businessLineId, null, null, "project", null, projectPart, true, businessLineId == null);
         }
@@ -100,6 +117,70 @@ public class RevenueMappingResolver {
             pending = businessLineId == null || projectId == null;
         }
         return new Resolved(businessLineId, projectId, null, "project", null, token, false, pending);
+    }
+
+    /** 业务线展示模式，默认 full */
+    private String lineMode(Long businessLineId) {
+        if (businessLineId == null) {
+            return "full";
+        }
+        BusinessLine line = businessLineMapper.selectById(businessLineId);
+        return line != null && StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full";
+    }
+
+    /**
+     * 按工作说明推断项目：匹配本业务线内项目名（含归并别名），
+     * 佳贝艾特/海普诺凯 命中视为澳优；唯一命中才返回，否则 null（交人工确认）。
+     */
+    public Long inferProject(Long businessLineId, String workNote) {
+        if (businessLineId == null || !StringUtils.hasText(workNote)) {
+            return null;
+        }
+        List<Project> candidates = projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                .eq(Project::getBusinessLineId, businessLineId));
+        String lowerNote = workNote.toLowerCase(Locale.ROOT);
+        Set<Long> matched = new LinkedHashSet<>();
+        for (Project project : candidates) {
+            List<String> keywords = new ArrayList<>();
+            if (StringUtils.hasText(project.getName())) {
+                keywords.add(project.getName());
+                keywords.add(normalize(project.getName()));
+            }
+            for (String keyword : keywords) {
+                if (StringUtils.hasText(keyword) && lowerNote.contains(keyword.toLowerCase(Locale.ROOT))) {
+                    matched.add(project.getId());
+                    break;
+                }
+            }
+        }
+        // 简写：佳贝→佳贝艾特，海普→海普诺凯
+        matched.addAll(matchShorthand(candidates, lowerNote, "佳贝", "佳贝艾特"));
+        matched.addAll(matchShorthand(candidates, lowerNote, "海普", "海普诺凯"));
+        // 归并：佳贝艾特/海普诺凯 视为澳优
+        Project aoyou = candidates.stream().filter(p -> "澳优".equals(p.getName())).findFirst().orElse(null);
+        if (aoyou != null) {
+            boolean aliasHit = false;
+            for (Project project : candidates) {
+                if (("佳贝艾特".equals(project.getName()) || "海普诺凯".equals(project.getName()))
+                        && matched.remove(project.getId())) {
+                    aliasHit = true;
+                }
+            }
+            if (aliasHit) {
+                matched.add(aoyou.getId());
+            }
+        }
+        return matched.size() == 1 ? matched.iterator().next() : null;
+    }
+
+    private Set<Long> matchShorthand(List<Project> candidates, String lowerNote, String shorthand, String projectName) {
+        if (!lowerNote.contains(shorthand)) {
+            return Set.of();
+        }
+        return candidates.stream()
+                .filter(p -> projectName.equals(p.getName()))
+                .map(Project::getId)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     /** 业务线匹配：会员通/SAAS/定制 关键字 → 系统业务线 */

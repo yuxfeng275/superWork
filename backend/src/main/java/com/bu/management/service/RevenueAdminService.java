@@ -182,6 +182,10 @@ public class RevenueAdminService {
         if (!StringUtils.hasText(rawBusinessLine) || !StringUtils.hasText(rawProjectName)) {
             return;
         }
+        // 业务线级【项目】行内容各异，不记忆（否则后续同类行会被误归到同一项目）
+        if (rawProjectName.trim().startsWith(rawBusinessLine.trim())) {
+            return;
+        }
         RevenueNameMapping mapping = nameMappingMapper.selectOne(new LambdaQueryWrapper<RevenueNameMapping>()
                 .eq(RevenueNameMapping::getRawBusinessLine, rawBusinessLine)
                 .eq(RevenueNameMapping::getRawProjectName, rawProjectName));

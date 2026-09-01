@@ -40,13 +40,22 @@ class RevenueMappingResolverTest {
         BusinessLine custom = line(1L, "全渠道云鹿定制");
         BusinessLine saas = line(2L, "全渠道云鹿SAAS");
         BusinessLine member = line(3L, "会员通");
+        member.setRevenueMode("aggregate");
         lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom, saas, member));
+        lenient().when(businessLineMapper.selectById(any())).thenAnswer(invocation -> {
+            Long id = invocation.getArgument(0);
+            BusinessLine line = line(id, "mock");
+            line.setRevenueMode(id == 3L ? "aggregate" : "full");
+            return line;
+        });
 
         lenient().when(projectMapper.selectList(any())).thenAnswer(invocation -> List.of(
                 project(11L, 1L, "皇家项目"),
                 project(12L, 1L, "Speedo"),
                 project(13L, 1L, "澳优"),
                 project(14L, 1L, "飞鹤"),
+                project(16L, 1L, "佳贝艾特"),
+                project(17L, 1L, "海普诺凯"),
                 project(21L, 2L, "逢时"),
                 project(22L, 2L, "黄天鹅")
         ));
@@ -96,6 +105,34 @@ class RevenueMappingResolverTest {
         assertThat(resolved.lineLevel()).isTrue();
         assertThat(resolved.projectId()).isNull();
         assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void lineLevelProjectInFullModeInfersProjectFromNote() {
+        // 业务线级【项目】+ full 模式：按工作说明唯一命中项目
+        RevenueMappingResolver.Resolved resolved = resolver.resolve(
+                "全域-全渠道-全域云鹿Saas", "全域-全渠道-全域云鹿Saas【项目】", "逢时系统培训与客诉处理");
+        assertThat(resolved.businessLineId()).isEqualTo(2L);
+        assertThat(resolved.projectId()).isEqualTo(21L);
+        assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void lineLevelProjectWithAliasNoteInfersAoyou() {
+        // 佳贝/海普 命中归并到澳优
+        RevenueMappingResolver.Resolved resolved = resolver.resolve(
+                "全域-全渠道-全域云鹿定制", "全域-全渠道-全域云鹿定制【项目】", "佳贝海普维护");
+        assertThat(resolved.projectId()).isEqualTo(13L);
+        assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void lineLevelProjectWithoutClearNoteIsPending() {
+        // 工作内容无法判断归属 → 待映射，不进「其他」
+        RevenueMappingResolver.Resolved resolved = resolver.resolve(
+                "全域-全渠道-全域云鹿定制", "全域-全渠道-全域云鹿定制【项目】", "临时问题支持");
+        assertThat(resolved.projectId()).isNull();
+        assertThat(resolved.pending()).isTrue();
     }
 
     @Test
