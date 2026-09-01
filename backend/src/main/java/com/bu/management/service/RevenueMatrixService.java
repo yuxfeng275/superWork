@@ -190,6 +190,8 @@ public class RevenueMatrixService {
         BigDecimal[] grand = {BigDecimal.ZERO, BigDecimal.ZERO};
         BigDecimal[] overviewProject = {BigDecimal.ZERO};
         BigDecimal[] overviewSales = {BigDecimal.ZERO};
+        // 综合单价除数只计成本可见业务线的工时（全渠道产品等公共投入线不计）
+        BigDecimal[] overviewCostHours = {BigDecimal.ZERO};
 
         for (BusinessLine line : lines) {
             Map<String, RevenueMatrixVO.Row> rows = rowsByLine.get(line.getId());
@@ -262,6 +264,9 @@ public class RevenueMatrixService {
             matrix.getLines().add(block);
             grand[0] = grand[0].add(lineTotal[0]);
             grand[1] = grand[1].add(lineTotal[1]);
+            if (costVisibleByLine.getOrDefault(line.getId(), true)) {
+                overviewCostHours[0] = overviewCostHours[0].add(lineTotal[0]);
+            }
         }
 
         matrix.setMonthTotals(grandMonths);
@@ -271,8 +276,8 @@ public class RevenueMatrixService {
         overview.setProjectHours(overviewProject[0]);
         overview.setSalesHours(overviewSales[0]);
         overview.setTotalCost(grand[1]);
-        overview.setAvgUnitPrice(grand[0].compareTo(BigDecimal.ZERO) > 0
-                ? grand[1].divide(grand[0], 2, RoundingMode.HALF_UP) : null);
+        overview.setAvgUnitPrice(overviewCostHours[0].compareTo(BigDecimal.ZERO) > 0
+                ? grand[1].divide(overviewCostHours[0], 2, RoundingMode.HALF_UP) : null);
         overview.setClosedMonthCount((int) monthKeys.stream().filter(closed::contains).count());
         matrix.setOverview(overview);
         return matrix;

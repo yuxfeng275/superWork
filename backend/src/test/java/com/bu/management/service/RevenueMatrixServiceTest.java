@@ -239,6 +239,23 @@ class RevenueMatrixServiceTest {
     }
 
     @Test
+    void avgUnitPriceExcludesCostInvisibleLineHours() {
+        // 综合单价 = 总成本 ÷ 成本可见线工时；全渠道产品(costVisible=0)的工时不计入除数
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of(
+                worklog("2026-07", 1L, 11L, "4.0"),
+                worklog("2026-07", 5L, null, "10.0")   // 成本不可见线 10 人月
+        ));
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-07", 1L, 11L, "4.0", "80000")
+        ));
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.Overview overview = service.getMatrix(2026).getOverview();
+        assertThat(overview.getTotalHours()).isEqualByComparingTo("14.0");   // 总工时仍含产品线
+        assertThat(overview.getAvgUnitPrice()).isEqualByComparingTo("20000.00"); // 80000 ÷ 4，而非 ÷14
+    }
+
+    @Test
     void simpleLineWithVisibleCostShowsCost() {
         // 全域精准同为单行模式但成本可见：工时与成本都展示
         lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of());

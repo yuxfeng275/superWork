@@ -231,21 +231,29 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
 
   await drawer.getByRole('button', { name: '新增预估' }).click()
   const dialog = page.getByRole('dialog', { name: '新增预估' })
-  await dialog.getByPlaceholder('例如：黄天鹅物码项目 1 人月').fill('皇家二期联调支持')
-  // 多月一次性预估：默认 9 月，加选 10 月
-  await dialog.getByLabel('预估月份').getByText('10月').click()
+  // 按月批量：9 月默认 1 人月；10 月填 2 人月并单独写事项
+  const grid = dialog.getByLabel('按月批量预估')
+  await grid.getByLabel('2026-10人月').fill('2')
+  await grid.getByLabel('2026-10事项说明').fill('10月定制支持')
+  await dialog.getByPlaceholder('例如：黄天鹅物码项目支持').fill('皇家二期联调支持')
 
-  const postedMonths: string[] = []
+  const posted: { yearMonth: string; personMonths: number; description: string }[] = []
   await page.route('**/api/revenue/estimates', route => {
     if (route.request().method() === 'POST') {
-      postedMonths.push(route.request().postDataJSON().yearMonth)
+      posted.push(route.request().postDataJSON())
       return fulfill(route, { id: 52 })
     }
     return fulfill(route, [])
   })
   await dialog.getByRole('button', { name: '保存' }).click()
   await expect(page.locator('.el-message')).toContainText('已为 2 个月份创建预估')
-  expect(postedMonths.sort()).toEqual(['2026-09', '2026-10'])
+  expect(posted).toHaveLength(2)
+  expect(posted.map(item => item.yearMonth).sort()).toEqual(['2026-09', '2026-10'])
+  const october = posted.find(item => item.yearMonth === '2026-10')
+  expect(october?.personMonths).toBe(2)
+  expect(october?.description).toBe('10月定制支持')
+  const september = posted.find(item => item.yearMonth === '2026-09')
+  expect(september?.description).toBe('皇家二期联调支持')
 })
 
 test('会员通聚合为项目销售两行且简单业务线单行不可下钻', async ({ page }) => {

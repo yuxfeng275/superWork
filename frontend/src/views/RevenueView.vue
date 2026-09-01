@@ -266,6 +266,9 @@ const estimateForm = reactive({
   months: [] as string[]
 })
 
+// 批量预估：按月独立的事项与人月（只创建人月 > 0 的月份）
+const estimateBatchRows = ref<{ yearMonth: string; hours: number; description: string }[]>([])
+
 // 可预估月份：当年未完结月
 const estimableMonths = computed(() =>
   (matrix.value?.months || []).filter(month => !month.closed).map(month => month.yearMonth))
@@ -310,6 +313,11 @@ const openEstimateDialog = (entry?: RevenueEstimateEntry) => {
   estimateForm.description = entry?.description || ''
   estimateForm.personMonths = entry ? Number(entry.personMonths) : 1
   estimateForm.months = [cellContext.yearMonth]
+  estimateBatchRows.value = estimableMonths.value.map(yearMonth => ({
+    yearMonth,
+    hours: yearMonth === cellContext.yearMonth ? 1 : 0,
+    description: ''
+  }))
   estimateDialog.value = true
 }
 
@@ -338,9 +346,16 @@ const estimatePayload = () => {
 }
 
 const saveEstimate = async () => {
-  if (!estimateForm.description.trim() || estimateForm.personMonths <= 0) {
+  if (estimateForm.id && (!estimateForm.description.trim() || estimateForm.personMonths <= 0)) {
     ElMessage.warning('请填写预估说明和大于 0 的人月')
     return
+  }
+  if (!estimateForm.id) {
+    const incomplete = estimateBatchRows.value.some(row => row.hours > 0 && !(row.description || estimateForm.description).trim())
+    if (incomplete) {
+      ElMessage.warning('有人月的月份需要填写说明（或在默认说明中统一填写）')
+      return
+    }
   }
   estimateSaving.value = true
   try {
@@ -348,12 +363,22 @@ const saveEstimate = async () => {
       await api.updateRevenueEstimate(estimateForm.id, estimatePayload())
       ElMessage.success('预估已更新')
     } else {
-      const months = estimateForm.months.length ? estimateForm.months : [cellContext.yearMonth]
-      const base = estimatePayload()
-      for (const yearMonth of months) {
-        await api.createRevenueEstimate({ ...base, yearMonth })
+      const rows = estimateBatchRows.value.filter(row => row.hours > 0)
+      if (!rows.length) {
+        ElMessage.warning('请至少为一个月填写大于 0 的人月')
+        estimateSaving.value = false
+        return
       }
-      ElMessage.success(months.length > 1 ? `已为 ${months.length} 个月份创建预估` : '预估已添加')
+      const base = estimatePayload()
+      for (const row of rows) {
+        await api.createRevenueEstimate({
+          ...base,
+          yearMonth: row.yearMonth,
+          personMonths: row.hours,
+          description: (row.description || estimateForm.description).trim()
+        })
+      }
+      ElMessage.success(rows.length > 1 ? `已为 ${rows.length} 个月份创建预估` : '预估已添加')
     }
     estimateDialog.value = false
     await loadMatrix()
@@ -1061,17 +1086,21 @@ onMounted(loadMatrix)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="estimateDialog" :title="estimateForm.id ? '编辑预估' : '新增预估'" width="min(480px, 94vw)">
+    <el-dialog v-model="estimateDialog" :title="estimateForm.id ? '编辑预估' : '新增预估'" :width="estimateForm.id ? 'min(480px, 94vw)' : 'min(680px, 94vw)'">
       <el-form label-position="top">
-        <el-form-item label="说明">
-          <el-input v-model="estimateForm.description" maxlength="200" show-word-limit placeholder="例如：黄天鹅物码项目 1 人月" />
+        <el-form-item :label="estimateForm.id ? '说明' : '默认说明（各月可单独覆盖）'">
+          <el-input v-model="estimateForm.description" maxlength="200" show-word-limit placeholder="例如：黄天鹅物码项目支持" />
         </el-form-item>
-        <el-form-item v-if="!estimateForm.id" label="预估月份（可多选）">
-          <el-checkbox-group v-model="estimateForm.months" aria-label="预估月份">
-            <el-checkbox v-for="month in estimableMonths" :key="month" :value="month">{{ month.slice(5) }}月</el-checkbox>
-          </el-checkbox-group>
+        <el-form-item v-if="!estimateForm.id" label="按月预估（人月 > 0 的月份才会创建）">
+          <div class="estimate-batch-grid" aria-label="按月批量预估">
+            <div v-for="row in estimateBatchRows" :key="row.yearMonth" class="estimate-batch-row">
+              <span class="batch-month">{{ row.yearMonth.slice(5) }}月</span>
+              <el-input-number v-model="row.hours" :min="0" :max="100" :step="0.1" :precision="2" size="small" :aria-label="`${row.yearMonth}人月`" />
+              <el-input v-model="row.description" size="small" maxlength="200" placeholder="事项说明（留空用默认说明）" :aria-label="`${row.yearMonth}事项说明`" />
+            </div>
+          </div>
         </el-form-item>
-        <el-form-item label="人月（每个月）">
+        <el-form-item v-else label="人月">
           <el-input-number v-model="estimateForm.personMonths" :min="0.1" :max="100" :step="0.1" :precision="2" />
         </el-form-item>
         <el-form-item label="预估金额">
@@ -1344,6 +1373,27 @@ onMounted(loadMatrix)
 }
 
 .estimate-head h4 { margin: 0; }
+
+.estimate-batch-grid {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.estimate-batch-row {
+  display: grid;
+  grid-template-columns: 56px 150px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-month {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 650;
+}
 
 .deviation-block {
   padding: 12px 14px;
