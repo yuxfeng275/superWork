@@ -254,10 +254,30 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
 
   await drawer.getByRole('button', { name: '新增预估' }).click()
   const dialog = page.getByRole('dialog', { name: '新增预估' })
-  // 按月批量：9 月默认 1 人月；10 月填 2 人月并单独写事项
   const grid = dialog.getByLabel('按月批量预估')
-  await grid.getByLabel('2026-10人月').fill('2')
-  await grid.getByLabel('2026-10事项说明').fill('10月定制支持')
+
+  // 第一行：8 月 sol 2 人月；加一行：同月 pro 1 人月；再加一行：10 月默认说明 3 人月
+  const batchRow = (index: number) => grid.locator('.estimate-batch-row').nth(index)
+  const setHours = async (index: number, value: string) => {
+    const input = batchRow(index).locator('.el-input-number input')
+    await input.click()
+    await input.press('Meta+A')
+    await input.pressSequentially(value)
+    await input.press('Tab')
+  }
+  await batchRow(0).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '08月' }).last().click()
+  await batchRow(0).getByLabel('第1行事项').fill('sol预估')
+  await setHours(0, '2')
+  await dialog.getByRole('button', { name: '+ 添加一条' }).click()
+  await batchRow(1).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '08月' }).last().click()
+  await batchRow(1).getByLabel('第2行事项').fill('pro预估')
+  await setHours(1, '1')
+  await dialog.getByRole('button', { name: '+ 添加一条' }).click()
+  await batchRow(2).locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '10月' }).last().click()
+  await setHours(2, '3')
   await dialog.getByPlaceholder('例如：黄天鹅物码项目支持').fill('皇家二期联调支持')
 
   const posted: { yearMonth: string; personMonths: number; description: string }[] = []
@@ -269,14 +289,17 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
     return fulfill(route, [])
   })
   await dialog.getByRole('button', { name: '保存' }).click()
-  await expect(page.locator('.el-message')).toContainText('已为 2 个月份创建预估')
-  expect(posted).toHaveLength(2)
-  expect(posted.map(item => item.yearMonth).sort()).toEqual(['2026-09', '2026-10'])
+  await expect(page.locator('.el-message')).toContainText('已为 3 个月份创建预估')
+  expect(posted).toHaveLength(3)
+  // 同月多条：8 月 sol 2 人月 + pro 1 人月
+  const august = posted.filter(item => item.yearMonth === '2026-08')
+  expect(august).toHaveLength(2)
+  expect(august.find(item => item.description === 'sol预估')?.personMonths).toBe(2)
+  expect(august.find(item => item.description === 'pro预估')?.personMonths).toBe(1)
+  // 留空说明的行回落到默认说明
   const october = posted.find(item => item.yearMonth === '2026-10')
-  expect(october?.personMonths).toBe(2)
-  expect(october?.description).toBe('10月定制支持')
-  const september = posted.find(item => item.yearMonth === '2026-09')
-  expect(september?.description).toBe('皇家二期联调支持')
+  expect(october?.personMonths).toBe(3)
+  expect(october?.description).toBe('皇家二期联调支持')
 })
 
 test('会员通聚合为项目销售两行且简单业务线单行不可下钻', async ({ page }) => {

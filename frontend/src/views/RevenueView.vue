@@ -341,12 +341,18 @@ const openEstimateDialog = (entry?: RevenueEstimateEntry) => {
   estimateForm.description = entry?.description || ''
   estimateForm.personMonths = entry ? Number(entry.personMonths) : 1
   estimateForm.months = [cellContext.yearMonth]
-  estimateBatchRows.value = estimableMonths.value.map(yearMonth => ({
-    yearMonth,
-    hours: yearMonth === cellContext.yearMonth ? 1 : 0,
-    description: ''
-  }))
+  estimateBatchRows.value = [{ yearMonth: cellContext.yearMonth, hours: 1, description: '' }]
   estimateDialog.value = true
+}
+
+const addBatchRow = () => {
+  estimateBatchRows.value.push({ yearMonth: cellContext.yearMonth, hours: 0, description: '' })
+}
+
+const removeBatchRow = (index: number) => {
+  if (estimateBatchRows.value.length > 1) {
+    estimateBatchRows.value.splice(index, 1)
+  }
 }
 
 const estimatePayload = () => {
@@ -1126,13 +1132,17 @@ onMounted(loadMatrix)
         <el-form-item :label="estimateForm.id ? '说明' : '默认说明（各月可单独覆盖）'">
           <el-input v-model="estimateForm.description" maxlength="200" show-word-limit placeholder="例如：黄天鹅物码项目支持" />
         </el-form-item>
-        <el-form-item v-if="!estimateForm.id" label="按月预估（人月 > 0 的月份才会创建）">
+        <el-form-item v-if="!estimateForm.id" label="批量预估（可同月多条，人月 > 0 才会创建）">
           <div class="estimate-batch-grid" aria-label="按月批量预估">
-            <div v-for="row in estimateBatchRows" :key="row.yearMonth" class="estimate-batch-row">
-              <span class="batch-month">{{ row.yearMonth.slice(5) }}月</span>
-              <el-input-number v-model="row.hours" :min="0" :max="100" :step="0.1" :precision="2" size="small" :aria-label="`${row.yearMonth}人月`" />
-              <el-input v-model="row.description" size="small" maxlength="200" placeholder="事项说明（留空用默认说明）" :aria-label="`${row.yearMonth}事项说明`" />
+            <div v-for="(row, index) in estimateBatchRows" :key="index" class="estimate-batch-row">
+              <el-select v-model="row.yearMonth" size="small" :aria-label="`第${index + 1}行月份`">
+                <el-option v-for="month in estimableMonths" :key="month" :label="`${month.slice(5)}月`" :value="month" />
+              </el-select>
+              <el-input v-model="row.description" size="small" maxlength="200" placeholder="事项说明（留空用默认说明）" :aria-label="`第${index + 1}行事项`" />
+              <el-input-number v-model="row.hours" :min="0" :max="100" :step="0.1" :precision="2" size="small" :aria-label="`第${index + 1}行人月`" />
+              <el-button link type="danger" size="small" :disabled="estimateBatchRows.length <= 1" :aria-label="`删除第${index + 1}行`" @click="removeBatchRow(index)">删除</el-button>
             </div>
+            <el-button size="small" class="batch-add" @click="addBatchRow">+ 添加一条</el-button>
           </div>
         </el-form-item>
         <el-form-item v-else label="人月">
@@ -1454,15 +1464,13 @@ onMounted(loadMatrix)
 
 .estimate-batch-row {
   display: grid;
-  grid-template-columns: 56px 150px 1fr;
+  grid-template-columns: 96px 1fr 130px 44px;
   align-items: center;
   gap: 8px;
 }
 
-.batch-month {
-  color: #475569;
-  font-size: 13px;
-  font-weight: 650;
+.batch-add {
+  justify-self: start;
 }
 
 .deviation-block {
