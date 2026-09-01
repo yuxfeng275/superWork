@@ -2,6 +2,7 @@ package com.bu.management.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.bu.management.annotation.RequirePermission;
+import com.bu.management.entity.EmailMessage;
 import com.bu.management.dto.EmailAccountRequest;
 import com.bu.management.dto.EmailWeComMappingRequest;
 import com.bu.management.service.EmailAccountService;
@@ -10,6 +11,8 @@ import com.bu.management.service.EmailQueryService;
 import com.bu.management.service.EmailInterpretationService;
 import com.bu.management.service.EmailProjectGroupingService;
 import com.bu.management.service.EmailSyncService;
+import java.util.Map;
+
 import com.bu.management.vo.EmailAccountStatus;
 import com.bu.management.vo.EmailConnectionTestResponse;
 import com.bu.management.vo.EmailDigestResponse;
@@ -125,6 +128,15 @@ public class EmailController {
     public Result<EmailGroupingJobStatus> groupingStatus(
             @RequestAttribute("userId") Long userId) {
         return Result.success(groupingService.status(userId));
+    }
+
+    @PutMapping("/messages/{id}/project")
+    @RequirePermission({"email:sync"})
+    public Result<EmailMessage> assignProject(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id,
+            @RequestBody Map<String, Long> body) {
+        return Result.success(groupingService.assignManually(userId, id, body.get("projectId")));
     }
 
     @GetMapping("/messages/{id}")

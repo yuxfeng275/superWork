@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 public record EmailInterpretationView(
         String status,
+        String disposition,
         String summary,
         String senderIntent,
         JsonNode keyPoints,

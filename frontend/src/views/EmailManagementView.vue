@@ -512,6 +512,66 @@ async function generateInterpretation(force: boolean) {
   }
 }
 
+const DISPOSITION_LABELS: Record<string, string> = {
+  URGENT_REPLY: '需立即回复',
+  REPLY: '需要回复',
+  ACTION_NO_REPLY: '需要行动',
+  WAITING: '等对方',
+  REFERENCE: '参考',
+  NOISE: '噪音'
+}
+
+function dispositionLabel(disposition?: string) {
+  return disposition ? (DISPOSITION_LABELS[disposition] || disposition) : ''
+}
+
+function dispositionTagType(disposition?: string) {
+  if (disposition === 'URGENT_REPLY') return 'danger'
+  if (disposition === 'REPLY') return 'warning'
+  if (disposition === 'ACTION_NO_REPLY') return 'primary'
+  if (disposition === 'NOISE') return 'info'
+  return 'success'
+}
+
+// ---------- 手动纠偏分组（沉淀发件人路由规则） ----------
+const regroupVisible = ref(false)
+const regroupProjectId = ref<number>()
+const regroupSaving = ref(false)
+const projectOptions = ref<{ id: number; name: string; fullPath?: string }[]>([])
+
+async function openRegroup() {
+  if (!selectedMessage.value) return
+  regroupProjectId.value = selectedMessage.value.projectId ?? undefined
+  regroupVisible.value = true
+  if (!projectOptions.value.length) {
+    try {
+      const payload = await api.getProjects({ page: 1, size: 500 }) as unknown as { records?: { id: number; name: string; fullPath?: string }[] }
+      projectOptions.value = payload.records ?? []
+    } catch {
+      ElMessage.error('项目列表加载失败')
+    }
+  }
+}
+
+async function saveRegroup() {
+  if (!selectedMessage.value || !regroupProjectId.value) {
+    ElMessage.warning('请选择归属项目')
+    return
+  }
+  regroupSaving.value = true
+  try {
+    await api.assignEmailProject(selectedMessage.value.id, regroupProjectId.value)
+    ElMessage.success('已更正分组，该发件人后续邮件将自动归入此项目')
+    regroupVisible.value = false
+    if (detailMessageId.value) await openMessage(detailMessageId.value)
+    await loadProjectGroups()
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '分组更正失败'))
+  } finally {
+    regroupSaving.value = false
+  }
+}
+
 function interpretationPriorityType(priority?: string) {
   if (priority === '高' || priority?.toUpperCase() === 'HIGH') return 'danger'
   if (priority === '中' || priority?.toUpperCase() === 'MEDIUM') return 'warning'
@@ -897,7 +957,9 @@ onBeforeUnmount(() => {
                 <div><dt>收件人</dt><dd>{{ selectedMessage.toAddresses.join('、') || '—' }}</dd></div>
                 <div v-if="selectedMessage.ccAddresses.length"><dt>抄送</dt><dd>{{ selectedMessage.ccAddresses.join('、') }}</dd></div>
                 <div><dt>接收时间</dt><dd>{{ formatFullDateTime(selectedMessage.receivedAt) }}</dd></div>
-                <div><dt>所属项目</dt><dd>{{ selectedMessage.projectFullPath || '未分组' }}<span v-if="selectedMessage.groupingConfidence"> · 置信度 {{ Math.round(selectedMessage.groupingConfidence * 100) }}%</span></dd></div>
+                <div><dt>所属项目</dt><dd>{{ selectedMessage.projectFullPath || '未分组' }}<span v-if="selectedMessage.groupingConfidence"> · 置信度 {{ Math.round(selectedMessage.groupingConfidence * 100) }}%</span>
+                  <el-button link type="primary" size="small" class="regroup-trigger" aria-label="更正分组" @click="openRegroup">更正</el-button>
+                </dd></div>
                 <div v-if="selectedMessage.groupingReason"><dt>分组依据</dt><dd>{{ selectedMessage.groupingReason }}</dd></div>
                 <div v-if="selectedMessage.messageId"><dt>Message-ID</dt><dd class="message-id">{{ selectedMessage.messageId }}</dd></div>
               </dl>
@@ -940,7 +1002,7 @@ onBeforeUnmount(() => {
                   <div class="ai-orb">!</div><h3>AI 解读失败</h3><p>{{ selectedMessage.interpretation.errorMessage || '请稍后重试。' }}</p><el-button type="primary" @click="generateInterpretation(true)">重新解读</el-button>
                 </div>
                 <div v-else-if="selectedMessage.interpretation.status === 'SUCCESS'" class="ai-result">
-                  <header class="ai-result-head"><div><span class="reader-kicker">AI INTERPRETATION</span><h2>邮件智能解读</h2></div><div class="ai-result-actions"><el-tag type="success">{{ selectedMessage.interpretation.model || 'AI' }}</el-tag><el-button plain :loading="interpreting" @click="generateInterpretation(true)">重新解读</el-button></div></header>
+                  <header class="ai-result-head"><div><span class="reader-kicker">AI INTERPRETATION</span><h2>邮件智能解读</h2></div><div class="ai-result-actions"><el-tag v-if="selectedMessage.interpretation.disposition" :type="dispositionTagType(selectedMessage.interpretation.disposition)" effect="dark">{{ dispositionLabel(selectedMessage.interpretation.disposition) }}</el-tag><el-tag type="success">{{ selectedMessage.interpretation.model || 'AI' }}</el-tag><el-button plain :loading="interpreting" @click="generateInterpretation(true)">重新解读</el-button></div></header>
                   <section class="ai-summary-card"><span>核心结论</span><p>{{ selectedMessage.interpretation.summary || '暂无核心结论' }}</p></section>
                   <section class="ai-intent-card"><strong>发件人意图</strong><p>{{ selectedMessage.interpretation.senderIntent || '暂无意图判断' }}</p></section>
                   <div class="ai-analysis-grid">
@@ -961,6 +1023,17 @@ onBeforeUnmount(() => {
         </template>
 
         <el-empty v-else-if="!detailLoading" description="请选择一封邮件查看详情" />
+
+        <el-dialog v-model="regroupVisible" title="更正邮件分组" width="min(440px, 92vw)">
+          <p class="regroup-note">将「{{ selectedMessage?.fromAddress }}」的邮件归入：</p>
+          <el-select v-model="regroupProjectId" filterable placeholder="选择项目" style="width: 100%" aria-label="更正归属项目">
+            <el-option v-for="project in projectOptions" :key="project.id" :label="project.fullPath || project.name" :value="project.id" />
+          </el-select>
+          <template #footer>
+            <el-button @click="regroupVisible = false">取消</el-button>
+            <el-button type="primary" :loading="regroupSaving" @click="saveRegroup">保存</el-button>
+          </template>
+        </el-dialog>
       </article>
     </el-drawer>
   </div>

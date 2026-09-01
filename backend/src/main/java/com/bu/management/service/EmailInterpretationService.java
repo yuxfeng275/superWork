@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -28,10 +29,12 @@ public class EmailInterpretationService {
         message.setAiInterpretationError(null);
         messageMapper.updateById(message);
         try {
-            EmailInterpretationContent content = deepSeekClient.interpret(message, ownerUserId);
+            EmailInterpretationContent content = deepSeekClient.interpret(message, ownerUserId,
+                    threadContext(message));
             LocalDateTime now = LocalDateTime.now();
             message.setAiInterpretationStatus("SUCCESS");
             message.setAiInterpretationJson(objectMapper.writeValueAsString(Map.of(
+                    "disposition", content.disposition() == null ? "" : content.disposition(),
                     "summary", content.summary(),
                     "senderIntent", content.senderIntent(),
                     "keyPoints", objectMapper.readTree(content.keyPointsJson()),
@@ -52,6 +55,23 @@ public class EmailInterpretationService {
         }
     }
 
+    /** 同主题历史邮件（最多 3 封，旧→新）：长线程里未回答的问题往往在上面 */
+    private List<EmailMessage> threadContext(EmailMessage message) {
+        if (message.getSubject() == null || message.getSubject().isBlank()) return java.util.List.of();
+        String normalized = message.getSubject()
+                .replaceAll("(?i)^(\\s*(re|fw|fwd|回复|转发|答复)[:：]\\s*)+", "")
+                .trim();
+        if (normalized.isBlank()) return java.util.List.of();
+        List<EmailMessage> candidates = messageMapper.selectList(new LambdaQueryWrapper<EmailMessage>()
+                .eq(EmailMessage::getOwnerUserId, message.getOwnerUserId())
+                .like(EmailMessage::getSubject, normalized)
+                .lt(EmailMessage::getReceivedAt, message.getReceivedAt())
+                .orderByDesc(EmailMessage::getReceivedAt)
+                .last("limit 3"));
+        java.util.Collections.reverse(candidates);
+        return candidates;
+    }
+
     public EmailInterpretationView get(Long ownerUserId, Long messageId) {
         return toView(requireOwned(ownerUserId, messageId));
     }
@@ -62,6 +82,7 @@ public class EmailInterpretationService {
         JsonNode content = parseObject(message.getAiInterpretationJson());
         return new EmailInterpretationView(
                 status,
+                text(content, "disposition"),
                 text(content, "summary"),
                 text(content, "senderIntent"),
                 array(content, "keyPoints"),

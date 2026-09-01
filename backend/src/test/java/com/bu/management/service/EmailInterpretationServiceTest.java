@@ -23,7 +23,8 @@ class EmailInterpretationServiceTest {
         message.setSubject("项目交付确认");
         message.setAiInterpretationStatus("NOT_GENERATED");
         when(mapper.selectOne(any())).thenReturn(message);
-        when(client.interpret(message, 7L)).thenReturn(new EmailInterpretationContent(
+        when(client.interpret(org.mockito.ArgumentMatchers.eq(message), org.mockito.ArgumentMatchers.eq(7L), any())).thenReturn(new EmailInterpretationContent(
+                "REPLY",
                 "客户要求确认交付时间", "确认项目交付计划",
                 "[\"确认交付日期\"]",
                 "[{\"content\":\"回复交付日期\",\"priority\":\"高\"}]",
@@ -35,6 +36,7 @@ class EmailInterpretationServiceTest {
         var result = service.generate(7L, 42L);
 
         assertThat(result.status()).isEqualTo("SUCCESS");
+        assertThat(result.disposition()).isEqualTo("REPLY");
         assertThat(result.summary()).contains("交付时间");
         assertThat(result.actionItems()).hasSize(1);
         assertThat(result.model()).isEqualTo("deepseek-v4-flash");
@@ -50,7 +52,7 @@ class EmailInterpretationServiceTest {
         message.setId(42L);
         message.setOwnerUserId(7L);
         when(mapper.selectOne(any())).thenReturn(message);
-        when(client.interpret(message, 7L)).thenThrow(new IllegalStateException("DeepSeek 未配置或未启用"));
+        when(client.interpret(org.mockito.ArgumentMatchers.eq(message), org.mockito.ArgumentMatchers.eq(7L), any())).thenThrow(new IllegalStateException("DeepSeek 未配置或未启用"));
         EmailInterpretationService service = new EmailInterpretationService(
                 mapper, client, new ObjectMapper());
 

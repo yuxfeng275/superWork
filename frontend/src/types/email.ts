@@ -71,8 +71,10 @@ export interface EmailInterpretationActionItem {
 
 export type EmailInterpretationStatus = 'NOT_GENERATED' | 'GENERATING' | 'SUCCESS' | 'FAILED'
 
+/** 处置类别：URGENT_REPLY/REPLY/ACTION_NO_REPLY/WAITING/REFERENCE/NOISE */
 export interface EmailInterpretation {
   status: EmailInterpretationStatus
+  disposition?: string
   summary?: string
   senderIntent?: string
   keyPoints: string[]

@@ -2,9 +2,11 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.EmailMessage;
+import com.bu.management.entity.EmailSenderProjectRule;
 import com.bu.management.entity.Project;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.mapper.EmailMessageMapper;
+import com.bu.management.mapper.EmailSenderProjectRuleMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.vo.EmailGroupingJobStatus;
 import com.bu.management.vo.EmailProjectGroupView;
@@ -33,6 +35,7 @@ public class EmailProjectGroupingService {
 
     private final EmailMessageMapper messageMapper;
     private final ProjectMapper projectMapper;
+    private final EmailSenderProjectRuleMapper ruleMapper;
     private final DeepSeekDigestClient deepSeekClient;
     private final Executor taskExecutor;
     private final Map<Long, EmailGroupingJobStatus> jobs = new ConcurrentHashMap<>();
@@ -40,10 +43,12 @@ public class EmailProjectGroupingService {
     public EmailProjectGroupingService(
             EmailMessageMapper messageMapper,
             ProjectMapper projectMapper,
+            EmailSenderProjectRuleMapper ruleMapper,
             DeepSeekDigestClient deepSeekClient,
             @Qualifier("emailTaskExecutor") Executor taskExecutor) {
         this.messageMapper = messageMapper;
         this.projectMapper = projectMapper;
+        this.ruleMapper = ruleMapper;
         this.deepSeekClient = deepSeekClient;
         this.taskExecutor = taskExecutor;
     }
@@ -142,12 +147,18 @@ public class EmailProjectGroupingService {
             }
             Map<Long, List<String>> projectTerms = projects.stream().collect(
                     java.util.stream.Collectors.toMap(Project::getId, this::terms));
+            // 发件人路由规则：人工纠偏沉淀，优先于关键词与 AI
+            Map<String, Long> senderRules = new HashMap<>();
+            ruleMapper.selectList(new LambdaQueryWrapper<EmailSenderProjectRule>()
+                    .eq(EmailSenderProjectRule::getOwnerUserId, ownerUserId))
+                    .forEach(rule -> senderRules.put(rule.getSenderPattern(), rule.getProjectId()));
             for (int from = 0; from < messages.size(); from += BATCH_SIZE) {
                 List<EmailMessage> batch = messages.subList(from, Math.min(messages.size(), from + BATCH_SIZE));
                 Map<Long, EmailProjectAssignment> assignments = new HashMap<>();
                 for (EmailMessage message : batch) {
-                    deterministicAssignment(message, projectTerms).ifPresent(
-                            assignment -> assignments.put(message.getId(), assignment));
+                    ruleAssignment(message, senderRules)
+                            .or(() -> deterministicAssignment(message, projectTerms))
+                            .ifPresent(assignment -> assignments.put(message.getId(), assignment));
                 }
                 try {
                     deepSeekClient.groupByProjects(batch, projects, ownerUserId)
@@ -196,6 +207,61 @@ public class EmailProjectGroupingService {
                     "FAILED", processed, processed, grouped, ungrouped,
                     sanitize(exception.getMessage()), startedAt, LocalDateTime.now()));
         }
+    }
+
+    /** 发件人路由规则：先精确地址后域名，命中即分组（置信度 1.0） */
+    private Optional<EmailProjectAssignment> ruleAssignment(
+            EmailMessage message, Map<String, Long> senderRules) {
+        if (senderRules.isEmpty()) return Optional.empty();
+        String sender = message.getSenderAddress() == null ? ""
+                : message.getSenderAddress().trim().toLowerCase(Locale.ROOT);
+        if (sender.isEmpty()) return Optional.empty();
+        Long projectId = senderRules.get(sender);
+        if (projectId == null) projectId = senderRules.get(senderDomain(sender));
+        if (projectId == null) return Optional.empty();
+        return Optional.of(new EmailProjectAssignment(message.getId(), projectId, 1.0,
+                "命中发件人路由规则"));
+    }
+
+    /** 人工指定邮件归属项目，并沉淀为发件人路由规则 */
+    public EmailMessage assignManually(Long ownerUserId, Long messageId, Long projectId) {
+        EmailMessage message = messageMapper.selectOne(new LambdaQueryWrapper<EmailMessage>()
+                .eq(EmailMessage::getId, messageId)
+                .eq(EmailMessage::getOwnerUserId, ownerUserId));
+        if (message == null) throw new IllegalArgumentException("邮件不存在");
+        if (projectId == null || projectMapper.selectById(projectId) == null) {
+            throw new IllegalArgumentException("项目不存在");
+        }
+        message.setProjectId(projectId);
+        message.setGroupingStatus("GROUPED");
+        message.setGroupingMethod("MANUAL");
+        message.setGroupingConfidence(null);
+        message.setGroupingReason("人工指定");
+        message.setGroupedAt(LocalDateTime.now());
+        messageMapper.updateById(message);
+
+        String sender = message.getSenderAddress() == null ? ""
+                : message.getSenderAddress().trim().toLowerCase(Locale.ROOT);
+        if (!sender.isEmpty()) {
+            EmailSenderProjectRule rule = ruleMapper.selectOne(
+                    new LambdaQueryWrapper<EmailSenderProjectRule>()
+                            .eq(EmailSenderProjectRule::getOwnerUserId, ownerUserId)
+                            .eq(EmailSenderProjectRule::getSenderPattern, sender));
+            if (rule == null) {
+                rule = new EmailSenderProjectRule();
+                rule.setOwnerUserId(ownerUserId);
+                rule.setSenderPattern(sender);
+                rule.setProjectId(projectId);
+                rule.setSource("MANUAL");
+                rule.setHitCount(1);
+                ruleMapper.insert(rule);
+            } else {
+                rule.setProjectId(projectId);
+                rule.setHitCount((rule.getHitCount() == null ? 0 : rule.getHitCount()) + 1);
+                ruleMapper.updateById(rule);
+            }
+        }
+        return message;
     }
 
     private Optional<EmailProjectAssignment> deterministicAssignment(

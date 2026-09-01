@@ -4,7 +4,9 @@ import com.bu.management.entity.EmailMessage;
 import com.bu.management.entity.Project;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.mapper.EmailMessageMapper;
+import com.bu.management.mapper.EmailSenderProjectRuleMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.entity.EmailSenderProjectRule;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -34,8 +36,10 @@ class EmailProjectGroupingServiceTest {
                 new EmailProjectAssignment(3L, 999L, 0.99, "模型臆造项目")));
         when(client.configuredModel()).thenReturn("deepseek-v4-flash");
         Executor direct = Runnable::run;
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        when(ruleMapper.selectList(any())).thenReturn(List.of());
         EmailProjectGroupingService service = new EmailProjectGroupingService(
-                messageMapper, projectMapper, client, direct);
+                messageMapper, projectMapper, ruleMapper, client, direct);
 
         var result = service.startAsync(7L, false);
         var completed = service.status(7L);
@@ -47,6 +51,57 @@ class EmailProjectGroupingServiceTest {
         assertThat(grouped.getProjectId()).isEqualTo(11L);
         assertThat(lowConfidence.getProjectId()).isNull();
         assertThat(inventedProject.getProjectId()).isNull();
+    }
+
+    @Test
+    void senderRuleWinsOverAi() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        Project project = project(11L, "CRM项目");
+        EmailMessage message = message(1L, 7L);
+        message.setSenderAddress("pm@royal.com");
+        when(messageMapper.selectCount(any())).thenReturn(1L);
+        when(messageMapper.selectList(any())).thenReturn(List.of(message));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project));
+        EmailSenderProjectRule rule = new EmailSenderProjectRule();
+        rule.setSenderPattern("pm@royal.com");
+        rule.setProjectId(11L);
+        when(ruleMapper.selectList(any())).thenReturn(List.of(rule));
+        when(client.configuredModel()).thenReturn("deepseek-v4-flash");
+        when(client.groupByProjects(any(), any(), any())).thenReturn(List.of(
+                new EmailProjectAssignment(1L, null, 0.0, "AI 无法判断")));
+        Executor direct = Runnable::run;
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, direct);
+
+        service.startAsync(7L, false);
+
+        assertThat(message.getProjectId()).isEqualTo(11L);
+        assertThat(message.getGroupingReason()).contains("路由规则");
+    }
+
+    @Test
+    void manualAssignPersistsRule() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        EmailMessage message = message(1L, 7L);
+        message.setSenderAddress("Vendor@Royal.com");
+        when(messageMapper.selectOne(any())).thenReturn(message);
+        when(projectMapper.selectById(11L)).thenReturn(project(11L, "CRM项目"));
+        when(ruleMapper.selectOne(any())).thenReturn(null);
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, Runnable::run);
+
+        EmailMessage updated = service.assignManually(7L, 1L, 11L);
+
+        assertThat(updated.getProjectId()).isEqualTo(11L);
+        assertThat(updated.getGroupingMethod()).isEqualTo("MANUAL");
+        org.mockito.Mockito.verify(ruleMapper).insert(org.mockito.ArgumentMatchers.argThat(rule ->
+                "vendor@royal.com".equals(rule.getSenderPattern()) && rule.getProjectId() == 11L));
     }
 
     private Project project(Long id, String name) {

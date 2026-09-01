@@ -460,6 +460,13 @@ class ApiService {
   }
 
   // Project APIs
+  async assignEmailProject(id: number, projectId: number): Promise<void> {
+    await this.request<void>(`/api/emails/messages/${id}/project`, {
+      method: 'PUT',
+      body: JSON.stringify({ projectId })
+    })
+  }
+
   async getProjects(params?: { businessLineId?: number; page?: number; size?: number; name?: string; status?: number }): Promise<any> {
     const searchParams = new URLSearchParams()
     if (params?.page) searchParams.set('page', String(params.page))
