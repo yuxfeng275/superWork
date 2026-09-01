@@ -70,6 +70,10 @@ public class RevenueMatrixService {
                 .collect(Collectors.toMap(BusinessLine::getId,
                         line -> StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full",
                         (a, b) -> a));
+        Map<Long, Boolean> costVisibleByLine = lines.stream()
+                .collect(Collectors.toMap(BusinessLine::getId,
+                        line -> line.getCostVisible() == null || line.getCostVisible() == 1,
+                        (a, b) -> a));
         Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
                 .collect(Collectors.toMap(Project::getId, Function.identity(), (a, b) -> a));
         Map<Long, Long> aliasToRoot = aliasMap(projectsById);
@@ -144,8 +148,8 @@ public class RevenueMatrixService {
             }
             BigDecimal[] pair = costValues.computeIfAbsent(key, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
             pair[0] = pair[0].add(entry.getHours());
-            // simple 模式业务线（全渠道产品/海外等）成本计入公司公共投入，只统计工时
-            if (!key.startsWith("simple-", key.indexOf('|') + 1)) {
+            // 成本不可见业务线（全渠道产品/海外等）成本计入公司公共投入，只统计工时
+            if (costVisibleByLine.getOrDefault(entry.getBusinessLineId(), true)) {
                 pair[1] = pair[1].add(entry.getCostAmount());
             }
         }
@@ -279,6 +283,14 @@ public class RevenueMatrixService {
         Map<String, Object> result = new HashMap<>();
         boolean closed = monthService.isClosed(yearMonth);
         result.put("closed", closed);
+        // 完结月同时返回当月预估，供「预估 vs 实际」偏差对比
+        result.put("estimates", estimateEntryMapper.selectList(
+                new LambdaQueryWrapper<RevenueEstimateEntry>()
+                        .eq(RevenueEstimateEntry::getYearMonth, yearMonth)
+                        .eq(RevenueEstimateEntry::getBusinessLineId, businessLineId))
+                .stream()
+                .filter(entry -> estimateRowKey(entry, rootProjectMap(), lineModes()).equals(rowKey))
+                .toList());
         if (closed) {
             List<RevenueWorklogEntry> worklogEntries = worklogEntryMapper.selectList(
                     new LambdaQueryWrapper<RevenueWorklogEntry>()
@@ -298,14 +310,6 @@ public class RevenueMatrixService {
                     .stream()
                     .filter(entry -> rowKeyMatches(entry.getWorkType(), entry.getSalesKind(),
                             entry.getProjectId(), entry.getSalesProjectId(), businessLineId, rowKey))
-                    .toList());
-        } else {
-            result.put("estimates", estimateEntryMapper.selectList(
-                    new LambdaQueryWrapper<RevenueEstimateEntry>()
-                            .eq(RevenueEstimateEntry::getYearMonth, yearMonth)
-                            .eq(RevenueEstimateEntry::getBusinessLineId, businessLineId))
-                    .stream()
-                    .filter(entry -> estimateRowKey(entry, rootProjectMap(), lineModes()).equals(rowKey))
                     .toList());
         }
         return result;

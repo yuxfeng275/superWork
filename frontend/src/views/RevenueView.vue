@@ -54,19 +54,28 @@ const formatWan = (value?: number | null) => {
   return (Math.round(num * 100) / 100).toLocaleString('zh-CN')
 }
 
-// 业务线/项目筛选：参照需求管理的 pill 风格，单选切换；null=全部
-const filterLineId = ref<number | null>(null)
-const filterProjectId = ref<number | null>(null)
+// 业务线/项目筛选：pill 风格多选；空数组=全部
+const filterLineIds = ref<number[]>([])
+const filterProjectIds = ref<number[]>([])
 
-const selectLineFilter = (id: number | null) => {
-  filterLineId.value = id
-  filterProjectId.value = null
+const toggleInList = (list: number[], id: number) =>
+  list.includes(id) ? list.filter(item => item !== id) : [...list, id]
+
+const toggleLineFilter = (id: number) => {
+  filterLineIds.value = toggleInList(filterLineIds.value, id)
+  const valid = new Set(projectFilterOptions.value.map(option => option.id))
+  filterProjectIds.value = filterProjectIds.value.filter(pid => valid.has(pid))
+}
+
+const resetFilters = () => {
+  filterLineIds.value = []
+  filterProjectIds.value = []
 }
 
 const projectFilterOptions = computed(() => {
   if (!matrix.value) return []
   return matrix.value.lines
-    .filter(line => filterLineId.value == null || line.businessLineId === filterLineId.value)
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
     .flatMap(line => line.sections.flatMap(s => s.rows))
     .filter(row => row.kind === 'project' && row.projectId != null)
     .map(row => ({ id: row.projectId as number, name: row.name }))
@@ -90,15 +99,15 @@ const sumCells = (rows: RevenueRow[]) => {
 
 const filteredLines = computed(() => {
   if (!matrix.value) return []
-  const projectFilterActive = filterProjectId.value != null
+  const projectFilterActive = filterProjectIds.value.length > 0
   return matrix.value.lines
-    .filter(line => filterLineId.value == null || line.businessLineId === filterLineId.value)
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
     .map(line => {
       const sections = line.sections.map(section => ({
         ...section,
         rows: section.rows.filter(row => {
           if (!projectFilterActive) return true
-          return row.kind === 'project' && row.projectId === filterProjectId.value
+          return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
         })
       })).filter(section => section.rows.length > 0)
       const visibleRows = sections.flatMap(s => s.rows)
@@ -176,6 +185,8 @@ const flatRows = computed<FlatRow[]>(() => {
   return result
 })
 
+const flatRowsOf = (lineId: number) => flatRows.value.filter(item => item.lineId === lineId)
+
 const loadMatrix = async () => {
   loading.value = true
   try {
@@ -251,8 +262,39 @@ const estimateSaving = ref(false)
 const estimateForm = reactive({
   id: undefined as number | undefined,
   description: '',
-  personMonths: 1
+  personMonths: 1,
+  months: [] as string[]
 })
+
+// 可预估月份：当年未完结月
+const estimableMonths = computed(() =>
+  (matrix.value?.months || []).filter(month => !month.closed).map(month => month.yearMonth))
+
+// 预估 vs 实际 偏差（完结月抽屉）
+const deviation = computed(() => {
+  if (!cellDetail.value?.closed) return null
+  const estimates = cellDetail.value.estimates || []
+  if (!estimates.length) return null
+  const estHours = estimates.reduce((sum, item) => sum + Number(item.personMonths || 0), 0)
+  const estCost = estimates.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const worklogs = cellDetail.value.worklogEntries || []
+  const costs = cellDetail.value.costEntries || []
+  const actualHours = worklogs.length
+    ? worklogs.reduce((sum, item) => sum + Number(item.hours || 0), 0)
+    : costs.reduce((sum, item) => sum + Number(item.hours || 0), 0)
+  const actualCost = costs.reduce((sum, item) => sum + Number(item.costAmount || 0), 0)
+  return { estHours, estCost, actualHours, actualCost }
+})
+
+const deviationText = (actual: number, estimate: number) => {
+  const diff = actual - estimate
+  const pct = estimate !== 0 ? (diff / estimate) * 100 : null
+  return {
+    label: `${diff >= 0 ? '+' : ''}${(Math.round(diff * 100) / 100).toLocaleString('zh-CN')}`,
+    pct: pct == null ? '—' : `${diff >= 0 ? '+' : ''}${pct.toFixed(1)}%`,
+    tone: diff > 0 ? 'over' : diff < 0 ? 'under' : 'flat'
+  }
+}
 
 const estimateRowContext = computed(() => {
   const row = flatRows.value.find(item => item.row.rowKey === cellContext.rowKey && item.lineId === cellContext.lineId)
@@ -267,6 +309,7 @@ const openEstimateDialog = (entry?: RevenueEstimateEntry) => {
   estimateForm.id = entry?.id
   estimateForm.description = entry?.description || ''
   estimateForm.personMonths = entry ? Number(entry.personMonths) : 1
+  estimateForm.months = [cellContext.yearMonth]
   estimateDialog.value = true
 }
 
@@ -305,8 +348,12 @@ const saveEstimate = async () => {
       await api.updateRevenueEstimate(estimateForm.id, estimatePayload())
       ElMessage.success('预估已更新')
     } else {
-      await api.createRevenueEstimate(estimatePayload())
-      ElMessage.success('预估已添加')
+      const months = estimateForm.months.length ? estimateForm.months : [cellContext.yearMonth]
+      const base = estimatePayload()
+      for (const yearMonth of months) {
+        await api.createRevenueEstimate({ ...base, yearMonth })
+      }
+      ElMessage.success(months.length > 1 ? `已为 ${months.length} 个月份创建预估` : '预估已添加')
     }
     estimateDialog.value = false
     await loadMatrix()
@@ -592,25 +639,25 @@ onMounted(loadMatrix)
         <template v-if="matrix">
           <div class="filter-row" aria-label="营收筛选">
             <div class="filter-pills" aria-label="业务线筛选">
-              <button class="filter-pill" :class="{ active: filterLineId == null }" @click="selectLineFilter(null)">全部业务线</button>
+              <button class="filter-pill" :class="{ active: !filterLineIds.length }" @click="filterLineIds = []">全部业务线</button>
               <button
                 v-for="line in matrix.lines"
                 :key="line.businessLineId"
                 class="filter-pill"
-                :class="{ active: filterLineId === line.businessLineId }"
-                @click="selectLineFilter(line.businessLineId)"
+                :class="{ active: filterLineIds.includes(line.businessLineId) }"
+                @click="toggleLineFilter(line.businessLineId)"
               >{{ line.businessLineName }}</button>
             </div>
             <div class="filter-pills" aria-label="项目筛选">
-              <button class="filter-pill" :class="{ active: filterProjectId == null }" @click="filterProjectId = null">全部项目</button>
+              <button class="filter-pill" :class="{ active: !filterProjectIds.length }" @click="filterProjectIds = []">全部项目</button>
               <button
                 v-for="p in projectFilterOptions"
                 :key="p.id"
                 class="filter-pill"
-                :class="{ active: filterProjectId === p.id }"
-                @click="filterProjectId = p.id"
+                :class="{ active: filterProjectIds.includes(p.id) }"
+                @click="filterProjectIds = toggleInList(filterProjectIds, p.id)"
               >{{ p.name }}</button>
-              <button v-if="filterLineId != null || filterProjectId != null" class="filter-pill reset" @click="selectLineFilter(null); filterProjectId = null">重置</button>
+              <button v-if="filterLineIds.length || filterProjectIds.length" class="filter-pill reset" @click="resetFilters">重置</button>
             </div>
             <el-radio-group v-model="displayMode" class="display-mode-switch" aria-label="展示内容">
               <el-radio-button value="merge">工时 + 成本</el-radio-button>
@@ -659,34 +706,34 @@ onMounted(loadMatrix)
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="item in flatRows" :key="item.lineId + '-' + item.row.rowKey">
-                  <td v-if="item.lineSpan" class="col-line" :rowspan="item.lineSpan">{{ item.lineName }}</td>
-                  <td v-if="item.sectionSpan" class="col-type" :rowspan="item.sectionSpan">{{ item.row.kind === 'simple' ? '—' : item.sectionLabel }}</td>
-                  <td class="col-project">
-                    {{ item.row.name }}
-                    <small v-if="item.row.opportunityName" class="opp-tag">商机:{{ item.row.opportunityName }}</small>
-                  </td>
-                  <td class="col-price">{{ item.row.unitPrice == null ? '—' : formatWan(item.row.unitPrice) }}</td>
-                  <td
-                    v-for="(cell, monthIndex) in item.row.months"
-                    :key="monthIndex"
-                    class="col-month cell"
-                    :class="[cell.source, { clickable: item.row.kind !== 'simple' }]"
-                    @click="openCell(item.lineId, item.lineName, item.row, monthIndex)"
-                  >
-                    <template v-if="cell.source">
-                      <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
-                      <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
-                      <i v-if="cell.source === 'estimate'" class="estimate-dot">预</i>
-                    </template>
-                    <span v-else class="cell-empty">—</span>
-                  </td>
-                  <td class="col-total cell">
-                    <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(item.row.totals.cost) }}</span>
-                    <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(item.row.totals.hours) }}</span>
-                  </td>
-                </tr>
-                <template v-for="line in filteredLines" :key="'total-' + line.businessLineId">
+                <template v-for="line in filteredLines" :key="line.businessLineId">
+                  <tr v-for="item in flatRowsOf(line.businessLineId)" :key="item.lineId + '-' + item.row.rowKey">
+                    <td v-if="item.lineSpan" class="col-line" :rowspan="item.lineSpan">{{ item.lineName }}</td>
+                    <td v-if="item.sectionSpan" class="col-type" :rowspan="item.sectionSpan">{{ item.row.kind === 'simple' ? '—' : item.sectionLabel }}</td>
+                    <td class="col-project">
+                      {{ item.row.name }}
+                      <small v-if="item.row.opportunityName" class="opp-tag">商机:{{ item.row.opportunityName }}</small>
+                    </td>
+                    <td class="col-price">{{ item.row.unitPrice == null ? '—' : formatWan(item.row.unitPrice) }}</td>
+                    <td
+                      v-for="(cell, monthIndex) in item.row.months"
+                      :key="monthIndex"
+                      class="col-month cell"
+                      :class="[cell.source, { clickable: item.row.kind !== 'simple' }]"
+                      @click="openCell(item.lineId, item.lineName, item.row, monthIndex)"
+                    >
+                      <template v-if="cell.source">
+                        <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
+                        <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
+                        <i v-if="cell.source === 'estimate'" class="estimate-dot">预</i>
+                      </template>
+                      <span v-else class="cell-empty">—</span>
+                    </td>
+                    <td class="col-total cell">
+                      <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(item.row.totals.cost) }}</span>
+                      <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(item.row.totals.hours) }}</span>
+                    </td>
+                  </tr>
                   <tr class="line-total-row">
                     <td class="col-line">{{ line.businessLineName }}</td>
                     <td class="col-type" colspan="2">小计</td>
@@ -877,6 +924,27 @@ onMounted(loadMatrix)
       <div v-loading="cellLoading" class="cell-drawer">
         <template v-if="cellDetail">
           <template v-if="cellDetail.closed">
+            <section v-if="deviation" class="deviation-block" aria-label="预估与实际偏差">
+              <h4>预估 vs 实际</h4>
+              <div class="deviation-grid">
+                <div class="deviation-item">
+                  <span>工时（人月）</span>
+                  <p>预估 {{ deviation.estHours }} · 实际 {{ Math.round(deviation.actualHours * 100) / 100 }}</p>
+                  <strong :class="`tone-${deviationText(deviation.actualHours, deviation.estHours).tone}`">
+                    {{ deviationText(deviation.actualHours, deviation.estHours).label }}
+                    ({{ deviationText(deviation.actualHours, deviation.estHours).pct }})
+                  </strong>
+                </div>
+                <div class="deviation-item">
+                  <span>成本（万元）</span>
+                  <p>预估 {{ formatWan(deviation.estCost) }} · 实际 {{ formatWan(deviation.actualCost) }}</p>
+                  <strong :class="`tone-${deviationText(deviation.actualCost, deviation.estCost).tone}`">
+                    {{ deviationText(deviation.actualCost / 10000, deviation.estCost / 10000).label }}
+                    ({{ deviationText(deviation.actualCost, deviation.estCost).pct }})
+                  </strong>
+                </div>
+              </div>
+            </section>
             <section>
               <div class="estimate-head">
                 <h4>工时明细（{{ cellDetail.worklogEntries?.length || 0 }}）</h4>
@@ -997,7 +1065,12 @@ onMounted(loadMatrix)
         <el-form-item label="说明">
           <el-input v-model="estimateForm.description" maxlength="200" show-word-limit placeholder="例如：黄天鹅物码项目 1 人月" />
         </el-form-item>
-        <el-form-item label="人月">
+        <el-form-item v-if="!estimateForm.id" label="预估月份（可多选）">
+          <el-checkbox-group v-model="estimateForm.months" aria-label="预估月份">
+            <el-checkbox v-for="month in estimableMonths" :key="month" :value="month">{{ month.slice(5) }}月</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="人月（每个月）">
           <el-input-number v-model="estimateForm.personMonths" :min="0.1" :max="100" :step="0.1" :precision="2" />
         </el-form-item>
         <el-form-item label="预估金额">
@@ -1230,7 +1303,7 @@ onMounted(loadMatrix)
   margin-left: 4px;
 }
 
-.line-total-row td { background: #f8fafc; font-weight: 650; }
+.line-total-row td { background: #f8fafc; font-weight: 700; }
 .grand-total-row td { background: #f1f5f9; font-weight: 700; }
 
 .opp-tag {
@@ -1270,6 +1343,38 @@ onMounted(loadMatrix)
 }
 
 .estimate-head h4 { margin: 0; }
+
+.deviation-block {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid #e8edf4;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.deviation-block h4 { margin: 0 0 8px; }
+
+.deviation-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.deviation-item span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.deviation-item p {
+  margin: 2px 0;
+  color: #334155;
+  font-size: 13px;
+}
+
+.deviation-item strong { font-size: 14px; }
+.deviation-item strong.tone-over { color: #dc2626; }
+.deviation-item strong.tone-under { color: #15803d; }
+.deviation-item strong.tone-flat { color: #64748b; }
 
 .data-table { width: 100%; }
 </style>

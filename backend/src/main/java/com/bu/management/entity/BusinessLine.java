@@ -44,6 +44,11 @@ public class BusinessLine {
     private String revenueMode;
 
     /**
+     * 营收矩阵是否展示成本：1=展示，0=只统计工时（成本计入公司公共投入）
+     */
+    private Integer costVisible;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createdAt;

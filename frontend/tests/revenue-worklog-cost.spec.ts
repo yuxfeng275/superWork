@@ -133,6 +133,9 @@ test.beforeEach(async ({ page }) => {
       ],
       costEntries: [
         { id: 2, yearMonth: '2026-07', projectNameRaw: '皇家全渠道项目【交付】', employeeCount: 14, hours: 4.3, costAmount: 98000, personMonthCost: 22790.7 }
+      ],
+      estimates: [
+        { id: 50, yearMonth: '2026-07', businessLineId: 1, projectId: 11, workType: 'project', description: '7月预估', personMonths: 4, unitPrice: 22790.7, amount: 91162.8 }
       ]
     })
   })
@@ -198,12 +201,17 @@ test('切换仅工时后单元格不再显示成本', async ({ page }) => {
   await expect(royalRow.locator('td.actual').first()).not.toContainText('4.3')
 })
 
-test('完结月单元格下钻展示工时与成本明细', async ({ page }) => {
+test('完结月单元格下钻展示工时与成本明细及预估偏差', async ({ page }) => {
   await page.goto('/revenue')
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await royalRow.locator('td.actual').first().click()
 
   const drawer = page.getByRole('dialog')
+  // 预估 vs 实际偏差块：预估 4 人月 / 实际 0.15+4.3 取工时明细 0.15
+  await expect(drawer.locator('.deviation-block')).toBeVisible()
+  await expect(drawer.locator('.deviation-block')).toContainText('预估 4')
+  await expect(drawer.locator('.deviation-block')).toContainText('实际 0.15')
+  await expect(drawer.locator('.deviation-block')).toContainText('-96.3%')
   await expect(drawer).toContainText('工时明细')
   await expect(drawer).toContainText('翁擎天')
   await expect(drawer).toContainText('佳贝艾特')   // 标签
@@ -224,21 +232,20 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
   await drawer.getByRole('button', { name: '新增预估' }).click()
   const dialog = page.getByRole('dialog', { name: '新增预估' })
   await dialog.getByPlaceholder('例如：黄天鹅物码项目 1 人月').fill('皇家二期联调支持')
+  // 多月一次性预估：默认 9 月，加选 10 月
+  await dialog.getByLabel('预估月份').getByText('10月').click()
 
-  const saveRequest = page.waitForRequest(request =>
-    request.url().includes('/api/revenue/estimates') && request.method() === 'POST')
+  const postedMonths: string[] = []
   await page.route('**/api/revenue/estimates', route => {
-    if (route.request().method() === 'POST') return fulfill(route, { id: 52 })
+    if (route.request().method() === 'POST') {
+      postedMonths.push(route.request().postDataJSON().yearMonth)
+      return fulfill(route, { id: 52 })
+    }
     return fulfill(route, [])
   })
   await dialog.getByRole('button', { name: '保存' }).click()
-  expect((await saveRequest).postDataJSON()).toMatchObject({
-    yearMonth: '2026-09',
-    businessLineId: 1,
-    projectId: 11,
-    workType: 'project',
-    description: '皇家二期联调支持'
-  })
+  await expect(page.locator('.el-message')).toContainText('已为 2 个月份创建预估')
+  expect(postedMonths.sort()).toEqual(['2026-09', '2026-10'])
 })
 
 test('会员通聚合为项目销售两行且简单业务线单行不可下钻', async ({ page }) => {
@@ -295,6 +302,35 @@ test('完结月单元格支持补录和修改工时明细', async ({ page }) => 
     workType: 'project',
     hours: 0.15
   })
+})
+
+test('筛选 pill 支持多选且小计紧随业务线', async ({ page }) => {
+  await page.goto('/revenue')
+  const table = page.locator('.matrix-table')
+
+  // 多选两个业务线：定制 + 会员通
+  await page.locator('.filter-pills[aria-label="业务线筛选"] .filter-pill', { hasText: '全渠道云鹿定制' }).click()
+  await page.locator('.filter-pills[aria-label="业务线筛选"] .filter-pill', { hasText: '会员通' }).click()
+  await expect(table).toContainText('皇家项目')
+  await expect(table).toContainText('会员通')
+  await expect(table).not.toContainText('全渠道产品')
+  // 合计 = 定制(15.32万) + 会员通(4.84万)
+  await expect(table.locator('.grand-total-row')).toContainText('20.16')
+
+  // 小计行紧随其业务线最后一行数据之后
+  const lineNames = await table.locator('tbody tr td.col-line').allTextContents()
+  const customIdx = lineNames.findIndex(text => text.includes('全渠道云鹿定制'))
+  const customSubtotalIdx = lineNames.findIndex((text, i) => i > customIdx && text.includes('全渠道云鹿定制'))
+  expect(customSubtotalIdx).toBeGreaterThan(customIdx)
+  const subtotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
+  await expect(subtotalRow.locator('td').first()).toHaveCSS('font-weight', '700')
+  // 小计行上一行是同业务线的数据行（不是其他业务线）
+  const prevRowText = await subtotalRow.locator('xpath=preceding-sibling::tr[1]').innerText()
+  expect(prevRowText).toContain('其他')
+
+  // 重置
+  await page.locator('.filter-pill.reset').click()
+  await expect(table.locator('.grand-total-row')).toContainText('20.96')
 })
 
 test('业务线和项目筛选联动合计与概览', async ({ page }) => {

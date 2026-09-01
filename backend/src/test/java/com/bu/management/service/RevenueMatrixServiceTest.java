@@ -58,7 +58,13 @@ class RevenueMatrixServiceTest {
         product.setId(5L);
         product.setName("全渠道产品");
         product.setRevenueMode("simple");
-        lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom, member, product));
+        product.setCostVisible(0);   // 成本计入公司公共投入
+        BusinessLine precise = new BusinessLine();
+        precise.setId(6L);
+        precise.setName("全域精准");
+        precise.setRevenueMode("simple");
+        precise.setCostVisible(1);
+        lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(custom, member, product, precise));
 
         Project royal = project(11L, 1L, null, "皇家项目");
         Project pms = project(15L, 1L, 11L, "PMS");
@@ -230,6 +236,22 @@ class RevenueMatrixServiceTest {
         RevenueMatrixVO.Row aoyouRow = projectRows.stream()
                 .filter(row -> row.getRowKey().equals("p-24")).findFirst().orElseThrow();
         assertThat(aoyouRow.getMonths().get(6).getHours()).isEqualByComparingTo("2.383");
+    }
+
+    @Test
+    void simpleLineWithVisibleCostShowsCost() {
+        // 全域精准同为单行模式但成本可见：工时与成本都展示
+        lenient().when(worklogEntryMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-07", 6L, null, "0.2", "2669")
+        ));
+        lenient().when(estimateEntryMapper.selectList(any())).thenReturn(List.of());
+
+        RevenueMatrixVO.LineBlock precise = service.getMatrix(2026).getLines().stream()
+                .filter(block -> block.getBusinessLineId() == 6L).findFirst().orElseThrow();
+        RevenueMatrixVO.Cell july = precise.getSections().get(0).getRows().get(0).getMonths().get(6);
+        assertThat(july.getHours()).isEqualByComparingTo("0.2");
+        assertThat(july.getCost()).isEqualByComparingTo("2669");
     }
 
     @Test
