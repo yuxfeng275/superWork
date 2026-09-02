@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,10 +40,8 @@ import java.util.stream.Collectors;
 
 /**
  * 项目交付合同明细导入与归属。
- * <p>品牌归属规则（可维护常量表，后续可 UI 化）：
- * 优先按「品牌」列匹配既有营收项目（大小写不敏感、包含匹配）；
- * 未命中项目的品牌按「收款款项类型」落业务线——会员通=业务线聚合行（项目集），
- * 定制/Saas（full 模式）无业务线聚合行 → 待映射清单人工指定，不静默丢弃。
+ * 先依据「收款款项类型」确定业务线，再仅在该业务线内按「品牌」匹配既有营收项目；禁止品牌跨业务线猜测。
+ * 未命中项目时，aggregate/simple 业务线落业务线级行，full 业务线进入待映射清单；不静默丢弃。
  * 同一文件重复导入以「明细表记录ID」去重：唯一索引 + INSERT ... ON DUPLICATE KEY UPDATE。
  */
 @Service
@@ -136,10 +135,7 @@ public class RevenueContractImportService {
             if (line == null) {
                 throw new IllegalArgumentException("业务线不存在");
             }
-            String mode = StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full";
-            if ("full".equals(mode)) {
-                throw new IllegalArgumentException("该业务线无业务线聚合行，请选择具体项目");
-            }
+            // 业务线级合同允许落 full 线的未分配池；汇总以专用字段展示，不伪造项目行。
             entry.setBizLineId(businessLineId);
             entry.setProjectId(null);
             entry.setPending(0);
@@ -218,31 +214,27 @@ public class RevenueContractImportService {
         return new ParsedFile(entries);
     }
 
-    /** 归属：品牌优先；否则按收款款项类型落业务线；full 模式业务线未命中项目 → 待映射 */
+    /** 归属：先按收款款项类型确定业务线，再仅在该线内按品牌匹配项目。 */
     private Assigned assign(String brand, String typeRaw, List<BusinessLine> lines, Map<Long, String> lineMode,
                             List<Project> projects, List<Long> enabledLineIds) {
-        Project brandProject = null;
-        String targetName = brandTarget(brand);
-        if (targetName != null) {
-            List<Project> matches = projects.stream()
-                    .filter(p -> p.getName() != null && p.getName().equalsIgnoreCase(targetName)
-                            && enabledLineIds.contains(p.getBusinessLineId()))
-                    .toList();
-            if (!matches.isEmpty()) {
-                brandProject = matches.get(0);
-            }
-        }
-        if (brandProject != null) {
-            return new Assigned(brandProject.getBusinessLineId(), brandProject.getId(), false);
-        }
         Long lineId = matchTypeLine(typeRaw, lines);
         if (lineId == null) {
+            // 未知收款类型不得凭品牌跨线猜测。
             return new Assigned(null, null, true);
         }
-        if ("full".equals(lineMode.get(lineId))) {
-            return new Assigned(lineId, null, true);
+        String targetName = brandTarget(brand);
+        if (targetName != null) {
+            Project brandProject = projects.stream()
+                    .filter(p -> p.getName() != null && p.getName().equalsIgnoreCase(targetName)
+                            && Objects.equals(p.getBusinessLineId(), lineId)
+                            && enabledLineIds.contains(p.getBusinessLineId()))
+                    .findFirst().orElse(null);
+            if (brandProject != null) {
+                return new Assigned(lineId, brandProject.getId(), false);
+            }
         }
-        return new Assigned(lineId, null, false);
+        // aggregate/simple 业务线天然有业务线级行；full 业务线进入待确认，保留原始归属。
+        return new Assigned(lineId, null, "full".equals(lineMode.get(lineId)));
     }
 
     private String brandTarget(String brand) {

@@ -45,11 +45,10 @@ import java.util.stream.Collectors;
  * 项目交付营收（利润）汇总。
  * <p>口径（与业务确认）：
  * <ul>
- *   <li>OA 合同总额/已交付均取合同明细「应收金额」：总额=该项目全部行之和；已交付=交付日期&lt;=今天行之和；
- *       H1/H2 按交付日期所在月份 1-6/7-12 划分，跨年忽略（按收款销售月份 year 视图隔离）。</li>
+ *   <li>OA 合同总额/已交付均取合同明细「应收金额」：年度主过滤严格使用交付日期年份；交付日期为空仅进入无日期统计；已交付=交付日期&lt;=今天；H1/H2 按交付日期所在月份 1-6/7-12 划分。</li>
  *   <li>毛利 = (已交付+预估交付) − 人工成本 − 其他成本；人工成本=项目工时成本+销售工时成本（销售仅业务线级）。</li>
  *   <li>项目工时合计/成本沿用矩阵口径：仅完结月实际（未完结月不计）；预估交付计划与月份完结解耦照常全算。</li>
- *   <li>行集合与既有营收矩阵 full 模式一致（主项目行、佳贝/海普归澳优），会员通按业务线聚合行「项目集」。</li>
+ *   <li>行集合与既有营收矩阵 full 模式一致（主项目行、佳贝/海普归澳优），会员通按业务线聚合行「项目集」；full 线未指定项目的合同/其他成本保留在线级 totals。</li>
  *   <li>其他成本按 月份×业务线×项目×类型 手动维护，仅取归属月 &lt;= 当月（实际发生）部分。</li>
  * </ul>
  *
@@ -136,27 +135,47 @@ public class RevenueDeliverySummaryService {
             rowsOfLine.put(line.getId(), defs);
         }
 
-        // 合同（同年收款销售口径）：OA 总额、已交付按交付月、销售分配候选（客户→项目桶）
-        List<RevenueContractEntry> contractRows = contractEntryMapper.selectList(
-                new LambdaQueryWrapper<RevenueContractEntry>()
-                        .and(w -> w.likeRight(RevenueContractEntry::getSaleMonth, yearPrefix)
-                                .or().isNull(RevenueContractEntry::getSaleMonth)));
+        // 合同严格按项目交付日期年份隔离；交付日期为空单独统计，不泄漏至任何年度。
+        List<RevenueContractEntry> contractRows = contractEntryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>());
         Map<String, BigDecimal> oaContract = new HashMap<>();
         Map<String, BigDecimal[]> deliveredByMonth = new HashMap<>();
         Map<String, Set<String>> contractBucketsByCustomer = new HashMap<>();
+        Map<Long, BigDecimal> lineUnallocatedContract = new HashMap<>();
+        Map<Long, BigDecimal> lineUnallocatedDelivered = new HashMap<>();
+        Map<String, BigDecimal[]> lineUnallocatedDeliveredByMonth = new HashMap<>();
+        Map<Long, BigDecimal> noDeliveryDateByLine = new HashMap<>();
         for (RevenueContractEntry entry : contractRows) {
             if (entry.getReceivableAmount() == null) {
                 continue;
             }
             Long lineId = entry.getBizLineId();
+            if (entry.getDeliveryDate() == null) {
+                if (lineId != null) {
+                    noDeliveryDateByLine.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                }
+                continue;
+            }
+            if (!Objects.equals(entry.getPending(), 0) || lineId == null) {
+                continue;
+            }
+            if (entry.getDeliveryDate().getYear() != year) {
+                continue;
+            }
             String key = deliveryBucketKey(lineId, entry.getProjectId(), lineMode.get(lineId),
                     projectsById, aliasToRoot);
             if (key == null) {
+                if (lineId != null) {
+                    lineUnallocatedContract.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                    if (!entry.getDeliveryDate().isAfter(today)) {
+                        lineUnallocatedDelivered.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                        addMonth(lineUnallocatedDeliveredByMonth, lineId.toString(),
+                                entry.getDeliveryDate().getMonthValue() - 1, entry.getReceivableAmount());
+                    }
+                }
                 continue;
             }
             oaContract.merge(key, entry.getReceivableAmount(), BigDecimal::add);
-            if (entry.getDeliveryDate() != null && entry.getDeliveryDate().getYear() == year
-                    && !entry.getDeliveryDate().isAfter(today)) {
+            if (!entry.getDeliveryDate().isAfter(today)) {
                 int m = entry.getDeliveryDate().getMonthValue() - 1;
                 addMonth(deliveredByMonth, key, m, entry.getReceivableAmount());
             }
@@ -251,11 +270,16 @@ public class RevenueDeliverySummaryService {
         }
 
         // 其他成本：类型×桶×月（仅归属月 <= 当月）
+        // 其他成本：类型×桶×月（仅归属月 <= 当月）；full 线 projectId=null 保留在线级池
         Map<String, Map<String, BigDecimal[]>> otherByType = new HashMap<>();
         for (RevenueOtherCost cost : otherCostMapper.selectList(new LambdaQueryWrapper<RevenueOtherCost>()
                 .likeRight(RevenueOtherCost::getYearMonth, yearPrefix))) {
-            String key = deliveryBucketKey(cost.getBusinessLineId(), cost.getProjectId(),
-                    lineMode.get(cost.getBusinessLineId()), projectsById, aliasToRoot);
+            String mode = lineMode.get(cost.getBusinessLineId());
+            String key = deliveryBucketKey(cost.getBusinessLineId(), cost.getProjectId(), mode,
+                    projectsById, aliasToRoot);
+            if (key == null && cost.getProjectId() == null && cost.getBusinessLineId() != null) {
+                key = "line-unallocated:" + cost.getBusinessLineId();
+            }
             if (key == null || cost.getCostType() == null || cost.getAmountYuan() == null
                     || cost.getYearMonth().compareTo(currentYearMonth) > 0) {
                 continue;
@@ -284,7 +308,6 @@ public class RevenueDeliverySummaryService {
             }
             out.setSalesHours(lineSalesHours);
             out.setSalesCost(lineSalesCost);
-
             RevenueDeliverySummaryVO.ProjectRow totals = newTotalsRow();
             List<RowDef> defs = rowsOfLine.get(line.getId());
             for (RowDef def : defs) {
@@ -304,31 +327,59 @@ public class RevenueDeliverySummaryService {
                 addInto(totals, row);
             }
             addSalesInto(totals, sales, includeEstimate);
-            out.setTotals(totals);
-
-            // 线级全年销售拆分（= ytd 时窗）与未分配原因明细
-            out.setSalesAllocatedHours(totals.getYtd().getAllocatedSalesHours());
-            out.setSalesAllocatedCost(totals.getYtd().getAllocatedSalesCost());
-            out.setSalesUnallocatedHours(totals.getYtd().getUnallocatedSalesHours());
-            out.setSalesUnallocatedCost(totals.getYtd().getUnallocatedSalesCost());
-            Map<String, BigDecimal> reasons = unallocReasonsByLine.get(line.getId());
-            if (reasons != null) {
-                reasons.forEach((code, cost) -> out.getSalesUnallocatedDetail()
-                        .add(item(code, cost)));
+            BigDecimal lineContract = lineUnallocatedContract.getOrDefault(line.getId(), BigDecimal.ZERO);
+            BigDecimal lineDelivered = lineUnallocatedDelivered.getOrDefault(line.getId(), BigDecimal.ZERO);
+            String lineKey = "line-unallocated:" + line.getId();
+            RevenueDeliverySummaryVO.OtherCosts lineOtherH1 = otherCostsOf(otherByType, lineKey, 0, 5);
+            RevenueDeliverySummaryVO.OtherCosts lineOtherH2 = otherCostsOf(otherByType, lineKey, 6, 11);
+            RevenueDeliverySummaryVO.OtherCosts lineOtherYtd = otherCostsOf(otherByType, lineKey, 0, 11);
+            out.setLineUnallocatedContract(lineContract);
+            out.setLineUnallocatedDelivered(lineDelivered);
+            BigDecimal noDate = noDeliveryDateByLine.getOrDefault(line.getId(), BigDecimal.ZERO);
+            out.setNoDeliveryDateContract(noDate);
+            totals.setLineUnallocatedContract(lineContract);
+            totals.setLineUnallocatedDelivered(lineDelivered);
+            totals.setNoDeliveryDateContract(noDate);
+            for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
+                int from = win == totals.getH1() ? 0 : (win == totals.getH2() ? 6 : 0);
+                int to = win == totals.getH1() ? 5 : 11;
+                RevenueDeliverySummaryVO.OtherCosts lineOther = win == totals.getH1()
+                        ? lineOtherH1 : (win == totals.getH2() ? lineOtherH2 : lineOtherYtd);
+                mergeOther(win, lineOther);
+                BigDecimal delivered = BigDecimal.ZERO;
+                BigDecimal[] months = lineUnallocatedDeliveredByMonth.get(String.valueOf(line.getId()));
+                if (months != null) for (int m = from; m <= to; m++) delivered = delivered.add(nz(months[m]));
+                win.setDelivered(add(win.getDelivered(), delivered));
+                recompute(win, includeEstimate);
             }
-            out.getSalesUnallocatedDetail().sort(Comparator
-                    .comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
+            totals.setLineUnallocatedProfit(lineDelivered.subtract(lineSalesCost).subtract(lineOtherYtd.getTotal()));
+            out.setLineUnallocatedProfit(totals.getLineUnallocatedProfit());
+            out.setSalesAllocatedHours(nz(totals.getYtd().getAllocatedSalesHours()));
+            out.setSalesAllocatedCost(nz(totals.getYtd().getAllocatedSalesCost()));
+            out.setSalesUnallocatedHours(nz(totals.getYtd().getUnallocatedSalesHours()));
+            out.setSalesUnallocatedCost(nz(totals.getYtd().getUnallocatedSalesCost()));
+            Map<String, BigDecimal> reasons = unallocReasonsByLine.get(line.getId());
+            if (reasons != null) reasons.forEach((code, cost) -> out.getSalesUnallocatedDetail().add(item(code, cost)));
+            out.getSalesUnallocatedDetail().sort(Comparator.comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
+            out.setTotals(totals);
             vo.getLines().add(out);
         }
 
-        // 整表汇总（YTD 口径，随含预估开关）
         BigDecimal totalOa = BigDecimal.ZERO;
         BigDecimal[] totalsArr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
         Map<String, BigDecimal> globalReasons = new HashMap<>();
+        BigDecimal totalLineContract = BigDecimal.ZERO;
+        BigDecimal totalLineDelivered = BigDecimal.ZERO;
+        BigDecimal totalLineProfit = BigDecimal.ZERO;
+        BigDecimal totalNoDelivery = BigDecimal.ZERO;
         for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
             RevenueDeliverySummaryVO.ProjectRow totals = out.getTotals();
-            totalOa = totalOa.add(totals.getOaContract());
+            totalOa = totalOa.add(totals.getOaContract()).add(nz(out.getLineUnallocatedContract()));
+            totalLineContract = totalLineContract.add(nz(out.getLineUnallocatedContract()));
+            totalLineDelivered = totalLineDelivered.add(nz(out.getLineUnallocatedDelivered()));
+            totalLineProfit = totalLineProfit.add(nz(out.getLineUnallocatedProfit()));
+            totalNoDelivery = totalNoDelivery.add(nz(out.getNoDeliveryDateContract()));
             RevenueDeliverySummaryVO.Window ytd = totals.getYtd();
             totalsArr[0] = totalsArr[0].add(ytd.getDelivered());
             totalsArr[1] = totalsArr[1].add(ytd.getEstimated());
@@ -346,6 +397,10 @@ public class RevenueDeliverySummaryService {
         }
         RevenueDeliverySummaryVO.Overview overview = vo.getOverview();
         overview.setTotalOaContract(totalOa);
+        overview.setTotalLineUnallocatedContract(totalLineContract);
+        overview.setTotalLineUnallocatedDelivered(totalLineDelivered);
+        overview.setTotalLineUnallocatedProfit(totalLineProfit);
+        overview.setTotalNoDeliveryDateContract(totalNoDelivery);
         overview.setTotalDelivered(totalsArr[0]);
         overview.setTotalEstimated(totalsArr[1]);
         overview.setTotalLaborCost(totalsArr[2]);
@@ -492,6 +547,14 @@ public class RevenueDeliverySummaryService {
         other.setServer(add(other.getServer(), src.getOtherCosts().getServer()));
         other.setOther(add(other.getOther(), src.getOtherCosts().getOther()));
         other.setTotal(other.getPartner().add(other.getServer()).add(other.getOther()));
+    }
+
+    private void mergeOther(RevenueDeliverySummaryVO.Window window, RevenueDeliverySummaryVO.OtherCosts source) {
+        RevenueDeliverySummaryVO.OtherCosts target = window.getOtherCosts();
+        target.setPartner(add(target.getPartner(), source.getPartner()));
+        target.setServer(add(target.getServer(), source.getServer()));
+        target.setOther(add(target.getOther(), source.getOther()));
+        target.setTotal(target.getPartner().add(target.getServer()).add(target.getOther()));
     }
 
     /** 线 totals：项目行加总后补该线销售（窗口）工时/成本，拆分已分配/未分配并重算毛利 */

@@ -141,7 +141,7 @@ class RevenueContractImportServiceTest {
                 // 皇家宠物品牌 → 皇家项目（定制线主项目）
                 List.of("HT-1", "RC合同", "皇家宠物", "玛氏", "定制", "全域-全渠道-全域云鹿定制",
                         "2026-06-30", "", "100000", "", "", "2026-06", "2026-06-30", "d1"),
-                // speedo 品牌 → Speedo 项目（行收款类型为精准线，但品牌优先）
+                // 类型精准但品牌 Speedo 属定制线：必须留在精准线，不能跨线到定制项目
                 List.of("HT-2", "CDP短信", "speedo", "攀岚", "CDP", "全域-全渠道-全域私域精准",
                         "2026-10-16", "", "5000", "", "", "2026-08", "2026-08-07", "d2"),
                 // 澳优品牌簇：海普诺凯品牌 → 澳优项目
@@ -165,8 +165,8 @@ class RevenueContractImportServiceTest {
         RevenueImportResultVO result = service.importContracts(file, 16L);
 
         assertThat(result.getTotalCount()).isEqualTo(7);
-        assertThat(result.getPendingCount()).isEqualTo(2);
-        assertThat(result.getSuccessCount()).isEqualTo(5);
+        assertThat(result.getPendingCount()).isEqualTo(3);
+        assertThat(result.getSuccessCount()).isEqualTo(4);
 
         List<RevenueContractEntry> inserted = captured();
         assertThat(inserted).hasSize(7);
@@ -175,13 +175,14 @@ class RevenueContractImportServiceTest {
         assertThat(royal.getBizLineId()).isEqualTo(1L);
         assertThat(royal.getPending()).isZero();
         RevenueContractEntry speedo = entry(inserted, "d2");
-        assertThat(speedo.getProjectId()).isEqualTo(10L);
-        assertThat(speedo.getBizLineId()).isEqualTo(1L);
+        assertThat(speedo.getProjectId()).isNull();
+        assertThat(speedo.getBizLineId()).isEqualTo(6L);
+        assertThat(speedo.getPending()).isZero();
         RevenueContractEntry hipro = entry(inserted, "d3");
-        assertThat(hipro.getProjectId()).isEqualTo(24L);
-        assertThat(hipro.getBizLineId()).isEqualTo(1L);
+        assertThat(hipro.getProjectId()).isNull();
+        assertThat(hipro.getBizLineId()).isNull();
+        assertThat(hipro.getPending()).isEqualTo(1);
         RevenueContractEntry jiabe = entry(inserted, "d4");
-        assertThat(jiabe.getProjectId()).isEqualTo(24L);
         RevenueContractEntry member = entry(inserted, "d5");
         assertThat(member.getProjectId()).isNull();
         assertThat(member.getBizLineId()).isEqualTo(3L);
@@ -294,7 +295,7 @@ class RevenueContractImportServiceTest {
     }
 
     @Test
-    void resolvePendingToAggregateLineLevelAllowedButFullLineRejected() {
+    void resolvePendingToAggregateLineLevelAllowed() {
         RevenueContractEntry pending = new RevenueContractEntry();
         pending.setId(8L);
         pending.setPending(1);
@@ -304,15 +305,15 @@ class RevenueContractImportServiceTest {
         assertThat(pending.getBizLineId()).isEqualTo(3L);
         assertThat(pending.getProjectId()).isNull();
         assertThat(pending.getPending()).isZero();
-
         RevenueContractEntry pending2 = new RevenueContractEntry();
         pending2.setId(9L);
         pending2.setPending(1);
         when(contractEntryMapper.selectById(9L)).thenReturn(pending2);
         when(businessLineMapper.selectById(1L)).thenReturn(line(1L, "全渠道云鹿定制", "full"));
-        assertThatThrownBy(() -> service.resolvePending(9L, null, 1L, 1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("请选择具体项目");
+        service.resolvePending(9L, null, 1L, 1L);
+        assertThat(pending2.getBizLineId()).isEqualTo(1L);
+        assertThat(pending2.getProjectId()).isNull();
+        assertThat(pending2.getPending()).isZero();
     }
 
     @Test

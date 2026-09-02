@@ -204,7 +204,7 @@ class RevenueDeliverySummaryServiceTest {
     void royalRowDeliveredEstimatedAndProfitWithToggle() {
         RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
         RevenueDeliverySummaryVO.ProjectRow royal = projectRow(lineOf(vo, 1L), "皇家项目");
-        assertNum(royal.getOaContract(), "250000");
+        assertNum(royal.getOaContract(), "150000");
         assertThat(royal.getProjectId()).isEqualTo(1L);
         assertThat(royal.getIsAggregate()).isFalse();
 
@@ -313,8 +313,8 @@ class RevenueDeliverySummaryServiceTest {
         RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
         RevenueDeliverySummaryVO.Line custom = lineOf(vo, 1L);
         RevenueDeliverySummaryVO.ProjectRow feihe = projectRow(custom, "飞鹤");
-        // 交付日期为 2025 年的行：只进合同总额，不计已交付
-        assertNum(feihe.getOaContract(), "12345");
+        // 交付日期为 2025 年的行不进入 2026 年合同总额或已交付
+        assertNum(feihe.getOaContract(), "0");
         assertNum(feihe.getYtd().getDelivered(), "0");
         // 未来交付日期的合同（10-15 > 今天）不构成已交付；12 月服务器成本不计
         RevenueDeliverySummaryVO.ProjectRow royal = projectRow(custom, "皇家项目");
@@ -327,8 +327,8 @@ class RevenueDeliverySummaryServiceTest {
     void overviewAggregatesWholeTableWithToggle() {
         RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
         assertThat(vo.getIncludeEstimate()).isTrue();
-        // 250000(皇家) + 12345(飞鹤跨年行只进合同总额) + 600000(会员通) + 30000(产品)
-        assertNum(vo.getOverview().getTotalOaContract(), "892345");
+        // 仅统计 2026 交付日期合同：15万皇家 + 55万会员通 + 3万产品
+        assertNum(vo.getOverview().getTotalOaContract(), "780000");
         assertNum(vo.getOverview().getTotalDelivered(), "330000");
         assertNum(vo.getOverview().getTotalEstimated(), "220000");
         assertNum(vo.getOverview().getTotalLaborCost(), "163000");
@@ -484,5 +484,34 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(vo.getOverview().getTotalAllocatedSalesCost(), "9000");
         assertNum(vo.getOverview().getTotalUnallocatedSalesCost(), "26000");
         assertNum(vo.getOverview().getTotalTrueProfit(), "125000");
+    }
+    @Test
+    void deliveryYearIsIndependentOfSaleMonthAndNullDateIsExcluded() {
+        RevenueContractEntry crossMonth = contract("cross-month", 1L, 1L, "1234", "2025-12", "2026-02-10");
+        RevenueContractEntry noDate = contract("no-date", 1L, 1L, "5678", "2026-02", null);
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(crossMonth, noDate));
+        RevenueDeliverySummaryVO vo = service.summary(2026, false, today);
+        RevenueDeliverySummaryVO.ProjectRow royal = projectRow(lineOf(vo, 1L), "皇家项目");
+        assertNum(royal.getOaContract(), "1234");
+        assertNum(royal.getYtd().getDelivered(), "1234");
+        assertNum(vo.getOverview().getTotalNoDeliveryDateContract(), "5678");
+    }
+
+    @Test
+    void fullLineUnallocatedContractIsInTotalsButNotProjectRows() {
+        RevenueContractEntry lineContract = contract("futian", 1L, null, "4650", "2025-12", "2026-03-01");
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(lineContract));
+        when(otherCostMapper.selectList(any())).thenReturn(List.of(other("2026-03", 1L, null, "server", "100")));
+        RevenueDeliverySummaryVO vo = service.summary(2026, false, today);
+        RevenueDeliverySummaryVO.Line custom = lineOf(vo, 1L);
+        assertNum(custom.getLineUnallocatedContract(), "4650");
+        assertNum(custom.getLineUnallocatedDelivered(), "4650");
+        // line profit = delivered 4650 − line sales cost 8000 − line other cost 100
+        assertNum(custom.getTotals().getLineUnallocatedProfit(), "-3450");
+        assertNum(custom.getTotals().getLineUnallocatedContract(), "4650");
+        assertNum(custom.getTotals().getLineUnallocatedDelivered(), "4650");
+        assertNum(custom.getTotals().getYtd().getOtherCosts().getServer(), "100");
+        assertNum(custom.getTotals().getYtd().getGrossProfit(), "-65450");
+        assertNum(custom.getTotals().getYtd().getTrueProfit(), "-65450");
     }
 }

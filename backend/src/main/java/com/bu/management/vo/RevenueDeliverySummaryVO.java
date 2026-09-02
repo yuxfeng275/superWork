@@ -55,11 +55,18 @@ public class RevenueDeliverySummaryVO {
         private BigDecimal salesUnallocatedCost;
         /** 未分配销售成本原因明细（按原因代码汇总，全年） */
         private List<UnallocatedItem> salesUnallocatedDetail = new ArrayList<>();
+        /** full 业务线已确认但未指定项目的合同收入（不生成项目行） */
+        private BigDecimal lineUnallocatedContract = BigDecimal.ZERO;
+        /** 上述业务线级合同中已交付金额 */
+        private BigDecimal lineUnallocatedDelivered = BigDecimal.ZERO;
+        /** 业务线级收入利润：已交付收入−该线销售成本−业务线级其他成本 */
+        private BigDecimal lineUnallocatedProfit = BigDecimal.ZERO;
+        /** 交付日期为空、未进入任何年度汇总的合同金额 */
+        private BigDecimal noDeliveryDateContract = BigDecimal.ZERO;
         private List<ProjectRow> projects = new ArrayList<>();
         /** 业务线汇总（毛利=项目毛利合计−该线全部销售成本；trueProfit=Σ项目真实利润−未分配销售成本） */
         private ProjectRow totals;
     }
-
     @Data
     public static class ProjectRow {
         /** NULL=业务线聚合行（会员通项目集 / simple 线行） */
@@ -67,8 +74,14 @@ public class RevenueDeliverySummaryVO {
         private String name;
         /** true=业务线聚合行 */
         private Boolean isAggregate;
-        /** 全年 OA 合同总额（元，按收款销售年份口径） */
+        /** 全年 OA 合同总额（元，按交付日期年份口径） */
         private BigDecimal oaContract;
+        /** 业务线级无交付日期合同金额，仅 totals 使用 */
+        private BigDecimal noDeliveryDateContract = BigDecimal.ZERO;
+        /** 业务线级合同字段仅在线 totals 使用，项目行恒为零 */
+        private BigDecimal lineUnallocatedContract = BigDecimal.ZERO;
+        private BigDecimal lineUnallocatedDelivered = BigDecimal.ZERO;
+        private BigDecimal lineUnallocatedProfit = BigDecimal.ZERO;
         private Window h1 = new Window();
         private Window h2 = new Window();
         private Window ytd = new Window();
@@ -133,6 +146,12 @@ public class RevenueDeliverySummaryVO {
         private Boolean includeEstimate;
         /** 全年 OA 合同总额（元） */
         private BigDecimal totalOaContract;
+        /** 已确认业务线级合同（不指定项目）的整表金额 */
+        private BigDecimal totalLineUnallocatedContract = BigDecimal.ZERO;
+        private BigDecimal totalLineUnallocatedDelivered = BigDecimal.ZERO;
+        private BigDecimal totalLineUnallocatedProfit = BigDecimal.ZERO;
+        /** 交付日期为空、未泄漏至任何年度汇总的合同金额 */
+        private BigDecimal totalNoDeliveryDateContract = BigDecimal.ZERO;
         private BigDecimal totalDelivered;
         private BigDecimal totalEstimated;
         /** 总人工成本（项目工时成本 + 预估工时成本(开) + 销售工时成本） */
