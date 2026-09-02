@@ -75,6 +75,32 @@ const navItems: NavSection[] = [
     ]
   }
 ]
+// 菜单授权：角色管理配置的菜单权限从后端读取；角色无任何授权时回退岗位默认
+const menuAuth = ref<{ allowed: Set<string>; managed: Set<string> } | null>(null)
+
+const loadMenuAuth = async () => {
+  try {
+    const payload = await api.getMyMenus()
+    const paths = Array.isArray(payload?.paths) ? payload.paths : []
+    if (paths.length === 0) return   // 无授权记录 → 保持岗位默认，避免锁死
+    menuAuth.value = {
+      allowed: new Set(paths),
+      managed: new Set(Array.isArray(payload?.managedPaths) ? payload.managedPaths : [])
+    }
+  } catch {
+    menuAuth.value = null
+  }
+}
+
+const menuPathAlias = (path: string) => path === '/' ? '/home' : path
+
+const menuAuthorized = (path: string) => {
+  if (!menuAuth.value) return true
+  const alias = menuPathAlias(path)
+  if (!menuAuth.value.managed.has(alias)) return true   // 未纳管菜单（如营收管理）不受授权影响
+  return menuAuth.value.allowed.has(alias)
+}
+
 
 const visibleNavItems = computed(() =>
   navItems
@@ -82,6 +108,7 @@ const visibleNavItems = computed(() =>
       ...section,
       items: section.items.filter(item =>
         (!item.access || hasRoleAccess(authStore.user?.role, item.access))
+        && menuAuthorized(item.path)
         && (!item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
       )
     }))
@@ -123,7 +150,8 @@ const loadRequirementBadge = async () => {
 onMounted(() => {
   void Promise.allSettled([
     loadRequirementBadge(),
-    authStore.loadKeyMatterAccess()
+    authStore.loadKeyMatterAccess(),
+    loadMenuAuth()
   ])
 })
 </script>

@@ -142,6 +142,43 @@ const dataScopeValue = ref('')
 const selectedBusinessLineIds = ref<number[]>([])
 const selectedProjectIds = ref<number[]>([])
 
+// 全部菜单 ID（用于默认展开与全选）；初始勾选快照（用于变更预览）
+const allMenuIds = computed(() => {
+  const ids: number[] = []
+  const walk = (nodes: Menu[]) => nodes.forEach(node => { ids.push(node.id); if (node.children?.length) walk(node.children) })
+  walk(menuTree.value)
+  return ids
+})
+const initialMenuKeys = ref<number[]>([])
+
+const checkAllMenus = () => {
+  checkedMenuKeys.value = [...allMenuIds.value]
+}
+
+const clearAllMenus = () => {
+  checkedMenuKeys.value = []
+}
+
+const menuNameById = (id: number): string => {
+  for (const menu of menuTree.value) {
+    if (menu.id === id) return menu.name
+    for (const child of menu.children || []) {
+      if (child.id === id) return `${menu.name}/${child.name}`
+    }
+  }
+  return String(id)
+}
+
+const authChangeSummary = (nextMenuIds: Set<number>): string => {
+  const initial = new Set(initialMenuKeys.value)
+  const added = [...nextMenuIds].filter(id => !initial.has(id)).map(menuNameById)
+  const removed = [...initial].filter(id => !nextMenuIds.has(id)).map(menuNameById)
+  const parts: string[] = []
+  if (added.length) parts.push(`新增 ${added.length} 项：${added.join('、')}`)
+  if (removed.length) parts.push(`移除 ${removed.length} 项：${removed.join('、')}`)
+  return parts.join('<br/>')
+}
+
 // Build menu tree
 const buildMenuTree = (menus: Menu[]): Menu[] => {
   const nodeMap = new Map<number, Menu & { children: Menu[] }>()
@@ -339,6 +376,7 @@ const openAuthDialog = async (row: Role) => {
     allPermissions.value = Array.isArray(permissions) ? permissions : []
 
     checkedMenuKeys.value = auth.menuIds || []
+    initialMenuKeys.value = [...checkedMenuKeys.value]
 
     // Build button state map: group permission IDs by menu_id
     const permByMenu = new Map<number, number[]>()
@@ -406,9 +444,23 @@ const handleSaveAuth = async () => {
   authLoading.value = true
   try {
     // Collect all checked menu IDs + parent menus
-    const allMenuIds = new Set<number>(checkedMenuKeys.value)
+    const finalMenuIds = new Set<number>(checkedMenuKeys.value)
     for (const mid of checkedMenuKeys.value) {
-      findParentMenuIds(mid, menuTree.value).forEach(id => allMenuIds.add(id))
+      findParentMenuIds(mid, menuTree.value).forEach(id => finalMenuIds.add(id))
+    }
+
+    const summary = authChangeSummary(finalMenuIds)
+    if (summary) {
+      try {
+        await ElMessageBox.confirm(summary, '确认以下授权变更', {
+          confirmButtonText: '确认保存',
+          cancelButtonText: '继续修改',
+          dangerouslyUseHTMLString: true,
+          type: 'info'
+        })
+      } catch {
+        return
+      }
     }
 
     // Collect all button permission IDs from cache
@@ -425,12 +477,13 @@ const handleSaveAuth = async () => {
 
     await api.assignRoleAuthorization(
       currentRoleId.value,
-      Array.from(allMenuIds),
+      Array.from(finalMenuIds),
       Array.from(allPermIds),
       dataScope.value,
       dataScopeValue.value
     )
     ElMessage.success('授权配置已保存')
+    initialMenuKeys.value = [...checkedMenuKeys.value]
     authDialogVisible.value = false
   } catch (error) {
     console.error('保存授权失败:', error)
@@ -591,8 +644,14 @@ watch(dataScope, scope => {
       <div v-loading="authLoading" class="auth-layout">
         <div class="auth-columns">
           <div class="auth-menu-col auth-menu">
-            <div class="menu-col-header">菜单权限</div>
-            <el-tree ref="menuTreeRef" :data="menuTree" :props="{ label: 'name', children: 'children' }" show-checkbox node-key="id" v-model:checked-keys="checkedMenuKeys" @node-click="handleNodeClick" :check-strictly="false" />
+            <div class="menu-col-header">
+              <span>菜单权限</span>
+              <span class="menu-col-actions">
+                <el-button link type="primary" size="small" aria-label="菜单全选" @click="checkAllMenus">全选</el-button>
+                <el-button link size="small" aria-label="菜单清空" @click="clearAllMenus">清空</el-button>
+              </span>
+            </div>
+            <el-tree ref="menuTreeRef" :data="menuTree" :props="{ label: 'name', children: 'children' }" show-checkbox node-key="id" v-model:checked-keys="checkedMenuKeys" :default-expanded-keys="allMenuIds" @node-click="handleNodeClick" :check-strictly="false" />
           </div>
           <div class="auth-right-col">
             <div class="panel-section auth-buttons">
@@ -727,7 +786,7 @@ watch(dataScope, scope => {
 /* ========== 授权弹窗 ========== */
 .auth-layout { min-height: 520px; }
 .auth-columns { display: flex; gap: 16px; min-height: 520px; }
-.menu-col-header { font-size: 14px; font-weight: 600; color: var(--gray-700); margin-bottom: 8px; padding-left: 6px; }
+.menu-col-header { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; color: var(--gray-700); margin-bottom: 8px; padding-left: 6px; }
 .auth-menu-col { flex: 0 0 340px; overflow-y: auto; border: 1px solid var(--gray-200); border-radius: 8px; padding: 14px; }
 .auth-right-col { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0; min-height: 520px; }
 .panel-section { flex-shrink: 0; padding: 12px 16px; }

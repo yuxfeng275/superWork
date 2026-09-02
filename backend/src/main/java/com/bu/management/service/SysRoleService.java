@@ -303,6 +303,48 @@ public class SysRoleService extends ServiceImpl<SysRoleMapper, SysRole> {
         removeById(id);
     }
 
+    /**
+     * 当前用户可见菜单路径：管理员角色给全部启用菜单；普通角色按 sys_role_menu 授权；
+     * 角色没有任何菜单授权时返回空列表（前端回退到岗位默认可见范围）。
+     */
+    public List<String> getMenuPathsByUserId(Long userId) {
+        List<SysRole> roles = getRolesByUserId(userId);
+        if (roles.isEmpty()) {
+            return List.of();
+        }
+        if (roles.stream().anyMatch(role -> PositionRoles.isAdminRole(role.getCode()))) {
+            return sysMenuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
+                            .eq(SysMenu::getStatus, 1)).stream()
+                    .map(SysMenu::getPath)
+                    .distinct()
+                    .toList();
+        }
+        List<Long> roleIds = roles.stream().map(SysRole::getId).toList();
+        List<Long> menuIds = sysRoleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
+                        .in(SysRoleMenu::getRoleId, roleIds)).stream()
+                .map(SysRoleMenu::getMenuId)
+                .distinct()
+                .toList();
+        if (menuIds.isEmpty()) {
+            return List.of();
+        }
+        return sysMenuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
+                        .in(SysMenu::getId, menuIds)
+                        .eq(SysMenu::getStatus, 1)).stream()
+                .map(SysMenu::getPath)
+                .distinct()
+                .toList();
+    }
+
+    /** 菜单管理覆盖的所有路径（前端据此区分「受菜单授权管控」与「未纳管」菜单项） */
+    public List<String> getManagedMenuPaths() {
+        return sysMenuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
+                        .eq(SysMenu::getStatus, 1)).stream()
+                .map(SysMenu::getPath)
+                .distinct()
+                .toList();
+    }
+
     public List<String> getPermissionCodesByUserId(Long userId) {
         List<SysRole> roles = getRolesByUserId(userId);
         if (roles.isEmpty()) {

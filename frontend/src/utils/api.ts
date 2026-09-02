@@ -1392,6 +1392,11 @@ class ApiService {
     return this.request<string[]>('/api/seeyon-oa/sync', { method: 'POST' })
   }
 
+  // 当前用户菜单授权（角色管理配置生效）
+  async getMyMenus(): Promise<{ paths: string[]; managedPaths: string[] }> {
+    return this.request<{ paths: string[]; managedPaths: string[] }>('/api/auth/my-menus')
+  }
+
   // Revenue management APIs（工时与成本）
   async getRevenueMatrix(year: number): Promise<RevenueMatrix> {
     return this.request<RevenueMatrix>(`/api/revenue/matrix?year=${year}`)

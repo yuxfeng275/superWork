@@ -59,6 +59,9 @@ class SecurityConfigTest {
     @MockBean
     private PermissionInterceptor permissionInterceptor;
 
+    @MockBean
+    private com.bu.management.service.SysRoleService sysRoleService;
+
     @Test
     void anonymousRegistrationIsRejected() throws Exception {
         when(authService.register(any())).thenReturn(AuthResponse.builder().build());

@@ -10,6 +10,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import com.bu.management.service.SysRoleService;
+import java.util.List;
+import java.util.Map;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +33,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final SysRoleService sysRoleService;
+
 
     /**
      * 用户注册
@@ -48,5 +55,17 @@ public class AuthController {
     public Result<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         AuthResponse response = authService.login(request);
         return Result.success("登录成功", response);
+    }
+
+
+    /**
+     * 当前用户可见菜单路径（按角色菜单授权计算，无任何授权时返回空，前端回退岗位默认）
+     */
+    @Operation(summary = "当前用户菜单", description = "返回当前用户被授权的菜单路径与全部受管菜单路径")
+    @GetMapping("/my-menus")
+    public Result<Map<String, List<String>>> myMenus(@RequestAttribute("userId") Long userId) {
+        return Result.success(Map.of(
+                "paths", sysRoleService.getMenuPathsByUserId(userId),
+                "managedPaths", sysRoleService.getManagedMenuPaths()));
     }
 }
