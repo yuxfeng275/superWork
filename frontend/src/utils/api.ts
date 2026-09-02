@@ -1623,10 +1623,14 @@ class ApiService {
     return this.request<DeliveryPendingContract[]>('/api/revenue/contracts/pending')
   }
 
-  async resolvePendingDeliveryContract(id: number, projectId: number): Promise<void> {
+  /** 待映射合同归属：projectId=落具体项目；否则 businessLineId=业务线级（不落项目，后端合同契约支持） */
+  async resolvePendingDeliveryContract(id: number, projectId?: number | null, businessLineId?: number | null): Promise<void> {
+    const body: Record<string, number> = {}
+    if (projectId != null) body.projectId = projectId
+    if (businessLineId != null) body.businessLineId = businessLineId
     await this.request<void>(`/api/revenue/contracts/pending/${id}/resolve`, {
       method: 'POST',
-      body: JSON.stringify({ projectId })
+      body: JSON.stringify(body)
     })
   }
 

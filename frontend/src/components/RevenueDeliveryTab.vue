@@ -17,7 +17,7 @@ import type {
   DeliveryUnallocatedItem
 } from '@/types/revenue'
 
-interface BusinessLineOption { id: number; name: string }
+interface BusinessLineOption { id: number; name: string; revenueMode?: string }
 interface ProjectOption { id: number; name: string; businessLineId?: number }
 
 type PeriodKey = 'h1' | 'h2' | 'ytd'
@@ -60,6 +60,14 @@ interface RowContext {
   oaContract: number | null
   /** 业务线小计行展示的未分配销售说明（不分摊到项目） */
   salesNote: string | null
+  /** 业务线级未落项目合同的说明文案（如福田定制），null=无 */
+  lineContractNote: string | null
+  /** 业务线级未落项目合同总额/已交付/利润（元，无则 0/null） */
+  lineUnallocatedContract: number
+  lineUnallocatedDelivered: number
+  lineUnallocatedProfit: number | null
+  /** 交付日期为空合同的说明文案（null=无） */
+  noDateNote: string | null
   /** 未分配销售原因明细行（全年，抽屉展示） */
   detailReasons: string[]
   lineSpan: number
@@ -104,6 +112,19 @@ const formatWan = (value?: number | null) => {
 const formatRate = (value?: number | null) => {
   if (value == null) return '—'
   return `${Math.round(Number(value) * 100) / 100}%`
+}
+
+// ---------- 列提示与业务线级合同说明 ----------
+/** H1/H2/YTD 头部提示：已交付按合同交付日期归集 */
+const groupTip = (group: { key: PeriodKey; label: string }) =>
+  `${group.label}：实际已交付金额按合同交付日期（delivery_date）归入本窗口，年份与交付日期年份一致`
+
+/** 业务线级合同说明 tooltip（金额已含在上方合计/明细中） */
+const lineContractTip = (row: RowContext) => {
+  if (!row.lineContractNote) return undefined
+  const parts: string[] = [row.lineContractNote]
+  parts.push('该类合同不生成项目行，在业务线/整表合计行列示；合同先归业务线再按品牌归属项目，前端不再跨业务线重算。')
+  return parts.join('。')
 }
 
 // ---------- 汇总数据加载 ----------
@@ -165,7 +186,8 @@ const batchesLoading = ref(false)
 const batches = ref<DeliveryContractBatch[]>([])
 const pendingLoading = ref(false)
 const pendingContracts = ref<DeliveryPendingContract[]>([])
-const pendingDrafts = reactive({} as Record<number, number | undefined>)
+// 归属值：number=真实项目；'line'=业务线级（不落具体项目，福田等）
+const pendingDrafts = reactive({} as Record<number, number | 'line' | undefined>)
 const resolvingId = ref<number | null>(null)
 
 const loadBatches = async () => {
@@ -219,11 +241,12 @@ const pendingLineName = (row: DeliveryPendingContract) =>
   ?? row.bizLineRaw
   ?? '—'
 
+/** 归属项目候选：解析出业务线则只给该线项目（会员通等聚合线为空则仅业务线级）；未解析出业务线才给全量项目 */
 const pendingProjectsOf = (row: DeliveryPendingContract) => {
-  const ofLine = row.bizLineId != null
-    ? projects.value.filter(item => item.businessLineId === row.bizLineId)
-    : []
-  return ofLine.length ? ofLine : projects.value
+  if (row.bizLineId != null) {
+    return projects.value.filter(item => item.businessLineId === row.bizLineId)
+  }
+  return projects.value
 }
 
 const projectOptionLabel = (item: ProjectOption) => {
@@ -232,15 +255,24 @@ const projectOptionLabel = (item: ProjectOption) => {
 }
 
 const resolvePendingRow = async (row: DeliveryPendingContract) => {
-  const projectId = pendingDrafts[row.id]
-  if (!projectId) {
-    ElMessage.warning('请先选择归属项目')
+  const draft = pendingDrafts[row.id]
+  if (draft == null) {
+    ElMessage.warning('请先选择归属：具体项目或业务线级')
+    return
+  }
+  if (draft === 'line' && row.bizLineId == null) {
+    ElMessage.warning('该合同未解析出业务线，请先选择具体项目')
     return
   }
   resolvingId.value = row.id
   try {
-    await api.resolvePendingDeliveryContract(row.id, projectId)
-    ElMessage.success('合同已映射到项目')
+    if (draft === 'line') {
+      await api.resolvePendingDeliveryContract(row.id, null, row.bizLineId)
+      ElMessage.success('合同已归入业务线级收入（不落具体项目）')
+    } else {
+      await api.resolvePendingDeliveryContract(row.id, draft)
+      ElMessage.success('合同已映射到项目')
+    }
     delete pendingDrafts[row.id]
     await Promise.all([loadPending(), refreshSummary()])
   } catch (error) {
@@ -303,7 +335,6 @@ const windowView = (window?: DeliveryPeriodBlock | null): PeriodView => {
     trueProfitRate: window?.trueProfitRate ?? null
   }
 }
-
 const projectRow = (line: DeliverySummaryLine, project: DeliveryProjectRow, lineSpan: number): RowContext => ({
   kind: 'project',
   lineId: line.businessLineId,
@@ -313,6 +344,11 @@ const projectRow = (line: DeliverySummaryLine, project: DeliveryProjectRow, line
   isAggregate: project.isAggregate,
   oaContract: num(project.oaContract),
   salesNote: null,
+  lineContractNote: null,
+  lineUnallocatedContract: 0,
+  lineUnallocatedDelivered: 0,
+  lineUnallocatedProfit: null,
+  noDateNote: null,
   detailReasons: [],
   lineSpan,
   periods: {
@@ -321,6 +357,19 @@ const projectRow = (line: DeliverySummaryLine, project: DeliveryProjectRow, line
     ytd: windowView(project.ytd)
   }
 })
+
+/** 业务线级未落具体项目合同的说明文案（如福田定制），无金额则 null */
+const lineContractNoteText = (contract: number, delivered: number, profit: number | null) => {
+  const parts: string[] = []
+  if (contract > 0) parts.push(`合同 ${formatWan(contract)} 万`)
+  if (delivered > 0) parts.push(`已交付 ${formatWan(delivered)} 万`)
+  if (profit != null && profit !== 0) parts.push(`利润 ${formatWan(profit)} 万`)
+  return parts.length ? `业务线级合同（未落具体项目）：${parts.join(' · ')}` : null
+}
+
+/** 交付日期为空合同的说明文案（未计入任何年份窗口），无则 null */
+const noDateNoteText = (amount: number) =>
+  amount > 0 ? `另有 ${formatWan(amount)} 万合同交付日期为空，未计入任何年份/H1/H2/YTD 窗口` : null
 
 /** 业务线小计：直接使用服务端 totals 窗口（含线级销售拆分与重算后的利润） */
 const lineTotalRow = (line: DeliverySummaryLine): RowContext => {
@@ -331,13 +380,25 @@ const lineTotalRow = (line: DeliverySummaryLine): RowContext => {
   const salesNote = hasUnallocated
     ? `未分配销售 ${formatHours(unallocatedHours)} 人月 · ${formatWan(unallocatedCost)} 万（仅扣业务线利润，不分摊到项目）`
     : null
+  // 业务线级未落项目合同（福田等）：优先 totals 镜像，缺字段回退 Line 级；后端未落地按 0/null
+  const lineUnallocatedContract = num(line.totals?.lineUnallocatedContract ?? line.lineUnallocatedContract)
+  const lineUnallocatedDelivered = num(line.totals?.lineUnallocatedDelivered ?? line.lineUnallocatedDelivered)
+  const profitRaw = line.totals?.lineUnallocatedProfit ?? line.lineUnallocatedProfit
+  const lineUnallocatedProfit = profitRaw == null ? null : num(profitRaw)
+  // OA 列含业务线级合同：服务端 overview.totalOaContract 即按此口径；字段未落地时 +0 不回归
+  const oaWithLine = num(line.totals?.oaContract) + lineUnallocatedContract
   return {
     kind: 'line',
     lineId: line.businessLineId,
     lineName: line.businessLineName,
     name: line.totals?.name || '合计',
-    oaContract: num(line.totals?.oaContract),
+    oaContract: oaWithLine,
     salesNote,
+    lineContractNote: lineContractNoteText(lineUnallocatedContract, lineUnallocatedDelivered, lineUnallocatedProfit),
+    lineUnallocatedContract,
+    lineUnallocatedDelivered,
+    lineUnallocatedProfit,
+    noDateNote: noDateNoteText(num(line.noDeliveryDateContract)),
     detailReasons: reasons,
     lineSpan: 0,
     periods: {
@@ -357,14 +418,24 @@ const grandTotalRow = (data: DeliverySummary): RowContext => {
   }))
   const sumOf = (key: PeriodKey) => sumViews(views.map(v => v[key]))
   const oaContract = data.lines.reduce((sum, line) => sum + num(line.totals?.oaContract), 0)
+  const overview = data.overview || {}
+  const lineUnallocatedContract = num(overview.totalLineUnallocatedContract)
+  const lineUnallocatedDelivered = num(overview.totalLineUnallocatedDelivered)
+  const profitRaw = overview.totalLineUnallocatedProfit
+  const lineUnallocatedProfit = profitRaw == null ? null : num(profitRaw)
   return {
     kind: 'grand',
     lineId: 0,
     lineName: '合计',
     name: '全表',
-    oaContract,
+    oaContract: oaContract + lineUnallocatedContract,
     salesNote: null,
-    detailReasons: (data.overview?.salesUnallocatedDetail || []).map(describeUnallocated),
+    lineContractNote: lineContractNoteText(lineUnallocatedContract, lineUnallocatedDelivered, lineUnallocatedProfit),
+    lineUnallocatedContract,
+    lineUnallocatedDelivered,
+    lineUnallocatedProfit,
+    noDateNote: noDateNoteText(num(overview.totalNoDeliveryDateContract)),
+    detailReasons: (overview.salesUnallocatedDetail || []).map(describeUnallocated),
     lineSpan: 0,
     periods: { h1: sumOf('h1'), h2: sumOf('h2'), ytd: sumOf('ytd') }
   }
@@ -491,9 +562,20 @@ const openProfitDetail = (row: RowContext, period: PeriodKey) => {
   profitRows.value = items
   profitSummary.label = includeEstimate.value ? '含预估口径' : '只看实际口径'
   profitSummary.rate = formatRate(rateOf(view))
-  profitNotes.value = period === 'ytd' && row.detailReasons.length
-    ? [`未分配销售成本原因：${row.detailReasons.join('；')}`]
-    : []
+  const notes: string[] = []
+  if (period === 'ytd' && row.detailReasons.length) {
+    notes.push(`未分配销售成本原因：${row.detailReasons.join('；')}`)
+  }
+  if (period === 'ytd' && row.lineContractNote) {
+    notes.push(`业务线级合同（未落具体项目，如福田定制）：合同 ${formatWan(row.lineUnallocatedContract)} 万 · 已交付 ${formatWan(row.lineUnallocatedDelivered)} 万${row.lineUnallocatedProfit != null && row.lineUnallocatedProfit !== 0 ? ` · 利润 ${formatWan(row.lineUnallocatedProfit)} 万` : ''}。该类收入不生成项目行，按业务线/整表口径计入。`)
+  }
+  if (row.kind === 'grand' && period === 'ytd') {
+    const noDate = num(summary.value?.overview?.totalNoDeliveryDateContract)
+    if (noDate > 0) {
+      notes.push(`另有 ${formatWan(noDate)} 万合同交付日期为空，未计入任何年份/H1/H2/YTD 窗口（按项目交付日期口径）`)
+    }
+  }
+  profitNotes.value = notes
   profitDrawer.value = true
 }
 
@@ -851,6 +933,8 @@ defineExpose({ reload: () => refreshSummary() })
           「销售工时/销售成本」：项目行 = 成单销售（已分配，有明确成单证据才计入）；
           小计/合计行 = 未分配销售（仅扣业务线/整表利润，<b>不分摊到项目</b>）。
           「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。
+          H1/H2/YTD 已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。
+          业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行单独列示，不消失。
         </div>
 
         <div class="matrix-scroll">
@@ -860,7 +944,13 @@ defineExpose({ reload: () => refreshSummary() })
                 <th class="col-line" rowspan="2">业务线</th>
                 <th class="col-project" rowspan="2">项目</th>
                 <th class="col-oa" rowspan="2">OA 合同总额<br><small>万元</small></th>
-                <th v-for="group in periodGroups" :key="group.key" class="group-head" :colspan="periodColumns.length">{{ group.label }}</th>
+                <th
+                  v-for="group in periodGroups"
+                  :key="group.key"
+                  class="group-head"
+                  :colspan="periodColumns.length"
+                  :title="groupTip(group)"
+                >{{ group.label }}<br><small class="period-basis">按交付日期</small></th>
                 <th class="col-actions" rowspan="2">操作</th>
               </tr>
               <tr>
@@ -879,6 +969,12 @@ defineExpose({ reload: () => refreshSummary() })
                   <td class="col-project">
                     {{ row.name }}
                     <small v-if="row.salesNote" class="sales-note">{{ row.salesNote }}</small>
+                    <small
+                      v-if="row.lineContractNote"
+                      class="sales-note contract-note"
+                      :title="lineContractTip(row)"
+                    >{{ row.lineContractNote }}</small>
+                    <small v-if="row.noDateNote" class="sales-note no-date-note" :title="row.noDateNote">{{ row.noDateNote }}</small>
                   </td>
                   <td class="col-oa">{{ row.oaContract == null || row.oaContract === 0 ? '—' : formatWan(row.oaContract) }}</td>
                   <template v-for="group in periodGroups" :key="`g-${rowKey(row)}-${group.key}`">
@@ -936,7 +1032,7 @@ defineExpose({ reload: () => refreshSummary() })
       <div ref="pendingSection" class="pending-section">
         <div class="estimate-head">
           <h4>待映射合同（{{ pendingContracts.length }}）</h4>
-          <span class="section-note">仅需映射到真实项目；会员通聚合（项目集）合同在导入时已自动归属。</span>
+          <span class="section-note">两级归属：真实项目（合同计入该项目行），或业务线级（福田等定制合同不落具体项目，计入业务线级合同列）。会员通聚合（项目集）合同在导入时已自动归属。</span>
         </div>
         <el-table v-loading="pendingLoading" :data="pendingContracts" class="data-table" empty-text="暂无待映射合同">
           <el-table-column label="品牌/客户" width="130">
@@ -954,15 +1050,20 @@ defineExpose({ reload: () => refreshSummary() })
           <el-table-column label="应收金额(万)" width="110">
             <template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template>
           </el-table-column>
-          <el-table-column label="归属项目" width="240">
+          <el-table-column label="归属（业务线级/项目）" width="260">
             <template #default="{ row }">
               <el-select
                 :model-value="pendingDrafts[row.id]"
                 filterable
                 clearable
-                placeholder="选择真实项目"
-                @change="(value: number | undefined) => pendingDrafts[row.id] = value"
+                placeholder="选择业务线级或真实项目"
+                @change="(value: number | 'line' | undefined) => pendingDrafts[row.id] = value"
               >
+                <el-option
+                  v-if="row.bizLineId != null"
+                  :value="'line' as const"
+                  :label="`业务线级 · ${pendingLineName(row)}（不落具体项目）`"
+                />
                 <el-option
                   v-for="option in pendingProjectsOf(row)"
                   :key="option.id"
@@ -1288,6 +1389,27 @@ defineExpose({ reload: () => refreshSummary() })
   color: #64748b;
   font-size: 11px;
   font-weight: 400;
+}
+
+.contract-note {
+  color: #0f766e;
+  max-width: 320px;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.no-date-note {
+  color: #b45309;
+  max-width: 320px;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.period-basis {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .cell {

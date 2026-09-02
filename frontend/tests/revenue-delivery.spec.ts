@@ -217,6 +217,32 @@ const makeSummary = (includeEstimate: boolean) => ({
     }
 })
 
+/** 业务线级未落项目合同（福田等）：叠加字段 + 保持窗口/合计口径自洽（金额元） */
+const withLineLevelContract = (summary: ReturnType<typeof makeSummary>, amount = 4650): ReturnType<typeof makeSummary> => {
+  const clone = structuredClone(summary)
+  const line = clone.lines[0]
+  line.lineUnallocatedContract = amount
+  line.lineUnallocatedDelivered = amount
+  line.lineUnallocatedProfit = amount
+  if (line.totals) {
+    line.totals.lineUnallocatedContract = amount
+    line.totals.lineUnallocatedDelivered = amount
+    line.totals.lineUnallocatedProfit = amount
+    line.totals.ytd = {
+      ...line.totals.ytd,
+      delivered: (line.totals.ytd?.delivered || 0) + amount
+    }
+  }
+  const ov = clone.overview
+  ov.totalLineUnallocatedContract = amount
+  ov.totalLineUnallocatedDelivered = amount
+  ov.totalLineUnallocatedProfit = amount
+  ov.totalOaContract = (ov.totalOaContract || 0) + amount
+  ov.totalDelivered = (ov.totalDelivered || 0) + amount
+  ov.totalTrueProfit = (ov.totalTrueProfit || 0) + amount
+  return clone
+}
+
 const matrix = {
   year: 2026,
   months: [],
@@ -493,47 +519,78 @@ test('待映射合同可归属到真实项目并刷新', async ({ page }) => {
   await expect(panel.locator('.pending-section h4')).toContainText('0')
 })
 
-test('其他成本新增：断言 POST payload', async ({ page }) => {
+
+
+test('业务线级合同（福田定制不落项目）在业务线合计与整表合计可见，含交付日期口径提示', async ({ page }) => {
+  // 定制线叠加业务线级未落项目合同（4650 元 = 0.47 万）
+  await page.route('**/api/revenue/delivery/summary**', route => {
+    const url = new URL(route.request().url())
+    const includeEstimate = url.searchParams.get('includeEstimate') === 'true'
+    return fulfill(route, withLineLevelContract(makeSummary(includeEstimate)))
+  })
   const panel = await openDeliveryPanel(page)
-  const speedoRow = dataRow(panel, 'Speedo')
+  const table = panel.locator('.matrix-table')
 
-  await speedoRow.getByRole('button', { name: '其他成本' }).click()
-  const dialog = page.getByRole('dialog', { name: /其他成本/ })
-  await expect(dialog).toBeVisible()
+  // 业务线合计行：线级合同说明 + OA 列含线级合同金额
+  const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
+  await expect(lineTotalRow).toContainText('业务线级合同（未落具体项目）')
+  await expect(lineTotalRow).toContainText('合同 0.47 万')
+  await expect(lineTotalRow).toContainText('已交付 0.47 万')
+  await expect(lineTotalRow.locator('td').nth(2)).toContainText('280.46') // OA=280万+0.47万（0.465 浮点进位显示 280.46）
 
-  const formRow = dialog.locator('.cost-form-row')
-  // 月份
-  await formRow.locator('.el-select').nth(0).locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: '09月' }).last().click()
-  // 类型：服务器成本
-  await formRow.locator('.el-select').nth(1).locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: '服务器成本' }).click()
+  // 整表合计行：线级合同不消失
+  const grandRow = table.locator('tbody tr.grand-total-row')
+  await expect(grandRow).toContainText('业务线级合同（未落具体项目）')
+  await expect(grandRow).toContainText('已交付 0.47 万')
 
-  const amountInput = formRow.locator('.el-input-number input')
-  await amountInput.click()
-  await amountInput.press('Meta+A')
-  await amountInput.pressSequentially('12')
-  await amountInput.press('Tab')
-  await dialog.getByPlaceholder('备注（可留空）').fill('9月服务器资源费')
+  // delivery_date 口径：图例 + 列头提示
+  await expect(panel.locator('.matrix-legend')).toContainText('按合同交付日期（delivery_date）')
+  const groupHead = table.locator('thead .group-head').first()
+  await expect(groupHead).toContainText('按交付日期')
+  await expect(groupHead).toHaveAttribute('title', /delivery_date/)
 
-  const posted: unknown[] = []
-  await page.route('**/api/revenue/other-costs', route => {
-    if (route.request().method() === 'POST') {
-      posted.push(route.request().postDataJSON())
-      return fulfill(route, { id: 71 })
+  // includeEstimate 联动不回归：切实际口径仍显示线级合同（不消失）
+  await panel.getByRole('button', { name: '只看实际' }).click()
+  await expect(overviewCell(panel, 5)).toContainText('90') // 实际口径利润（回归锚点）
+  await expect(table.locator('tbody tr.line-total-row').first()).toContainText('业务线级合同（未落具体项目）')
+})
+
+test('待映射合同可归属业务线级（不落具体项目），POST 携带 businessLineId', async ({ page }) => {
+  await page.goto('/revenue')
+  pendingContracts = [
+    {
+      id: 31,
+      brand: '北汽福田',
+      customer: null,
+      contractNo: 'FT-2026-002',
+      detailNo: '20260902000031',
+      contractName: '北汽福田定制开发服务合同',
+      itemDesc: '定制开发',
+      bizLineRaw: '全域-全渠道-全域云鹿定制',
+      bizLineId: 1,
+      receivableAmount: 4650,
+      saleMonth: '2026-09',
+      pending: 1
     }
-    return fulfill(route, [])
-  })
-  await dialog.getByRole('button', { name: '添加' }).click()
+  ]
+  await page.getByRole('tab', { name: '交付与利润' }).click()
+  const panel = page.getByRole('tabpanel', { name: '交付与利润' })
 
-  await expect(page.locator('.el-message')).toContainText('其他成本已添加')
-  expect(posted).toHaveLength(1)
-  expect(posted[0]).toEqual({
-    yearMonth: '2026-09',
-    businessLineId: 1,
-    projectId: 102,
-    costType: 'server',
-    amountYuan: 120000,
-    note: '9月服务器资源费'
-  })
+  const pendingTable = panel.locator('.pending-section .data-table')
+  await expect(pendingTable).toContainText('FT-2026-002')
+
+  const row = pendingTable.locator('tr', { hasText: 'FT-2026-002' })
+  // 归属选择包含「业务线级 · 全渠道云鹿定制（不落具体项目）」
+  await row.locator('.el-select__wrapper').click()
+  const lineLevelOption = page.getByRole('option', { name: '业务线级 · 全渠道云鹿定制（不落具体项目）' })
+  await expect(lineLevelOption).toBeVisible()
+  await lineLevelOption.click()
+
+  const resolveRequest = page.waitForRequest(request =>
+    /\/api\/revenue\/contracts\/pending\/31\/resolve$/.test(request.url()) && request.method() === 'POST')
+  await row.getByRole('button', { name: '确定' }).click()
+
+  expect((await resolveRequest).postDataJSON()).toEqual({ businessLineId: 1 })
+  await expect(page.locator('.el-message')).toContainText('合同已归入业务线级收入')
+  await expect(pendingTable).toContainText('暂无待映射合同')
 })

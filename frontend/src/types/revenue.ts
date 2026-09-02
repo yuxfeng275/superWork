@@ -223,8 +223,23 @@ export interface DeliveryPeriodBlock {
   trueProfitRate?: number | null
 }
 
+/**
+ * 业务线级未落具体项目的合同（如福田定制型业务线级合同）：不进 projects 项目行，
+ * 只在业务线级汇总可追溯。金额单位元。后端尚未全部落地时字段整体缺失，按 0 兼容回退。
+ * - lineUnallocated*：业务线级未落项目合同口径（总额/已交付/利润）。
+ * totals 行同名字段为业务线级镜像，全表 overview 用 total* 前缀。
+ */
+export interface DeliveryLineLevelContract {
+  /** 业务线级未落项目合同总额（元） */
+  lineUnallocatedContract?: number | null
+  /** 业务线级未落项目合同已交付金额（元） */
+  lineUnallocatedDelivered?: number | null
+  /** 业务线级未落项目合同利润（元） */
+  lineUnallocatedProfit?: number | null
+}
+
 /** 营收行（真实项目、会员通聚合行，以及业务线 totals 汇总行共用此结构） */
-export interface DeliveryProjectRow {
+export interface DeliveryProjectRow extends DeliveryLineLevelContract {
   /** 真实项目 id；业务线聚合行/汇总行无真实项目时为 null */
   projectId: number | null
   name: string
@@ -238,7 +253,7 @@ export interface DeliveryProjectRow {
 }
 
 /** 业务线块：全年销售工时/成本（合计、已分配、未分配）+ 营收项目行 + 线 totals */
-export interface DeliverySummaryLine {
+export interface DeliverySummaryLine extends DeliveryLineLevelContract {
   businessLineId: number
   businessLineName: string
   /** 该线全年销售工时合计（人月，完结月实际） */
@@ -255,6 +270,8 @@ export interface DeliverySummaryLine {
   salesUnallocatedCost?: number | null
   /** 未分配销售成本原因明细（按原因代码汇总，全年） */
   salesUnallocatedDetail?: DeliveryUnallocatedItem[]
+  /** 交付日期为空、未计入任何年份窗口的合同金额（元） */
+  noDeliveryDateContract?: number | null
   projects: DeliveryProjectRow[]
   /** 业务线汇总行（结构同项目行；窗口含线级销售拆分与重算后的利润） */
   totals: DeliveryProjectRow
@@ -280,6 +297,14 @@ export interface DeliveryOverview {
   totalTrueProfit?: number | null
   trueProfitRate?: number | null
   salesUnallocatedDetail?: DeliveryUnallocatedItem[]
+  /** 全表业务线级未落项目合同总额（元，兼容后端未落地时缺失） */
+  totalLineUnallocatedContract?: number | null
+  /** 全表业务线级未落项目合同已交付金额（元） */
+  totalLineUnallocatedDelivered?: number | null
+  /** 全表业务线级未落项目合同利润（元） */
+  totalLineUnallocatedProfit?: number | null
+  /** 交付日期为空、未泄漏至任何年份汇总的合同金额（元） */
+  totalNoDeliveryDateContract?: number | null
 }
 
 export interface DeliverySummary {
