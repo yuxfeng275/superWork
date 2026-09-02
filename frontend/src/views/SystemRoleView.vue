@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { ElTree } from 'element-plus'
 import {
   POSITION_ROLE_BADGE_CLASS,
   POSITION_ROLE_OPTIONS,
@@ -135,6 +136,7 @@ const businessLines = ref<BusinessLineOption[]>([])
 const projects = ref<ProjectOption[]>([])
 
 const checkedMenuKeys = ref<number[]>([])
+const menuTreeRef = ref<InstanceType<typeof ElTree> | null>(null)
 const focusedMenuId = ref<number | null>(null)
 const menuButtonStates = ref<Map<number, Set<number>>>(new Map())
 const dataScope = ref('SELF')
@@ -152,11 +154,20 @@ const allMenuIds = computed(() => {
 const initialMenuKeys = ref<number[]>([])
 
 const checkAllMenus = () => {
-  checkedMenuKeys.value = [...allMenuIds.value]
+  const keys = [...allMenuIds.value]
+  checkedMenuKeys.value = keys
+  menuTreeRef.value?.setCheckedKeys(keys)
 }
 
 const clearAllMenus = () => {
   checkedMenuKeys.value = []
+  menuTreeRef.value?.setCheckedKeys([])
+}
+
+// el-tree 没有 checkedKeys prop / update:checkedKeys 事件，v-model:checked-keys 无效，
+// 必须通过 check 事件把树的勾选状态同步回 checkedMenuKeys
+const handleTreeCheck = (_data: Menu, { checkedKeys }: { checkedKeys: Array<string | number> }) => {
+  checkedMenuKeys.value = checkedKeys.map(Number)
 }
 
 const menuNameById = (id: number): string => {
@@ -202,7 +213,7 @@ const buildMenuTree = (menus: Menu[]): Menu[] => {
     } else {
       const parent = nodeMap.get(parentId)
       if (parent) {
-        parent.children.push(menu as Menu & { children: Menu[] })
+        parent.children.push(node)
       } else {
         // Parent not found, treat as root
         roots.push(node)
@@ -377,6 +388,9 @@ const openAuthDialog = async (row: Role) => {
 
     checkedMenuKeys.value = auth.menuIds || []
     initialMenuKeys.value = [...checkedMenuKeys.value]
+    // 等待 el-tree 应用新 data 后，通过实例方法回显勾选（v-model:checked-keys 对 el-tree 无效）
+    await nextTick()
+    menuTreeRef.value?.setCheckedKeys(checkedMenuKeys.value)
 
     // Build button state map: group permission IDs by menu_id
     const permByMenu = new Map<number, number[]>()
@@ -651,7 +665,7 @@ watch(dataScope, scope => {
                 <el-button link size="small" aria-label="菜单清空" @click="clearAllMenus">清空</el-button>
               </span>
             </div>
-            <el-tree ref="menuTreeRef" :data="menuTree" :props="{ label: 'name', children: 'children' }" show-checkbox node-key="id" v-model:checked-keys="checkedMenuKeys" :default-expanded-keys="allMenuIds" @node-click="handleNodeClick" :check-strictly="false" />
+            <el-tree ref="menuTreeRef" :data="menuTree" :props="{ label: 'name', children: 'children' }" show-checkbox node-key="id" :default-expanded-keys="allMenuIds" @node-click="handleNodeClick" @check="handleTreeCheck" :check-strictly="false" />
           </div>
           <div class="auth-right-col">
             <div class="panel-section auth-buttons">
