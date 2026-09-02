@@ -170,6 +170,23 @@ const handleTreeCheck = (_data: Menu, { checkedKeys }: { checkedKeys: Array<stri
   checkedMenuKeys.value = checkedKeys.map(Number)
 }
 
+// 树中的叶子菜单 id（不含分组父级）。回显时只把这些 id 交给 setCheckedKeys：
+// el-tree 在 check-strictly=false 下会把“传入的父级 id”当作整棵子树勾选（_setCheckedKeys
+// 对父级做 deep check，并把其所有后代放入 cache 阻止清除），导致已移除的同级子菜单被
+// 级联勾回（表现为保存后重开仍残留旧勾选）。只回显叶子后，父级全选/半选由 el-tree 依据
+// 叶子勾选自动推导，与后端存储的 menuIds 完全一致。
+const leafMenuKeys = (ids: number[]): number[] => {
+  const leafIds = new Set<number>()
+  const collect = (nodes: Menu[]) => {
+    nodes.forEach(node => {
+      if (node.children?.length) collect(node.children)
+      else leafIds.add(node.id)
+    })
+  }
+  collect(menuTree.value)
+  return ids.filter(id => leafIds.has(id))
+}
+
 const menuNameById = (id: number): string => {
   for (const menu of menuTree.value) {
     if (menu.id === id) return menu.name
@@ -388,9 +405,10 @@ const openAuthDialog = async (row: Role) => {
 
     checkedMenuKeys.value = auth.menuIds || []
     initialMenuKeys.value = [...checkedMenuKeys.value]
-    // 等待 el-tree 应用新 data 后，通过实例方法回显勾选（v-model:checked-keys 对 el-tree 无效）
+    // 等待 el-tree 应用新 data 后，通过实例方法回显勾选（v-model:checked-keys 对 el-tree 无效）。
+    // 注意只回显叶子节点：直接回显父级 id 会让 el-tree 级联勾选整棵子树，残留已移除的同级菜单。
     await nextTick()
-    menuTreeRef.value?.setCheckedKeys(checkedMenuKeys.value)
+    menuTreeRef.value?.setCheckedKeys(leafMenuKeys(checkedMenuKeys.value))
 
     // Build button state map: group permission IDs by menu_id
     const permByMenu = new Map<number, number[]>()
