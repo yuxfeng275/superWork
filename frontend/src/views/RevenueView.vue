@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Upload } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
+import RevenueDeliveryTab from '@/components/RevenueDeliveryTab.vue'
 import { api } from '@/utils/api'
 import type {
   RevenueCell,
@@ -38,6 +39,22 @@ const displayMode = ref<'merge' | 'hours' | 'cost'>('merge')
 // 数据口径：true=含预估，false=只看实际
 const showEstimates = ref(true)
 const activeTab = ref('matrix')
+// 交付与利润面板：首次切入时挂载（Element Plus pane 默认全部渲染，用 v-if 延迟到首次激活）
+const deliveryMounted = ref(false)
+const deliveryTabRef = ref<{ reload: () => Promise<void> } | null>(null)
+
+const reloadForActiveTab = () => {
+  if (activeTab.value === 'delivery') {
+    deliveryTabRef.value?.reload()
+  } else {
+    loadMatrix()
+  }
+}
+
+const handleYearChange = () => {
+  if (activeTab.value === 'delivery') return // 面板 watch year 自行刷新
+  loadMatrix()
+}
 
 const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback
@@ -671,6 +688,7 @@ const businessLineNameOf = (id: number) =>
   businessLines.value.find(item => item.id === id)?.name || `#${id}`
 
 const handleTabChange = (name: string | number) => {
+  if (name === 'delivery') deliveryMounted.value = true
   if (name === 'import') loadBatches()
   if (name === 'pending') Promise.all([loadPending(), loadSalesProjects()])
 }
@@ -687,10 +705,10 @@ onMounted(loadMatrix)
         <p>工时与成本矩阵：完结月展示导入实际值，未完结月展示预估，点击单元格查看明细。</p>
       </div>
       <div class="head-actions">
-        <el-select v-model="year" aria-label="选择年份" style="width: 130px" @change="loadMatrix">
+        <el-select v-model="year" aria-label="选择年份" style="width: 130px" @change="handleYearChange">
           <el-option v-for="y in [currentYear - 1, currentYear, currentYear + 1]" :key="y" :label="`${y}年`" :value="y" />
         </el-select>
-        <el-button :icon="Refresh" aria-label="刷新" @click="loadMatrix" />
+        <el-button :icon="Refresh" aria-label="刷新" @click="reloadForActiveTab" />
       </div>
     </header>
 
@@ -984,6 +1002,15 @@ onMounted(loadMatrix)
             </el-table-column>
           </el-table>
         </section>
+      </el-tab-pane>
+
+      <el-tab-pane label="交付与利润" name="delivery">
+        <RevenueDeliveryTab
+          v-if="deliveryMounted"
+          ref="deliveryTabRef"
+          :year="year"
+          :active="activeTab === 'delivery'"
+        />
       </el-tab-pane>
     </el-tabs>
 

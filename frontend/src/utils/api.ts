@@ -1,6 +1,12 @@
 import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
+  DeliveryContractBatch,
+  DeliveryContractImportResult,
+  DeliveryOtherCost,
+  DeliveryPendingContract,
+  DeliveryPlan,
+  DeliverySummary,
   RevenueCellDetail,
   RevenueCostEntry,
   RevenueEstimateEntry,
@@ -1521,6 +1527,122 @@ class ApiService {
 
   async deleteRevenueCostEntry(id: number): Promise<void> {
     await this.request<void>(`/api/revenue/cost-entries/${id}`, { method: 'DELETE' })
+  }
+
+  // ---------- 交付与利润（项目交付营收看板） ----------
+
+  async getDeliverySummary(params: { year: number; includeEstimate?: boolean }): Promise<DeliverySummary> {
+    const query = new URLSearchParams({
+      year: String(params.year),
+      includeEstimate: params.includeEstimate === false ? 'false' : 'true'
+    })
+    return this.request<DeliverySummary>(`/api/revenue/delivery/summary?${query}`)
+  }
+
+  async getDeliveryPlans(params?: { year?: number; businessLineId?: number; projectId?: number | null }): Promise<DeliveryPlan[]> {
+    const searchParams = new URLSearchParams()
+    if (params?.year != null) searchParams.set('year', String(params.year))
+    if (params?.businessLineId != null) searchParams.set('businessLineId', String(params.businessLineId))
+    if (params?.projectId != null) searchParams.set('projectId', String(params.projectId))
+    const query = searchParams.toString()
+    return this.request<DeliveryPlan[]>(`/api/revenue/delivery-plans${query ? `?${query}` : ''}`)
+  }
+
+  async createDeliveryPlansBatch(data: {
+    businessLineId: number
+    projectId?: number | null
+    year: number
+    rows: Array<{ yearMonth: string; amountYuan: number; personMonths: number }>
+  }): Promise<DeliveryPlan[]> {
+    return this.request<DeliveryPlan[]>('/api/revenue/delivery-plans/batch', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateDeliveryPlan(id: number, data: { yearMonth: string; amountYuan: number; personMonths: number }): Promise<DeliveryPlan> {
+    return this.request<DeliveryPlan>(`/api/revenue/delivery-plans/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteDeliveryPlan(id: number): Promise<void> {
+    await this.request<void>(`/api/revenue/delivery-plans/${id}`, { method: 'DELETE' })
+  }
+
+  async getOtherCosts(params?: { year?: number; businessLineId?: number; projectId?: number | null }): Promise<DeliveryOtherCost[]> {
+    const searchParams = new URLSearchParams()
+    if (params?.year != null) searchParams.set('year', String(params.year))
+    if (params?.businessLineId != null) searchParams.set('businessLineId', String(params.businessLineId))
+    if (params?.projectId != null) searchParams.set('projectId', String(params.projectId))
+    const query = searchParams.toString()
+    return this.request<DeliveryOtherCost[]>(`/api/revenue/other-costs${query ? `?${query}` : ''}`)
+  }
+
+  async createOtherCost(data: {
+    yearMonth: string
+    businessLineId: number
+    projectId?: number | null
+    costType: DeliveryOtherCost['costType']
+    amountYuan: number
+    note?: string
+  }): Promise<DeliveryOtherCost> {
+    return this.request<DeliveryOtherCost>('/api/revenue/other-costs', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async updateOtherCost(id: number, data: {
+    yearMonth: string
+    costType: DeliveryOtherCost['costType']
+    amountYuan: number
+    note?: string
+  }): Promise<DeliveryOtherCost> {
+    return this.request<DeliveryOtherCost>(`/api/revenue/other-costs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  async deleteOtherCost(id: number): Promise<void> {
+    await this.request<void>(`/api/revenue/other-costs/${id}`, { method: 'DELETE' })
+  }
+
+  async importDeliveryContracts(file: File): Promise<DeliveryContractImportResult> {
+    const body = new FormData()
+    body.append('file', file)
+    return this.request<DeliveryContractImportResult>('/api/revenue/contracts/import', {
+      method: 'POST',
+      body
+    })
+  }
+
+  async getPendingDeliveryContracts(): Promise<DeliveryPendingContract[]> {
+    return this.request<DeliveryPendingContract[]>('/api/revenue/contracts/pending')
+  }
+
+  async resolvePendingDeliveryContract(id: number, projectId: number): Promise<void> {
+    await this.request<void>(`/api/revenue/contracts/pending/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ projectId })
+    })
+  }
+
+  async getDeliveryContractBatches(): Promise<DeliveryContractBatch[]> {
+    return this.request<DeliveryContractBatch[]>('/api/revenue/contracts/batches')
+  }
+
+  /** 项目历史完结单价（元/人月）；无历史或接口不可用时返回 null */
+  async getDeliveryUnitPrice(projectId: number): Promise<number | null> {
+    const payload = await this.request<unknown>(`/api/revenue/estimates/unit-price?projectId=${projectId}`)
+    if (payload == null) return null
+    if (typeof payload === 'number') return payload
+    const record = payload as { unitPrice?: unknown; amount?: unknown; price?: unknown }
+    const raw = record.unitPrice ?? record.price ?? record.amount
+    const value = typeof raw === 'number' ? raw : Number(raw ?? NaN)
+    return Number.isFinite(value) && value > 0 ? value : null
   }
 }
 

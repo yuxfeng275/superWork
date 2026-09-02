@@ -155,3 +155,208 @@ export interface RevenueOpportunityOption {
   name: string
   customer?: string
 }
+
+// ---------------------------------------------------------------
+// 交付与利润（项目交付营收看板）类型定义
+// 金额单位：元；工时单位：人月。前端展示层换算为万元。
+// 结构与后端 /api/revenue/delivery/summary 的 RevenueDeliverySummaryVO 对齐。
+// ---------------------------------------------------------------
+
+/** 手动维护的其他成本拆分（协力/服务器/其他） */
+export interface DeliveryOtherCosts {
+  partner?: number | null
+  server?: number | null
+  other?: number | null
+  total?: number | null
+}
+
+/** 未分配销售成本原因（全年口径汇总） */
+export interface DeliveryUnallocatedItem {
+  /** NO_OPP_LINK / NO_MATCH_CONTRACT / MULTI_PROJECT / POOL_NO_EVIDENCE */
+  reason: string
+  label: string
+  /** 全年金额（元） */
+  cost: number
+}
+
+/**
+ * 单一时段（h1=1-6月 / h2=7-12月 / ytd=全年）交付营收块。
+ * 销售口径：项目行 allocatedSales*=成单（有明确成单证据才分配）；线/表汇总
+ * unallocatedSales*=未分配剩余（只扣业务线利润，不做均摊）。行级 salesHours/salesCost
+ * 为该窗口销售合计（仅业务线/汇总行有值，项目行=0）。
+ * 利润口径：项目行 grossProfit 不减销售成本，trueProfit=grossProfit−成单销售成本；
+ * 汇总行 trueProfit=grossProfit（销售成本全额已计入）。
+ */
+export interface DeliveryPeriodBlock {
+  /** 实际已交付应收额（元） */
+  delivered?: number | null
+  /** 预估交付额（元） */
+  estimated?: number | null
+  /** 项目工时合计（人月，完结月实际） */
+  projectHours?: number | null
+  /** 项目工时成本（元，完结月实际） */
+  projectLaborCost?: number | null
+  /** 预估交付关联的预估工时成本（元） */
+  estimatedLaborCost?: number | null
+  /** 销售工时合计（人月；仅业务线级，项目行=0） */
+  salesHours?: number | null
+  /** 销售工时成本（元；仅业务线级，项目行=0） */
+  salesCost?: number | null
+  /** 已分配（成单→本行）销售工时（人月） */
+  allocatedSalesHours?: number | null
+  /** 已分配（成单→本行）销售工时成本（元） */
+  allocatedSalesCost?: number | null
+  /** 未分配销售工时（人月；项目行=0，仅线/表汇总） */
+  unallocatedSalesHours?: number | null
+  /** 未分配销售工时成本（元；项目行=0，仅线/表汇总） */
+  unallocatedSalesCost?: number | null
+  otherCosts?: DeliveryOtherCosts | null
+  /** 人工成本后利润 = 营收 − 项目人工(±预估) − 销售成本（行级为 0） */
+  laborProfit?: number | null
+  /** 毛利 = laborProfit − 其他成本（历史口径：项目行不减销售成本；汇总行减全部销售成本） */
+  grossProfit?: number | null
+  /** 毛利率（%），营收为 0 时为 null */
+  grossRate?: number | null
+  /** 真实利润：项目行=毛利−已分配销售成本；线/表汇总=毛利（销售全额已计） */
+  trueProfit?: number | null
+  /** 真实利润率（%） */
+  trueProfitRate?: number | null
+}
+
+/** 营收行（真实项目、会员通聚合行，以及业务线 totals 汇总行共用此结构） */
+export interface DeliveryProjectRow {
+  /** 真实项目 id；业务线聚合行/汇总行无真实项目时为 null */
+  projectId: number | null
+  name: string
+  /** true=业务线聚合行（会员通项目集等） */
+  isAggregate?: boolean
+  /** 全年 OA 合同总额（元） */
+  oaContract?: number | null
+  h1?: DeliveryPeriodBlock | null
+  h2?: DeliveryPeriodBlock | null
+  ytd?: DeliveryPeriodBlock | null
+}
+
+/** 业务线块：全年销售工时/成本（合计、已分配、未分配）+ 营收项目行 + 线 totals */
+export interface DeliverySummaryLine {
+  businessLineId: number
+  businessLineName: string
+  /** 该线全年销售工时合计（人月，完结月实际） */
+  salesHours?: number | null
+  /** 该线全年销售工时成本（元） */
+  salesCost?: number | null
+  /** 该线全年已分配（成单→项目）销售工时（人月） */
+  salesAllocatedHours?: number | null
+  /** 该线全年已分配销售工时成本（元） */
+  salesAllocatedCost?: number | null
+  /** 该线全年未分配销售工时（人月） */
+  salesUnallocatedHours?: number | null
+  /** 该线全年未分配销售工时成本（元） */
+  salesUnallocatedCost?: number | null
+  /** 未分配销售成本原因明细（按原因代码汇总，全年） */
+  salesUnallocatedDetail?: DeliveryUnallocatedItem[]
+  projects: DeliveryProjectRow[]
+  /** 业务线汇总行（结构同项目行；窗口含线级销售拆分与重算后的利润） */
+  totals: DeliveryProjectRow
+}
+
+/** 全表合计 */
+export interface DeliveryOverview {
+  includeEstimate?: boolean
+  /** 全年 OA 合同总额（元） */
+  totalOaContract?: number | null
+  totalDelivered?: number | null
+  totalEstimated?: number | null
+  /** 总人工成本（项目工时成本 + 预估工时成本(含预估口径) + 销售工时成本） */
+  totalLaborCost?: number | null
+  /** 已分配销售工时成本合计（元） */
+  totalAllocatedSalesCost?: number | null
+  /** 未分配销售工时成本合计（元） */
+  totalUnallocatedSalesCost?: number | null
+  totalOtherCost?: number | null
+  totalProfit?: number | null
+  profitRate?: number | null
+  /** 整表真实利润（= totalProfit，销售成本已全额计入） */
+  totalTrueProfit?: number | null
+  trueProfitRate?: number | null
+  salesUnallocatedDetail?: DeliveryUnallocatedItem[]
+}
+
+export interface DeliverySummary {
+  year: number
+  includeEstimate?: boolean
+  lines: DeliverySummaryLine[]
+  overview: DeliveryOverview
+}
+
+/** 预估交付计划记录 */
+export interface DeliveryPlan {
+  id: number
+  yearMonth: string
+  businessLineId: number
+  projectId?: number | null
+  projectName?: string | null
+  /** 预估交付金额（元） */
+  amountYuan: number
+  personMonths: number
+  /** 预估交付成本（元，服务端按单价快照计算） */
+  laborCostYuan?: number | null
+  unitPriceSnapshot?: number | null
+  createdAt?: string
+}
+
+export type DeliveryCostType = 'partner' | 'server' | 'other'
+
+/** 其他成本记录（协力/服务器/其他） */
+export interface DeliveryOtherCost {
+  id: number
+  yearMonth: string
+  businessLineId: number
+  projectId?: number | null
+  projectName?: string | null
+  costType: DeliveryCostType
+  amountYuan: number
+  note?: string | null
+  createdAt?: string
+}
+
+/** 合同导入待映射记录（与后端 RevenueContractEntry 序列化对齐；null 字段可能整体缺失） */
+export interface DeliveryPendingContract {
+  id: number
+  /** 合同 ID */
+  contractNo?: string | null
+  /** 明细表记录 ID（唯一去重键） */
+  detailNo?: string | null
+  contractName?: string | null
+  brand?: string | null
+  customer?: string | null
+  itemDesc?: string | null
+  /** 收款款项类型（原始业务线名，解析/映射前） */
+  bizLineRaw?: string | null
+  /** 解析出的业务线 id（用于按业务线过滤可选归属项目） */
+  bizLineId?: number | null
+  /** 应收金额（元） */
+  receivableAmount?: number | null
+  /** 收款销售月份 YYYY-MM */
+  saleMonth?: string | null
+  /** 1=待人工映射项目 */
+  pending?: number
+}
+
+/** 合同导入批次 */
+export interface DeliveryContractBatch {
+  id: number
+  fileName: string
+  totalCount: number
+  successCount: number
+  pendingCount: number
+  createdAt: string
+}
+
+/** 合同导入结果 */
+export interface DeliveryContractImportResult {
+  batchId: number
+  total: number
+  success: number
+  pendingCount: number
+}
