@@ -54,7 +54,7 @@ class BuKeyMatterAccessServiceTest {
 
         BuKeyMatterAccessView access = service.resolveAccess(7L, "shijiale");
 
-        assertThat(access).isEqualTo(new BuKeyMatterAccessView(true, false, true));
+        assertThat(access).isEqualTo(new BuKeyMatterAccessView(true, false, true, true));
     }
 
     @Test
@@ -65,7 +65,7 @@ class BuKeyMatterAccessServiceTest {
         when(matterMapper.existsByOwnerId(7L)).thenReturn(true);
 
         assertThat(service.resolveAccess(7L, "shijiale"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, true));
+                .isEqualTo(new BuKeyMatterAccessView(false, false, true, false));
     }
 
     @Test
@@ -76,7 +76,7 @@ class BuKeyMatterAccessServiceTest {
         when(matterMapper.existsByOwnerId(16L)).thenReturn(false);
 
         assertThat(service.resolveAccess(16L, "participant"))
-                .isEqualTo(new BuKeyMatterAccessView(true, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(true, false, false, true));
     }
 
     @Test
@@ -100,7 +100,7 @@ class BuKeyMatterAccessServiceTest {
         lenient().when(participantMapper.existsByUserId(16L)).thenReturn(true);
 
         assertThat(service.resolveAccess(16L, "participant"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
         assertThatThrownBy(() -> service.requireReadAccess(16L, "participant"))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("无权访问大事儿");
@@ -117,7 +117,7 @@ class BuKeyMatterAccessServiceTest {
         lenient().when(matterMapper.existsByOwnerId(7L)).thenReturn(true);
 
         assertThat(service.resolveAccess(7L, "shijiale"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
         assertThatThrownBy(() -> service.requireFeedback(matter(7L), 7L, "shijiale"))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("无权访问大事儿");
@@ -132,7 +132,7 @@ class BuKeyMatterAccessServiceTest {
                 .thenReturn(List.of("bu:key-matter:manage"));
 
         assertThat(service.resolveAccess(1L, "admin"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
         assertThatThrownBy(() -> service.requireManageAll(1L, "admin"))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("仅管理员可管理大事儿");
@@ -146,7 +146,7 @@ class BuKeyMatterAccessServiceTest {
                 .thenReturn(List.of("bu:key-matter:manage"));
 
         assertThat(service.resolveAccess(1L, "admin"))
-                .isEqualTo(new BuKeyMatterAccessView(true, true, true));
+                .isEqualTo(new BuKeyMatterAccessView(true, true, true, true));
     }
 
     @Test
@@ -155,7 +155,7 @@ class BuKeyMatterAccessServiceTest {
                 .thenReturn(List.of("bu:key-matter:view"));
 
         assertThat(service.resolveAccess(1L, "admin"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
     }
 
     @Test
@@ -165,24 +165,38 @@ class BuKeyMatterAccessServiceTest {
         when(participantMapper.existsByUserId(21L)).thenReturn(true);
 
         assertThat(service.resolveAccess(21L, "manager"))
-                .isEqualTo(new BuKeyMatterAccessView(true, false, false));
+                .isEqualTo(new BuKeyMatterAccessView(true, false, false, false));
         assertThatThrownBy(() -> service.requireManageAll(21L, "manager"))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("仅管理员可管理大事儿");
     }
 
     @Test
-    void unrelatedUserCannotReadOrFeedback() {
+    void firstTimeViewFeedbackUserCanReadAndCreateButCannotFeedbackYet() {
         when(sysRoleService.getPermissionCodesByUserId(20L))
                 .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
         when(participantMapper.existsByUserId(20L)).thenReturn(false);
         when(matterMapper.existsByOwnerId(20L)).thenReturn(false);
 
         assertThat(service.resolveAccess(20L, "unrelated"))
-                .isEqualTo(new BuKeyMatterAccessView(false, false, false));
-        assertThatThrownBy(() -> service.requireReadAccess(20L, "unrelated"))
+                .isEqualTo(new BuKeyMatterAccessView(true, false, false, true));
+        service.requireReadAccess(20L, "unrelated");
+        assertThatThrownBy(() -> service.requireFeedback(matter(7L), 20L, "unrelated"))
                 .isInstanceOf(ForbiddenOperationException.class)
-                .hasMessage("无权访问大事儿");
+                .hasMessage("仅事项负责人可反馈周进度");
+    }
+
+    @Test
+    void partialPermissionsCannotCreateOrEnterWithoutParticipantRelation() {
+        when(sysRoleService.getPermissionCodesByUserId(30L)).thenReturn(List.of("bu:key-matter:view"));
+        when(participantMapper.existsByUserId(30L)).thenReturn(false);
+        assertThat(service.resolveAccess(30L, "view-only"))
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
+
+        when(sysRoleService.getPermissionCodesByUserId(31L)).thenReturn(List.of("bu:key-matter:feedback"));
+        when(participantMapper.existsByUserId(31L)).thenReturn(false);
+        assertThat(service.resolveAccess(31L, "feedback-only"))
+                .isEqualTo(new BuKeyMatterAccessView(false, false, false, false));
     }
 
     @Test
@@ -204,6 +218,56 @@ class BuKeyMatterAccessServiceTest {
         assertThatThrownBy(() -> service.requireManageAll(7L, "shijiale"))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("仅管理员可管理大事儿");
+    }
+
+    @Test
+    void firstTimeUserWithViewAndFeedbackCanAccessAndCreateOwn() {
+        when(sysRoleService.getPermissionCodesByUserId(30L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
+        when(participantMapper.existsByUserId(30L)).thenReturn(false);
+
+        BuKeyMatterAccessView access = service.resolveAccess(30L, "creator");
+
+        assertThat(access).isEqualTo(new BuKeyMatterAccessView(true, false, false, true));
+        service.requireCreate(30L, 30L, "creator");
+    }
+
+    @Test
+    void ownCreationRejectsMismatchedOwnerBeforeMatterWrite() {
+        when(sysRoleService.getPermissionCodesByUserId(30L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
+
+        assertThatThrownBy(() -> service.requireCreate(31L, 30L, "creator"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可创建本人负责的大事儿");
+    }
+
+    @Test
+    void ownCreationRequiresBothViewAndFeedbackPermissions() {
+        when(sysRoleService.getPermissionCodesByUserId(30L))
+                .thenReturn(List.of("bu:key-matter:view"));
+
+        assertThatThrownBy(() -> service.requireCreate(30L, 30L, "creator"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可创建本人负责的大事儿");
+    }
+
+    @Test
+    void adminWithManageCanCreateAnyOwner() {
+        when(sysRoleService.getPermissionCodesByUserId(1L))
+                .thenReturn(List.of("bu:key-matter:manage"));
+
+        service.requireCreate(31L, 1L, "admin");
+    }
+
+    @Test
+    void disabledUserCannotCreateOwnMatter() {
+        when(userMapper.selectById(30L)).thenReturn(user(30L, 0));
+
+        assertThatThrownBy(() -> service.requireCreate(30L, 30L, "creator"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可创建本人负责的大事儿");
+        verifyNoInteractions(sysRoleService);
     }
 
     @Test

@@ -28,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,7 +65,7 @@ class BuKeyMatterServiceTest {
         });
         BuKeyMatterRequest request = request();
 
-        BuKeyMatter created = service.create(request, 16L);
+        BuKeyMatter created = service.create(request, 16L, "admin");
 
         assertThat(created.getId()).isEqualTo(11L);
         assertThat(created.getPriority()).isEqualTo("P1");
@@ -81,9 +82,21 @@ class BuKeyMatterServiceTest {
         BuKeyMatterRequest request = request();
         request.setPlannedCompletionDate(request.getStartDate().minusDays(1));
 
-        assertThatThrownBy(() -> service.create(request, 16L))
+        assertThatThrownBy(() -> service.create(request, 16L, "admin"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("计划完成日期不能早于开始日期");
+    }
+
+    @Test
+    void createDelegatesOwnerAuthorizationBeforeInsert() {
+        BuKeyMatterRequest request = request();
+        doThrow(new com.bu.management.exception.ForbiddenOperationException("仅可创建本人负责的大事儿"))
+                .when(accessService).requireCreate(7L, 16L, "creator");
+
+        assertThatThrownBy(() -> service.create(request, 16L, "creator"))
+                .isInstanceOf(com.bu.management.exception.ForbiddenOperationException.class)
+                .hasMessage("仅可创建本人负责的大事儿");
+        verify(matterMapper, never()).insert(any(BuKeyMatter.class));
     }
 
     @Test

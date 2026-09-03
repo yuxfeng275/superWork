@@ -31,18 +31,34 @@ public class BuKeyMatterAccessService {
 
     public BuKeyMatterAccessView resolveAccess(Long userId, String username) {
         if (!isActiveUser(userId)) {
-            return new BuKeyMatterAccessView(false, false, false);
+            return new BuKeyMatterAccessView(false, false, false, false);
         }
         List<String> permissionCodes = permissionCodes(userId);
         boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
+        boolean canCreateOwn = canManageAll
+                || (permissionCodes.contains(PERMISSION_VIEW)
+                    && permissionCodes.contains(PERMISSION_FEEDBACK));
         boolean canView = canManageAll || permissionCodes.contains(PERMISSION_VIEW);
         boolean isParticipant = userId != null && participantMapper.existsByUserId(userId);
-        boolean canAccess = canManageAll || (canView && isParticipant);
+        boolean canAccess = canManageAll || canCreateOwn || (canView && isParticipant);
         boolean canFeedbackOwn = canManageAll
                 || (permissionCodes.contains(PERMISSION_FEEDBACK)
                     && userId != null
                     && matterMapper.existsByOwnerId(userId));
-        return new BuKeyMatterAccessView(canAccess, canManageAll, canFeedbackOwn);
+        return new BuKeyMatterAccessView(canAccess, canManageAll, canFeedbackOwn, canCreateOwn);
+    }
+
+    public void requireCreate(Long ownerId, Long userId, String username) {
+        if (!isActiveUser(userId)) {
+            throw new ForbiddenOperationException("仅可创建本人负责的大事儿");
+        }
+        List<String> permissionCodes = permissionCodes(userId);
+        boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
+        boolean canCreateOwn = permissionCodes.contains(PERMISSION_VIEW)
+                && permissionCodes.contains(PERMISSION_FEEDBACK);
+        if (!canManageAll && (!canCreateOwn || !userId.equals(ownerId))) {
+            throw new ForbiddenOperationException("仅可创建本人负责的大事儿");
+        }
     }
 
     public void requireReadAccess(Long userId, String username) {

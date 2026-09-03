@@ -63,7 +63,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of(7L, 16L, 16L));
 
-        service.create(request, 16L);
+        service.create(request, 16L, "admin");
 
         ArgumentCaptor<BuKeyMatterParticipant> captor =
                 ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
@@ -85,7 +85,7 @@ class BuKeyMatterParticipantServiceTest {
             return 1;
         });
 
-        service.create(request(), 16L);
+        service.create(request(), 16L, "admin");
 
         ArgumentCaptor<BuKeyMatterParticipant> captor =
                 ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
@@ -104,7 +104,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of());
 
-        service.create(request, 16L);
+        service.create(request, 16L, "admin");
 
         ArgumentCaptor<BuKeyMatterParticipant> captor =
                 ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
@@ -250,7 +250,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of(7L, 20L));
 
-        assertThatThrownBy(() -> service.create(request, 16L))
+        assertThatThrownBy(() -> service.create(request, 16L, "admin"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("参与人不存在或已停用");
         verify(matterMapper, never()).insert(any(BuKeyMatter.class));
@@ -268,7 +268,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of(7L, 20L));
 
-        assertThatThrownBy(() -> service.create(request, 16L))
+        assertThatThrownBy(() -> service.create(request, 16L, "admin"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("参与人不存在或已停用");
         verify(matterMapper, never()).insert(any(BuKeyMatter.class));

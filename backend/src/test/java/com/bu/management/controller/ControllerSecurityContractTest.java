@@ -152,8 +152,13 @@ class ControllerSecurityContractTest {
     }
 
     @Test
-    void keyMatterWriteEndpointsRequireManagePermission() {
-        for (String name : new String[]{"create", "update", "delete"}) {
+    void keyMatterWriteEndpointsUseCreateOwnOrManagePermission() {
+        Method create = findMethod(BuKeyMatterController.class, "create");
+        assertThat(create.getAnnotation(RequirePermission.class))
+                .isNotNull()
+                .extracting(RequirePermission::value)
+                .isEqualTo(new String[]{"bu:key-matter:feedback", "bu:key-matter:manage"});
+        for (String name : new String[]{"update", "delete"}) {
             Method method = findMethod(BuKeyMatterController.class, name);
             assertThat(method.getAnnotation(RequirePermission.class))
                     .as("%s 权限", name)
@@ -250,9 +255,11 @@ class ControllerSecurityContractTest {
                 .isEqualTo(boolean.class);
         assertThat(BuKeyMatterAccessView.class.getDeclaredField("canFeedbackOwn").getType())
                 .isEqualTo(boolean.class);
+        assertThat(BuKeyMatterAccessView.class.getDeclaredField("canCreateOwn").getType())
+                .isEqualTo(boolean.class);
 
         assertThat(BuKeyMatterAccessView.class.getConstructor()).isNotNull();
-        assertThat(BuKeyMatterAccessView.class.getConstructor(boolean.class, boolean.class, boolean.class))
+        assertThat(BuKeyMatterAccessView.class.getConstructor(boolean.class, boolean.class, boolean.class, boolean.class))
                 .isNotNull();
     }
 

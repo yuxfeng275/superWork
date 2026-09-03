@@ -83,13 +83,12 @@ public class BuKeyMatterController {
     }
 
     @PostMapping
-    @RequirePermission({"bu:key-matter:manage"})
+    @RequirePermission({"bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "创建大事儿")
     public Result<BuKeyMatter> create(@RequestBody BuKeyMatterRequest request,
                                       @RequestAttribute("userId") Long userId,
                                       @RequestAttribute("username") String username) {
-        accessService.requireManageAll(userId, username);
-        return Result.success(service.create(request, userId));
+        return Result.success(service.create(request, userId, username));
     }
 
     @PutMapping("/{id}")

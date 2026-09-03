@@ -51,7 +51,8 @@ public class BuKeyMatterService {
     private final BuKeyMatterAccessService accessService;
 
     @Transactional
-    public BuKeyMatter create(BuKeyMatterRequest request, Long userId) {
+    public BuKeyMatter create(BuKeyMatterRequest request, Long userId, String username) {
+        accessService.requireCreate(request == null ? null : request.getOwnerId(), userId, username);
         NormalizedMatter normalized = validate(request);
         List<Long> participantIds = normalizeParticipantIds(request);
         validateParticipantIds(participantIds, request.getOwnerId());

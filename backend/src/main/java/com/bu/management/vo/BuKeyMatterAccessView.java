@@ -11,4 +11,5 @@ public class BuKeyMatterAccessView {
     private boolean canAccess;
     private boolean canManageAll;
     private boolean canFeedbackOwn;
+    private boolean canCreateOwn;
 }
