@@ -159,3 +159,11 @@ email:
   credential-encryption-key: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:}
   sync-cron: ${EMAIL_SYNC_CRON:0 0 * * * *}
   digest-cron: ${EMAIL_DIGEST_CRON:0 0 8 * * *}
+
+# AI 助手侧车（Pi Agent sidecar）连接配置；GLM 模型凭据走系统配置组 ai-agent
+ai-agent:
+  sidecar:
+    url: ${AI_SIDECAR_URL:http://localhost:8787}
+    token: ${AI_SIDECAR_TOKEN:}
+    run-timeout-seconds: 600
+    tool-callback-url: ${AI_SIDECAR_TOOL_CALLBACK_URL:http://localhost:8081/internal/ai-agent/tools}

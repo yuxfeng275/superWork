@@ -35,6 +35,7 @@ const navItems: NavSection[] = [
       { path: '/tasks', icon: 'Finished', label: '任务管理' },
       { path: '/defects', icon: 'CircleCloseFilled', label: '缺陷管理' },
       { path: '/emails', icon: 'Message', label: '邮件管理' },
+      { path: '/ai-assistant', icon: 'ChatDotRound', label: 'AI 助手' },
       {
         path: '/key-matters',
         icon: 'Flag',

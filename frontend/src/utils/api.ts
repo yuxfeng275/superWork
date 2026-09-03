@@ -33,6 +33,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
+import type { AiAgentMessage, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1663,6 +1664,196 @@ class ApiService {
     const raw = record.unitPrice ?? record.price ?? record.amount
     const value = typeof raw === 'number' ? raw : Number(raw ?? NaN)
     return Number.isFinite(value) && value > 0 ? value : null
+  }
+
+  // AI 助手 (Pi Agent) APIs
+  async getAiAgentSessions(): Promise<AiAgentSessionSummary[]> {
+    return this.request<AiAgentSessionSummary[]>('/api/ai-agent/sessions')
+  }
+
+  async createAiAgentSession(payload?: { title?: string; provider?: string; model?: string }): Promise<AiAgentSession> {
+    return this.request<AiAgentSession>('/api/ai-agent/sessions', {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {})
+    })
+  }
+
+  async getAiAgentSession(id: number): Promise<AiAgentSession> {
+    return this.request<AiAgentSession>(`/api/ai-agent/sessions/${id}`)
+  }
+
+  async deleteAiAgentSession(id: number): Promise<void> {
+    return this.request<void>(`/api/ai-agent/sessions/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  /**
+   * 发送消息并消费 SSE 流（POST + Authorization 头，EventSource 不可用）。
+   * 每个事件回调一次 onEvent；流正常结束或 HTTP 层出错时 resolve/reject。
+   * signal 用于中止请求（用户点击停止），中止时抛出 AbortError。
+   */
+  async streamAiAgentRun(
+    sessionId: number,
+    content: string,
+    onEvent: (event: AiAgentStreamEvent) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const url = `${this.baseUrl}/api/ai-agent/sessions/${sessionId}/messages`
+    const token = this.getToken()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ content }),
+        signal
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      throw new ApiRequestError(err instanceof Error ? err.message : '网络请求失败', 0)
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      let errorMessage = `HTTP error! status: ${response.status}`
+      let errorCode: number | undefined
+      try {
+        const parsed: unknown = errorText ? JSON.parse(errorText) : null
+        if (parsed && typeof parsed === 'object') {
+          const errorBody = parsed as { message?: unknown; code?: unknown }
+          if (typeof errorBody.message === 'string' && errorBody.message) errorMessage = errorBody.message
+          if (typeof errorBody.code === 'number') errorCode = errorBody.code
+        }
+      } catch {
+        if (errorText) errorMessage = errorText
+      }
+      if (response.status === 401) this.clearAuthAndRedirect()
+      throw new ApiRequestError(errorMessage, response.status, errorCode)
+    }
+
+    if (!response.body) {
+      throw new ApiRequestError('当前浏览器不支持流式响应', 0)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    const dispatchBlock = (block: string) => {
+      const event = parseSseEvent(block)
+      if (event) onEvent(event)
+    }
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let separator: number
+        while ((separator = buffer.indexOf('\n\n')) !== -1) {
+          const block = buffer.slice(0, separator)
+          buffer = buffer.slice(separator + 2)
+          dispatchBlock(block)
+        }
+      }
+      // 处理流末尾不完整/无换行结尾的最后一个 block
+      buffer += decoder.decode()
+      if (buffer.trim()) dispatchBlock(buffer)
+    } finally {
+      reader.releaseLock()
+    }
+  }
+}
+
+/**
+ * 解析单个 SSE block（event: 与 data: 行；data 仅单行 JSON）。
+ * 事件名无法识别或 data 无法解析时返回 null（调用方忽略该块）。
+ */
+function parseSseEvent(block: string): AiAgentStreamEvent | null {
+  let eventName = ''
+  const dataLines: string[] = []
+  for (const rawLine of block.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+    if (line.startsWith('event:')) {
+      eventName = line.slice('event:'.length).trim()
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart())
+    }
+  }
+  if (!eventName || dataLines.length === 0) return null
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(dataLines.join('\n'))
+  } catch {
+    return null
+  }
+  const record = payload && typeof payload === 'object'
+    ? (payload as Record<string, unknown>)
+    : {}
+
+  switch (eventName) {
+    case 'run_start':
+      return {
+        type: 'run_start',
+        runId: typeof record.runId === 'string' ? record.runId : ''
+      }
+    case 'message_start':
+      return {
+        type: 'message_start',
+        index: typeof record.index === 'number' ? record.index : NaN
+      }
+    case 'message_delta': {
+      const delta = record.delta && typeof record.delta === 'object'
+        ? (record.delta as { type?: unknown; text?: unknown })
+        : null
+      if (!delta || (delta.type !== 'text_delta' && delta.type !== 'thinking_delta')) return null
+      return {
+        type: 'message_delta',
+        index: typeof record.index === 'number' ? record.index : NaN,
+        delta: {
+          type: delta.type,
+          text: typeof delta.text === 'string' ? delta.text : ''
+        }
+      }
+    }
+    case 'message_end': {
+      const message = record.message && typeof record.message === 'object'
+        ? (record.message as AiAgentMessage)
+        : {}
+      return { type: 'message_end', message }
+    }
+    case 'tool_execution_start':
+      return {
+        type: 'tool_execution_start',
+        toolCallId: typeof record.toolCallId === 'string' ? record.toolCallId : '',
+        toolName: typeof record.toolName === 'string' ? record.toolName : '未知工具',
+        args: record.args
+      }
+    case 'tool_execution_end':
+      return {
+        type: 'tool_execution_end',
+        toolCallId: typeof record.toolCallId === 'string' ? record.toolCallId : '',
+        result: record.result,
+        isError: record.isError === true
+      }
+    case 'run_end':
+      return {
+        type: 'run_end',
+        newMessages: Array.isArray(record.newMessages) ? (record.newMessages as AiAgentMessage[]) : []
+      }
+    case 'error':
+      return {
+        type: 'error',
+        code: typeof record.code === 'number' || typeof record.code === 'string' ? record.code : undefined,
+        message: typeof record.message === 'string' && record.message ? record.message : '请求失败'
+      }
+    default:
+      return null
   }
 }
 

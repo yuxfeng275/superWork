@@ -37,3 +37,7 @@ frontend/test-results/
 output/
 docker/.omc/
 .DS_Store
+
+# ai-sidecar
+ai-sidecar/node_modules/
+ai-sidecar/dist/

@@ -76,6 +76,7 @@ public class SecurityConfig {
                                 "/webjars/**"
                         ).permitAll()
                         // 允许访问健康检查
+                        .requestMatchers("/internal/ai-agent/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         // 其他所有请求需要认证
                         .anyRequest().authenticated()

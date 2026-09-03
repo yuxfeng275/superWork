@@ -63,6 +63,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '邮件管理' }
       },
       {
+        path: 'ai-assistant',
+        name: 'AiAssistant',
+        component: () => import('@/views/AiAssistantView.vue'),
+        meta: { title: 'AI 助手', requiresAuth: true }
+      },
+      {
         path: 'key-matters',
         name: 'KeyMatters',
         component: () => import('@/views/KeyMattersView.vue'),

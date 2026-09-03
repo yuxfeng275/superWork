@@ -79,6 +79,9 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
+      AI_SIDECAR_URL: http://ai-sidecar:8787
+      AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
+      AI_SIDECAR_TOOL_CALLBACK_URL: http://backend:8081/internal/ai-agent/tools
       JWT_SECRET: ${JWT_SECRET:-superwork-bu-management-server-241-change-me}
       YUNXIAO_ENABLED: ${YUNXIAO_ENABLED:-false}
       YUNXIAO_EDITION: ${YUNXIAO_EDITION:-center}
@@ -98,6 +101,20 @@ services:
         condition: service_started
       minio:
         condition: service_started
+    networks:
+      - bu-network
+
+  ai-sidecar:
+    build:
+      context: ../ai-sidecar
+      dockerfile: Dockerfile
+    container_name: superwork-bu-ai-sidecar
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: 8787
+      SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
     networks:
       - bu-network
 

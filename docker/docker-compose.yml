@@ -67,6 +67,25 @@ services:
     networks:
       - bu-network
 
+  # ai-sidecar 回调宿主机上运行的 backend(8081): 启动宿主 backend 时需设置
+  # AI_SIDECAR_TOOL_CALLBACK_URL=http://host.docker.internal:8081/internal/ai-agent/tools
+
+  ai-sidecar:
+    build:
+      context: ../ai-sidecar
+      dockerfile: Dockerfile
+    container_name: bu-management-ai-sidecar
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: 8787
+      SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
+    networks:
+      - bu-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   nginx:
     image: nginx:alpine
     container_name: bu-management-nginx
