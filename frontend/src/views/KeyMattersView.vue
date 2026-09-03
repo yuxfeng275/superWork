@@ -109,9 +109,28 @@ const router = useRouter()
 const authStore = useAuthStore()
 const currentUserId = computed(() => authStore.user?.id)
 const canManageAll = computed(() => authStore.keyMatterAccess?.canManageAll === true)
+const canCreateOwn = computed(() => authStore.keyMatterAccess?.canCreateOwn === true)
+const canCreateMatter = computed(() => canManageAll.value || canCreateOwn.value)
 const isMeetingStandalone = computed(() => route.name === 'KeyMattersMeeting')
 const statusOptions = ['未开始', '推进中', '有风险', '已阻塞', '已完成', '已暂停']
 const priorityOptions = ['P0', 'P1', 'P2']
+const progressPresets = [0, 25, 50, 75, 90, 100]
+function isNonAdminCreate() {
+  return !editingMatterId.value && !canManageAll.value && canCreateOwn.value
+}
+function synchronizeProgress(target: 'matter' | 'weekly' | 'presentation', value: number | null | undefined) {
+  const progress = Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+  const form = target === 'matter' ? matterForm : target === 'weekly' ? weeklyForm : presentationForm
+  form.progress = progress
+  if (progress === 100) form.status = '已完成'
+  else if (form.status === '已完成') form.status = '推进中'
+}
+function selectProgress(target: 'matter' | 'weekly' | 'presentation', value: number) {
+  synchronizeProgress(target, value)
+}
+function handleMatterProgressChange(value: number | null) { synchronizeProgress('matter', value) }
+function handleWeeklyProgressChange(value: number | null) { synchronizeProgress('weekly', value) }
+function handlePresentationProgressChange(value: number | null) { synchronizeProgress('presentation', value) }
 const femaleOwnerNames = new Set(['丛宁', '姜涛', '小刘洋', '黄金玲', '李芳晨'])
 function isCompletedMatter(matter: BuKeyMatter) {
   return matter.status === '已完成'
@@ -254,7 +273,7 @@ const visibleMatters = computed(() => {
 const registerEmptyText = computed(() => {
   if (personalScope.value === 'owned') return '暂无我负责的事项'
   if (personalScope.value === 'participating') return '暂无我参与的事项'
-  return canManageAll.value ? '暂无大事儿，点击右上角新增事项' : '暂无大事儿'
+  return canCreateMatter.value ? '暂无大事儿，点击右上角新增事项' : '暂无大事儿'
 })
 
 const pagedMatters = computed(() => {
@@ -536,7 +555,8 @@ let forbiddenAccessRecovery: ForbiddenAccessRecovery | null = null
 const inactiveKeyMatterAccess: KeyMatterAccess = {
   canAccess: false,
   canManageAll: false,
-  canFeedbackOwn: false
+  canFeedbackOwn: false,
+  canCreateOwn: false
 }
 function isKeyMatterRoute(path: string) {
   return path === '/key-matters' || path === '/key-matters-meeting'
@@ -808,12 +828,16 @@ function applyPersonalScope(scope: Exclude<PersonalScope, ''>) {
 }
 
 function openCreate() {
-  if (!canManageAll.value) {
+  if (!canCreateMatter.value) {
     denyManageAction()
     return
   }
   editingMatterId.value = undefined
   Object.assign(matterForm, emptyMatterForm())
+  if (!canManageAll.value && currentUserId.value !== undefined) {
+    matterForm.ownerId = currentUserId.value
+    matterForm.participantIds = [currentUserId.value]
+  }
   matterDrawer.value = true
 }
 
@@ -845,12 +869,13 @@ function openEdit(matter: BuKeyMatter) {
 }
 
 function handleMatterStatusChange(status: string | number | boolean | undefined) {
-  if (status === '已完成') matterForm.progress = 100
-  if (status !== '已完成' && matterForm.progress === 100) matterForm.progress = 99
+  if (status === '已完成') synchronizeProgress('matter', 100)
+  else if (matterForm.progress === 100) matterForm.progress = 99
 }
 
 async function saveMatter() {
-  if (!canManageAll.value) {
+  const creating = editingMatterId.value === undefined
+  if ((creating && !canCreateMatter.value) || (!creating && !canManageAll.value)) {
     denyManageAction()
     return
   }
@@ -861,12 +886,15 @@ async function saveMatter() {
     ElMessage.warning('计划完成日期不能早于开始日期')
     return
   }
+  const ownerId = creating && !canManageAll.value && currentUserId.value !== undefined
+    ? currentUserId.value
+    : matterForm.ownerId
   const payload: BuKeyMatterPayload = {
     title: matterForm.title.trim(),
     description: matterForm.description.trim() || undefined,
     projectId: matterForm.projectId,
-    ownerId: matterForm.ownerId,
-    participantIds: Array.from(new Set([...matterForm.participantIds, matterForm.ownerId])),
+    ownerId,
+    participantIds: Array.from(new Set([...matterForm.participantIds, ownerId])),
     priority: matterForm.priority,
     status: matterForm.status,
     progress: matterForm.status === '已完成' ? 100 : matterForm.progress,
@@ -881,6 +909,7 @@ async function saveMatter() {
       ElMessage.success('事项已更新')
     } else {
       await api.createKeyMatter(payload)
+      await authStore.loadKeyMatterAccess(true)
       ElMessage.success('事项已创建')
     }
     matterDrawer.value = false
@@ -969,24 +998,15 @@ function openWeekly(matter: BuKeyMatter, week = selectedWeek.value) {
 }
 
 function handleWeeklyStatusChange(status: string | number | boolean | undefined) {
-  if (status === '已完成') weeklyForm.progress = 100
-  if (status !== '已完成' && weeklyForm.progress === 100) weeklyForm.progress = 99
+  if (status === '已完成') synchronizeProgress('weekly', 100)
+  else if (weeklyForm.progress === 100) weeklyForm.progress = 99
 }
 
 function handlePresentationStatusChange(status: string | number | boolean | undefined) {
-  if (status === '已完成') presentationForm.progress = 100
-  if (status !== '已完成' && presentationForm.progress === 100) presentationForm.progress = 99
+  if (status === '已完成') synchronizeProgress('presentation', 100)
+  else if (presentationForm.progress === 100) presentationForm.progress = 99
 }
 
-function handlePresentationProgressInput(value: number | number[]) {
-  if (Array.isArray(value)) return
-  presentationForm.progress = Math.round(value)
-  if (presentationForm.progress === 100) {
-    presentationForm.status = '已完成'
-  } else if (presentationForm.status === '已完成') {
-    presentationForm.status = '推进中'
-  }
-}
 
 function selectPresentationStatus(status: string) {
   presentationForm.status = status
@@ -1590,7 +1610,6 @@ onBeforeUnmount(() => {
       <div class="toolbar-actions">
         <el-tooltip content="进入周会全屏" placement="bottom">
           <el-button
-            class="meeting-mode-trigger"
             :type="mode === 'meeting' ? 'primary' : 'default'"
             circle
             :aria-label="mode === 'meeting' ? '重新进入周会全屏' : '进入周会全屏'"
@@ -1614,7 +1633,7 @@ onBeforeUnmount(() => {
           aria-label="刷新"
           @click="refreshActiveMode"
         />
-        <el-button v-if="canManageAll" type="primary" :icon="Plus" @click="openCreate">新增事项</el-button>
+        <el-button v-if="canCreateMatter" type="primary" :icon="Plus" @click="openCreate">新增事项</el-button>
       </div>
     </section>
 
@@ -2218,21 +2237,14 @@ onBeforeUnmount(() => {
                   <span class="presentation-avatar" :class="{ female: isFemaleOwner(presentationMatter.ownerName) }">{{ (presentationMatter.ownerName || '未').slice(0, 1) }}</span>
                   <strong>{{ presentationMatter.ownerName || '未指定负责人' }}</strong>
                   <i />
-                  <span class="presentation-participants"><el-icon><User /></el-icon>参与人 {{ compactParticipantText(presentationMatter) }}</span>
-                  <i />
-                  <span><el-icon><Calendar /></el-icon>计划完成 {{ presentationMatter.plannedCompletionDate }}</span>
-                  <i />
                   <span class="presentation-inline-progress" :class="{ 'is-editable': presentationEditing }">
-                    <el-slider
-                      v-if="presentationEditing"
-                      v-model="presentationForm.progress"
-                      class="presentation-progress-slider"
-                      :min="0"
-                      :max="100"
-                      :show-tooltip="false"
-                      aria-label="演示完成进度"
-                      @input="handlePresentationProgressInput"
-                    />
+                    <template v-if="presentationEditing">
+                      <div class="presentation-progress-editor accessible-progress-editor">
+                        <div class="progress-readonly-bar" role="progressbar" aria-label="演示完成进度" :aria-valuenow="presentationForm.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${presentationForm.progress}%` }" /></div>
+                        <div class="progress-presets" role="group" aria-label="快速选择演示进度"><el-button v-for="preset in progressPresets" :key="preset" size="small" :type="presentationForm.progress === preset ? 'primary' : 'default'" @click="selectProgress('presentation', preset)">{{ preset }}%</el-button></div>
+                        <el-input-number v-model="presentationForm.progress" :min="0" :max="100" :step="5" controls-position="right" aria-label="演示完成进度数值" @change="handlePresentationProgressChange" />
+                      </div>
+                    </template>
                     <b v-else><i :style="{ width: `${meetingProgress(presentationMatter)}%` }" /></b>
                     <span class="presentation-progress-text">{{ presentationEditing ? presentationForm.progress : meetingProgress(presentationMatter) }}%</span>
                   </span>
@@ -2433,7 +2445,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
     <el-drawer
-      v-if="canManageAll"
+      v-if="canCreateMatter"
       v-model="matterDrawer"
       :title="editingMatterId ? '编辑大事儿' : '新增大事儿'"
       size="min(560px, 96vw)"
@@ -2454,7 +2466,7 @@ onBeforeUnmount(() => {
         </el-form-item>
         <div class="form-grid two-columns">
           <el-form-item label="负责人" prop="ownerId">
-            <el-select v-model="matterForm.ownerId" filterable aria-label="负责人" placeholder="选择负责人" @change="handleMatterOwnerChange">
+            <el-select v-model="matterForm.ownerId" filterable aria-label="负责人" placeholder="选择负责人" :disabled="isNonAdminCreate()" @change="handleMatterOwnerChange">
               <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
             </el-select>
           </el-form-item>
@@ -2500,14 +2512,10 @@ onBeforeUnmount(() => {
           </el-form-item>
         </div>
         <el-form-item label="当前进度">
-          <div class="progress-editor">
-            <el-slider v-model="matterForm.progress" :disabled="matterForm.status === '已完成'" />
-            <el-input-number
-              v-model="matterForm.progress"
-              :min="0"
-              :max="matterForm.status === '已完成' ? 100 : 99"
-              :disabled="matterForm.status === '已完成'"
-            />
+          <div class="progress-editor accessible-progress-editor">
+            <div class="progress-readonly-bar" role="progressbar" aria-label="当前进度" :aria-valuenow="matterForm.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${matterForm.progress}%` }" /></div>
+            <div class="progress-presets" role="group" aria-label="快速选择进度"><el-button v-for="preset in progressPresets" :key="preset" size="small" :type="matterForm.progress === preset ? 'primary' : 'default'" @click="selectProgress('matter', preset)">{{ preset }}%</el-button></div>
+            <el-input-number v-model="matterForm.progress" :min="0" :max="100" :step="5" controls-position="right" aria-label="当前进度数值" @change="handleMatterProgressChange" />
           </div>
         </el-form-item>
         <div class="form-grid two-columns">
@@ -2713,13 +2721,11 @@ onBeforeUnmount(() => {
             </el-select>
           </el-form-item>
           <el-form-item label="完成进度">
-            <el-input-number
-              v-model="weeklyForm.progress"
-              aria-label="完成进度"
-              :min="0"
-              :max="weeklyForm.status === '已完成' ? 100 : 99"
-              :disabled="weeklyForm.status === '已完成'"
-            />
+            <div class="accessible-progress-editor">
+              <div class="progress-readonly-bar" role="progressbar" aria-label="完成进度" :aria-valuenow="weeklyForm.progress" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${weeklyForm.progress}%` }" /></div>
+              <div class="progress-presets" role="group" aria-label="快速选择进度"><el-button v-for="preset in progressPresets" :key="preset" size="small" :type="weeklyForm.progress === preset ? 'primary' : 'default'" @click="selectProgress('weekly', preset)">{{ preset }}%</el-button></div>
+              <el-input-number v-model="weeklyForm.progress" :min="0" :max="100" :step="5" controls-position="right" aria-label="完成进度数值" @change="handleWeeklyProgressChange" />
+            </div>
           </el-form-item>
         </section>
 
@@ -4180,6 +4186,68 @@ button:focus-visible {
   grid-template-columns: 1fr 120px;
   align-items: center;
   gap: 20px;
+}
+.accessible-progress-editor {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+.progress-readonly-bar {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.progress-readonly-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #34d399, #10b981);
+  transition: width .15s ease;
+}
+
+.progress-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.progress-presets .el-button {
+  min-width: 46px;
+  min-height: 44px;
+  margin: 0;
+}
+
+.progress-editor > .el-input-number,
+.accessible-progress-editor > .el-input-number {
+  width: 120px;
+}
+
+.presentation-progress-editor {
+  min-width: min(320px, 100%);
+}
+.presentation-progress-editor .el-input-number {
+  width: 120px;
+}
+
+@media (max-width: 640px) {
+  .progress-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-editor > .el-input-number,
+  .accessible-progress-editor > .el-input-number,
+  .presentation-progress-editor .el-input-number {
+    width: 100%;
+  }
+
+  .presentation-inline-progress.is-editable {
+    min-width: 0;
+    width: 100%;
+  }
 }
 
 .detail-content {
@@ -6396,54 +6464,12 @@ button:focus-visible {
 }
 
 .presentation-inline-progress.is-editable {
-  min-width: 206px;
+  min-width: min(320px, 100%);
   user-select: none;
 }
 
-.presentation-progress-slider {
-  width: 160px;
-  height: 20px;
-  touch-action: none;
-}
-
-.presentation-progress-slider :deep(.el-slider__runway) {
-  height: 8px;
-  margin: 6px 0;
-  background: #e2e8f0;
-}
-
-.presentation-progress-slider :deep(.el-slider__bar) {
-  height: 8px;
-  background: linear-gradient(90deg, #34d399, #10b981);
-}
-
-.presentation-progress-slider :deep(.el-slider__button) {
-  width: 14px;
-  height: 14px;
-  border: 3px solid #10b981;
-  box-shadow: 0 2px 7px rgb(15 118 110 / 24%);
-}
-
-.presentation-progress-slider :deep(.el-slider__button-wrapper) {
-  top: -14px;
-}
-
-.presentation-progress-slider :deep(.el-slider__button-wrapper:hover .el-slider__button),
-.presentation-progress-slider :deep(.el-slider__button-wrapper.hover .el-slider__button),
-.presentation-progress-slider :deep(.el-slider__button-wrapper.dragging .el-slider__button) {
-  transform: scale(1.12);
-}
-
-.presentation-progress-text {
-  min-width: 36px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.presentation-meta-status {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.presentation-progress-editor {
+  width: min(320px, 100%);
 }
 
 .presentation-meta-status button {
@@ -7218,11 +7244,6 @@ button:focus-visible {
     flex: 1 1 220px;
   }
 
-  .presentation-progress-slider {
-    width: auto;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
 }
 
 @media (max-height: 820px) and (min-width: 721px) {
@@ -7569,10 +7590,13 @@ button:focus-visible {
     min-width: 0;
   }
 
-  .presentation-inline-progress b,
-  .presentation-progress-slider {
+  .presentation-inline-progress b {
     width: auto;
     flex: 1;
+  }
+
+  .presentation-progress-editor {
+    width: 100%;
   }
 
   .presentation-signals,

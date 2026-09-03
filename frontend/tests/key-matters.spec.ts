@@ -3,7 +3,8 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 const adminKeyMatterAccess = {
   canAccess: true,
   canManageAll: true,
-  canFeedbackOwn: true
+  canFeedbackOwn: true,
+  canCreateOwn: true
 }
 
 function fulfillAdminKeyMatterAccess(route: Route) {
@@ -668,34 +669,19 @@ test('周会演示模式可逐项浏览并现场补充待更新周报', async ({
   expect(mobileOverflow).toBe(false)
 })
 
-test('周会进度拖拽与轨道位置一致并可到达百分之百', async ({ page }) => {
+test('周会进度快捷按钮与数值输入可到达百分之百', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/key-matters-meeting')
   const stage = page.getByLabel('周会演示模式')
   await stage.getByRole('button', { name: '跳转到第 2 项' }).click()
-
   const progress = stage.locator('.presentation-inline-progress')
-  const slider = progress.getByRole('slider', { name: '演示完成进度' })
-  const track = progress.locator('.el-slider__runway')
-  await expect(slider).toHaveAttribute('aria-valuenow', '35')
-  const trackBox = await track.boundingBox()
-  expect(trackBox).not.toBeNull()
-  const y = trackBox!.y + trackBox!.height / 2
-
-  await page.mouse.move(trackBox!.x + trackBox!.width * 0.35, y)
-  await page.mouse.down()
-  await page.mouse.move(trackBox!.x + trackBox!.width * 0.8, y, { steps: 8 })
-  await page.mouse.up()
-  await expect(slider).toHaveAttribute('aria-valuenow', '80')
-  await expect(progress.locator('.presentation-progress-text')).toHaveText('80%')
-
-  await page.mouse.move(trackBox!.x + trackBox!.width * 0.8, y)
-  await page.mouse.down()
-  await page.mouse.move(trackBox!.x + trackBox!.width, y, { steps: 4 })
-  await page.mouse.up()
-  await expect(slider).toHaveAttribute('aria-valuenow', '100')
-  await expect(progress.locator('.presentation-progress-text')).toHaveText('100%')
+  const editor = stage.locator('.presentation-progress-editor')
+  await editor.getByRole('button', { name: '100%' }).click()
+  await expect(editor.locator('.el-input-number input')).toHaveValue('100')
   await expect(stage.locator('.presentation-meta-status .status-已完成')).toHaveClass(/active/)
+  await editor.getByRole('button', { name: '75%' }).click()
+  await expect(editor.locator('.el-input-number input')).toHaveValue('75')
+  await expect(stage.locator('.presentation-meta-status .status-推进中')).toHaveClass(/active/)
 })
 
 test('周会快速导航内容超出时在卡片内部滚动', async ({ page }) => {

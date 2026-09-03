@@ -206,12 +206,14 @@ export interface KeyMatterAccess {
   canAccess: boolean
   canManageAll: boolean
   canFeedbackOwn: boolean
+  canCreateOwn?: boolean
 }
 
 const DENIED_KEY_MATTER_ACCESS: KeyMatterAccess = {
   canAccess: false,
   canManageAll: false,
-  canFeedbackOwn: false
+  canFeedbackOwn: false,
+  canCreateOwn: false
 }
 
 function normalizeKeyMatterAccess(value: unknown): KeyMatterAccess {
@@ -222,6 +224,7 @@ function normalizeKeyMatterAccess(value: unknown): KeyMatterAccess {
     typeof record.canAccess !== 'boolean'
     || typeof record.canManageAll !== 'boolean'
     || typeof record.canFeedbackOwn !== 'boolean'
+    || (record.canCreateOwn !== undefined && typeof record.canCreateOwn !== 'boolean')
   ) {
     return { ...DENIED_KEY_MATTER_ACCESS }
   }
@@ -229,7 +232,8 @@ function normalizeKeyMatterAccess(value: unknown): KeyMatterAccess {
   return {
     canAccess: record.canAccess,
     canManageAll: record.canManageAll,
-    canFeedbackOwn: record.canFeedbackOwn
+    canFeedbackOwn: record.canFeedbackOwn,
+    canCreateOwn: record.canCreateOwn === true
   }
 }
 

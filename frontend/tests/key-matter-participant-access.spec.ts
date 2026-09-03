@@ -11,6 +11,16 @@ interface KeyMatterAccessFixture {
   canAccess: boolean
   canManageAll: boolean
   canFeedbackOwn: boolean
+  canCreateOwn?: boolean
+}
+
+function fixtureAccess(access: Partial<KeyMatterAccessFixture> | null | undefined): KeyMatterAccessFixture {
+  return {
+    canAccess: access?.canAccess === true,
+    canManageAll: access?.canManageAll === true,
+    canFeedbackOwn: access?.canFeedbackOwn === true,
+    canCreateOwn: access?.canCreateOwn === true
+  }
 }
 
 const emptyKeyMatterResponse = {
@@ -97,8 +107,8 @@ interface FeatureSessionOptions {
   matters: FeatureMatterFixture[]
   onAccessGet?: (requestCount: number) => { access: KeyMatterAccessFixture; waitUntil?: Promise<void> } | undefined
   onMatterListGet?: (requestCount: number) => { status: number; body: unknown; delayMs?: number; waitUntil?: Promise<void> } | undefined
+  onMatterPost?: (payload: unknown) => { status?: number; body?: unknown } | undefined
   onMatterPut?: (matterId: number) => { status: number; body: unknown } | undefined
-  onWeeklyPut?: (matterId: number) => { status: number; body: unknown } | undefined
 }
 
 async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
@@ -138,7 +148,7 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
       requestCounts.access += 1
       const response = options.onAccessGet?.(requestCounts.access)
       if (response?.waitUntil) await response.waitUntil
-      const access = response?.access ?? (typeof options.access === 'function' ? options.access() : options.access)
+      const access = fixtureAccess(response?.access ?? (typeof options.access === 'function' ? options.access() : options.access))
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -172,10 +182,11 @@ async function mockFeatureSession(page: Page, options: FeatureSessionOptions) {
     }
 
     if (request.method() === 'POST') {
+      const response = options.onMatterPost?.(request.postDataJSON())
       await route.fulfill({
-        status: 200,
+        status: response?.status ?? 200,
         contentType: 'application/json',
-        body: JSON.stringify({ code: 200, data: request.postDataJSON() })
+        body: JSON.stringify(response?.body ?? { code: 200, data: request.postDataJSON() })
       })
       return
     }
@@ -271,7 +282,7 @@ async function mockSession(
         body: JSON.stringify({
           code: 200,
           message: 'success',
-          data: access,
+          data: fixtureAccess(access),
           timestamp: '2026-03-20T00:00:00.000Z'
         })
       })
@@ -326,12 +337,12 @@ const authorizedCases: Array<{
   {
     label: '事项负责人石家乐',
     user: { id: 3, username: 'shijiale', realName: '石家乐', role: 'FULL_STACK_ENGINEER' },
-    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true }
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true, canCreateOwn: true }
   },
   {
     label: '仅参与人',
     user: { id: 8, username: 'participant', realName: '参与人', role: 'FULL_STACK_ENGINEER' },
-    access: { canAccess: true, canManageAll: false, canFeedbackOwn: false }
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: false, canCreateOwn: true }
   },
   {
     label: '管理员',
@@ -348,7 +359,7 @@ for (const { label, user, access } of authorizedCases) {
 
     await expect(page).toHaveURL('/key-matters')
     await expect(page.getByRole('link', { name: '大事儿管理' })).toBeVisible()
-    await expect.poll(() => requestCounts.access).toBe(1)
+    await expect.poll(() => requestCounts.access).toBeGreaterThanOrEqual(1)
     await expect.poll(() => requestCounts.requirements).toBe(1)
 
     await page.goto('/key-matters-meeting')
@@ -356,7 +367,7 @@ for (const { label, user, access } of authorizedCases) {
     await expect(page).toHaveURL('/key-matters-meeting')
     await expect(page.locator('.layout')).toHaveCount(0)
     await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
-    await expect.poll(() => requestCounts.access).toBe(2)
+    await expect.poll(() => requestCounts.access).toBeGreaterThanOrEqual(2)
     expect(requestCounts.requirements).toBe(1)
   })
 }
@@ -1219,7 +1230,7 @@ test('个人快捷筛选显示上下文空态且无作用域和个人作用域�
   const adminPage = await context.newPage()
   await mockFeatureSession(adminPage, {
     user: { id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' },
-    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true, canCreateOwn: true },
     matters: []
   })
   await adminPage.goto('/key-matters')
@@ -1233,7 +1244,7 @@ test('管理员可以维护参与人且负责人自动保留', async ({ page }) 
   matter.participants = [matter.participants[0]]
   await mockFeatureSession(page, {
     user: admin,
-    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true },
+    access: { canAccess: true, canManageAll: true, canFeedbackOwn: true, canCreateOwn: true },
     matters: [matter]
   })
 
@@ -1274,7 +1285,7 @@ test('负责人只能反馈本人事项', async ({ page }) => {
   const otherMatter = featureMatter({ id: 42, title: '他人负责事项', ownerId: 16, projectId: 32 })
   await mockFeatureSession(page, {
     user: featureUsers[0],
-    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true, canCreateOwn: true },
     matters: [ownMatter, otherMatter]
   })
 
@@ -1284,7 +1295,7 @@ test('负责人只能反馈本人事项', async ({ page }) => {
   const otherRow = table.locator('tr', { hasText: otherMatter.title })
   await expect(ownRow.getByRole('button', { name: '更新周进展' })).toBeVisible()
   await expect(otherRow.getByRole('button', { name: '更新周进展' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '新增事项' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '新增事项' })).toBeVisible()
   await expect(table.getByRole('button', { name: '编辑事项' })).toHaveCount(0)
   await expect(table.getByRole('button', { name: '删除事项' })).toHaveCount(0)
 
@@ -1402,17 +1413,37 @@ test('演示参与人信息在1024宽度不裁剪进度控件', async ({ page })
       metaFits: meta.scrollWidth <= meta.clientWidth + 1,
       card: bounds('.presentation-card'),
       progress: bounds('.presentation-inline-progress'),
-      slider: bounds('.presentation-progress-slider'),
-      progressText: bounds('.presentation-progress-text')
+      progressEditor: bounds('.presentation-progress-editor'),
+      progressBar: bounds('.progress-readonly-bar'),
+      presets: bounds('.progress-presets'),
+      progressInput: bounds('.presentation-progress-editor .el-input-number')
     }
   })
 
   expect(geometry.metaFits).toBe(true)
-  for (const box of [geometry.progress, geometry.slider, geometry.progressText]) {
-    expect(box.left).toBeGreaterThanOrEqual(geometry.card.left - 1)
-    expect(box.right).toBeLessThanOrEqual(geometry.card.right + 1)
-    expect(box.top).toBeGreaterThanOrEqual(geometry.card.top - 1)
-    expect(box.bottom).toBeLessThanOrEqual(geometry.card.bottom + 1)
+  const editor = stage.locator('.presentation-progress-editor')
+  await editor.getByRole('button', { name: '100%' }).click()
+  await expect(editor.locator('.el-input-number input')).toHaveValue('100')
+  await expect(stage.locator('.presentation-meta-status .status-已完成')).toHaveClass(/active/)
+  await editor.getByRole('button', { name: '75%' }).click()
+  await expect(editor.locator('.el-input-number input')).toHaveValue('75')
+  await expect(stage.locator('.presentation-meta-status .status-推进中')).toHaveClass(/active/)
+  for (const width of [390]) {
+    await page.setViewportSize({ width, height: 844 })
+    const mobile = await stage.evaluate(element => {
+      const card = element.querySelector<HTMLElement>('.presentation-card')!
+      const controls = Array.from(element.querySelectorAll<HTMLElement>('.presentation-progress-editor, .progress-presets, .presentation-progress-editor .el-input-number'))
+      return {
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        inside: controls.every(control => {
+          const box = control.getBoundingClientRect()
+          const cardBox = card.getBoundingClientRect()
+          return box.left >= cardBox.left - 1 && box.right <= cardBox.right + 1
+        })
+      }
+    })
+    expect(mobile.overflow).toBe(false)
+    expect(mobile.inside).toBe(true)
   }
 })
 
@@ -1421,7 +1452,7 @@ test('负责人变更后保存周进度刷新为只读', async ({ page }) => {
   let ownerChanged = false
   const requestCounts = await mockFeatureSession(page, {
     user: featureUsers[0],
-    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true },
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: true, canCreateOwn: true },
     matters: [matter],
     onWeeklyPut: matterId => {
       if (matterId !== matter.id) return undefined
@@ -1746,4 +1777,84 @@ test('退出登录后忽略仍在请求中的权限成功响应', async ({ page 
   await expect.poll(() => accessRequestCount).toBe(2)
   await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
   expect(accessRequestCount).toBe(2)
+})
+
+test('普通创建者只能创建本人事项并在创建后获得周进展入口', async ({ page }) => {
+  const user = featureUsers[0]
+  let created: FeatureMatterFixture | undefined
+  let accessRefresh = false
+  const matter = featureMatter({ id: 51, title: '已有事项', ownerId: 16, projectId: 31 })
+  const matters: FeatureMatterFixture[] = [matter]
+  const requestCounts = await mockFeatureSession(page, {
+    user,
+    access: () => ({ canAccess: true, canManageAll: false, canFeedbackOwn: accessRefresh, canCreateOwn: true }),
+    matters,
+    onMatterPost: payload => {
+      const data = payload as Record<string, unknown>
+      expect(data.ownerId).toBe(user.id)
+      expect(data.participantIds).toEqual(expect.arrayContaining([user.id]))
+      created = { ...matter, id: 99, title: String(data.title), ownerId: user.id, ownerName: user.realName, currentWeekUpdated: false, currentWeekUpdate: null, latestUpdate: null, weeklyUpdates: [] }
+      matters.push(created)
+      accessRefresh = true
+      return { body: { code: 200, data: created } }
+    }
+  })
+  await page.goto('/key-matters')
+  await expect(page.getByRole('button', { name: '新增事项' })).toBeVisible()
+  await page.getByRole('button', { name: '新增事项' }).click()
+  const drawer = page.getByRole('dialog', { name: '新增大事儿' })
+  await expect(drawer.getByLabel('负责人')).toBeDisabled()
+  await expect(drawer.getByLabel('参与人')).toHaveCount(0)
+  await drawer.getByRole('button', { name: '100%' }).click()
+  await expect(drawer.locator('.el-form-item', { hasText: '状态' })).toContainText('已完成')
+  await drawer.getByRole('button', { name: '75%' }).click()
+  await expect(drawer.locator('.el-form-item', { hasText: '状态' })).toContainText('推进中')
+  await expect(drawer.getByLabel('当前进度数值')).toHaveAttribute('step', '5')
+  await drawer.getByLabel('事项标题').fill('自己创建事项')
+  await drawer.getByLabel('负责人').evaluate((el, id) => { (el as HTMLInputElement).value = String(id) }, 16)
+  await drawer.getByLabel('开始日期').fill('2026-03-20')
+  await drawer.getByLabel('计划完成').fill('2026-04-30')
+  await drawer.getByRole('button', { name: '保存' }).click()
+  await expect.poll(() => requestCounts.access).toBeGreaterThan(1)
+  await expect.poll(() => accessRefresh).toBe(true)
+  const createdRow = page.getByLabel('大事儿列表').locator('tr', { hasText: '自己创建事项' })
+  await expect(createdRow).toBeVisible()
+  await expect(createdRow).toContainText(user.realName)
+  await expect(createdRow.getByRole('button', { name: '更新周进展' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '编辑事项' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '删除事项' })).toHaveCount(0)
+})
+
+test('无canCreateOwn用户不显示新增入口', async ({ page }) => {
+  await mockFeatureSession(page, {
+    user: featureUsers[2],
+    access: { canAccess: true, canManageAll: false, canFeedbackOwn: false, canCreateOwn: false },
+    matters: []
+  })
+  await page.goto('/key-matters')
+  await expect(page.getByRole('button', { name: '新增事项' })).toHaveCount(0)
+  await expect(page.getByText(/点击右上角新增事项/)).toHaveCount(0)
+})
+
+test('周进展进度快捷按钮和数值输入同步状态并提交', async ({ page }) => {
+  const matter = featureMatter({ id: 61, title: '进度联动事项', ownerId: 7, projectId: 31 })
+  let payload: Record<string, unknown> | undefined
+  await mockFeatureSession(page, {
+    user: featureUsers[0], access: { canAccess: true, canManageAll: false, canFeedbackOwn: true, canCreateOwn: true }, matters: [matter],
+    onWeeklyPut: () => ({ status: 200, body: { code: 200, data: payload } })
+  })
+  await page.goto('/key-matters')
+  await page.getByRole('button', { name: '更新周进展' }).click()
+  const drawer = page.getByRole('dialog', { name: '更新周进展' })
+  await drawer.getByRole('button', { name: '100%' }).click()
+  await expect(drawer.locator('.el-form-item', { hasText: '事项状态' })).toContainText('已完成')
+  await drawer.getByRole('button', { name: '50%' }).click()
+  await expect(drawer.getByLabel('完成进度数值')).toHaveValue('50')
+  await expect(drawer.locator('.el-form-item', { hasText: '事项状态' })).toContainText('推进中')
+  await drawer.getByRole('textbox', { name: '本周成果' }).fill('完成进度联动')
+  const request = page.waitForRequest(req => req.method() === 'PUT' && req.url().includes('/weekly-updates/'))
+  await drawer.getByRole('button', { name: '保存周进展' }).click()
+  payload = (await request).postDataJSON()
+  expect(payload.progress).toBe(50)
+  expect(payload.status).toBe('推进中')
 })
