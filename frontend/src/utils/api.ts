@@ -3,6 +3,7 @@ import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResp
 import type {
   DeliveryContractBatch,
   DeliveryContractImportResult,
+  DeliveryMappedContract,
   DeliveryOtherCost,
   DeliveryPendingContract,
   DeliveryPlan,
@@ -1636,6 +1637,17 @@ class ApiService {
 
   async getDeliveryContractBatches(): Promise<DeliveryContractBatch[]> {
     return this.request<DeliveryContractBatch[]>('/api/revenue/contracts/batches')
+  }
+
+  async getMappedDeliveryContracts(year: number): Promise<DeliveryMappedContract[]> {
+    return this.request<DeliveryMappedContract[]>(`/api/revenue/contracts/mapped?year=${year}`)
+  }
+
+  async updateDeliveryContractMapping(id: number, data: { businessLineId: number; projectId: number | null }): Promise<void> {
+    await this.request<void>(`/api/revenue/contracts/${id}/mapping`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
   }
 
   /** 项目历史完结单价（元/人月）；无历史或接口不可用时返回 null */

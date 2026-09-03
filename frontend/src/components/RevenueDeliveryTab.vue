@@ -1,14 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { UploadFile } from 'element-plus'
-import { Upload } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
 import type {
-  DeliveryContractBatch,
   DeliveryCostType,
   DeliveryOtherCost,
-  DeliveryPendingContract,
   DeliveryPeriodBlock,
   DeliveryPlan,
   DeliveryProjectRow,
@@ -17,8 +13,6 @@ import type {
   DeliveryUnallocatedItem
 } from '@/types/revenue'
 
-interface BusinessLineOption { id: number; name: string; revenueMode?: string }
-interface ProjectOption { id: number; name: string; businessLineId?: number }
 
 type PeriodKey = 'h1' | 'h2' | 'ytd'
 type PeriodColumnKey = 'delivered' | 'estimated' | 'hours' | 'labor' | 'salesHours' | 'salesCost' | 'other' | 'profit' | 'rate'
@@ -147,145 +141,6 @@ const refreshSummary = async () => {
   } finally {
     if (seq === summarySeq) summaryLoading.value = false
   }
-}
-
-// ---------- 业务线 / 项目选项（预估交付与待映射归属选择共用） ----------
-const businessLines = ref<BusinessLineOption[]>([])
-const projects = ref<ProjectOption[]>([])
-let optionsLoaded = false
-
-const normalizeRecords = <T>(payload: unknown): T[] => {
-  if (Array.isArray(payload)) return payload as T[]
-  if (!payload || typeof payload !== 'object') return []
-  const envelope = payload as { records?: T[]; data?: T[] | { records?: T[] } }
-  if (Array.isArray(envelope.records)) return envelope.records
-  if (Array.isArray(envelope.data)) return envelope.data
-  if (envelope.data && Array.isArray(envelope.data.records)) return envelope.data.records
-  return []
-}
-
-const ensureOptions = async () => {
-  if (optionsLoaded) return
-  try {
-    const [linePayload, projectPayload] = await Promise.all([
-      api.getBusinessLines({ page: 1, size: 100, status: 1 }),
-      api.getProjects({ page: 1, size: 500 })
-    ])
-    businessLines.value = normalizeRecords<BusinessLineOption>(linePayload)
-    projects.value = normalizeRecords<ProjectOption>(projectPayload)
-    optionsLoaded = true
-  } catch (error) {
-    ElMessage.error(errorMessage(error, '业务线与项目选项加载失败'))
-  }
-}
-
-// ---------- 合同导入（批次历史）与待映射 ----------
-const importFile = ref<File | null>(null)
-const importing = ref(false)
-const batchesLoading = ref(false)
-const batches = ref<DeliveryContractBatch[]>([])
-const pendingLoading = ref(false)
-const pendingContracts = ref<DeliveryPendingContract[]>([])
-// 归属值：number=真实项目；'line'=业务线级（不落具体项目，福田等）
-const pendingDrafts = reactive({} as Record<number, number | 'line' | undefined>)
-const resolvingId = ref<number | null>(null)
-
-const loadBatches = async () => {
-  batchesLoading.value = true
-  try {
-    batches.value = await api.getDeliveryContractBatches()
-  } catch (error) {
-    ElMessage.error(errorMessage(error, '合同导入历史加载失败'))
-  } finally {
-    batchesLoading.value = false
-  }
-}
-
-const loadPending = async () => {
-  pendingLoading.value = true
-  try {
-    pendingContracts.value = await api.getPendingDeliveryContracts()
-  } catch (error) {
-    ElMessage.error(errorMessage(error, '待映射合同加载失败'))
-  } finally {
-    pendingLoading.value = false
-  }
-}
-
-const runContractImport = async () => {
-  const file = importFile.value
-  if (!file) {
-    ElMessage.warning('请先选择要导入的合同 Excel')
-    return
-  }
-  importing.value = true
-  try {
-    const result = await api.importDeliveryContracts(file)
-    importFile.value = null
-    ElMessage.success(`导入完成：共 ${result.total} 行，成功 ${result.success} 行，待映射 ${result.pendingCount} 行`)
-    await Promise.all([loadBatches(), refreshSummary()])
-    if (result.pendingCount > 0) {
-      ElMessage.warning(`有 ${result.pendingCount} 行合同未匹配项目，请在下方「待映射合同」中指定归属`)
-      await Promise.all([loadPending(), scrollToPending()])
-    }
-  } catch (error) {
-    ElMessage.error(errorMessage(error, '合同导入失败'))
-  } finally {
-    importing.value = false
-  }
-}
-
-/** 待映射合同的业务线名：优先 bizLineId 查业务线，其次原始收款款项类型文本 */
-const pendingLineName = (row: DeliveryPendingContract) =>
-  businessLines.value.find(item => item.id === row.bizLineId)?.name
-  ?? row.bizLineRaw
-  ?? '—'
-
-/** 归属项目候选：解析出业务线则只给该线项目（会员通等聚合线为空则仅业务线级）；未解析出业务线才给全量项目 */
-const pendingProjectsOf = (row: DeliveryPendingContract) => {
-  if (row.bizLineId != null) {
-    return projects.value.filter(item => item.businessLineId === row.bizLineId)
-  }
-  return projects.value
-}
-
-const projectOptionLabel = (item: ProjectOption) => {
-  const line = businessLines.value.find(l => l.id === item.businessLineId)
-  return line ? `${item.name} · ${line.name}` : item.name
-}
-
-const resolvePendingRow = async (row: DeliveryPendingContract) => {
-  const draft = pendingDrafts[row.id]
-  if (draft == null) {
-    ElMessage.warning('请先选择归属：具体项目或业务线级')
-    return
-  }
-  if (draft === 'line' && row.bizLineId == null) {
-    ElMessage.warning('该合同未解析出业务线，请先选择具体项目')
-    return
-  }
-  resolvingId.value = row.id
-  try {
-    if (draft === 'line') {
-      await api.resolvePendingDeliveryContract(row.id, null, row.bizLineId)
-      ElMessage.success('合同已归入业务线级收入（不落具体项目）')
-    } else {
-      await api.resolvePendingDeliveryContract(row.id, draft)
-      ElMessage.success('合同已映射到项目')
-    }
-    delete pendingDrafts[row.id]
-    await Promise.all([loadPending(), refreshSummary()])
-  } catch (error) {
-    ElMessage.error(errorMessage(error, '映射保存失败'))
-  } finally {
-    resolvingId.value = null
-  }
-}
-
-const pendingSection = ref<HTMLElement | null>(null)
-const scrollToPending = async () => {
-  await nextTick()
-  pendingSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 // ---------- 汇总表行模型 ----------
@@ -886,7 +741,7 @@ const removeCost = async (item: DeliveryOtherCost) => {
 
 // ---------- 生命周期：随 tab 激活拉取，年份联动 ----------
 const loadAll = async () => {
-  await Promise.all([refreshSummary(), loadBatches(), loadPending(), ensureOptions()])
+  await refreshSummary()
 }
 
 onMounted(() => {
@@ -1001,86 +856,8 @@ defineExpose({ reload: () => refreshSummary() })
           </table>
         </div>
       </template>
-      <el-empty v-else-if="!summaryLoading" description="暂无交付营收数据，请先在下方导入合同或等待数据接入" />
+      <el-empty v-else-if="!summaryLoading" description="暂无交付营收数据，请等待数据接入或先维护交付计划" />
     </div>
-
-    <!-- 合同导入与待映射 -->
-    <section class="delivery-tools">
-      <div class="import-row">
-        <div class="import-card">
-          <h4>合同导入</h4>
-          <p>选择合同（OA 合同 / 已交付）Excel，导入后自动按收款款项类型归属；未命中项目的进入待映射清单。</p>
-          <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls"
-            :on-change="(file: UploadFile) => { importFile = file.raw ?? null }">
-            <el-button :icon="Upload">选择 xlsx 文件</el-button>
-          </el-upload>
-          <span v-if="importFile" class="file-name">{{ importFile.name }}</span>
-          <el-button type="primary" :loading="importing" :disabled="!importFile" @click="runContractImport">开始导入</el-button>
-        </div>
-        <div class="batch-section">
-          <h4>导入历史（{{ batches.length }}）</h4>
-          <el-table v-loading="batchesLoading" :data="batches" class="data-table" empty-text="暂无导入批次" max-height="220">
-            <el-table-column prop="createdAt" label="时间" width="170" />
-            <el-table-column prop="fileName" label="文件名" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="totalCount" label="解析" width="70" />
-            <el-table-column prop="successCount" label="成功" width="70" />
-            <el-table-column prop="pendingCount" label="待映射" width="80" />
-          </el-table>
-        </div>
-      </div>
-
-      <div ref="pendingSection" class="pending-section">
-        <div class="estimate-head">
-          <h4>待映射合同（{{ pendingContracts.length }}）</h4>
-          <span class="section-note">两级归属：真实项目（合同计入该项目行），或业务线级（福田等定制合同不落具体项目，计入业务线级合同列）。会员通聚合（项目集）合同在导入时已自动归属。</span>
-        </div>
-        <el-table v-loading="pendingLoading" :data="pendingContracts" class="data-table" empty-text="暂无待映射合同">
-          <el-table-column label="品牌/客户" width="130">
-            <template #default="{ row }">{{ row.brand || row.customer || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="合同编号" min-width="150" show-overflow-tooltip>
-            <template #default="{ row }">{{ row.contractNo || row.detailNo || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="合同名称" min-width="220" show-overflow-tooltip>
-            <template #default="{ row }">{{ row.contractName || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="业务线" min-width="150" show-overflow-tooltip>
-            <template #default="{ row }">{{ pendingLineName(row) }}</template>
-          </el-table-column>
-          <el-table-column label="应收金额(万)" width="110">
-            <template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template>
-          </el-table-column>
-          <el-table-column label="归属（业务线级/项目）" width="260">
-            <template #default="{ row }">
-              <el-select
-                :model-value="pendingDrafts[row.id]"
-                filterable
-                clearable
-                placeholder="选择业务线级或真实项目"
-                @change="(value: number | 'line' | undefined) => pendingDrafts[row.id] = value"
-              >
-                <el-option
-                  v-if="row.bizLineId != null"
-                  :value="'line' as const"
-                  :label="`业务线级 · ${pendingLineName(row)}（不落具体项目）`"
-                />
-                <el-option
-                  v-for="option in pendingProjectsOf(row)"
-                  :key="option.id"
-                  :label="projectOptionLabel(option)"
-                  :value="option.id"
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="90">
-            <template #default="{ row }">
-              <el-button size="small" type="primary" :loading="resolvingId === row.id" @click="resolvePendingRow(row)">确定</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </div>
-    </section>
 
     <!-- 利润构成抽屉 -->
     <el-drawer v-model="profitDrawer" :title="profitTitle" size="min(560px, 96vw)" destroy-on-close>

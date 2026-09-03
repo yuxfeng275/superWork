@@ -258,10 +258,14 @@ const fulfill = (route: Route, data: unknown) => route.fulfill({
   body: JSON.stringify({ code: 200, data })
 })
 
-// 每个测试独立追踪：summary 请求（含 includeEstimate 参数）与待映射清单
+// 每个测试独立追踪：summary 请求（含 includeEstimate 参数）与合同待映射清单
 const summaryRequests: string[] = []
 let pendingContracts: PendingContract[] = []
-
+const pendingFixture = (contracts: PendingContract[]) => {
+  pendingContracts = contracts
+  return contracts
+}
+const mappedFixture = []
 test.beforeEach(async ({ page }) => {
   summaryRequests.length = 0
   pendingContracts = []
@@ -283,29 +287,37 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/revenue/delivery-plans**', route => fulfill(route, []))
   await page.route('**/api/revenue/estimates/unit-price**', route => fulfill(route, { unitPrice: 22790.7 }))
   await page.route('**/api/revenue/other-costs**', route => fulfill(route, []))
+  await page.route('**/api/revenue/pending', route => fulfill(route, { worklog: [], cost: [] }))
+  await page.route('**/api/revenue/sales-projects', route => fulfill(route, []))
+  await page.route('**/api/revenue/opportunity-options', route => fulfill(route, []))
 
   await page.route('**/api/revenue/contracts/pending**', route => {
     if (/\/pending\/\d+\/resolve$/.test(route.request().url())) {
       pendingContracts = []
       return fulfill(route, null)
     }
+    const fixture = new URL(route.request().url()).searchParams.get('fixture')
+    if (fixture === 'futian') return fulfill(route, [{ id: 31, brand: '北汽福田', contractNo: 'FT-2026-002', detailNo: '20260902000031', contractName: '北汽福田定制开发服务合同', bizLineRaw: '全域-全渠道-全域云鹿定制', bizLineId: 1, receivableAmount: 4650, pending: 1 }])
+    if (fixture === 'flyhigh') return fulfill(route, [{ id: 21, brand: '飞鹤', contractNo: 'FH-2026-001', detailNo: '3957852593046113680', contractName: '飞鹤 2026 年度会员运营服务合同', bizLineRaw: '全域-全渠道-全域云鹿定制', bizLineId: 1, receivableAmount: 250000, pending: 1 }])
     return fulfill(route, pendingContracts)
   })
-  await page.route('**/api/revenue/contracts/batches', route => fulfill(route, []))
+  await page.route('**/api/revenue/contracts/mapped**', route => fulfill(route, []))
 
   await page.route('**/api/business-lines**', route => fulfill(route, {
     records: [
       { id: 1, name: '全渠道云鹿定制' },
+      { id: 2, name: 'SAAS' },
       { id: 3, name: '会员通' }
     ],
-    total: 2
+    total: 3
   }))
   await page.route('**/api/projects**', route => fulfill(route, {
     records: [
       { id: 101, name: '皇家项目', businessLineId: 1 },
-      { id: 102, name: 'Speedo', businessLineId: 1 }
+      { id: 102, name: 'Speedo', businessLineId: 1 },
+      { id: 15, name: '黄天鹅', businessLineId: 2 }
     ],
-    total: 2
+    total: 3
   }))
 })
 
@@ -479,44 +491,47 @@ test('预估交付批量新增：dialog 加行并断言 batch POST payload', asy
   expect(posted[0].rows[1].amountYuan).toBe(400000)
 })
 
-test('待映射合同可归属到真实项目并刷新', async ({ page }) => {
-  await page.goto('/revenue')
-  pendingContracts = [
-    {
-      id: 21,
-      brand: '飞鹤',
-      customer: null,
-      contractNo: 'FH-2026-001',
-      detailNo: '3957852593046113680',
-      contractName: '飞鹤 2026 年度会员运营服务合同',
-      itemDesc: '会员运营',
-      bizLineRaw: '全域-全渠道-全域云鹿定制',
-      bizLineId: 1,
-      receivableAmount: 250000,
-      saleMonth: '2026-09',
-      pending: 1
+test('待映射黄天鹅合同切换业务线后映射到 SAAS 项目', async ({ page }) => {
+  const fixture: PendingContract = {
+    id: 21,
+    brand: '黄天鹅',
+    contractNo: 'HT-21',
+    contractName: '黄天鹅待映射合同',
+    bizLineId: 1,
+    projectId: null,
+    receivableAmount: 250000,
+    pending: 1
+  }
+  let currentPending: PendingContract[] = [fixture]
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', async route => {
+    if (route.request().method() === 'POST') {
+      currentPending = []
+      return fulfill(route, null)
     }
-  ]
-  await page.getByRole('tab', { name: '交付与利润' }).click()
-  const panel = page.getByRole('tabpanel', { name: '交付与利润' })
-
-  const pendingTable = panel.locator('.pending-section .data-table')
-  await expect(pendingTable).toContainText('飞鹤')
-  await expect(pendingTable).toContainText('FH-2026-001')
-  await expect(pendingTable).toContainText('25')   // 应收 25 万
-
-  const row = pendingTable.locator('tr', { hasText: 'FH-2026-001' })
-  await row.locator('.el-select__wrapper').click()
-  await page.getByRole('option', { name: /皇家项目/ }).click()
-
-  const resolveRequest = page.waitForRequest(request =>
-    /\/api\/revenue\/contracts\/pending\/21\/resolve$/.test(request.url()) && request.method() === 'POST')
+    return fulfill(route, currentPending)
+  })
+  await page.goto('/revenue')
+  await page.locator('#tab-pending').evaluate(element => (element as HTMLElement).click())
+  const panel = page.getByRole('tabpanel', { name: '待映射与销售项目' })
+  const pendingSection = panel.locator('.pending-section').filter({ hasText: '合同待映射' })
+  const pendingTable = pendingSection.locator('.data-table')
+  await expect(pendingTable).toContainText('HT-21')
+  const row = pendingTable.locator('tr', { hasText: 'HT-21' })
+  const lineSelect = row.locator('.el-select').nth(0)
+  const projectSelect = row.locator('.el-select').nth(1)
+  await lineSelect.locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: 'SAAS', exact: true }).last().evaluate(element => (element as HTMLElement).click())
+  await expect(projectSelect.locator('.el-select__wrapper')).toContainText('业务线级')
+  await projectSelect.locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '黄天鹅', exact: true }).last().evaluate(element => (element as HTMLElement).click())
+  const resolveRequest = page.waitForRequest(request => /\/api\/revenue\/contracts\/pending\/21\/resolve$/.test(request.url()) && request.method() === 'POST')
   await row.getByRole('button', { name: '确定' }).click()
-
-  expect((await resolveRequest).postDataJSON()).toEqual({ projectId: 101 })
-  await expect(page.locator('.el-message')).toContainText('合同已映射到项目')
+  const request = await resolveRequest
+  expect(request.method()).toBe('POST')
+  expect(request.postDataJSON()).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect(page.locator('.el-message').last()).toContainText('合同已映射')
   await expect(pendingTable).toContainText('暂无待映射合同')
-  await expect(panel.locator('.pending-section h4')).toContainText('0')
 })
 
 
@@ -556,41 +571,83 @@ test('业务线级合同（福田定制不落项目）在业务线合计与整�
 })
 
 test('待映射合同可归属业务线级（不落具体项目），POST 携带 businessLineId', async ({ page }) => {
+  const fixture: PendingContract = { id: 31, brand: '北汽福田', contractNo: 'FT-2026-002', contractName: '北汽福田定制开发服务合同', bizLineId: 1, receivableAmount: 4650, pending: 1 }
+  let currentPending = [fixture]
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', async route => { if (route.request().method() === 'POST') { currentPending = []; return fulfill(route, null) } return fulfill(route, currentPending) })
   await page.goto('/revenue')
-  pendingContracts = [
-    {
-      id: 31,
-      brand: '北汽福田',
-      customer: null,
-      contractNo: 'FT-2026-002',
-      detailNo: '20260902000031',
-      contractName: '北汽福田定制开发服务合同',
-      itemDesc: '定制开发',
-      bizLineRaw: '全域-全渠道-全域云鹿定制',
-      bizLineId: 1,
-      receivableAmount: 4650,
-      saleMonth: '2026-09',
-      pending: 1
-    }
-  ]
-  await page.getByRole('tab', { name: '交付与利润' }).click()
-  const panel = page.getByRole('tabpanel', { name: '交付与利润' })
-
-  const pendingTable = panel.locator('.pending-section .data-table')
-  await expect(pendingTable).toContainText('FT-2026-002')
-
+  await page.locator('#tab-pending').evaluate(element => (element as HTMLElement).click())
+  const panel = page.getByRole('tabpanel', { name: '待映射与销售项目' })
+  const pendingTable = panel.locator('.pending-section').filter({ hasText: '合同待映射' }).locator('.data-table')
   const row = pendingTable.locator('tr', { hasText: 'FT-2026-002' })
-  // 归属选择包含「业务线级 · 全渠道云鹿定制（不落具体项目）」
-  await row.locator('.el-select__wrapper').click()
-  const lineLevelOption = page.getByRole('option', { name: '业务线级 · 全渠道云鹿定制（不落具体项目）' })
-  await expect(lineLevelOption).toBeVisible()
-  await lineLevelOption.click()
-
-  const resolveRequest = page.waitForRequest(request =>
-    /\/api\/revenue\/contracts\/pending\/31\/resolve$/.test(request.url()) && request.method() === 'POST')
+  await row.locator('.el-select__wrapper').nth(1).click()
+  await page.getByRole('option', { name: /业务线级.*不落具体项目/ }).click()
+  const resolveRequest = page.waitForRequest(request => /\/api\/revenue\/contracts\/pending\/31\/resolve$/.test(request.url()) && request.method() === 'POST')
   await row.getByRole('button', { name: '确定' }).click()
-
   expect((await resolveRequest).postDataJSON()).toEqual({ businessLineId: 1 })
-  await expect(page.locator('.el-message')).toContainText('合同已归入业务线级收入')
+  await expect(page.locator('.el-message').last()).toContainText('合同已映射')
   await expect(pendingTable).toContainText('暂无待映射合同')
+})
+
+test('已映射黄天鹅合同可从定制切换到 SAAS 项目', async ({ page }) => {
+  const original = { id: 41, brand: '黄天鹅', contractNo: 'HT-41', contractName: '黄天鹅合同', bizLineId: 1, projectId: 101, businessLineName: '全渠道云鹿定制', projectName: '皇家项目', receivableAmount: 180800, pending: 0 }
+  let currentMapped = [original]
+  let mappingBody: unknown
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', route => fulfill(route, []))
+  await page.unroute('**/api/revenue/contracts/mapped**')
+  await page.route('**/api/revenue/contracts/mapped**', route => fulfill(route, currentMapped))
+  await page.route('**/api/revenue/contracts/41/mapping', async route => {
+    expect(route.request().method()).toBe('PUT')
+    mappingBody = route.request().postDataJSON()
+    currentMapped = [{ ...original, bizLineId: 2, projectId: 15, businessLineName: 'SAAS', projectName: '黄天鹅' }]
+    return fulfill(route, currentMapped[0])
+  })
+  await page.route('**/api/business-lines**', route => fulfill(route, { records: [{ id: 1, name: '全渠道云鹿定制' }, { id: 2, name: 'SAAS' }] }))
+  await page.route('**/api/projects**', route => fulfill(route, { records: [{ id: 101, name: '皇家项目', businessLineId: 1 }, { id: 15, name: '黄天鹅', businessLineId: 2 }] }))
+  await page.goto('/revenue')
+  await page.locator('#tab-pending').evaluate(element => (element as HTMLElement).click())
+  const panel = page.getByRole('tabpanel', { name: '待映射与销售项目' })
+  const mappedSection = panel.locator('.pending-section').filter({ hasText: '已映射合同' })
+  const mappedTable = mappedSection.locator('.data-table')
+  const row = mappedTable.locator('tr', { hasText: 'HT-41' })
+  await row.getByRole('button', { name: '编辑' }).click()
+  const lineSelect = row.locator('.el-select').nth(0)
+  const projectSelect = row.locator('.el-select').nth(1)
+  await lineSelect.locator('.el-select__wrapper').click()
+  await lineSelect.locator('input').press('End')
+  await lineSelect.locator('input').press('Enter')
+  await expect(projectSelect.locator('.el-select__wrapper')).toContainText('业务线级')
+  await projectSelect.locator('.el-select__wrapper').click()
+  const options = page.getByRole('option')
+  await expect(options.filter({ hasText: '黄天鹅' })).toBeVisible()
+  await expect(options.filter({ hasText: '皇家项目' })).toHaveCount(0)
+  await options.filter({ hasText: '黄天鹅' }).click({ force: true })
+  const putRequest = page.waitForRequest(request => request.url().endsWith('/api/revenue/contracts/41/mapping') && request.method() === 'PUT')
+  await row.getByRole('button', { name: '保存' }).click()
+  const request = await putRequest
+  expect(request.method()).toBe('PUT')
+  expect(request.postDataJSON()).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect.poll(() => mappingBody).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect(page.locator('.el-message').last()).toContainText('合同归属已保存')
+  await expect(mappedTable).toContainText('SAAS')
+  await expect(mappedTable).toContainText('黄天鹅')
+})
+
+test('合同工具只出现在导入和待映射 tab', async ({ page }) => {
+  await page.goto('/revenue')
+  const importTab = page.getByRole('tab', { name: '数据导入' })
+  await importTab.click()
+  const importPanel = page.getByRole('tabpanel', { name: '数据导入' })
+  await expect(importPanel.getByRole('heading', { name: '合同导入', exact: true })).toHaveCount(1)
+  await expect(importPanel.getByText('合同导入历史', { exact: false })).toHaveCount(1)
+  await page.locator('#tab-pending').evaluate(element => (element as HTMLElement).click())
+  const pendingPanel = page.getByRole('tabpanel', { name: '待映射与销售项目' })
+  await expect(pendingPanel.getByRole('heading', { name: '合同待映射', exact: false })).toHaveCount(1)
+  await expect(pendingPanel.getByRole('heading', { name: '已映射合同（可调整归属）', exact: false })).toHaveCount(1)
+  await page.getByRole('tab', { name: '交付与利润' }).click()
+  const deliveryPanel = page.getByRole('tabpanel', { name: '交付与利润' })
+  await expect(deliveryPanel.getByText('合同导入', { exact: false })).toHaveCount(0)
+  await expect(deliveryPanel.getByText('合同待映射', { exact: false })).toHaveCount(0)
+  await expect(deliveryPanel.getByText('已映射合同', { exact: false })).toHaveCount(0)
 })

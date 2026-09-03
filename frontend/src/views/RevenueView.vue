@@ -6,6 +6,9 @@ import type { UploadFile } from 'element-plus'
 import RevenueDeliveryTab from '@/components/RevenueDeliveryTab.vue'
 import { api } from '@/utils/api'
 import type {
+  DeliveryContractBatch,
+  DeliveryMappedContract,
+  DeliveryPendingContract,
   RevenueCell,
   RevenueCellDetail,
   RevenueCostEntry,
@@ -602,6 +605,31 @@ const runImport = async (kind: 'worklog' | 'cost') => {
   }
 }
 
+const contractFile = ref<File | null>(null)
+const contractImporting = ref(false)
+const contractBatches = ref<DeliveryContractBatch[]>([])
+const contractBatchesLoading = ref(false)
+const pendingContracts = ref<DeliveryPendingContract[]>([])
+const mappedContracts = ref<DeliveryMappedContract[]>([])
+const contractLoading = ref(false)
+type ContractDraft = { businessLineId?: number; projectId: number | null }
+const contractDrafts = reactive<Record<number, ContractDraft>>({})
+const mappedEditingId = ref<number | null>(null)
+const contractSavingId = ref<number | null>(null)
+const loadContractBatches = async () => { contractBatchesLoading.value = true; try { contractBatches.value = await api.getDeliveryContractBatches() } catch (error) { ElMessage.error(errorMessage(error, '合同导入历史加载失败')) } finally { contractBatchesLoading.value = false } }
+const loadContractTools = async () => { contractLoading.value = true; try { [pendingContracts.value, mappedContracts.value] = await Promise.all([api.getPendingDeliveryContracts(), api.getMappedDeliveryContracts(year.value)]) } catch (error) { ElMessage.error(errorMessage(error, '合同清单加载失败')) } finally { contractLoading.value = false } }
+const runContractImport = async () => { if (!contractFile.value) return; contractImporting.value = true; try { await api.importDeliveryContracts(contractFile.value); contractFile.value = null; ElMessage.success('合同导入完成'); await Promise.all([loadContractBatches(), loadContractTools(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同导入失败')) } finally { contractImporting.value = false } }
+const contractProjectsOf = (lineId?: number) => projects.value.filter(project => project.businessLineId === lineId)
+const businessLineNameOfSelected = (lineId?: number) => businessLines.value.find(line => line.id === lineId)?.name || '当前业务线'
+const contractLineName = (row: DeliveryPendingContract) => row.businessLineName || businessLines.value.find(line => line.id === row.bizLineId)?.name || row.bizLineRaw || '—'
+const contractProjectName = (row: DeliveryPendingContract) => row.projectName || projects.value.find(project => project.id === row.projectId)?.name || '业务线级'
+const ensureContractDraft = (row: DeliveryPendingContract) => contractDrafts[row.id] ||= { businessLineId: row.bizLineId ?? undefined, projectId: row.projectId ?? null }
+const changeContractLine = (id: number, businessLineId: number) => { contractDrafts[id] = { businessLineId, projectId: null } }
+const changeContractProject = (row: DeliveryPendingContract, value: number | 'line' | undefined) => { const draft = ensureContractDraft(row); draft.projectId = value === 'line' || value == null ? null : value }
+const beginMappedEdit = (row: DeliveryMappedContract) => { mappedEditingId.value = row.id; ensureContractDraft(row) }
+const resolveContractPending = async (row: DeliveryPendingContract) => { const draft = ensureContractDraft(row); const businessLineId = draft.businessLineId ?? row.bizLineId; if (!businessLineId) { ElMessage.warning('请选择业务线'); return } ; contractSavingId.value = row.id; try { await api.resolvePendingDeliveryContract(row.id, draft.projectId, businessLineId); ElMessage.success('合同已映射'); delete contractDrafts[row.id]; await Promise.all([loadContractTools(), loadMatrix(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同映射保存失败')) } finally { contractSavingId.value = null } }
+const saveMappedContract = async (row: DeliveryMappedContract) => { const draft = ensureContractDraft(row); if (!draft.businessLineId) { ElMessage.warning('请选择业务线'); return }; contractSavingId.value = row.id; try { await api.updateDeliveryContractMapping(row.id, { businessLineId: draft.businessLineId, projectId: draft.projectId }); mappedEditingId.value = null; delete contractDrafts[row.id]; ElMessage.success('合同归属已保存'); await Promise.all([loadContractTools(), loadMatrix(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同归属保存失败')) } finally { contractSavingId.value = null } }
+
 // ---------- 待映射 ----------
 const pendingLoading = ref(false)
 const pendingWorklog = ref<import('@/types/revenue').RevenueWorklogEntry[]>([])
@@ -689,8 +717,8 @@ const businessLineNameOf = (id: number) =>
 
 const handleTabChange = (name: string | number) => {
   if (name === 'delivery') deliveryMounted.value = true
-  if (name === 'import') loadBatches()
-  if (name === 'pending') Promise.all([loadPending(), loadSalesProjects()])
+  if (name === 'import') Promise.all([loadBatches(), loadContractBatches()])
+  if (name === 'pending') Promise.all([loadPending(), loadSalesProjects(), loadContractTools()])
 }
 
 onMounted(loadMatrix)
@@ -895,6 +923,27 @@ onMounted(loadMatrix)
             <el-table-column prop="pendingCount" label="待映射" width="90" />
           </el-table>
         </section>
+        <div class="import-grid">
+          <section class="import-card">
+            <h4>合同导入</h4>
+            <p>OA 合同 / 已交付 Excel；未命中项目的合同进入待映射清单。</p>
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls" :on-change="(f: UploadFile) => { contractFile = f.raw ?? null }">
+              <el-button :icon="Upload">选择文件</el-button>
+            </el-upload>
+            <span v-if="contractFile" class="file-name">{{ contractFile.name }}</span>
+            <el-button type="primary" :loading="contractImporting" :disabled="!contractFile" @click="runContractImport">开始导入</el-button>
+          </section>
+        </div>
+        <section class="batch-section">
+          <h4>合同导入历史（{{ contractBatches.length }}）</h4>
+          <el-table v-loading="contractBatchesLoading" :data="contractBatches" class="data-table" empty-text="暂无合同导入批次">
+            <el-table-column prop="createdAt" label="时间" />
+            <el-table-column prop="fileName" label="文件名" />
+            <el-table-column prop="totalCount" label="解析" />
+            <el-table-column prop="successCount" label="成功" />
+            <el-table-column prop="pendingCount" label="待映射" />
+          </el-table>
+        </section>
       </el-tab-pane>
 
       <el-tab-pane label="待映射与销售项目" name="pending">
@@ -979,6 +1028,29 @@ onMounted(loadMatrix)
           </el-table>
         </section>
 
+        <section class="pending-section" style="margin-top: 24px">
+          <h4>合同待映射（{{ pendingContracts.length }}）</h4>
+          <el-table v-loading="contractLoading" :data="pendingContracts" class="data-table" empty-text="暂无待映射合同">
+            <el-table-column label="品牌/客户"><template #default="{ row }">{{ row.brand || row.customer || '—' }}</template></el-table-column>
+            <el-table-column label="合同编号/名称" min-width="220"><template #default="{ row }">{{ row.contractNo || row.detailNo }} · {{ row.contractName }}</template></el-table-column>
+            <el-table-column label="应收金额(万)"><template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template></el-table-column>
+            <el-table-column label="业务线"><template #default="{ row }"><el-select :model-value="contractDrafts[row.id]?.businessLineId ?? row.bizLineId ?? undefined" @change="(v: number) => { ensureContractDraft(row).businessLineId = v; ensureContractDraft(row).projectId = null }"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></template></el-table-column>
+            <el-table-column label="项目"><template #default="{ row }"><el-select :model-value="contractDrafts[row.id]?.projectId" clearable placeholder="业务线级" :disabled="!(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)" @change="(v: number | 'line' | undefined) => changeContractProject(row, v)"><el-option v-if="contractDrafts[row.id]?.businessLineId || row.bizLineId != null" :label="`业务线级 · ${businessLineNameOfSelected(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)}（不落具体项目）`" value="line" /><el-option v-for="p in contractProjectsOf(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)" :key="p.id" :label="p.name" :value="p.id" /></el-select></template></el-table-column>
+            <el-table-column label="操作"><template #default="{ row }"><el-button type="primary" @click="resolveContractPending(row)">确定</el-button></template></el-table-column>
+          </el-table>
+        </section>
+        <section class="pending-section" style="margin-top: 24px">
+          <h4>已映射合同（可调整归属）（{{ mappedContracts.length }}）</h4>
+          <el-table v-loading="contractLoading" :data="mappedContracts" class="data-table" empty-text="暂无已映射合同">
+            <el-table-column label="品牌/客户"><template #default="{ row }">{{ row.brand || row.customer || '—' }}</template></el-table-column>
+            <el-table-column label="合同编号/名称" min-width="220"><template #default="{ row }">{{ row.contractNo || row.detailNo }} · {{ row.contractName }}</template></el-table-column>
+            <el-table-column label="应收金额(万)"><template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template></el-table-column>
+            <el-table-column label="当前业务线"><template #default="{ row }">{{ contractLineName(row) }}</template></el-table-column>
+            <el-table-column label="当前项目"><template #default="{ row }">{{ contractProjectName(row) }}</template></el-table-column>
+            <el-table-column prop="deliveryDate" label="交付日期" />
+            <el-table-column label="操作"><template #default="{ row }"><template v-if="mappedEditingId === row.id"><el-select :model-value="contractDrafts[row.id]?.businessLineId" @change="(v: number) => changeContractLine(row.id, v)"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select><el-select :model-value="contractDrafts[row.id]?.projectId" clearable placeholder="业务线级" @change="(v: number | 'line' | undefined) => changeContractProject(row, v)"><el-option label="业务线级（不落具体项目）" value="line" /><el-option v-for="p in contractProjectsOf(contractDrafts[row.id]?.businessLineId)" :key="p.id" :label="p.name" :value="p.id" /></el-select><el-button type="primary" @click="saveMappedContract(row)">保存</el-button></template><el-button v-else @click="beginMappedEdit(row)">编辑</el-button></template></el-table-column>
+          </el-table>
+        </section>
         <section class="pending-section" style="margin-top: 24px">
           <h4>销售项目（{{ salesProjects.length }}）</h4>
           <p class="section-note">「京博【销售】」这类具体销售项目在导入时自动注册，可在此手动关联商机。</p>

@@ -345,28 +345,28 @@ export interface DeliveryOtherCost {
   createdAt?: string
 }
 
-/** 合同导入待映射记录（与后端 RevenueContractEntry 序列化对齐；null 字段可能整体缺失） */
+/** 合同导入记录；待映射与已映射共用字段 */
 export interface DeliveryPendingContract {
   id: number
-  /** 合同 ID */
   contractNo?: string | null
-  /** 明细表记录 ID（唯一去重键） */
   detailNo?: string | null
   contractName?: string | null
   brand?: string | null
   customer?: string | null
   itemDesc?: string | null
-  /** 收款款项类型（原始业务线名，解析/映射前） */
   bizLineRaw?: string | null
-  /** 解析出的业务线 id（用于按业务线过滤可选归属项目） */
   bizLineId?: number | null
-  /** 应收金额（元） */
+  projectId?: number | null
+  businessLineName?: string | null
+  projectName?: string | null
   receivableAmount?: number | null
-  /** 收款销售月份 YYYY-MM */
   saleMonth?: string | null
-  /** 1=待人工映射项目 */
+  deliveryDate?: string | null
   pending?: number
 }
+
+/** 已映射合同归属调整记录 */
+export type DeliveryMappedContract = DeliveryPendingContract
 
 /** 合同导入批次 */
 export interface DeliveryContractBatch {
