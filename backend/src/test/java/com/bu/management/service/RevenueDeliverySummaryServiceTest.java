@@ -65,7 +65,9 @@ class RevenueDeliverySummaryServiceTest {
         lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(
                 line(1L, "全渠道云鹿定制", "full", 1),
                 line(3L, "会员通", "aggregate", 1),
-                line(5L, "全渠道产品", "simple", 0)));
+                line(5L, "全渠道产品", "simple", 1),
+                line(6L, "海外业务线", "aggregate", 1),
+                line(7L, "全域精准", "simple", 1)));
         lenient().when(projectMapper.selectList(null)).thenReturn(List.of(
                 project(1L, 1L, null, "皇家项目"),
                 project(7L, 1L, null, "飞鹤"),
@@ -85,6 +87,8 @@ class RevenueDeliverySummaryServiceTest {
         costs.add(cost("2026-03", 5L, null, "6", "30000", "project"));
         costs.add(cost("2026-03", 5L, null, "2", "9000", "sales"));
         costs.add(cost("2026-08", 5L, null, "5", "2000", "project"));    // 未完结月 → 不计
+        costs.add(cost("2026-04", 6L, null, "3", "11000", "project"));
+        costs.add(cost("2026-04", 6L, null, "1", "7000", "sales"));
         lenient().when(costEntryMapper.selectList(any())).thenReturn(costs);
 
         List<RevenueContractEntry> contracts = new ArrayList<>();
@@ -96,6 +100,7 @@ class RevenueDeliverySummaryServiceTest {
         contracts.add(contract("dF", 3L, null, "200000", "2026-05", "2026-05-10"));
         contracts.add(contract("dG", 3L, null, "400000", "2026-09", "2026-09-20"));
         contracts.add(contract("dH", 5L, null, "30000", "2026-03", "2026-03-31"));
+        contracts.add(contract("dJ", 6L, null, "40000", "2026-04", "2026-04-30"));
         lenient().when(contractEntryMapper.selectList(any())).thenReturn(contracts);
 
         List<RevenueDeliveryPlan> plans = new ArrayList<>();
@@ -262,14 +267,6 @@ class RevenueDeliverySummaryServiceTest {
         assertThat(aoyou.getYtd().getGrossRate()).isNull();
         assertNum(aoyou.getYtd().getGrossProfit(), "-12000");
 
-        // 产品线（simple、成本不可见）：未完结月(8月)不计 → 工时仍为完结月合计 8 人月、成本 0
-        RevenueDeliverySummaryVO.Line product = lineOf(vo, 5L);
-        RevenueDeliverySummaryVO.ProjectRow simpleRow = product.getProjects().get(0);
-        assertThat(simpleRow.getIsAggregate()).isTrue();
-        assertNum(simpleRow.getYtd().getProjectHours(), "8");
-        assertNum(simpleRow.getYtd().getProjectLaborCost(), "0");
-        assertNum(simpleRow.getYtd().getDelivered(), "30000");
-        assertNum(simpleRow.getYtd().getGrossProfit(), "30000");
     }
 
     @Test
@@ -322,26 +319,40 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(royal.getH2().getOtherCosts().getServer(), "3000");
         assertNum(royal.getYtd().getOtherCosts().getTotal(), "3000");
     }
+    @Test
+    void nonRevenueLinesAreOmittedAndOverviewOnlyAggregatesIncludedLines() {
+        RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
+
+        assertThat(vo.getLines()).extracting(RevenueDeliverySummaryVO.Line::getBusinessLineName)
+                .containsExactly("全渠道云鹿定制", "会员通", "全域精准")
+                .doesNotContain("海外业务线", "全渠道产品");
+        // 排除线中仍有合同 7 万、项目/销售成本 5.7 万，概览只能汇总纳入的收入业务线。
+        assertNum(vo.getOverview().getTotalOaContract(), "750000");
+        assertNum(vo.getOverview().getTotalDelivered(), "300000");
+        assertNum(vo.getOverview().getTotalLaborCost(), "163000");
+        assertNum(vo.getOverview().getTotalProfit(), "349000");
+    }
+
 
     @Test
     void overviewAggregatesWholeTableWithToggle() {
         RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
         assertThat(vo.getIncludeEstimate()).isTrue();
-        // 仅统计 2026 交付日期合同：15万皇家 + 55万会员通 + 3万产品
-        assertNum(vo.getOverview().getTotalOaContract(), "780000");
-        assertNum(vo.getOverview().getTotalDelivered(), "330000");
+        // 仅统计纳入业务线的 2026 交付日期合同：15万皇家 + 60万会员通
+        assertNum(vo.getOverview().getTotalOaContract(), "750000");
+        assertNum(vo.getOverview().getTotalDelivered(), "300000");
         assertNum(vo.getOverview().getTotalEstimated(), "220000");
         assertNum(vo.getOverview().getTotalLaborCost(), "163000");
         assertNum(vo.getOverview().getTotalOtherCost(), "8000");
-        assertNum(vo.getOverview().getTotalProfit(), "379000");
-        assertNum(vo.getOverview().getProfitRate(), "68.91");
+        assertNum(vo.getOverview().getTotalProfit(), "349000");
+        assertNum(vo.getOverview().getProfitRate(), "67.12");
 
         RevenueDeliverySummaryVO actual = service.summary(2026, false, today);
         assertThat(actual.getIncludeEstimate()).isFalse();
-        assertNum(actual.getOverview().getTotalDelivered(), "330000");
+        assertNum(actual.getOverview().getTotalDelivered(), "300000");
         assertNum(actual.getOverview().getTotalLaborCost(), "103000");
-        assertNum(actual.getOverview().getTotalProfit(), "219000");
-        assertNum(actual.getOverview().getProfitRate(), "66.36");
+        assertNum(actual.getOverview().getTotalProfit(), "189000");
+        assertNum(actual.getOverview().getProfitRate(), "63.00");
     }
 
     @Test

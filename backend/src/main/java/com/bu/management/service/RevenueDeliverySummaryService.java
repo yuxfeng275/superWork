@@ -70,6 +70,8 @@ public class RevenueDeliverySummaryService {
     private static final Map<String, String> PROJECT_ALIASES = Map.of(
             "佳贝艾特", "澳优",
             "海普诺凯", "澳优");
+    // 交付利润仅覆盖有营收的业务线。
+    private static final Set<String> EXCLUDED_BUSINESS_LINE_NAMES = Set.of("海外业务线", "全渠道产品");
     private static final DateTimeFormatter YM = DateTimeFormatter.ofPattern("yyyy-MM");
 
     /** 未分配销售成本原因代码与中文说明 */
@@ -96,16 +98,20 @@ public class RevenueDeliverySummaryService {
 
     public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, LocalDate today) {
         List<BusinessLine> lines = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
-                .eq(BusinessLine::getStatus, 1).orderByAsc(BusinessLine::getId));
+                        .eq(BusinessLine::getStatus, 1).orderByAsc(BusinessLine::getId)).stream()
+                .filter(line -> !EXCLUDED_BUSINESS_LINE_NAMES.contains(line.getName()))
+                .toList();
         RevenueDeliverySummaryVO vo = base(year, includeEstimate);
         if (lines.isEmpty()) {
             return vo;
         }
+        Set<Long> includedLineIds = lines.stream().map(BusinessLine::getId).collect(Collectors.toSet());
         Map<Long, String> lineMode = lines.stream().collect(Collectors.toMap(BusinessLine::getId,
                 line -> StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full", (a, b) -> a));
         Map<Long, Boolean> costVisible = lines.stream().collect(Collectors.toMap(BusinessLine::getId,
                 line -> line.getCostVisible() == null || line.getCostVisible() == 1, (a, b) -> a));
         Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
+                .filter(project -> includedLineIds.contains(project.getBusinessLineId()))
                 .collect(Collectors.toMap(Project::getId, Function.identity(), (a, b) -> a));
         Map<Long, Long> aliasToRoot = aliasMap(projectsById);
         Set<String> closed = monthService.closedMonths();
@@ -149,6 +155,9 @@ public class RevenueDeliverySummaryService {
                 continue;
             }
             Long lineId = entry.getBizLineId();
+            if (!includedLineIds.contains(lineId)) {
+                continue;
+            }
             if (entry.getDeliveryDate() == null) {
                 if (lineId != null) {
                     noDeliveryDateByLine.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
@@ -187,6 +196,7 @@ public class RevenueDeliverySummaryService {
 
         // 销售项目注册表与商机（成单证据链：具体销售项目 → 商机 → 同客户成单合同）
         Map<Long, RevenueSalesProject> salesProjectsById = salesProjectMapper.selectList(null).stream()
+                .filter(project -> includedLineIds.contains(project.getBusinessLineId()))
                 .collect(Collectors.toMap(RevenueSalesProject::getId, Function.identity(), (a, b) -> a));
         Map<Long, SalesOpportunity> opportunitiesById = opportunityMapper.selectList(null).stream()
                 .collect(Collectors.toMap(SalesOpportunity::getId, Function.identity(), (a, b) -> a));
@@ -196,7 +206,8 @@ public class RevenueDeliverySummaryService {
         Map<String, MonthAcc> salesAcc = new HashMap<>();
         for (RevenueWorklogEntry entry : worklogEntryMapper.selectList(new LambdaQueryWrapper<RevenueWorklogEntry>()
                 .eq(RevenueWorklogEntry::getPending, 0).likeRight(RevenueWorklogEntry::getYearMonth, yearPrefix))) {
-            if (!closed.contains(entry.getYearMonth()) || entry.getBusinessLineId() == null) {
+            if (!closed.contains(entry.getYearMonth())
+                    || !includedLineIds.contains(entry.getBusinessLineId())) {
                 continue;
             }
             int m = monthIndex(entry.getYearMonth());
@@ -221,7 +232,8 @@ public class RevenueDeliverySummaryService {
         Map<Long, Map<String, BigDecimal>> unallocReasonsByLine = new HashMap<>();
         for (RevenueCostEntry entry : costEntryMapper.selectList(new LambdaQueryWrapper<RevenueCostEntry>()
                 .eq(RevenueCostEntry::getPending, 0).likeRight(RevenueCostEntry::getYearMonth, yearPrefix))) {
-            if (!closed.contains(entry.getYearMonth()) || entry.getBusinessLineId() == null) {
+            if (!closed.contains(entry.getYearMonth())
+                    || !includedLineIds.contains(entry.getBusinessLineId())) {
                 continue;
             }
             int m = monthIndex(entry.getYearMonth());
@@ -256,6 +268,9 @@ public class RevenueDeliverySummaryService {
         Map<String, BigDecimal[]> planLabor = new HashMap<>();
         for (RevenueDeliveryPlan plan : planMapper.selectList(new LambdaQueryWrapper<RevenueDeliveryPlan>()
                 .likeRight(RevenueDeliveryPlan::getYearMonth, yearPrefix))) {
+            if (!includedLineIds.contains(plan.getBusinessLineId())) {
+                continue;
+            }
             String key = deliveryBucketKey(plan.getBusinessLineId(), plan.getProjectId(),
                     lineMode.get(plan.getBusinessLineId()), projectsById, aliasToRoot);
             if (key == null) {
@@ -274,6 +289,9 @@ public class RevenueDeliverySummaryService {
         Map<String, Map<String, BigDecimal[]>> otherByType = new HashMap<>();
         for (RevenueOtherCost cost : otherCostMapper.selectList(new LambdaQueryWrapper<RevenueOtherCost>()
                 .likeRight(RevenueOtherCost::getYearMonth, yearPrefix))) {
+            if (!includedLineIds.contains(cost.getBusinessLineId())) {
+                continue;
+            }
             String mode = lineMode.get(cost.getBusinessLineId());
             String key = deliveryBucketKey(cost.getBusinessLineId(), cost.getProjectId(), mode,
                     projectsById, aliasToRoot);
