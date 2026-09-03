@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueContractMappingVO;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.RevenueContractEntry;
@@ -110,36 +111,76 @@ public class RevenueContractImportService {
                 .orderByAsc(RevenueContractEntry::getId));
     }
 
-    /** 人工指定待映射明细归属：选项目则落到该项目所在业务线；或选有聚合行的业务线（会员通等） */
-    public void resolvePending(Long id, Long projectId, Long businessLineId, Long userId) {
+    /**
+     * Returns every mapped contract. The optional year is retained for API compatibility;
+     * mapping correction must not hide contracts whose sales month differs from the delivery year.
+     */
+    public List<RevenueContractMappingVO> listMapped(Integer year) {
+        List<RevenueContractEntry> entries = contractEntryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>()
+                .eq(RevenueContractEntry::getPending, 0)
+                .orderByAsc(RevenueContractEntry::getId));
+        Map<Long, BusinessLine> linesById = businessLineMapper.selectList(null).stream()
+                .collect(Collectors.toMap(BusinessLine::getId, line -> line, (first, second) -> first));
+        Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
+                .collect(Collectors.toMap(Project::getId, project -> project, (first, second) -> first));
+        return entries.stream().map(entry -> toMappingVO(entry, linesById, projectsById)).toList();
+    }
+
+    private RevenueContractMappingVO toMappingVO(RevenueContractEntry entry) {
+        BusinessLine line = entry.getBizLineId() == null ? null : businessLineMapper.selectById(entry.getBizLineId());
+        Project project = entry.getProjectId() == null ? null : projectMapper.selectById(entry.getProjectId());
+        return toMappingVO(entry,
+                line == null ? Map.of() : Map.of(entry.getBizLineId(), line),
+                project == null ? Map.of() : Map.of(entry.getProjectId(), project));
+    }
+
+    private RevenueContractMappingVO toMappingVO(RevenueContractEntry entry,
+                                                  Map<Long, BusinessLine> linesById,
+                                                  Map<Long, Project> projectsById) {
+        RevenueContractMappingVO vo = new RevenueContractMappingVO();
+        org.springframework.beans.BeanUtils.copyProperties(entry, vo);
+        BusinessLine line = entry.getBizLineId() == null ? null : linesById.get(entry.getBizLineId());
+        if (line != null) vo.setBusinessLineName(line.getName());
+        Project project = entry.getProjectId() == null ? null : projectsById.get(entry.getProjectId());
+        if (project != null) vo.setProjectName(project.getName());
+        return vo;
+    }
+
+    @Transactional
+    public RevenueContractMappingVO updateMapping(Long id, Long businessLineId, Long projectId) {
         RevenueContractEntry entry = contractEntryMapper.selectById(id);
-        if (entry == null) {
-            throw new IllegalArgumentException("合同明细不存在");
-        }
-        if (entry.getPending() == null || entry.getPending() != 1) {
-            throw new IllegalArgumentException("该明细已映射项目，无需再次处理");
-        }
+        if (entry == null) throw new IllegalArgumentException("合同明细不存在");
+        applyMapping(entry, businessLineId, projectId, true);
+        entry.setUpdatedAt(LocalDateTime.now());
+        contractEntryMapper.updateById(entry);
+        return toMappingVO(entry);
+    }
+
+    private void applyMapping(RevenueContractEntry entry, Long businessLineId, Long projectId, boolean requireLine) {
+        if (businessLineId == null) throw new IllegalArgumentException("业务线不能为空");
+        BusinessLine line = businessLineMapper.selectById(businessLineId);
+        if ((requireLine || projectId == null) && line == null) throw new IllegalArgumentException("业务线不存在");
         if (projectId != null) {
             Project project = projectMapper.selectById(projectId);
-            if (project == null) {
-                throw new IllegalArgumentException("项目不存在");
-            }
-            entry.setProjectId(projectId);
-            entry.setBizLineId(project.getBusinessLineId());
-            entry.setPending(0);
-        } else {
-            if (businessLineId == null) {
-                throw new IllegalArgumentException("请指定项目或业务线");
-            }
-            BusinessLine line = businessLineMapper.selectById(businessLineId);
-            if (line == null) {
-                throw new IllegalArgumentException("业务线不存在");
-            }
-            // 业务线级合同允许落 full 线的未分配池；汇总以专用字段展示，不伪造项目行。
-            entry.setBizLineId(businessLineId);
-            entry.setProjectId(null);
-            entry.setPending(0);
+            if (project == null) throw new IllegalArgumentException("项目不存在");
+            if (!businessLineId.equals(project.getBusinessLineId())) throw new IllegalArgumentException("项目不属于该业务线");
         }
+        entry.setBizLineId(businessLineId);
+        entry.setProjectId(projectId);
+        entry.setPending(0);
+    }
+
+    /** 人工指定待映射明细归属，复用统一映射校验。 */
+    public void resolvePending(Long id, Long projectId, Long businessLineId, Long userId) {
+        RevenueContractEntry entry = contractEntryMapper.selectById(id);
+        if (entry == null) throw new IllegalArgumentException("合同明细不存在");
+        if (!Integer.valueOf(1).equals(entry.getPending())) throw new IllegalArgumentException("该明细已映射项目，无需再次处理");
+        if (projectId != null && businessLineId == null) {
+            Project project = projectMapper.selectById(projectId);
+            if (project == null) throw new IllegalArgumentException("项目不存在");
+            businessLineId = project.getBusinessLineId();
+        }
+        applyMapping(entry, businessLineId, projectId, false);
         entry.setUpdatedAt(LocalDateTime.now());
         contractEntryMapper.updateById(entry);
     }

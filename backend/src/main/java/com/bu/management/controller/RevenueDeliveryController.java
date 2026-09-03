@@ -2,6 +2,7 @@ package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueContractMappingVO;
 import com.bu.management.dto.RevenuePlanBatchRequest;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.RevenueContractImportBatch;
@@ -70,6 +71,21 @@ public class RevenueDeliveryController {
     @Operation(summary = "待人工映射项目的合同明细清单")
     public Result<List<RevenueContractEntry>> listPendingContracts() {
         return Result.success(contractImportService.listPending());
+    }
+
+    @GetMapping("/contracts/mapped")
+    @RequirePermission({"revenue:view"})
+    @Operation(summary = "已映射合同明细清单")
+    public Result<List<RevenueContractMappingVO>> listMappedContracts(@RequestParam(required = false) Integer year) {
+        return Result.success(contractImportService.listMapped(year));
+    }
+
+    @PutMapping("/contracts/{id}/mapping")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "调整合同业务线及项目归属")
+    public Result<RevenueContractMappingVO> updateContractMapping(@PathVariable Long id,
+                                                                    @RequestBody Map<String, Long> body) {
+        return Result.success(contractImportService.updateMapping(id, body.get("businessLineId"), body.get("projectId")));
     }
 
     @PostMapping("/contracts/pending/{id}/resolve")

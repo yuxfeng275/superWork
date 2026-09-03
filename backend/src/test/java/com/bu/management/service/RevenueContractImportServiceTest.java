@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.bu.management.dto.RevenueImportResultVO;
+import com.bu.management.dto.RevenueContractMappingVO;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.RevenueContractEntry;
@@ -332,6 +333,103 @@ class RevenueContractImportServiceTest {
         assertThatThrownBy(() -> service.resolvePending(99L, null, null, 1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("不存在");
+    }
+
+    @Test
+    void listMappedReturnsAllMappedRowsAndReadableNames() {
+        RevenueContractEntry mapped = new RevenueContractEntry();
+        mapped.setId(20L);
+        mapped.setPending(0);
+        mapped.setBizLineId(2L);
+        mapped.setProjectId(15L);
+        mapped.setSaleMonth("2025-12");
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(mapped));
+        when(businessLineMapper.selectList(null)).thenReturn(List.of(line(2L, "全渠道云鹿SAAS", "full")));
+        when(projectMapper.selectList(null)).thenReturn(List.of(project(15L, 2L, "黄天鹅")));
+
+        assertThat(service.listMapped(2026)).singleElement().satisfies(row -> {
+            assertThat(row.getId()).isEqualTo(20L);
+            assertThat(row.getBusinessLineName()).isEqualTo("全渠道云鹿SAAS");
+            assertThat(row.getProjectName()).isEqualTo("黄天鹅");
+        });
+        verify(businessLineMapper, times(0)).selectById(any());
+        verify(projectMapper, times(0)).selectById(any());
+    }
+
+    @Test
+    void mappedContractCanMoveFromCustomToSaasProject() {
+        RevenueContractEntry mapped = new RevenueContractEntry();
+        mapped.setId(21L);
+        mapped.setBizLineId(1L);
+        mapped.setProjectId(1L);
+        mapped.setPending(0);
+        when(contractEntryMapper.selectById(21L)).thenReturn(mapped);
+        when(businessLineMapper.selectById(2L)).thenReturn(line(2L, "全渠道云鹿SAAS", "full"));
+        when(projectMapper.selectById(15L)).thenReturn(project(15L, 2L, "黄天鹅"));
+
+        RevenueContractMappingVO result = service.updateMapping(21L, 2L, 15L);
+
+        assertThat(result.getBizLineId()).isEqualTo(2L);
+        assertThat(result.getProjectId()).isEqualTo(15L);
+        assertThat(mapped.getPending()).isZero();
+        verify(contractEntryMapper).updateById(mapped);
+    }
+
+    @Test
+    void mappingRejectsCrossLineProjectWithoutChangingData() {
+        RevenueContractEntry mapped = new RevenueContractEntry();
+        mapped.setId(22L);
+        mapped.setBizLineId(1L);
+        mapped.setProjectId(1L);
+        mapped.setPending(0);
+        when(contractEntryMapper.selectById(22L)).thenReturn(mapped);
+        when(businessLineMapper.selectById(2L)).thenReturn(line(2L, "全渠道云鹿SAAS", "full"));
+        when(projectMapper.selectById(1L)).thenReturn(project(1L, 1L, "皇家项目"));
+
+        assertThatThrownBy(() -> service.updateMapping(22L, 2L, 1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("项目不属于该业务线");
+        assertThat(mapped.getBizLineId()).isEqualTo(1L);
+        assertThat(mapped.getProjectId()).isEqualTo(1L);
+        verify(contractEntryMapper, times(0)).updateById(any());
+    }
+
+    @Test
+    void mappingRequiresExistingBusinessLineAndAllowsBusinessLineLevel() {
+        RevenueContractEntry mapped = new RevenueContractEntry();
+        mapped.setId(23L);
+        mapped.setBizLineId(1L);
+        mapped.setProjectId(1L);
+        mapped.setPending(0);
+        when(contractEntryMapper.selectById(23L)).thenReturn(mapped);
+        assertThatThrownBy(() -> service.updateMapping(23L, null, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("业务线不能为空");
+        assertThatThrownBy(() -> service.updateMapping(23L, 99L, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("业务线不存在");
+
+        when(businessLineMapper.selectById(3L)).thenReturn(line(3L, "会员通", "aggregate"));
+        RevenueContractMappingVO result = service.updateMapping(23L, 3L, null);
+        assertThat(result.getBizLineId()).isEqualTo(3L);
+        assertThat(result.getProjectId()).isNull();
+        assertThat(result.getPending()).isZero();
+        verify(contractEntryMapper).updateById(mapped);
+    }
+
+    @Test
+    void pendingResolveUsesSameCrossLineValidation() {
+        RevenueContractEntry pending = new RevenueContractEntry();
+        pending.setId(24L);
+        pending.setBizLineId(1L);
+        pending.setPending(1);
+        when(contractEntryMapper.selectById(24L)).thenReturn(pending);
+        when(businessLineMapper.selectById(2L)).thenReturn(line(2L, "全渠道云鹿SAAS", "full"));
+        when(projectMapper.selectById(1L)).thenReturn(project(1L, 1L, "皇家项目"));
+
+        assertThatThrownBy(() -> service.resolvePending(24L, 1L, 2L, 1L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("项目不属于该业务线");
+        assertThat(pending.getBizLineId()).isEqualTo(1L);
+        assertThat(pending.getProjectId()).isNull();
+        assertThat(pending.getPending()).isEqualTo(1);
+        verify(contractEntryMapper, times(0)).updateById(any());
     }
 
     @Test
