@@ -336,112 +336,110 @@ const dataRow = (panel: Locator, name: string) =>
 const overviewCell = (panel: Locator, index: number) =>
   panel.locator('.overview-strip .overview-cell').nth(index)
 
-// 每段 9 列：已交付/预估交付/工时/工时成本/销售工时/销售成本/其他成本/利润/利润率；
-// 全行（含业务线/项目/OA 三列）ytd 段起始列 = 21
-const YTD = { delivered: 21, estimated: 22, hours: 23, labor: 24, salesHours: 25, salesCost: 26, other: 27, profit: 28, rate: 29 }
+// 当前表格只渲染一个 9 列期间块；全行（业务线/项目/OA 三列）期间起始列 = 3
+const TABLE = { delivered: 3, estimated: 4, hours: 5, labor: 6, salesHours: 7, salesCost: 8, other: 9, profit: 10, rate: 11 }
 
-test('交付汇总表渲染业务线分组、项目行、销售拆分、h1/h2/ytd 数值、合计与概览卡', async ({ page }) => {
+test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page }) => {
   const panel = await openDeliveryPanel(page)
   const table = panel.locator('.matrix-table')
 
-  // 段分组与业务线/项目行
-  await expect(table).toContainText('上半年 H1')
-  await expect(table).toContainText('下半年 H2')
+  // 默认全年：只有全年期间标题和 9 个指标列
   await expect(table).toContainText('全年 YTD')
+  await expect(table).not.toContainText('上半年 H1')
+  await expect(table).not.toContainText('下半年 H2')
+  await expect(panel.getByRole('button', { name: '全年' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(table).toContainText('按交付日期')
   await expect(table).toContainText('皇家项目')
   await expect(table).toContainText('Speedo')
   await expect(table).toContainText('项目集')
   await expect(table).toContainText('全渠道云鹿定制')
   await expect(table).toContainText('会员通')
   await expect(table).toContainText('合计')
-  await expect(table).toContainText('合计')
 
-  // 销售口径说明：项目行=成单销售；汇总行=未分配销售（不分摊）
-  const legend = panel.locator('.matrix-legend')
-  await expect(legend).toContainText('成单销售')
-  await expect(legend).toContainText('未分配销售')
-  await expect(legend).toContainText('不分摊到项目')
-
-  // 皇家项目行（真实项目利润 = 扣成单销售成本后）
   const royalRow = dataRow(panel, '皇家项目')
   const cell = (index: number) => royalRow.locator('td').nth(index)
-  await expect(cell(2)).toContainText('200')          // OA 合同总额（万）
-  await expect(cell(YTD.delivered)).toContainText('180')
-  await expect(cell(YTD.estimated)).toContainText('100')
-  await expect(cell(YTD.hours)).toContainText('60')
-  await expect(cell(YTD.labor)).toContainText('90')
-  await expect(cell(YTD.salesHours)).toContainText('3')   // 成单销售工时（已分配）
-  await expect(cell(YTD.salesCost)).toContainText('3')    // 成单销售成本（已分配）
-  await expect(cell(YTD.other)).toContainText('17')
-  await expect(cell(YTD.profit)).toContainText('150')     // 真实项目利润（万）
-  await expect(cell(YTD.rate)).toContainText('53.57%')
+  await expect(cell(2)).toContainText('200')
+  await expect(cell(TABLE.delivered)).toContainText('180')
+  await expect(cell(TABLE.estimated)).toContainText('100')
+  await expect(cell(TABLE.hours)).toContainText('60')
+  await expect(cell(TABLE.labor)).toContainText('90')
+  await expect(cell(TABLE.salesHours)).toContainText('3')
+  await expect(cell(TABLE.salesCost)).toContainText('3')
+  await expect(cell(TABLE.other)).toContainText('17')
+  await expect(cell(TABLE.profit)).toContainText('150')
+  await expect(cell(TABLE.rate)).toContainText('53.57%')
 
-  // 业务线合计行：未分配销售展示 + totals 真实利润
   const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
   await expect(lineTotalRow).toContainText('未分配销售 7 人月 · 12 万')
   await expect(lineTotalRow).toContainText('仅扣业务线利润')
   const totalCell = (index: number) => lineTotalRow.locator('td').nth(index)
   await expect(totalCell(2)).toContainText('280')
-  await expect(totalCell(YTD.salesHours)).toContainText('7')     // 未分配销售工时
-  await expect(totalCell(YTD.salesCost)).toContainText('12')     // 未分配销售成本
-  await expect(totalCell(YTD.labor)).toContainText('108')
-  await expect(totalCell(YTD.other)).toContainText('27')
-  await expect(totalCell(YTD.profit)).toContainText('198')       // 业务线利润
-  await expect(totalCell(YTD.rate)).toContainText('52.11%')
+  await expect(totalCell(TABLE.salesHours)).toContainText('7')
+  await expect(totalCell(TABLE.salesCost)).toContainText('12')
+  await expect(totalCell(TABLE.labor)).toContainText('108')
+  await expect(totalCell(TABLE.other)).toContainText('27')
+  await expect(totalCell(TABLE.profit)).toContainText('198')
+  await expect(totalCell(TABLE.rate)).toContainText('52.11%')
 
-  // 概览卡（含预估默认值）
   const overview = panel.locator('.overview-strip')
   await expect(overview).toContainText('OA 合同总额')
   await expect(overview).toContainText('真实利润率')
+  await expect(panel.locator('.overview-note')).toContainText('概览为全年口径')
   await expect(overviewCell(panel, 0)).toContainText('280')
   await expect(overviewCell(panel, 1)).toContainText('240')
   await expect(overviewCell(panel, 2)).toContainText('140')
-  await expect(overviewCell(panel, 3)).toContainText('155')   // 人工成本含预估工时与销售成本
+  await expect(overviewCell(panel, 3)).toContainText('155')
   await expect(overviewCell(panel, 4)).toContainText('27')
   await expect(overviewCell(panel, 5)).toContainText('198')
   await expect(overviewCell(panel, 6)).toContainText('52.11%')
 
-  // 会员通聚合行也有操作按钮（预估交付/其他成本）
-  const memberRow = dataRow(panel, '项目集')
-  await expect(memberRow.getByRole('button', { name: '预估交付' })).toBeVisible()
+  const requestsBeforePeriodSwitch = summaryRequests.length
+  await panel.getByRole('button', { name: '上半年 H1' }).click()
+  await expect(table).toContainText('上半年 H1')
+  await expect(table).not.toContainText('全年 YTD')
+  await expect(royalRow.locator('td').nth(TABLE.delivered)).toContainText('80')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('30')
+  expect(summaryRequests).toHaveLength(requestsBeforePeriodSwitch)
 
-  // 点击项目利润单元格：drawer 展示成单销售成本扣减
-  await royalRow.locator('td').nth(YTD.profit).click()
+  await panel.getByRole('button', { name: '下半年 H2' }).click()
+  await expect(table).toContainText('下半年 H2')
+  await expect(table).not.toContainText('上半年 H1')
+  await expect(royalRow.locator('td').nth(TABLE.delivered)).toContainText('100')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('70')
+  expect(summaryRequests).toHaveLength(requestsBeforePeriodSwitch)
+
+  // 项目利润抽屉始终使用当前选中期间
+  await royalRow.locator('td').nth(TABLE.profit).click()
   const drawer = page.getByRole('dialog')
+  await expect(drawer).toContainText('下半年 H2')
   await expect(drawer).toContainText('减 · 成单销售成本')
-  await expect(drawer).toContainText('减 · 预估工时成本（含预估口径）')
-  await expect(drawer).toContainText('真实利润')
   await page.keyboard.press('Escape')
 
-  // 业务线合计行 drawer：展示全额销售成本（成单+未分配）扣减
-  await lineTotalRow.locator('td').nth(YTD.profit).click()
+  // 业务线合计行仍支持利润构成抽屉
+  await lineTotalRow.locator('td').nth(TABLE.profit).click()
   const totalsDrawer = page.getByRole('dialog')
   await expect(totalsDrawer).toContainText('减 · 销售成本（含成单+未分配）')
   await expect(totalsDrawer).toContainText('业务线利润')
-  await expect(totalsDrawer).toContainText('商机集合无成单证据')   // 未分配原因
 })
 
 test('含预估开关联动：切换口径重新拉 summary 且预估列/利润联动', async ({ page }) => {
   const panel = await openDeliveryPanel(page)
   const royalRow = dataRow(panel, '皇家项目')
 
-  // 默认含预估
   await expect(overviewCell(panel, 5)).toContainText('198')
-  await expect(royalRow.locator('td').nth(YTD.profit)).toContainText('150')
+  await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('150')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
 
-  // 切「只看实际」：重新请求 includeEstimate=false，预估列隐藏、利润变化
   await panel.getByRole('button', { name: '只看实际' }).click()
   await expect(overviewCell(panel, 5)).toContainText('90')
   await expect(overviewCell(panel, 6)).toContainText('37.5%')
-  await expect(royalRow.locator('td').nth(YTD.profit)).toContainText('70')
-  await expect(royalRow.locator('td').nth(YTD.estimated)).toHaveText('—')
+  await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('70')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toHaveText('—')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=false')
 
-  // 切回「含预估」
   await panel.getByRole('button', { name: '含预估' }).click()
   await expect(overviewCell(panel, 5)).toContainText('198')
-  await expect(royalRow.locator('td').nth(YTD.estimated)).toContainText('100')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('100')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
 })
 

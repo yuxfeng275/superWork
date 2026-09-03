@@ -126,6 +126,8 @@ const summaryLoading = ref(false)
 const summary = ref<DeliverySummary | null>(null)
 // 利润口径：true=含预估（营收含预估交付、成本含预估工时成本），false=只看实际
 const includeEstimate = ref(true)
+// 表格期间仅影响本地展示；切换期间不重新请求汇总
+const selectedPeriod = ref<PeriodKey>('ytd')
 let summarySeq = 0
 
 const refreshSummary = async () => {
@@ -149,6 +151,7 @@ const periodGroups: Array<{ key: PeriodKey; label: string }> = [
   { key: 'h2', label: '下半年 H2' },
   { key: 'ytd', label: '全年 YTD' }
 ]
+const selectedPeriodGroup = computed(() => periodGroups.find(group => group.key === selectedPeriod.value) || periodGroups[2])
 
 const periodColumns: Array<{ key: PeriodColumnKey; label: string; unit: string }> = [
   { key: 'delivered', label: '已交付', unit: '万元' },
@@ -771,9 +774,19 @@ defineExpose({ reload: () => refreshSummary() })
           <span class="delivery-note">
             {{ includeEstimate ? '含预估口径：营收=已交付+预估交付，成本含预估交付关联工时成本' : '只看实际口径：仅已交付与已发生成本参与利润' }}
           </span>
-          <div class="segment-switch" aria-label="交付毛利口径">
-            <button :class="{ active: includeEstimate }" @click="includeEstimate = true">含预估</button>
-            <button :class="{ active: !includeEstimate }" @click="includeEstimate = false">只看实际</button>
+          <div class="segment-switch" aria-label="交付期间" role="group">
+            <button
+              v-for="group in periodGroups"
+              :key="group.key"
+              type="button"
+              :class="{ active: selectedPeriod === group.key }"
+              :aria-pressed="selectedPeriod === group.key"
+              @click="selectedPeriod = group.key"
+            >{{ group.key === 'ytd' ? '全年' : group.label }}</button>
+          </div>
+          <div class="segment-switch" aria-label="交付毛利口径" role="group">
+            <button type="button" :class="{ active: includeEstimate }" :aria-pressed="includeEstimate" @click="includeEstimate = true">含预估</button>
+            <button type="button" :class="{ active: !includeEstimate }" :aria-pressed="!includeEstimate" @click="includeEstimate = false">只看实际</button>
           </div>
         </div>
 
@@ -783,12 +796,13 @@ defineExpose({ reload: () => refreshSummary() })
             <strong :class="card.tone"><small v-if="card.label !== '真实利润率'">万</small>{{ card.value }}</strong>
           </div>
         </section>
+        <p class="overview-note">概览为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按交付日期归集。</p>
 
         <div class="matrix-legend" aria-label="销售与利润口径说明">
           「销售工时/销售成本」：项目行 = 成单销售（已分配，有明确成单证据才计入）；
           小计/合计行 = 未分配销售（仅扣业务线/整表利润，<b>不分摊到项目</b>）。
           「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。
-          H1/H2/YTD 已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。
+          {{ selectedPeriodGroup.label }}已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。
           业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行单独列示，不消失。
         </div>
 
@@ -798,22 +812,16 @@ defineExpose({ reload: () => refreshSummary() })
               <tr class="group-header-row">
                 <th class="col-line" rowspan="2">业务线</th>
                 <th class="col-project" rowspan="2">项目</th>
-                <th class="col-oa" rowspan="2">OA 合同总额<br><small>万元</small></th>
-                <th
-                  v-for="group in periodGroups"
-                  :key="group.key"
-                  class="group-head"
-                  :colspan="periodColumns.length"
-                  :title="groupTip(group)"
-                >{{ group.label }}<br><small class="period-basis">按交付日期</small></th>
+                <th class="col-oa" rowspan="2">全年 OA 合同总额<br><small>万元</small></th>
+                <th class="group-head" :colspan="periodColumns.length" :title="groupTip(selectedPeriodGroup)">
+                  {{ selectedPeriodGroup.label }}<br><small class="period-basis">按交付日期</small>
+                </th>
                 <th class="col-actions" rowspan="2">操作</th>
               </tr>
               <tr>
-                <template v-for="group in periodGroups" :key="`sub-${group.key}`">
-                  <th v-for="column in periodColumns" :key="`${group.key}-${column.key}`" class="period-cell">
-                    {{ column.label }}<br><small>{{ column.unit }}</small>
-                  </th>
-                </template>
+                <th v-for="column in periodColumns" :key="`${selectedPeriod}-${column.key}`" class="period-cell">
+                  {{ column.label }}<br><small>{{ column.unit }}</small>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -824,24 +832,18 @@ defineExpose({ reload: () => refreshSummary() })
                   <td class="col-project">
                     {{ row.name }}
                     <small v-if="row.salesNote" class="sales-note">{{ row.salesNote }}</small>
-                    <small
-                      v-if="row.lineContractNote"
-                      class="sales-note contract-note"
-                      :title="lineContractTip(row)"
-                    >{{ row.lineContractNote }}</small>
+                    <small v-if="row.lineContractNote" class="sales-note contract-note" :title="lineContractTip(row)">{{ row.lineContractNote }}</small>
                     <small v-if="row.noDateNote" class="sales-note no-date-note" :title="row.noDateNote">{{ row.noDateNote }}</small>
                   </td>
                   <td class="col-oa">{{ row.oaContract == null || row.oaContract === 0 ? '—' : formatWan(row.oaContract) }}</td>
-                  <template v-for="group in periodGroups" :key="`g-${rowKey(row)}-${group.key}`">
+                  <template v-for="column in periodColumns" :key="`c-${rowKey(row)}-${selectedPeriod}-${column.key}`">
                     <td
-                      v-for="column in periodColumns"
-                      :key="`c-${rowKey(row)}-${group.key}-${column.key}`"
                       class="cell"
-                      :class="[column.key === 'profit' ? 'cell-profit clickable' : '', cellTone(row.periods[group.key], column.key)]"
+                      :class="[column.key === 'profit' ? 'cell-profit clickable' : '', cellTone(row.periods[selectedPeriod], column.key)]"
                       :title="column.key === 'profit' ? '点击查看利润构成' : undefined"
-                      @click="column.key === 'profit' && openProfitDetail(row, group.key)"
+                      @click="column.key === 'profit' && openProfitDetail(row, selectedPeriod)"
                     >
-                      {{ cellText(row, row.periods[group.key], column.key) }}
+                      {{ cellText(row, row.periods[selectedPeriod], column.key) }}
                     </td>
                   </template>
                   <td class="col-actions">
@@ -1007,6 +1009,7 @@ defineExpose({ reload: () => refreshSummary() })
 
 .delivery-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
@@ -1040,10 +1043,16 @@ defineExpose({ reload: () => refreshSummary() })
   transition: all 0.18s ease;
 }
 
-.segment-switch button:hover {
-  color: var(--el-color-primary);
+.segment-switch button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
+.overview-note {
+  margin: -10px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
 .segment-switch button.active {
   background: var(--el-color-primary);
   color: #fff;
@@ -1188,11 +1197,9 @@ defineExpose({ reload: () => refreshSummary() })
   font-weight: 600;
   white-space: nowrap;
 }
-
 .cell {
-  min-width: 76px;
+  min-width: 68px;
 }
-
 .cell-profit {
   font-weight: 700;
   color: #0f766e;
