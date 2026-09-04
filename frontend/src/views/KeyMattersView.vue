@@ -5874,7 +5874,7 @@ button:focus-visible {
 .presentation-layout {
   --presentation-panel-height: min(740px, calc(100dvh - 120px));
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 220px;
+  grid-template-columns: 240px minmax(0, 1fr) 300px;
   align-items: center;
   gap: 14px;
   height: 100dvh;
@@ -7201,8 +7201,7 @@ button:focus-visible {
 
 @media (max-width: 1440px) {
   .presentation-layout {
-    grid-template-columns: 180px minmax(0, 1fr) 220px;
-    gap: 14px;
+    grid-template-columns: 220px minmax(0, 1fr) 260px;
     padding: 24px;
   }
 
@@ -7213,7 +7212,7 @@ button:focus-visible {
 
 @media (max-width: 1420px) {
   .presentation-layout {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: start;
     overflow-x: hidden;
@@ -7303,7 +7302,7 @@ button:focus-visible {
 
 @media (max-width: 1180px) {
   .presentation-layout {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 230px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: start;
     overflow-x: hidden;
