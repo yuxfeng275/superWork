@@ -92,14 +92,13 @@ public class BuKeyMatterController {
     }
 
     @PutMapping("/{id}")
-    @RequirePermission({"bu:key-matter:manage"})
+    @RequirePermission({"bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "更新大事儿")
     public Result<BuKeyMatter> update(@PathVariable Long id,
                                       @RequestBody BuKeyMatterRequest request,
                                       @RequestAttribute("userId") Long userId,
                                       @RequestAttribute("username") String username) {
-        accessService.requireManageAll(userId, username);
-        return Result.success(service.update(id, request));
+        return Result.success(service.update(id, request, userId, username));
     }
 
     @DeleteMapping("/{id}")

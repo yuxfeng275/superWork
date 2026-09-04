@@ -72,6 +72,24 @@ public class BuKeyMatterAccessService {
             throw new ForbiddenOperationException("仅管理员可管理大事儿");
         }
     }
+    public void requireEdit(BuKeyMatter matter, Long userId, String username) {
+        if (!isActiveUser(userId)) {
+            throw new ForbiddenOperationException("仅可编辑本人负责的大事儿");
+        }
+        List<String> permissionCodes = permissionCodes(userId);
+        boolean canManageAll = isAdmin(username) && permissionCodes.contains(PERMISSION_MANAGE);
+        if (canManageAll) {
+            return;
+        }
+        boolean canEditOwn = permissionCodes.contains(PERMISSION_VIEW)
+                && permissionCodes.contains(PERMISSION_FEEDBACK)
+                && matter != null
+                && userId != null
+                && userId.equals(matter.getOwnerId());
+        if (!canEditOwn) {
+            throw new ForbiddenOperationException("仅可编辑本人负责的大事儿");
+        }
+    }
 
     public void requireFeedback(BuKeyMatter matter, Long userId, String username) {
         if (!isActiveUser(userId)) {

@@ -164,7 +164,9 @@ state, open before completed, manual sort order, planned completion date, ID.
 | Participant relation without database `view` | `canAccess=false`; relationship alone is insufficient |
 | Owner relation without database `feedback` | `canFeedbackOwn=false`; relationship alone is insufficient |
 | Read endpoint, qualifying RBAC, no relation | `403`, exact domain message `无权访问大事儿` |
-| Matter CRUD by non-manager, if request reaches domain check | `403`, exact domain message `仅管理员可管理大事儿` |
+| Matter create by non-manager, if request reaches domain check | `403`, exact domain message `仅可创建本人负责的大事儿` unless request `ownerId` equals caller |
+| Matter update by non-manager, if request reaches domain check | `403`, exact domain message `仅可编辑本人负责的大事儿` unless current `owner_id` equals caller after row lock |
+| Matter delete by non-manager, if request reaches domain check | `403`, exact domain message `仅管理员可管理大事儿` |
 | Weekly write by participant, unrelated owner, former owner, or owner without `feedback` | `403`, exact domain message `仅事项负责人可反馈周进度` |
 | `admin`/`yufeng` without `manage` | not a manager; cannot use manager bypass |
 | Non-allowlisted username with `manage` | not a manager; matter CRUD is `403` and weekly write still requires current ownership plus `feedback` |
@@ -185,6 +187,10 @@ state, open before completed, manual sort order, planned completion date, ID.
   the matter currently owned by that user.
 - Good: a participant with `view` sees every matter and meeting entry, including
   unrelated matters, but has no weekly write authority.
+- Good: an owner with `view` and `feedback` edits the details of matters they
+  currently own (`PUT /api/key-matters/{id}`); ownership is re-checked after
+  the row lock, and transferring ownership through the edit requires the
+  manager bypass.
 - Good: `admin` or `yufeng` with `manage` performs matter CRUD and weekly writes
   for any matter.
 - Base: access for a user with no relation returns `200` and false booleans;
@@ -202,7 +208,10 @@ state, open before completed, manual sort order, planned completion date, ID.
 
 - `BuKeyMatterAccessServiceTest`: manager requires username plus `manage`;
   owner, participant, and unrelated capability combinations; read/manage/
-  feedback exact denial messages; owner without `feedback` is denied.
+  feedback/edit exact denial messages; owner without `feedback` is denied;
+  `requireEdit` allows the current owner with `view`+`feedback` and denies
+  participants, former owners, disabled users, and owners lacking `feedback`.
+
 - `BuKeyMatterParticipantServiceTest`: create null behavior and explicit empty
   `participantIds` producing owner-only; create list normalization; update null
   preserves and adds owner; explicit empty replaces with owner-only; an explicit

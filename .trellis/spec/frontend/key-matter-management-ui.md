@@ -55,13 +55,24 @@ canFeedbackMatter(matter) = canManageAll || (
   access.canFeedbackOwn === true
   && matter.ownerId === currentUser.id
 )
+canEditMatter(matter) = canManageAll || (
+  access.canCreateOwn === true
+  && access.canFeedbackOwn === true
+  && matter.ownerId === currentUser.id
+)
 ```
 
 `canFeedbackOwn` is only an aggregate hint that the user owns at least one
 matter. Every matter-level surface must also compare `matter.ownerId`; the
 backend repeats that check after locking.
 
-- `canManageAll` controls matter create, edit, delete, owner selection, and
+- `canEditMatter` controls the matter 编辑事项 action in register rows and the
+  detail drawer, and the edit-mode save. A non-manager edit locks 负责人 to the
+  current user and shows the participant multi-select as manager-only; the
+  drawer renders for owners even without create capability (`canCreateMatter ||
+  editingMatterId !== undefined`).
+
+- `canManageAll` controls matter create, delete, owner selection, and
   participant maintenance.
 - `canFeedbackMatter` controls every weekly surface: register update action,
   detail create action, detail history edit/delete, meeting row update action,
@@ -77,7 +88,9 @@ backend repeats that check after locking.
 ## 3. Matter Form and Participants
 
 Matter creation/editing uses a drawer and requires title, owner, start date,
-and planned completion date. Manager-only participant behavior is:
+and planned completion date. Non-manager users see 负责人 locked to themselves
+in both create and edit; the participant multi-select remains manager-only.
+Manager-only participant behavior is:
 
 - owner remains a searchable single select;
 - participants use a searchable multi-select of enabled users;
