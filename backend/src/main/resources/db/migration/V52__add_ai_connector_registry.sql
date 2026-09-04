@@ -1,6 +1,6 @@
 -- ====================================
 -- V52: AI 连接器通用化注册表
--- 一行 = 一个外部系统连接实例（BASIC 账号密码 / TOKEN / MCP）。
+-- 一行 = 一个外部系统连接实例（BASIC 账号密码 / TOKEN / MCP / SEEYON 致远）。
 -- 凭据复用 EmailCredentialCipher（AES-256-GCM，EMAIL_CREDENTIAL_ENCRYPTION_KEY）。
 -- V51 的 ai-connector 配置组废弃（行保留，代码不再读取）；
 -- ai_connector_identity 表继续复用。
@@ -10,14 +10,14 @@ CREATE TABLE IF NOT EXISTS ai_connector (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(64) NOT NULL COMMENT '唯一编码（slug），作为工具名前缀',
     name VARCHAR(64) NOT NULL COMMENT '显示名',
-    auth_type VARCHAR(16) NOT NULL COMMENT 'BASIC | TOKEN | MCP',
+    auth_type VARCHAR(16) NOT NULL COMMENT 'BASIC | TOKEN | MCP | SEEYON',
     base_url VARCHAR(512) NOT NULL COMMENT '服务根地址',
     mcp_url VARCHAR(512) NULL COMMENT 'MCP 端点（auth_type=MCP）',
-    test_path VARCHAR(256) NULL COMMENT '连接测试路径（BASIC，默认 /api/auth/login）',
+    test_path VARCHAR(256) NULL COMMENT '连接测试路径（BASIC，默认 /api/v1/auth/login）',
     query_path VARCHAR(256) NULL COMMENT '查询接口路径（通用工具）',
     read_path VARCHAR(256) NULL COMMENT '读取接口路径（通用工具）',
-    encrypted_username VARCHAR(256) NULL COMMENT 'BASIC 用户名，AES-256-GCM 加密',
-    encrypted_password VARCHAR(512) NULL COMMENT 'BASIC 密码，AES-256-GCM 加密',
+    encrypted_username VARCHAR(256) NULL COMMENT 'BASIC/SEEYON 用户名，AES-256-GCM 加密',
+    encrypted_password VARCHAR(512) NULL COMMENT 'BASIC/SEEYON 密码，AES-256-GCM 加密',
     encrypted_token VARCHAR(512) NULL COMMENT 'TOKEN/MCP Bearer，AES-256-GCM 加密',
     enabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用',
     last_test_status VARCHAR(16) NULL COMMENT 'SUCCESS | FAILED',
@@ -35,4 +35,5 @@ INSERT INTO ai_connector
  enabled, built_in, sort_order)
 VALUES
 ('worktime', '工时系统', 'BASIC', 'https://worktime.lucidata.cn', NULL, '/api/v1/auth/login', NULL, NULL, NULL, 0, 1, 10),
-('yuque', '语雀', 'MCP', 'https://lucidata.yuque.com', 'https://mcp.yuque.com/mcp', NULL, NULL, NULL, NULL, 0, 1, 20);
+('yuque', '语雀', 'MCP', 'https://lucidata.yuque.com', 'https://mcp.yuque.com/mcp', NULL, NULL, NULL, NULL, 0, 1, 20),
+('oa', 'OA（致远）', 'SEEYON', 'https://oa.lucidata.cn', NULL, '/seeyon/rest/token', NULL, NULL, NULL, 0, 1, 30);

@@ -42,6 +42,10 @@ public class YuqueMcpClient {
 
     private volatile String cachedToolsUrl;
     private volatile long toolsUrlExpireAt;
+    /** MCP 网关 403 后自动降级为语雀 REST v2（同一 Token，X-Auth-Token 头）。 */
+    private volatile boolean restFallback;
+
+    private static final String YUQUE_API_BASE = "https://www.yuque.com/api/v2";
 
     /** MCP 工具调用结果：结构化内容序列化文本 + 原始 isError 标记 */
     public record McpToolResult(String text, boolean isError) {}
@@ -55,16 +59,43 @@ public class YuqueMcpClient {
     }
 
     /**
-     * 连接测试：能列出工具即视为可用。
+     * 连接测试：MCP tools/list 通过即视为可用；MCP 网关 403 时降级 REST v2
+     * 并以 /user 探活（同一 Token）。两者都失败才抛错。
      */
     public void testConnection() {
-        listToolNames();
+        try {
+            listToolNames();
+            restFallback = false;
+        } catch (IllegalStateException e) {
+            String message = String.valueOf(e.getMessage());
+            if (message.contains("403") || message.contains("认证")) {
+                restUserProbe();
+                restFallback = true;
+            } else {
+                throw e;
+            }
+        }
     }
 
     /**
-     * 在语雀中搜索文档（search 工具，工具名运行期发现）。
+     * 在语雀中搜索文档（search 工具，工具名运行期发现；MCP 不可用时降级 REST v2）。
      */
     public List<Map<String, String>> searchDocs(String keyword, int limit) {
+        if (restFallback) {
+            return restSearchDocs(keyword, limit);
+        }
+        try {
+            return mcpSearchDocs(keyword, limit);
+        } catch (IllegalStateException e) {
+            if (String.valueOf(e.getMessage()).contains("403")) {
+                restFallback = true;
+                return restSearchDocs(keyword, limit);
+            }
+            throw e;
+        }
+    }
+
+    private List<Map<String, String>> mcpSearchDocs(String keyword, int limit) {
         JsonNode content = callTool("search", Map.of(
                 "query", keyword == null ? "" : keyword,
                 "top_k", Math.max(1, Math.min(limit, 10))));
@@ -82,9 +113,24 @@ public class YuqueMcpClient {
     }
 
     /**
-     * 读取文档正文（read/ get 工具，工具名运行期发现）。
+     * 读取文档正文（read/ get 工具，工具名运行期发现；MCP 不可用时降级 REST v2）。
      */
     public String readDoc(String doc) {
+        if (restFallback) {
+            return restReadDoc(doc);
+        }
+        try {
+            return mcpReadDoc(doc);
+        } catch (IllegalStateException e) {
+            if (String.valueOf(e.getMessage()).contains("403")) {
+                restFallback = true;
+                return restReadDoc(doc);
+            }
+            throw e;
+        }
+    }
+
+    private String mcpReadDoc(String doc) {
         JsonNode content = callTool("read", Map.of("doc", doc == null ? "" : doc));
         StringBuilder sb = new StringBuilder();
         for (JsonNode item : textItems(content)) {
@@ -251,5 +297,100 @@ public class YuqueMcpClient {
             value = 30;
         }
         return Math.min(Math.max(value, 5), 60);
+    }
+
+    // ==================== REST v2 降级（MCP 网关 403 时） ====================
+
+    /** GET 语雀 REST v2（同一 Token，X-Auth-Token 头）。 */
+    private JsonNode restGet(String path) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(YUQUE_API_BASE + path))
+                    .timeout(Duration.ofSeconds(timeoutSeconds()))
+                    .header("Accept", "application/json")
+                    .header("X-Auth-Token", token())
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                throw new IllegalStateException("语雀认证失败，请检查访问 Token 配置");
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("语雀接口调用失败(" + response.statusCode() + ")");
+            }
+            return objectMapper.readTree(response.body() == null ? "{}" : response.body());
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("语雀服务暂时不可用，请稍后重试");
+        }
+    }
+
+    /** REST 探活：/user 只验证 Token 有效性。 */
+    private void restUserProbe() {
+        JsonNode root = restGet("/user");
+        if (root.path("data").path("id").asLong(0) <= 0) {
+            throw new IllegalStateException("语雀 Token 校验失败");
+        }
+    }
+
+    /** REST 搜索：/search?q=&type=doc；url 字段形如 /{userLogin}/{bookSlug}/{docSlug}。 */
+    private List<Map<String, String>> restSearchDocs(String keyword, int limit) {
+        if (!StringUtils.hasText(keyword)) {
+            throw new IllegalStateException("缺少搜索关键词");
+        }
+        String q = java.net.URLEncoder.encode(keyword, java.nio.charset.StandardCharsets.UTF_8);
+        JsonNode root = restGet("/search?q=" + q + "&type=doc&limit="
+                + Math.max(1, Math.min(limit, 10)));
+        List<Map<String, String>> docs = new ArrayList<>();
+        for (JsonNode item : root.path("data")) {
+            Map<String, String> row = new LinkedHashMap<>();
+            row.put("title", item.path("title").asText("未命名文档"));
+            String url = item.path("url").asText("");
+            row.put("url", url.startsWith("/") ? "https://www.yuque.com" + url : url);
+            row.put("summary", snippet(item.path("summary").asText("")));
+            // REST 读取需要 bookSlug/docSlug，缓存进 url 供 readDoc 解析
+            docs.add(row);
+            if (docs.size() >= limit) break;
+        }
+        return docs;
+    }
+
+    /**
+     * REST 读取：doc 参数为文档 URL（https://xxx.yuque.com/{user}/{book}/{doc}）或
+     * "{book}/{doc}" 或 "{user}/{book}/{doc}"；统一走 /repos/{book}/docs/{doc}。
+     */
+    private String restReadDoc(String doc) {
+        String[] slugs = parseDocSlugs(doc);
+        JsonNode root = restGet("/repos/" + slugs[0] + "/docs/" + slugs[1]);
+        JsonNode data = root.path("data");
+        String body = data.path("body").asText("");
+        if (body.length() > MAX_TEXT_CHARS) {
+            body = body.substring(0, MAX_TEXT_CHARS) + "…（正文过长已截断）";
+        }
+        if (body.isBlank()) {
+            throw new IllegalStateException("语雀文档内容为空");
+        }
+        return body;
+    }
+
+    private String[] parseDocSlugs(String doc) {
+        String cleaned = doc == null ? "" : doc.trim();
+        if (cleaned.startsWith("http")) {
+            java.net.URI uri = URI.create(cleaned);
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            String[] parts = path.replaceAll("^/+", "").split("/");
+            if (parts.length >= 3) {
+                return new String[]{parts[parts.length - 2], parts[parts.length - 1]};
+            }
+            throw new IllegalStateException("无法从 URL 解析知识库/文档 slug：" + doc);
+        }
+        String[] parts = cleaned.split("/");
+        if (parts.length == 2) {
+            return new String[]{parts[0], parts[1]};
+        }
+        if (parts.length == 3) {
+            return new String[]{parts[1], parts[2]};
+        }
+        throw new IllegalStateException("doc 参数格式无效，应为文档 URL 或 知识库/文档 slug");
     }
 }

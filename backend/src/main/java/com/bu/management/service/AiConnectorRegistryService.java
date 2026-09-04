@@ -37,6 +37,8 @@ public class AiConnectorRegistryService {
     public static final String AUTH_BASIC = "BASIC";
     public static final String AUTH_TOKEN = "TOKEN";
     public static final String AUTH_MCP = "MCP";
+    /** 致远 OA REST：POST /seeyon/rest/token {userName,password} → {id}。 */
+    public static final String AUTH_SEEYON = "SEEYON";
     private static final Pattern CODE_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{1,31}$");
     private static final String DEFAULT_TEST_PATH = "/api/v1/auth/login";
 
@@ -118,7 +120,7 @@ public class AiConnectorRegistryService {
 
     /**
      * 连接测试：BASIC → POST base_url + test_path {username,password}（HTTP 2xx 即成功）；
-     * TOKEN → GET base_url 携带 Bearer；MCP → 委托 MCP 客户端 tools/list。
+     * TOKEN → GET base_url 携带 Bearer；MCP → tools/list；SEEYON → /seeyon/rest/token。
      */
     public ConnectorView test(Long id) {
         AiConnector entity = require(id);
@@ -129,6 +131,7 @@ public class AiConnectorRegistryService {
                 case AUTH_BASIC -> testBasic(entity);
                 case AUTH_TOKEN -> testToken(entity);
                 case AUTH_MCP -> testMcp(entity);
+                case AUTH_SEEYON -> testSeeyon(entity);
                 default -> throw new IllegalStateException("不支持的认证类型：" + entity.getAuthType());
             }
             success = true;
@@ -216,6 +219,52 @@ public class AiConnectorRegistryService {
         postJsonAccept2xx(entity, body);
     }
 
+
+    /**
+     * 致远 OA REST 登录探活：POST base_url/seeyon/rest/token {userName,password} → {id}。
+     * 网关层 HTML 401 时给出可操作提示。
+     */
+    private void testSeeyon(AiConnector entity) {
+        String username = credential(entity, "username");
+        String password = credential(entity, "password");
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
+            throw new IllegalStateException("请先配置 OA 账号与密码");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("userName", username);
+        body.put("password", password);
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(trimSlash(entity.getBaseUrl()) + "/seeyon/rest/token"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String text = response.body() == null ? "" : response.body();
+            if (response.statusCode() == 401 && text.contains("<html")) {
+                throw new IllegalStateException(entity.getName()
+                        + " 网关拒绝访问(401)：REST 接口被前置网关拦截，请联系 OA 管理员将本系统 IP 加入白名单");
+            }
+            if (response.statusCode() == 401 || response.statusCode() == 403
+                    || response.statusCode() == 400 || response.statusCode() == 422) {
+                throw new IllegalStateException(entity.getName() + "认证失败，请检查账号密码");
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException(entity.getName() + "暂时不可用(" + response.statusCode() + ")");
+            }
+            JsonNode root = objectMapper.readTree(text.startsWith("<") ? "{}" : text);
+            String token = root.path("id").asText(root.path("token").asText(""));
+            if (!StringUtils.hasText(token)) {
+                throw new IllegalStateException(entity.getName() + "认证失败，请检查账号密码");
+            }
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException(entity.getName() + "暂时不可用，请稍后重试");
+        }
+    }
+
     private void testToken(AiConnector entity) {
         String token = credential(entity, "token");
         if (!StringUtils.hasText(token)) {
@@ -249,7 +298,12 @@ public class AiConnectorRegistryService {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 401 || response.statusCode() == 403) {
-                throw new IllegalStateException("语雀认证失败，请检查访问 Token 配置".replace("语雀", entity.getName()));
+                // 语雀 MCP 网关对无效/过期 token、未开通 MCP 权限的账号统一返回 403
+                throw new IllegalStateException(entity.getName()
+                        + " 认证被拒绝(403)：请确认 Token 有效，且该账号已在语雀「设置→MCP 服务」中开通访问");
+            }
+            if (response.statusCode() == 404) {
+                throw new IllegalStateException(entity.getName() + " MCP 端点不存在(404)：请检查 MCP 服务地址");
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException(entity.getName() + " MCP 调用失败(" + response.statusCode() + ")");
@@ -300,8 +354,9 @@ public class AiConnectorRegistryService {
     }
 
     private String normalizeAuth(String authType) {
-        if (!AUTH_BASIC.equals(authType) && !AUTH_TOKEN.equals(authType) && !AUTH_MCP.equals(authType)) {
-            throw new IllegalArgumentException("认证类型必须是 BASIC / TOKEN / MCP");
+        if (!AUTH_BASIC.equals(authType) && !AUTH_TOKEN.equals(authType) && !AUTH_MCP.equals(authType)
+                && !AUTH_SEEYON.equals(authType)) {
+            throw new IllegalArgumentException("认证类型必须是 BASIC / TOKEN / MCP / SEEYON");
         }
         return authType;
     }
