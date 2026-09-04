@@ -126,3 +126,45 @@ export interface AiConnectorStatus {
   status: 'READY' | 'DISABLED' | 'NOT_CONFIGURED'
   hint: string
 }
+
+/** AI 连接器认证类型 */
+export type AiConnectorAuthType = 'BASIC' | 'TOKEN' | 'MCP'
+
+/** AI 连接器管理视图（GET /api/ai/connectors） */
+export interface AiConnectorView {
+  id: number
+  code: string
+  name: string
+  authType: AiConnectorAuthType
+  baseUrl: string
+  mcpUrl?: string
+  testPath?: string
+  queryPath?: string
+  readPath?: string
+  usernameConfigured: boolean
+  passwordConfigured: boolean
+  tokenConfigured: boolean
+  enabled: boolean
+  lastTestStatus?: 'SUCCESS' | 'FAILED' | null
+  lastTestMessage?: string
+  lastTestedAt?: string
+  builtIn: boolean
+  sortOrder: number
+}
+
+/** AI 连接器创建/编辑请求体（凭据字段留空 = 保持不变） */
+export interface AiConnectorSavePayload {
+  code?: string
+  name?: string
+  authType?: AiConnectorAuthType
+  baseUrl?: string
+  mcpUrl?: string
+  testPath?: string
+  queryPath?: string
+  readPath?: string
+  username?: string
+  password?: string
+  token?: string
+  enabled?: boolean
+  sortOrder?: number
+}

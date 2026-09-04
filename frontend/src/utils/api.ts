@@ -33,7 +33,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
-import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus } from '@/types/ai-agent'
+import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1674,6 +1674,40 @@ class ApiService {
   async getAiAgentConnectors(): Promise<AiConnectorStatus[]> {
     return this.request<AiConnectorStatus[]>('/api/ai-agent/connectors')
   }
+  async getAiConnectors(): Promise<AiConnectorView[]> {
+    return this.request<AiConnectorView[]>('/api/ai/connectors')
+  }
+
+  async getAiConnector(id: number): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/ai/connectors/${id}`)
+  }
+
+  async createAiConnector(payload: AiConnectorSavePayload): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>('/api/ai/connectors', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async updateAiConnector(id: number, payload: AiConnectorSavePayload): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/ai/connectors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async deleteAiConnector(id: number): Promise<void> {
+    return this.request<void>(`/api/ai/connectors/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  async testAiConnector(id: number): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/ai/connectors/${id}/test`, {
+      method: 'POST'
+    })
+  }
+
   async getAiAgentSessions(): Promise<AiAgentSessionSummary[]> {
     return this.request<AiAgentSessionSummary[]>('/api/ai-agent/sessions')
   }

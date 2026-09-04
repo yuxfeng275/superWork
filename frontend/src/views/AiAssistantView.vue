@@ -7,9 +7,12 @@ import {
   CircleCloseFilled,
   Connection,
   Delete,
+  Document,
   Loading,
   Plus,
   Promotion,
+  Search,
+  Tickets,
   VideoPause
 } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
@@ -30,6 +33,39 @@ const modelOptions = ref<AiAgentModelOption[]>([])
 const selectedModel = ref('')
 const connectors = ref<AiConnectorStatus[]>([])
 const connectorDialogVisible = ref(false)
+
+/** 欢迎页能力卡片：点击填入预设问题 */
+const welcomeCards: Array<{ icon: typeof ChatDotRound; title: string; desc: string; question: string }> = [
+  {
+    icon: Search,
+    title: '查我的任务和工时',
+    desc: '查看本周任务安排与工时填写',
+    question: '帮我看看我本周的任务和工时填写情况'
+  },
+  {
+    icon: Search,
+    title: '搜索邮件',
+    desc: '按主题、发件人快速检索邮件',
+    question: '搜索一下最近关于项目验收的邮件'
+  },
+  {
+    icon: Tickets,
+    title: '查云效工作项',
+    desc: '检索名下进行中的云效工作项',
+    question: '我名下有哪些进行中的云效工作项？'
+  },
+  {
+    icon: Document,
+    title: '搜语雀文档',
+    desc: '在语雀知识库里查找文档',
+    question: '在语雀里搜一下新员工入职指引'
+  }
+]
+
+function applyWelcomeQuestion(question: string) {
+  if (streaming.value || syncing.value || sessionLoading.value) return
+  draft.value = question
+}
 
 /** 当前会话渲染条目：消息气泡 / 工具调用 / 错误提示 */
 interface ChatItem {
@@ -65,16 +101,6 @@ const sessionTitle = computed(() => activeSession.value?.title || selectedSessio
 const selectedModelOption = computed(() =>
   modelOptions.value.find(m => `${m.provider}:${m.model}` === selectedModel.value)
 )
-
-const modelInfo = computed(() => {
-  const source = activeSession.value ?? selectedSession.value
-  if (!source) return ''
-  const providerLabel = selectedModelOption.value?.label
-    ?? modelOptions.value.find(m => m.provider === source.provider)?.label
-    ?? source.provider
-    ?? 'AI'
-  return source.model ? `${providerLabel} · ${source.model}` : providerLabel
-})
 
 const sessionStat = computed(() => {
   const summary = selectedSession.value
@@ -459,6 +485,21 @@ onMounted(async () => {
         <div class="welcome-icon"><el-icon><ChatDotRound /></el-icon></div>
         <h2>AI 智能助手</h2>
         <p>可以帮你梳理需求、分析数据、解答业务问题。选择一个会话，或开启新的对话吧。</p>
+        <div class="welcome-cards">
+          <button
+            v-for="card in welcomeCards"
+            :key="card.title"
+            type="button"
+            class="welcome-card"
+            @click="applyWelcomeQuestion(card.question)"
+          >
+            <span class="welcome-card-icon"><el-icon><component :is="card.icon" /></el-icon></span>
+            <span class="welcome-card-body">
+              <span class="welcome-card-title">{{ card.title }}</span>
+              <span class="welcome-card-desc">{{ card.desc }}</span>
+            </span>
+          </button>
+        </div>
         <el-button type="primary" size="large" :icon="Plus" @click="newChat">新建对话</el-button>
       </div>
 
@@ -469,20 +510,17 @@ onMounted(async () => {
             <div class="ai-main-title">{{ sessionTitle }}</div>
             <div class="ai-main-meta">{{ sessionStat }}</div>
           </div>
-          <el-select
-            v-model="selectedModel"
-            class="model-select"
-            size="small"
-            :disabled="streaming || syncing || modelOptions.length === 0"
-            placeholder="模型"
-          >
-            <el-option
-              v-for="option in modelOptions"
-              :key="`${option.provider}:${option.model}`"
-              :value="`${option.provider}:${option.model}`"
-              :label="`${option.label} · ${option.model}`"
-            />
-          </el-select>
+          <el-tooltip content="新建对话" placement="bottom">
+            <el-button
+              size="small"
+              text
+              bg
+              :icon="Plus"
+              :loading="creating"
+              :disabled="streaming || syncing"
+              @click="newChat"
+            >新建对话</el-button>
+          </el-tooltip>
           <el-button
             size="small"
             text
@@ -491,11 +529,11 @@ onMounted(async () => {
             :disabled="streaming || syncing"
             @click="connectorDialogVisible = true"
           >连接器</el-button>
-          <el-tag v-if="modelInfo" type="info" effect="plain">{{ modelInfo }}</el-tag>
         </header>
 
-        <!-- 消息区 -->
-        <section ref="messagesEl" class="ai-messages">
+        <!-- 消息区（居中窄栏） -->
+        <div class="chat-narrow">
+          <section ref="messagesEl" class="ai-messages">
           <el-empty v-if="!items.length" description="暂无消息，开始提问吧" :image-size="80" />
           <template v-else>
             <template v-for="item in items" :key="item.seq">
@@ -543,28 +581,53 @@ onMounted(async () => {
               </div>
             </template>
           </template>
-        </section>
-
-        <!-- 输入区 -->
-        <footer class="composer">
-          <el-input
-            v-model="draft"
-            type="textarea"
-            resize="none"
-            :rows="2"
-            :autosize="{ minRows: 2, maxRows: 8 }"
-            placeholder="输入你的问题…"
-            :disabled="currentSessionId == null || streaming || syncing"
-            @keydown="onKeydown"
-          />
-          <div class="composer-bar">
-            <span class="composer-hint">Enter 发送，Shift + Enter 换行</span>
-            <div class="composer-actions">
-              <el-button v-if="streaming" type="danger" plain :icon="VideoPause" @click="stopStream">停止生成</el-button>
-              <el-button v-else type="primary" :icon="Promotion" :disabled="!canSend" @click="sendMessage">发送</el-button>
+          </section>
+          <!-- 输入区 -->
+          <footer class="composer">
+            <el-input
+              v-model="draft"
+              type="textarea"
+              resize="none"
+              :rows="2"
+              :autosize="{ minRows: 2, maxRows: 8 }"
+              placeholder="输入你的问题…"
+              :disabled="currentSessionId == null || streaming || syncing"
+              @keydown="onKeydown"
+            />
+            <div class="composer-row2">
+              <div class="composer-left">
+                <el-button
+                  size="small"
+                  text
+                  bg
+                  :icon="Connection"
+                  :disabled="streaming || syncing"
+                  @click="connectorDialogVisible = true"
+                >连接器</el-button>
+                <el-select
+                  v-model="selectedModel"
+                  class="model-select"
+                  size="small"
+                  :disabled="streaming || syncing || modelOptions.length === 0"
+                  placeholder="模型"
+                >
+                  <el-option
+                    v-for="option in modelOptions"
+                    :key="`${option.provider}:${option.model}`"
+                    :value="`${option.provider}:${option.model}`"
+                    :label="`${option.label} · ${option.model}`"
+                  />
+                </el-select>
+              </div>
+              <div class="composer-actions">
+                <span class="composer-hint">Enter 发送，Shift + Enter 换行</span>
+                <el-button v-if="streaming" type="danger" plain :icon="VideoPause" @click="stopStream">停止生成</el-button>
+                <el-button v-else type="primary" :icon="Promotion" :disabled="!canSend" @click="sendMessage">发送</el-button>
+              </div>
             </div>
-          </div>
-        </footer>
+          </footer>
+        </div>
+
       </template>
 
       <!-- 连接器状态 -->
@@ -579,7 +642,7 @@ onMounted(async () => {
           <div class="connector-hint">{{ connector.hint }}</div>
         </div>
         <template #footer>
-          <div class="connector-footer">连接器在「系统设置 → 配置管理 → AI 连接器」中配置；云效与 OA 沿用各自既有配置页。</div>
+          <div class="connector-footer">连接器在「系统 → AI 连接器」中配置；云效与 OA 沿用各自既有配置页。</div>
         </template>
       </el-dialog>
     </main>
@@ -729,6 +792,22 @@ onMounted(async () => {
 .model-select {
   width: 200px;
   flex: 0 0 auto;
+}
+
+/* ============ 居中窄栏容器 ============ */
+.chat-narrow {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-narrow .ai-messages {
+  border-radius: 12px;
 }
 
 /* ============ 连接器状态弹窗 ============ */
@@ -970,12 +1049,19 @@ onMounted(async () => {
   background: #fff;
 }
 
-.composer-bar {
+.composer-row2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-top: 8px;
+}
+
+.composer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .composer-hint {
@@ -985,7 +1071,12 @@ onMounted(async () => {
 
 .composer-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-actions .el-button + .el-button {
+  margin-left: 0;
 }
 
 /* ============ 欢迎空状态 ============ */
@@ -1024,6 +1115,64 @@ onMounted(async () => {
   color: var(--gray-500);
   font-size: 13.5px;
   line-height: 1.7;
+}
+
+/* ============ 欢迎能力卡片 ============ */
+.welcome-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 260px));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.welcome-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.welcome-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.welcome-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 8px;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.welcome-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.welcome-card-title {
+  color: var(--gray-900);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.welcome-card-desc {
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 900px) {

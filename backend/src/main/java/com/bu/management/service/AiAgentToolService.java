@@ -45,6 +45,7 @@ public class AiAgentToolService {
     private final IssueMapper issueMapper;
     private final ObjectMapper objectMapper;
     private final ConnectorToolService connectorToolService;
+    private final GenericConnectorToolService genericConnectorToolService;
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -90,6 +91,7 @@ public class AiAgentToolService {
                 objectSchema(Map.of(
                         "status", stringProperty("事项状态过滤")))));
         defs.addAll(connectorToolService.definitions());
+        defs.addAll(genericConnectorToolService.definitions());
         return defs;
     }
 
@@ -112,9 +114,9 @@ public class AiAgentToolService {
                 case "query_my_requirements" -> queryMyRequirements(userId, args);
                 case "query_my_worklogs" -> queryMyWorklogs(userId, args);
                 case "count_my_issues" -> countMyIssues(userId, args);
-                default -> CONNECTOR_TOOLS.contains(toolName)
+                default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
-                        : new AiAgentToolResult("未知工具：" + toolName, true);
+                        : genericConnectorToolService.execute(toolName, args);
             };
         } catch (Exception e) {
             log.warn("AI 工具执行失败: tool={}, error={}", toolName, e.getMessage());

@@ -143,6 +143,12 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemConfigs',
         component: () => import('@/views/SystemConfigView.vue'),
         meta: { title: '配置管理', roleAccess: 'management' }
+      },
+      {
+        path: 'ai-connectors',
+        name: 'AiConnectors',
+        component: () => import('@/views/AiConnectorManageView.vue'),
+        meta: { title: 'AI 连接器', roleAccess: 'management' }
       }
     ]
   }

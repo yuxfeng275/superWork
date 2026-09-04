@@ -205,6 +205,17 @@ public class ConnectorToolService {
         return list;
     }
 
+    /** 该工具名是否属于内置连接器工具集。 */
+    public boolean handles(String toolName) {
+        return switch (toolName) {
+            case "search_my_emails", "read_my_email",
+                    "query_yunxiao_projects", "query_yunxiao_workitems",
+                    "query_oa_pending", "query_oa_done", "get_oa_flow",
+                    "search_yuque_docs", "read_yuque_doc", "query_my_worktime" -> true;
+            default -> false;
+        };
+    }
+
     /**
      * 执行连接器工具；userId 来自 AiAgentToolService 的 runId 注册表。
      */

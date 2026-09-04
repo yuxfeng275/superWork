@@ -72,7 +72,8 @@ const navItems: NavSection[] = [
       { path: '/system/roles', icon: 'Lock', label: '角色管理', access: 'management' },
       { path: '/system/menus', icon: 'Menu', label: '菜单管理', access: 'management' },
       { path: '/system/workflow', icon: 'Connection', label: '工作流配置', access: 'management' },
-      { path: '/system/configs', icon: 'Setting', label: '配置管理', access: 'management' }
+      { path: '/system/configs', icon: 'Setting', label: '配置管理', access: 'management' },
+      { path: '/ai-connectors', icon: 'Connection', label: 'AI 连接器', access: 'management' }
     ]
   }
 ]
