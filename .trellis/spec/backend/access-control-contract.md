@@ -49,7 +49,9 @@ listed below.
 | `GET /api/key-matters` | `bu:key-matter:view` / `bu:key-matter:manage` | manager or participant in at least one matter | `401` | RBAC miss `403`; relation miss `403 无权访问大事儿` | full list, not relation-filtered |
 | `GET /api/key-matters/{id}` | `bu:key-matter:view` / `bu:key-matter:manage` | manager or participant in at least one matter | `401` | RBAC miss `403`; relation miss `403 无权访问大事儿` | requested detail, even when caller is related to another matter |
 | `GET /api/key-matters/meeting` | `bu:key-matter:view` / `bu:key-matter:manage` | manager or participant in at least one matter | `401` | RBAC miss `403`; relation miss `403 无权访问大事儿` | full meeting result |
-| key-matter `POST/PUT/DELETE` matter CRUD | `bu:key-matter:manage` | username `admin` or `yufeng` **and** `bu:key-matter:manage` | `401` | RBAC miss `403`; domain miss `403 仅管理员可管理大事儿` | validation or success |
+| key-matter `POST` matter create | `bu:key-matter:feedback` / `bu:key-matter:manage` | non-manager: `view` + `feedback` **and** request `ownerId` equals caller | `401` | RBAC miss `403`; domain miss `403 仅可创建本人负责的大事儿` | validation or success |
+| key-matter `PUT/{id}` matter update | `bu:key-matter:feedback` / `bu:key-matter:manage` | after matter-row lock: manager (`admin`/`yufeng` + `manage`), or non-manager with `view` + `feedback` **and** `bu_key_matter.owner_id` equals caller | `401` | RBAC miss `403`; domain miss `403 仅可编辑本人负责的大事儿` | validation or success |
+| key-matter `DELETE/{id}` matter delete | `bu:key-matter:manage` | manager bypass only (`admin`/`yufeng` + `manage`) | `401` | RBAC miss `403`; domain miss `403 仅管理员可管理大事儿` | success |
 | key-matter weekly `PUT/DELETE` | `bu:key-matter:feedback` / `bu:key-matter:manage` | after matter-row lock: current owner, or `admin`/`yufeng` with `bu:key-matter:manage` | `401` | RBAC miss `403`; domain miss `403 仅事项负责人可反馈周进度` | validation or success |
 
 `RegisterRequest` fields remain `username`, `password`, `realName`, `role`,
@@ -67,6 +69,11 @@ the registration request.
   list, detail, and meeting endpoints.
 - A participant who is not the current owner is read-only. Possessing
   `feedback` does not permit writes to another owner's matter.
+- Matter edit authority follows the same ownership rule as weekly feedback:
+  after `SELECT ... FOR UPDATE`, a non-manager with `view` + `feedback` may
+  update only matters whose current `bu_key_matter.owner_id` equals the caller;
+  former ownership and `createdBy` are irrelevant. Owner transfer via update
+  still requires the manager bypass.
 - Weekly feedback authority uses the current `bu_key_matter.owner_id` after
   `SELECT ... FOR UPDATE`; weekly `createdBy` and former ownership are irrelevant.
 - Manager bypass requires both an allowlisted username (`admin`/`yufeng`) and
@@ -94,6 +101,9 @@ Good:
 - `admin` or `yufeng` with `manage` can manage any matter and weekly update.
 - A current owner with `view`/`feedback` can see the menu, read all matters, and
   write only matters currently owned by that user.
+- A current owner with `view`/`feedback` can also edit the matter details of
+  matters they currently own (`PUT /api/key-matters/{id}`); the edit UI shows
+  the 编辑事项 action only for those rows and the drawer locks 负责人.
 - A participant with `view` can see the menu and read all matters but cannot
   add, edit, or delete weekly feedback.
 - An execution role with `org:view` can still load the user directory needed by
@@ -116,6 +126,8 @@ Bad:
   `403 仅事项负责人可反馈周进度`.
 - A former owner loses write authority after an owner change commits; the new
   owner gains it.
+- A participant (non-owner) attempting a matter edit receives
+  `403 仅可编辑本人负责的大事儿`.
 - `admin`/`yufeng` without `manage`, and a non-allowlisted username with
   `manage`, cannot use manager operations.
 - An execution role cannot register a user or mutate a project (`403`).

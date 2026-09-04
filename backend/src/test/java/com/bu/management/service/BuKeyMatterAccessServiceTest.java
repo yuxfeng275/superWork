@@ -297,6 +297,52 @@ class BuKeyMatterAccessServiceTest {
     }
 
     @Test
+    void requireEditAllowsOwnerWithViewAndFeedbackPermissions() {
+        when(sysRoleService.getPermissionCodesByUserId(7L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
+
+        service.requireEdit(matter(7L), 7L, "shijiale");
+    }
+
+    @Test
+    void requireEditRejectsParticipantWithoutOwnership() {
+        when(sysRoleService.getPermissionCodesByUserId(16L))
+                .thenReturn(List.of("bu:key-matter:view", "bu:key-matter:feedback"));
+
+        assertThatThrownBy(() -> service.requireEdit(matter(7L), 16L, "participant"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可编辑本人负责的大事儿");
+    }
+
+    @Test
+    void requireEditRejectsOwnerWithoutFeedbackPermission() {
+        when(sysRoleService.getPermissionCodesByUserId(7L))
+                .thenReturn(List.of("bu:key-matter:view"));
+
+        assertThatThrownBy(() -> service.requireEdit(matter(7L), 7L, "shijiale"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可编辑本人负责的大事儿");
+    }
+
+    @Test
+    void requireEditAllowsAdminWithManagePermission() {
+        when(sysRoleService.getPermissionCodesByUserId(1L))
+                .thenReturn(List.of("bu:key-matter:manage"));
+
+        service.requireEdit(matter(7L), 1L, "admin");
+    }
+
+    @Test
+    void disabledOwnerCannotEditMatter() {
+        when(userMapper.selectById(7L)).thenReturn(user(7L, 0));
+
+        assertThatThrownBy(() -> service.requireEdit(matter(7L), 7L, "shijiale"))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("仅可编辑本人负责的大事儿");
+        verifyNoInteractions(sysRoleService);
+    }
+
+    @Test
     void requireFeedbackAllowsAdminWithManagePermission() {
         when(sysRoleService.getPermissionCodesByUserId(1L))
                 .thenReturn(List.of("bu:key-matter:manage"));

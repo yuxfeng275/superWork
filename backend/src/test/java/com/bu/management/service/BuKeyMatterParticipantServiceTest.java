@@ -122,7 +122,7 @@ class BuKeyMatterParticipantServiceTest {
         request.setOwnerId(21L);
         request.setParticipantIds(List.of(21L));
 
-        service.update(11L, request);
+        service.update(11L, request, 1L, "admin");
 
         assertThat(matter.getOwnerId()).isEqualTo(21L);
         verify(participantMapper).delete(any(Wrapper.class));
@@ -142,7 +142,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of(7L, 16L));
 
-        service.update(11L, request);
+        service.update(11L, request, 1L, "admin");
 
         verify(participantMapper).delete(any(Wrapper.class));
         ArgumentCaptor<BuKeyMatterParticipant> captor =
@@ -163,7 +163,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of(16L, 16L));
 
-        service.update(11L, request);
+        service.update(11L, request, 1L, "admin");
 
         verify(participantMapper, never()).selectList(any(Wrapper.class));
         ArgumentCaptor<BuKeyMatterParticipant> captor =
@@ -182,7 +182,7 @@ class BuKeyMatterParticipantServiceTest {
         when(projectMapper.selectById(3L)).thenReturn(project(3L, "皇家项目"));
         when(participantMapper.selectList(any(Wrapper.class))).thenReturn(relations(11L, 7L, 16L));
 
-        service.update(11L, request());
+        service.update(11L, request(), 1L, "admin");
 
         ArgumentCaptor<BuKeyMatterParticipant> captor =
                 ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
@@ -202,7 +202,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setOwnerId(21L);
 
-        service.update(11L, request);
+        service.update(11L, request, 1L, "admin");
 
         ArgumentCaptor<BuKeyMatterParticipant> captor =
                 ArgumentCaptor.forClass(BuKeyMatterParticipant.class);
@@ -221,7 +221,7 @@ class BuKeyMatterParticipantServiceTest {
         BuKeyMatterRequest request = request();
         request.setParticipantIds(List.of());
 
-        service.update(11L, request);
+        service.update(11L, request, 1L, "admin");
 
         verify(participantMapper, never()).selectList(any(Wrapper.class));
         ArgumentCaptor<BuKeyMatterParticipant> captor =

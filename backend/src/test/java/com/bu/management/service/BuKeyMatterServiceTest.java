@@ -88,6 +88,21 @@ class BuKeyMatterServiceTest {
     }
 
     @Test
+    void updateDelegatesEditAuthorizationBeforeWrite() {
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 70,
+                LocalDate.of(2026, 8, 28));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        BuKeyMatterRequest request = request();
+        doThrow(new com.bu.management.exception.ForbiddenOperationException("仅可编辑本人负责的大事儿"))
+                .when(accessService).requireEdit(matter, 30L, "creator");
+
+        assertThatThrownBy(() -> service.update(11L, request, 30L, "creator"))
+                .isInstanceOf(com.bu.management.exception.ForbiddenOperationException.class)
+                .hasMessage("仅可编辑本人负责的大事儿");
+        verify(matterMapper, never()).updateById(any(BuKeyMatter.class));
+    }
+
+    @Test
     void createDelegatesOwnerAuthorizationBeforeInsert() {
         BuKeyMatterRequest request = request();
         doThrow(new com.bu.management.exception.ForbiddenOperationException("仅可创建本人负责的大事儿"))
@@ -110,7 +125,7 @@ class BuKeyMatterServiceTest {
         completed.setStatus("已完成");
         completed.setProgress(80);
 
-        BuKeyMatter updated = service.update(11L, completed);
+        BuKeyMatter updated = service.update(11L, completed, 16L, "yufeng");
 
         assertThat(updated.getStatus()).isEqualTo("已完成");
         assertThat(updated.getProgress()).isEqualTo(100);
@@ -119,7 +134,7 @@ class BuKeyMatterServiceTest {
         BuKeyMatterRequest reopened = request();
         reopened.setStatus("推进中");
         reopened.setProgress(90);
-        service.update(11L, reopened);
+        service.update(11L, reopened, 16L, "yufeng");
 
         assertThat(matter.getCompletedAt()).isNull();
     }

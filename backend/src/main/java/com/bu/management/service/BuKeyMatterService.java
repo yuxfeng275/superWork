@@ -95,8 +95,9 @@ public class BuKeyMatterService {
     }
 
     @Transactional
-    public BuKeyMatter update(Long id, BuKeyMatterRequest request) {
+    public BuKeyMatter update(Long id, BuKeyMatterRequest request, Long userId, String username) {
         BuKeyMatter matter = findMatterForUpdate(id);
+        accessService.requireEdit(matter, userId, username);
         boolean wasCompleted = "已完成".equals(matter.getStatus());
         LocalDateTime originalCompletedAt = matter.getCompletedAt();
         NormalizedMatter normalized = validate(request);

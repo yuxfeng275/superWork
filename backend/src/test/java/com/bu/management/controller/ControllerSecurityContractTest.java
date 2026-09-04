@@ -158,14 +158,18 @@ class ControllerSecurityContractTest {
                 .isNotNull()
                 .extracting(RequirePermission::value)
                 .isEqualTo(new String[]{"bu:key-matter:feedback", "bu:key-matter:manage"});
-        for (String name : new String[]{"update", "delete"}) {
-            Method method = findMethod(BuKeyMatterController.class, name);
-            assertThat(method.getAnnotation(RequirePermission.class))
-                    .as("%s 权限", name)
-                    .isNotNull()
-                    .extracting(RequirePermission::value)
-                    .isEqualTo(new String[]{"bu:key-matter:manage"});
-        }
+        Method update = findMethod(BuKeyMatterController.class, "update");
+        assertThat(update.getAnnotation(RequirePermission.class))
+                .as("update 权限")
+                .isNotNull()
+                .extracting(RequirePermission::value)
+                .isEqualTo(new String[]{"bu:key-matter:feedback", "bu:key-matter:manage"});
+        Method delete = findMethod(BuKeyMatterController.class, "delete");
+        assertThat(delete.getAnnotation(RequirePermission.class))
+                .as("delete 权限")
+                .isNotNull()
+                .extracting(RequirePermission::value)
+                .isEqualTo(new String[]{"bu:key-matter:manage"});
     }
 
     @Test

@@ -115,8 +115,12 @@ const isMeetingStandalone = computed(() => route.name === 'KeyMattersMeeting')
 const statusOptions = ['未开始', '推进中', '有风险', '已阻塞', '已完成', '已暂停']
 const priorityOptions = ['P0', 'P1', 'P2']
 const progressPresets = [0, 25, 50, 75, 90, 100]
-function isNonAdminCreate() {
-  return !editingMatterId.value && !canManageAll.value && canCreateOwn.value
+function canEditMatter(matter: BuKeyMatter) {
+  return canManageAll.value || (
+    authStore.keyMatterAccess?.canCreateOwn === true
+    && authStore.keyMatterAccess?.canFeedbackOwn === true
+    && matter.ownerId === currentUserId.value
+  )
 }
 function synchronizeProgress(target: 'matter' | 'weekly' | 'presentation', value: number | null | undefined) {
   const progress = Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
@@ -842,7 +846,7 @@ function openCreate() {
 }
 
 function openEdit(matter: BuKeyMatter) {
-  if (!canManageAll.value) {
+  if (!canEditMatter(matter)) {
     denyManageAction()
     return
   }
@@ -875,20 +879,20 @@ function handleMatterStatusChange(status: string | number | boolean | undefined)
 
 async function saveMatter() {
   const creating = editingMatterId.value === undefined
-  if ((creating && !canCreateMatter.value) || (!creating && !canManageAll.value)) {
+  if (creating && !canCreateMatter.value) {
+    denyManageAction()
+    return
+  }
+  const editingMatter = creating ? undefined : matters.value.find(matter => matter.id === editingMatterId.value)
+  if (!creating && (!editingMatter || !canEditMatter(editingMatter))) {
     denyManageAction()
     return
   }
   if (!matterFormRef.value) return
   const valid = await matterFormRef.value.validate().catch(() => false)
   if (!valid || matterForm.ownerId === undefined) return
-  if (matterForm.plannedCompletionDate < matterForm.startDate) {
-    ElMessage.warning('计划完成日期不能早于开始日期')
-    return
-  }
-  const ownerId = creating && !canManageAll.value && currentUserId.value !== undefined
-    ? currentUserId.value
-    : matterForm.ownerId
+  const ownerLocked = !canManageAll.value && currentUserId.value !== undefined
+  const ownerId = ownerLocked ? currentUserId.value : matterForm.ownerId
   const payload: BuKeyMatterPayload = {
     title: matterForm.title.trim(),
     description: matterForm.description.trim() || undefined,
@@ -1922,7 +1926,7 @@ onBeforeUnmount(() => {
                   @click.stop="openWeekly(row)"
                 />
               </el-tooltip>
-              <el-tooltip v-if="canManageAll" content="编辑事项" placement="top">
+              <el-tooltip v-if="canEditMatter(row)" content="编辑事项" placement="top">
                 <el-button link size="small" type="primary" :icon="Edit" aria-label="编辑事项" @click.stop="openEdit(row)" />
               </el-tooltip>
               <el-tooltip v-if="canManageAll" content="删除事项" placement="top">
@@ -2445,7 +2449,7 @@ onBeforeUnmount(() => {
       </div>
     </template>
     <el-drawer
-      v-if="canCreateMatter"
+      v-if="canCreateMatter || editingMatterId !== undefined"
       v-model="matterDrawer"
       :title="editingMatterId ? '编辑大事儿' : '新增大事儿'"
       size="min(560px, 96vw)"
@@ -2466,7 +2470,7 @@ onBeforeUnmount(() => {
         </el-form-item>
         <div class="form-grid two-columns">
           <el-form-item label="负责人" prop="ownerId">
-            <el-select v-model="matterForm.ownerId" filterable aria-label="负责人" placeholder="选择负责人" :disabled="isNonAdminCreate()" @change="handleMatterOwnerChange">
+            <el-select v-model="matterForm.ownerId" filterable aria-label="负责人" placeholder="选择负责人" :disabled="!canManageAll" @change="handleMatterOwnerChange">
               <el-option v-for="user in users" :key="user.id" :label="user.realName" :value="user.id" />
             </el-select>
           </el-form-item>
@@ -2577,7 +2581,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="detail-clean-actions" aria-label="详情快捷操作">
               <el-button v-if="!isCompletedMatter(selectedMatter) && canFeedbackMatter(selectedMatter)" type="primary" :icon="Calendar" @click="openWeekly(selectedMatter)">更新周进展</el-button>
-              <el-button v-if="canManageAll" :icon="Edit" @click="openEdit(selectedMatter)">编辑事项</el-button>
+              <el-button v-if="canEditMatter(selectedMatter)" :icon="Edit" @click="openEdit(selectedMatter)">编辑事项</el-button>
             </div>
           </div>
 
