@@ -78,12 +78,17 @@ public class BuKeyMatterService {
                 .eq(StringUtils.hasText(priority), BuKeyMatter::getPriority, priority)
                 .eq(ownerId != null, BuKeyMatter::getOwnerId, ownerId);
         if (projectId != null) {
-            List<Project> allProjects = projectMapper.selectList(null);
-            Set<Long> projectScope = allProjects.stream()
-                    .filter(project -> projectId.equals(project.getId()) || projectId.equals(project.getParentId()))
-                    .map(Project::getId)
-                    .collect(Collectors.toSet());
-            query.in(BuKeyMatter::getProjectId, projectScope);
+            if (projectId == 0L) {
+                // 哨兵值 0：仅返回未关联项目（project_id IS NULL）的事项
+                query.isNull(BuKeyMatter::getProjectId);
+            } else {
+                List<Project> allProjects = projectMapper.selectList(null);
+                Set<Long> projectScope = allProjects.stream()
+                        .filter(project -> projectId.equals(project.getId()) || projectId.equals(project.getParentId()))
+                        .map(Project::getId)
+                        .collect(Collectors.toSet());
+                query.in(BuKeyMatter::getProjectId, projectScope);
+            }
         }
         query.orderByAsc(BuKeyMatter::getSortOrder)
                 .orderByDesc(BuKeyMatter::getUpdatedAt);

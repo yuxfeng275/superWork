@@ -782,7 +782,9 @@ const listProjectGroups = computed<QuickListGroup[]>(() => {
       key,
       label: rootProject?.name || (project.rootId === undefined ? '未关联项目' : project.displayName),
       count: 0,
-      id: project.rootId
+      // 未关联项目使用哨兵值 0：点击后以 projectId=0 查询「未关联项目」的事项，
+      // 避免与「全部事项」（undefined = 不过滤）混同。
+      id: project.rootId ?? (project.rootId === undefined ? 0 : undefined)
     }
     group.count += 1
     grouped.set(key, group)
@@ -814,7 +816,7 @@ function applyQuickListFilter(type: 'project' | 'owner', id?: number) {
   filters.keyword = ''
   filters.status = ''
   filters.priority = ''
-  filters.projectId = type === 'project' ? id : undefined
+  filters.projectId = type === 'project' && id !== undefined ? id : undefined
   filters.ownerId = type === 'owner' ? id : undefined
   personalScope.value = ''
   resetCurrentPage()

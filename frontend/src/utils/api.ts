@@ -1118,7 +1118,7 @@ class ApiService {
     if (params?.status) searchParams.set('status', params.status)
     if (params?.priority) searchParams.set('priority', params.priority)
     if (params?.ownerId) searchParams.set('ownerId', String(params.ownerId))
-    if (params?.projectId) searchParams.set('projectId', String(params.projectId))
+    if (params?.projectId !== undefined) searchParams.set('projectId', String(params.projectId))
     const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return this.request<BuKeyMatter[]>(`/api/key-matters${query}`)
   }
