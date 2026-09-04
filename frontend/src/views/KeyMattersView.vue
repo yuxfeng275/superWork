@@ -782,7 +782,9 @@ const listProjectGroups = computed<QuickListGroup[]>(() => {
       key,
       label: rootProject?.name || (project.rootId === undefined ? '未关联项目' : project.displayName),
       count: 0,
-      id: project.rootId
+      // 未关联项目使用哨兵值 0：点击后以 projectId=0 查询「未关联项目」的事项，
+      // 避免与「全部事项」（undefined = 不过滤）混同。
+      id: project.rootId ?? (project.rootId === undefined ? 0 : undefined)
     }
     group.count += 1
     grouped.set(key, group)
@@ -814,7 +816,7 @@ function applyQuickListFilter(type: 'project' | 'owner', id?: number) {
   filters.keyword = ''
   filters.status = ''
   filters.priority = ''
-  filters.projectId = type === 'project' ? id : undefined
+  filters.projectId = type === 'project' && id !== undefined ? id : undefined
   filters.ownerId = type === 'owner' ? id : undefined
   personalScope.value = ''
   resetCurrentPage()
@@ -5874,7 +5876,7 @@ button:focus-visible {
 .presentation-layout {
   --presentation-panel-height: min(740px, calc(100dvh - 120px));
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 220px;
+  grid-template-columns: 240px minmax(0, 1fr) 300px;
   align-items: center;
   gap: 14px;
   height: 100dvh;
@@ -7201,8 +7203,7 @@ button:focus-visible {
 
 @media (max-width: 1440px) {
   .presentation-layout {
-    grid-template-columns: 180px minmax(0, 1fr) 220px;
-    gap: 14px;
+    grid-template-columns: 220px minmax(0, 1fr) 260px;
     padding: 24px;
   }
 
@@ -7213,7 +7214,7 @@ button:focus-visible {
 
 @media (max-width: 1420px) {
   .presentation-layout {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: start;
     overflow-x: hidden;
@@ -7303,7 +7304,7 @@ button:focus-visible {
 
 @media (max-width: 1180px) {
   .presentation-layout {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 230px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: start;
     overflow-x: hidden;
