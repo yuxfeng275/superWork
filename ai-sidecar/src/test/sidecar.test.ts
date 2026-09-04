@@ -3,7 +3,7 @@ import { after, describe, it } from "node:test";
 import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createSidecarServer } from "../server.js";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AgentFactoryInput, AgentLike } from "../run.js";
+import type { AgentFactory, AgentFactoryInput, AgentLike } from "../run.js";
 import { callRemoteTool, buildAgentTools } from "../tools.js";
 
 /** Minimal scripted agent: replays canned events, then returns. */
@@ -190,13 +190,52 @@ describe("POST /v1/runs validation", () => {
     });
   }
 
-  it("400 on non-zhipu provider", async () => {
+  it("400 on unsupported provider", async () => {
     const server = createSidecarServer();
     await listen(server);
-    const res = await post(server, "/v1/runs", validBody({ provider: "deepseek" }), {
+    const res = await post(server, "/v1/runs", validBody({ provider: "openai" }), {
       "Content-Type": "application/json",
     });
     assert.equal(res.status, 400);
+    const parsed = JSON.parse(res.body) as { error: { message: string } };
+    assert.match(parsed.error.message, /zhipu|deepseek/);
+    server.close();
+  });
+
+  it("accepts deepseek provider and streams a run", async () => {
+    const events: AgentEvent[] = [
+      { type: "agent_start" } as AgentEvent,
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "hello from deepseek" }],
+          timestamp: 1,
+        },
+      } as AgentEvent,
+      { type: "agent_end", messages: [] } as AgentEvent,
+    ];
+    const seen: Array<Record<string, unknown>> = [];
+    const factory: AgentFactory = (input) => {
+      seen.push({ provider: input.provider, baseUrl: input.baseUrl, model: input.model });
+      return new FakeAgent(events);
+    };
+    const server = createSidecarServer({ createAgent: factory });
+    await listen(server);
+    const res = await post(
+      server,
+      "/v1/runs",
+      validBody({ provider: "deepseek", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com" }),
+      { "Content-Type": "application/json" },
+    );
+    assert.equal(res.status, 200);
+    const frames = parseSseFrames(res.body);
+    assert.equal(frames[frames.length - 1].event, "run_end");
+    assert.deepEqual(seen[0], {
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+    });
     server.close();
   });
 });

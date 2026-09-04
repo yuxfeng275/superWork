@@ -337,6 +337,10 @@ const profitOf = (view: PeriodView) =>
 
 const rateOf = (view: PeriodView) => view.trueProfitRate ?? view.grossRate
 
+/** 单行聚合业务线（会员通/精准等无细拆）：该行即整线，不再追加业务线合计行 */
+const isSingleAggregateLine = (line: DeliverySummaryLine) =>
+  line.projects.length === 1 && line.projects[0].isAggregate === true
+
 const flatRows = computed<RowContext[]>(() => {
   const data = summary.value
   if (!data) return []
@@ -345,7 +349,9 @@ const flatRows = computed<RowContext[]>(() => {
     line.projects.forEach((project, index) => {
       rows.push(projectRow(line, project, index === 0 ? line.projects.length : 0))
     })
-    rows.push(lineTotalRow(line))
+    if (!isSingleAggregateLine(line)) {
+      rows.push(lineTotalRow(line))
+    }
   })
   rows.push(grandTotalRow(data))
   return rows

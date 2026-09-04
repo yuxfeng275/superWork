@@ -65,7 +65,7 @@ async function saveGroup() {
   }
 }
 
-async function testIntegration(integration: 'deepseek' | 'wecom') {
+async function testIntegration(integration: 'deepseek' | 'wecom' | 'worktime' | 'yuque') {
   if (!currentGroup.value) return
   testing.value = integration
   try {
@@ -82,9 +82,16 @@ async function refreshGroupSummary() {
   groups.value = await api.getSystemConfigGroups()
 }
 
-function integrationConfigured(prefix: string) {
+const CREDENTIAL_KEYS: Record<'deepseek' | 'wecom' | 'worktime' | 'yuque', string> = {
+  deepseek: 'api-key',
+  wecom: 'secret',
+  worktime: 'password',
+  yuque: 'token'
+}
+
+function integrationConfigured(prefix: 'deepseek' | 'wecom' | 'worktime' | 'yuque') {
   const enabled = values[`${prefix}.enabled`] === 'true'
-  const credential = currentGroup.value?.items.find(item => item.key === `${prefix}.${prefix === 'deepseek' ? 'api-key' : 'secret'}`)
+  const credential = currentGroup.value?.items.find(item => item.key === `${prefix}.${CREDENTIAL_KEYS[prefix]}`)
   return enabled && credential?.configured
 }
 
@@ -138,6 +145,14 @@ onMounted(loadGroups)
           <div class="test-actions">
             <el-button :icon="Connection" :loading="testing === 'deepseek'" :disabled="!integrationConfigured('deepseek')" @click="testIntegration('deepseek')">测试 DeepSeek</el-button>
             <el-button :icon="Connection" :loading="testing === 'wecom'" :disabled="!integrationConfigured('wecom')" @click="testIntegration('wecom')">测试企业微信</el-button>
+          </div>
+        </section>
+
+        <section v-if="currentGroup.groupCode === 'ai-connector'" class="connection-tests">
+          <div><h4>连接测试</h4><p>请先保存配置，再验证外部服务是否可用。</p></div>
+          <div class="test-actions">
+            <el-button :icon="Connection" :loading="testing === 'worktime'" :disabled="!integrationConfigured('worktime')" @click="testIntegration('worktime')">测试工时系统</el-button>
+            <el-button :icon="Connection" :loading="testing === 'yuque'" :disabled="!integrationConfigured('yuque')" @click="testIntegration('yuque')">测试语雀</el-button>
           </div>
         </section>
 

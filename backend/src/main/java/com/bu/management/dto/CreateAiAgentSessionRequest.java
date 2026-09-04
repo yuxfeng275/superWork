@@ -14,12 +14,12 @@ public class CreateAiAgentSessionRequest {
     private String title;
 
     /**
-     * 仅支持 zhipu
+     * zhipu（GLM）或 deepseek；缺省 zhipu
      */
     private String provider;
 
     /**
-     * 仅支持 glm-5.3
+     * 模型名称，如 glm-5.3 / deepseek-v4-flash；缺省用系统配置
      */
     private String model;
 }

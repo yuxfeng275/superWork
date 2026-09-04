@@ -14,8 +14,10 @@ import { buildAgentTools, type RequestedTool } from "./tools.js";
 export const MAX_MESSAGES = 200;
 export const MAX_RUN_MS = 600_000;
 export const HEARTBEAT_MS = 15_000;
-/** GLM (Zhipu) OpenAI-compatible chat/completions base; the only LLM endpoint this sidecar talks to. */
+/** Zhipu GLM OpenAI-compatible chat/completions base. */
 export const DEFAULT_GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+/** DeepSeek OpenAI-compatible chat/completions base. */
+export const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "max";
 export const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "off", "minimal", "low", "medium", "high", "xhigh", "max",
@@ -30,7 +32,7 @@ export interface RunRequest {
   apiKey: string;
   model: string;
   systemPrompt: string;
-  /** Requested GLM thinking level; defaults to "max". */
+  /** Requested thinking level; defaults to "max". */
   thinkingLevel?: ThinkingLevel;
   /** pi-agent-core AgentMessage JSON, passed through opaquely. */
   messages: OpaqueAgentMessage[];
@@ -180,24 +182,35 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+/** Provider id -> env var holding its API key (request body key wins over these). */
+function envApiKeyFor(provider: string): string | undefined {
+  if (provider === "zhipu") return process.env.GLM_API_KEY;
+  if (provider === "deepseek") return process.env.DEEPSEEK_API_KEY;
+  return undefined;
+}
+
 /**
- * GLM model served through pi-ai's generic openai-completions API impl.
+ * Model served through pi-ai's generic openai-completions API impl.
  *
- * `reasoning: true` is what enables thinking: pi-ai's URL-based compat
- * auto-detection matches `open.bigmodel.cn` and applies `thinkingFormat:
- * "zai"`, emitting `thinking: { type: "enabled", clear_thinking: false }`
- * on stream calls whenever a reasoning level is requested (and
+ * Zhipu GLM (`open.bigmodel.cn`): pi-ai's URL-based compat auto-detection
+ * applies `thinkingFormat: "zai"`, emitting
+ * `thinking: { type: "enabled", clear_thinking: false }` on stream calls
+ * whenever a reasoning level is requested (and
  * `thinking: { type: "disabled" }` for level "off"). `reasoning_effort` is
  * intentionally NOT sent — Zhipu's OpenAI-compatible endpoint rejects or
  * ignores it, and pi-ai suppresses it for zai-format providers. The
  * thinkingLevel string itself does not cross the wire on this endpoint;
  * the on/off switch does.
  *
+ * DeepSeek (`api.deepseek.com`): pi-ai auto-detects `thinkingFormat:
+ * "deepseek"` which sends `thinking: { type: "enabled"|"disabled" }` and
+ * maps reasoning deltas onto assistant `thinking` content parts, matching
+ * the zai stream shape our SSE relay expects.
+ *
  * `thinkingLevelMap` without xhigh/max entries would make pi-ai clamp
- * "max" down to "high"; since the zai format carries no level anyway, we
- * mark all levels supported to preserve the requested level internally
- * (state.thinkingLevel) without inventing request fields Zhipu does not
- * define.
+ * "max" down to "high"; we mark all levels supported to preserve the
+ * requested level internally without inventing request fields the
+ * provider does not define.
  */
 function makeOpenAICompletionsModel(provider: string, baseUrl: string, id: string): Model<"openai-completions"> {
   return {
@@ -230,9 +243,9 @@ function makeOpenAICompletionsModel(provider: string, baseUrl: string, id: strin
 
 /**
  * Default factory: registers a per-run OpenAI-compatible provider pointed at
- * the GLM base URL (default https://open.bigmodel.cn/api/paas/v4, env
- * GLM_BASE_URL) and runs a pi Agent over it. GLM_API_KEY seeds the provider
- * auth when the request body omits apiKey.
+ * the provider's base URL and runs a pi Agent over it. Request apiKey wins;
+ * DEEPSEEK_API_KEY / GLM_API_KEY seed the provider auth when the body omits
+ * it.
  */
 export function buildPiAgent(input: AgentFactoryInput): AgentLike {
   const models = createModels();
@@ -244,7 +257,7 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
       apiKey: {
         name: input.provider,
         resolve: async () => ({
-          auth: { apiKey: input.apiKey || process.env.GLM_API_KEY || undefined },
+          auth: { apiKey: input.apiKey || envApiKeyFor(input.provider) || undefined },
         }),
       },
     },
@@ -375,18 +388,27 @@ export async function handleRun(
     return;
   }
   const params = validated.value;
-
-  // GLM-only: the sidecar talks exclusively to the Zhipu OpenAI-compatible
-  // endpoint. baseUrl defaults to GLM_BASE_URL; apiKey to GLM_API_KEY; the
-  // key itself is only required once a run actually starts.
-  if (params.provider !== "zhipu") {
+  // Supported providers: Zhipu GLM and DeepSeek, both via their
+  // OpenAI-compatible chat/completions endpoints. baseUrl defaults come
+  // from ZHIPU_BASE_URL / DEEPSEEK_BASE_URL env; apiKey from
+  // GLM_API_KEY / DEEPSEEK_API_KEY env; the key itself is only required
+  // once a run actually starts.
+  if (params.provider !== "zhipu" && params.provider !== "deepseek") {
     sendJson(res, 400, {
-      error: { code: "invalid_request", message: 'provider must be "zhipu" (GLM is the only supported LLM)' },
+      error: {
+        code: "invalid_request",
+        message: 'provider must be "zhipu" or "deepseek"',
+      },
     });
     return;
   }
-  params.baseUrl = params.baseUrl || process.env.GLM_BASE_URL || DEFAULT_GLM_BASE_URL;
-  params.apiKey = params.apiKey || process.env.GLM_API_KEY || "";
+  if (params.provider === "zhipu") {
+    params.baseUrl = params.baseUrl || process.env.ZHIPU_BASE_URL || DEFAULT_GLM_BASE_URL;
+    params.apiKey = params.apiKey || process.env.GLM_API_KEY || "";
+  } else {
+    params.baseUrl = params.baseUrl || process.env.DEEPSEEK_BASE_URL || DEFAULT_DEEPSEEK_BASE_URL;
+    params.apiKey = params.apiKey || process.env.DEEPSEEK_API_KEY || "";
+  }
 
   // 3) Build tools (remote HTTP callback execution).
   let tools: AgentTool<any>[];
@@ -497,7 +519,10 @@ async function streamRunEvents(ctx: StreamRunContext, res: ServerResponse, cb: S
 
   // Key validation happens only when a run starts, not at boot.
   if (!params.apiKey) {
-    sendError("invalid_request", "GLM_API_KEY (or request apiKey) is required to start a run");
+    sendError(
+      "invalid_request",
+      `${params.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "GLM_API_KEY"} (or request apiKey) is required to start a run`,
+    );
     endResponse();
     return;
   }

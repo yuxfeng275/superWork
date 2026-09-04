@@ -12,7 +12,7 @@ import {
   VideoPause
 } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
-import type { AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
+import type { AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
 
 /** 会话列表 */
 const sessions = ref<AiAgentSessionSummary[]>([])
@@ -25,6 +25,8 @@ const streaming = ref(false)
 const syncing = ref(false)
 const activeController = ref<AbortController | null>(null)
 const draft = ref('')
+const modelOptions = ref<AiAgentModelOption[]>([])
+const selectedModel = ref('')
 
 /** 当前会话渲染条目：消息气泡 / 工具调用 / 错误提示 */
 interface ChatItem {
@@ -57,11 +59,18 @@ const canSend = computed(() =>
 )
 
 const sessionTitle = computed(() => activeSession.value?.title || selectedSession.value?.title || '新对话')
+const selectedModelOption = computed(() =>
+  modelOptions.value.find(m => `${m.provider}:${m.model}` === selectedModel.value)
+)
 
 const modelInfo = computed(() => {
   const source = activeSession.value ?? selectedSession.value
   if (!source) return ''
-  return source.model ? `${source.provider || 'AI'} · ${source.model}` : (source.provider || 'AI')
+  const providerLabel = selectedModelOption.value?.label
+    ?? modelOptions.value.find(m => m.provider === source.provider)?.label
+    ?? source.provider
+    ?? 'AI'
+  return source.model ? `${providerLabel} · ${source.model}` : providerLabel
 })
 
 const sessionStat = computed(() => {
@@ -202,7 +211,10 @@ async function newChat() {
   if (streaming.value || syncing.value || sessionLoading.value) return
   creating.value = true
   try {
-    const session = await api.createAiAgentSession({})
+    const payload = selectedModel.value && selectedModelOption.value
+      ? { provider: selectedModelOption.value.provider, model: selectedModelOption.value.model }
+      : {}
+    const session = await api.createAiAgentSession(payload)
     currentSessionId.value = session.id
     activeSession.value = session
     rebuildFromSession(session)
@@ -368,6 +380,14 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  try {
+    modelOptions.value = await api.getAiAgentModels()
+  } catch {
+    modelOptions.value = []
+  }
+  if (selectedModel.value === '' && modelOptions.value.length > 0) {
+    selectedModel.value = `${modelOptions.value[0].provider}:${modelOptions.value[0].model}`
+  }
   await loadSessions()
   if (currentSessionId.value == null && sessions.value.length > 0) {
     await openSession(sessions.value[0].id)
@@ -426,6 +446,20 @@ onMounted(async () => {
             <div class="ai-main-title">{{ sessionTitle }}</div>
             <div class="ai-main-meta">{{ sessionStat }}</div>
           </div>
+          <el-select
+            v-model="selectedModel"
+            class="model-select"
+            size="small"
+            :disabled="streaming || syncing || modelOptions.length === 0"
+            placeholder="模型"
+          >
+            <el-option
+              v-for="option in modelOptions"
+              :key="`${option.provider}:${option.model}`"
+              :value="`${option.provider}:${option.model}`"
+              :label="`${option.label} · ${option.model}`"
+            />
+          </el-select>
           <el-tag v-if="modelInfo" type="info" effect="plain">{{ modelInfo }}</el-tag>
         </header>
 
@@ -643,6 +677,11 @@ onMounted(async () => {
 
 .ai-main-info {
   min-width: 0;
+}
+
+.model-select {
+  width: 200px;
+  flex: 0 0 auto;
 }
 
 .ai-main-title {

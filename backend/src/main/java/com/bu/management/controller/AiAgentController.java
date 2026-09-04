@@ -76,6 +76,12 @@ public class AiAgentController {
         return Result.success(sessionService.list(userId));
     }
 
+    /** 可用模型列表（按系统配置 ai-agent 组解析）。 */
+    @GetMapping("/models")
+    public Result<List<AiAgentModelConfigService.ModelOption>> models() {
+        return Result.success(modelConfigService.listAvailableModels());
+    }
+
     @PostMapping("/sessions")
     public Result<AiAgentSessionView> create(@RequestAttribute("userId") Long userId,
             @RequestBody(required = false) CreateAiAgentSessionRequest request) {
@@ -122,7 +128,8 @@ public class AiAgentController {
 
         AiAgentSessionView session = sessionService.get(userId, id);
         JsonNode existingMessages = (JsonNode) session.messages();
-        AiAgentModelConfigService.ModelConfig model = modelConfigService.resolveModelConfig();
+        AiAgentModelConfigService.ModelConfig model =
+                modelConfigService.resolveModelConfig(session.provider());
 
         String runId = UUID.randomUUID().toString();
         toolService.registerRun(runId, userId);
@@ -146,7 +153,7 @@ public class AiAgentController {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("runId", runId);
-            body.put("provider", model.provider());
+            body.put("provider", session.provider());
             body.put("baseUrl", model.baseUrl());
             body.put("apiKey", model.apiKey());
             body.put("model", model.model());

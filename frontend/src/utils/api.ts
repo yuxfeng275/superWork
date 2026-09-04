@@ -33,7 +33,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
-import type { AiAgentMessage, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
+import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1667,6 +1667,10 @@ class ApiService {
   }
 
   // AI 助手 (Pi Agent) APIs
+
+  async getAiAgentModels(): Promise<AiAgentModelOption[]> {
+    return this.request<AiAgentModelOption[]>('/api/ai-agent/models')
+  }
   async getAiAgentSessions(): Promise<AiAgentSessionSummary[]> {
     return this.request<AiAgentSessionSummary[]>('/api/ai-agent/sessions')
   }

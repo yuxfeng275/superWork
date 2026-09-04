@@ -3,6 +3,7 @@ package com.bu.management.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 
@@ -29,11 +30,14 @@ class AiAgentSessionServiceTest {
     @Mock
     private AiAgentSessionMapper sessionMapper;
 
+    @Mock
+    private AiAgentModelConfigService modelConfigService;
+
     private AiAgentSessionService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiAgentSessionService(sessionMapper, new ObjectMapper());
+        service = new AiAgentSessionService(sessionMapper, modelConfigService, new ObjectMapper());
     }
 
     private AiAgentSession session(Long id, Long ownerId, String title, String messagesJson) {
@@ -154,8 +158,12 @@ class AiAgentSessionServiceTest {
     }
 
     @Test
-    @DisplayName("create：未传 provider/model 时默认 zhipu/glm-5.3")
+    @DisplayName("create：未传 provider/model 时默认 zhipu，模型取系统配置")
     void createDefaultsProviderAndModel() {
+        when(modelConfigService.resolveModelConfig("zhipu"))
+                .thenReturn(new AiAgentModelConfigService.ModelConfig(
+                        "https://open.bigmodel.cn/api/paas/v4", "glm-5.3", "sk-test"));
+
         service.create(7L, null, null, null);
 
         ArgumentCaptor<AiAgentSession> captor = ArgumentCaptor.forClass(AiAgentSession.class);
@@ -163,6 +171,33 @@ class AiAgentSessionServiceTest {
         assertThat(captor.getValue().getProvider()).isEqualTo("zhipu");
         assertThat(captor.getValue().getModel()).isEqualTo("glm-5.3");
         assertThat(captor.getValue().getTitle()).isEqualTo("新的对话");
+    }
+
+    @Test
+    @DisplayName("create：显式传 deepseek 时按 deepseek 解析默认模型")
+    void createResolvesDeepSeekModel() {
+        when(modelConfigService.resolveModelConfig("deepseek"))
+                .thenReturn(new AiAgentModelConfigService.ModelConfig(
+                        "https://api.deepseek.com", "deepseek-v4-flash", "sk-test"));
+
+        service.create(7L, null, "deepseek", null);
+
+        ArgumentCaptor<AiAgentSession> captor = ArgumentCaptor.forClass(AiAgentSession.class);
+        verify(sessionMapper).insert(captor.capture());
+        assertThat(captor.getValue().getProvider()).isEqualTo("deepseek");
+        assertThat(captor.getValue().getModel()).isEqualTo("deepseek-v4-flash");
+    }
+
+    @Test
+    @DisplayName("create：显式传 model 时原样保存，不再读配置")
+    void createKeepsExplicitModel() {
+        service.create(7L, null, "deepseek", "deepseek-v4-pro");
+
+        ArgumentCaptor<AiAgentSession> captor = ArgumentCaptor.forClass(AiAgentSession.class);
+        verify(sessionMapper).insert(captor.capture());
+        assertThat(captor.getValue().getProvider()).isEqualTo("deepseek");
+        assertThat(captor.getValue().getModel()).isEqualTo("deepseek-v4-pro");
+        verifyNoInteractions(modelConfigService);
     }
 
     @Test

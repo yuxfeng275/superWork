@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,16 @@ public class AiAgentToolService {
     private final WorkLogMapper workLogMapper;
     private final IssueMapper issueMapper;
     private final ObjectMapper objectMapper;
+    private final ConnectorToolService connectorToolService;
+
+    /**
+     * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
+     */
+    private static final Set<String> CONNECTOR_TOOLS = Set.of(
+            "search_my_emails", "read_my_email",
+            "query_yunxiao_projects", "query_yunxiao_workitems",
+            "query_oa_pending", "query_oa_done", "get_oa_flow",
+            "search_yuque_docs", "read_yuque_doc", "query_my_worktime");
 
     /**
      * 运行期 runId→userId 注册表；运行结束/超时后由控制器移除。
@@ -78,6 +89,7 @@ public class AiAgentToolService {
         defs.add(new AiAgentToolDefinition("count_my_issues", "统计当前登录用户负责的事项数量，可按状态过滤",
                 objectSchema(Map.of(
                         "status", stringProperty("事项状态过滤")))));
+        defs.addAll(connectorToolService.definitions());
         return defs;
     }
 
@@ -100,7 +112,9 @@ public class AiAgentToolService {
                 case "query_my_requirements" -> queryMyRequirements(userId, args);
                 case "query_my_worklogs" -> queryMyWorklogs(userId, args);
                 case "count_my_issues" -> countMyIssues(userId, args);
-                default -> new AiAgentToolResult("未知工具：" + toolName, true);
+                default -> CONNECTOR_TOOLS.contains(toolName)
+                        ? connectorToolService.execute(userId, toolName, args)
+                        : new AiAgentToolResult("未知工具：" + toolName, true);
             };
         } catch (Exception e) {
             log.warn("AI 工具执行失败: tool={}, error={}", toolName, e.getMessage());

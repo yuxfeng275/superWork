@@ -11,7 +11,6 @@
 请求体 application/json;响应为 SSE(`Content-Type: text/event-stream`),事件以 `event:` + `data:` 分帧。
 
 鉴权:请求头 `X-Sidecar-Token` 必须等于环境变量 `SIDECAR_TOKEN`(若该变量未设置则跳过校验);不匹配返回 401 JSON。
-
 ```json
 {
   "runId": "Java 生成的 uuid",
@@ -28,7 +27,12 @@
   "toolCallbackUrl": "http://backend:8080/internal/ai-agent/tools"
 }
 ```
-本系统仅支持 GLM(Zhipu)glm-5.3,thinkingLevel 默认 max。
+provider 支持 `zhipu`（GLM，智谱）与 `deepseek`；其他值返回 400。
+baseUrl / apiKey 可由请求传入；缺省时 sidecar 按 provider 取环境变量：
+`zhipu` → `ZHIPU_BASE_URL`（默认 https://open.bigmodel.cn/api/paas/v4）/ `GLM_API_KEY`；
+`deepseek` → `DEEPSEEK_BASE_URL`（默认 https://api.deepseek.com）/ `DEEPSEEK_API_KEY`。
+thinkingLevel 默认 max。
+
 `messages` 为 pi-agent-core 的 AgentMessage JSON 数组(旧→新,最后一条是本轮 user 消息);Java 仅视为不透明结构并原样持久化/回放,文本展示依赖 sidecar 发出的 SSE 事件。
 
 SSE 事件:

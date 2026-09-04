@@ -4,6 +4,8 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.SystemConfigGroupRequest;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.integration.WeComClient;
+import com.bu.management.integration.WorktimeClient;
+import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.service.EmailIntegrationConfigService;
 import com.bu.management.service.SystemConfigService;
 import com.bu.management.vo.EmailIntegrationTestResponse;
@@ -32,6 +34,8 @@ public class SystemConfigController {
     private final SystemConfigService configService;
     private final DeepSeekDigestClient deepSeekClient;
     private final WeComClient weComClient;
+    private final WorktimeClient worktimeClient;
+    private final YuqueMcpClient yuqueMcpClient;
 
     @GetMapping
     public Result<List<SystemConfigGroupSummary>> listGroups() {
@@ -62,6 +66,18 @@ public class SystemConfigController {
     @RequirePermission({"system:config:edit"})
     public Result<EmailIntegrationTestResponse> testWeCom() {
         return test(weComClient::testConnection, "企业微信");
+    }
+
+    @PostMapping("/ai-connector/worktime/test")
+    @RequirePermission({"system:config:edit"})
+    public Result<EmailIntegrationTestResponse> testAiConnectorWorktime() {
+        return test(worktimeClient::testConnection, "工时系统");
+    }
+
+    @PostMapping("/ai-connector/yuque/test")
+    @RequirePermission({"system:config:edit"})
+    public Result<EmailIntegrationTestResponse> testAiConnectorYuque() {
+        return test(yuqueMcpClient::testConnection, "语雀");
     }
 
     private Result<EmailIntegrationTestResponse> test(Runnable operation, String name) {

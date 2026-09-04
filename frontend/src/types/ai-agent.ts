@@ -1,3 +1,10 @@
+/** AI 助手可选模型（后端按系统配置返回） */
+export interface AiAgentModelOption {
+  provider: string
+  model: string
+  label: string
+}
+
 /**
  * AI 助手（Pi Agent）类型定义。
  * 会话消息结构由服务端定义且较为宽松，这里提供基础可读字段 + 索引签名，
