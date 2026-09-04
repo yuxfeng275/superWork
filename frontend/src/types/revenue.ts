@@ -280,8 +280,10 @@ export interface DeliverySummaryLine extends DeliveryLineLevelContract {
 /** 全表合计 */
 export interface DeliveryOverview {
   includeEstimate?: boolean
-  /** 全年 OA 合同总额（元） */
+  /** 全年 OA 合同总额（元，按交付日期年份口径） */
   totalOaContract?: number | null
+  /** 工时系统合同总额（元，按收款月 sale_month 年度口径，含全部合同行） */
+  totalOaContractBySaleMonth?: number | null
   totalDelivered?: number | null
   totalEstimated?: number | null
   /** 总人工成本（项目工时成本 + 预估工时成本(含预估口径) + 销售工时成本） */

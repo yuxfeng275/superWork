@@ -337,6 +337,10 @@ const profitOf = (view: PeriodView) =>
 
 const rateOf = (view: PeriodView) => view.trueProfitRate ?? view.grossRate
 
+/** 单行聚合业务线（会员通/精准等无细拆）：该行即整线，不再追加业务线合计行 */
+const isSingleAggregateLine = (line: DeliverySummaryLine) =>
+  line.projects.length === 1 && line.projects[0].isAggregate === true
+
 const flatRows = computed<RowContext[]>(() => {
   const data = summary.value
   if (!data) return []
@@ -345,7 +349,9 @@ const flatRows = computed<RowContext[]>(() => {
     line.projects.forEach((project, index) => {
       rows.push(projectRow(line, project, index === 0 ? line.projects.length : 0))
     })
-    rows.push(lineTotalRow(line))
+    if (!isSingleAggregateLine(line)) {
+      rows.push(lineTotalRow(line))
+    }
   })
   rows.push(grandTotalRow(data))
   return rows
@@ -444,7 +450,8 @@ const overviewCards = computed(() => {
   const profit = ov.totalTrueProfit ?? ov.totalProfit
   const rate = ov.trueProfitRate ?? ov.profitRate
   return [
-    { label: 'OA 合同总额', value: formatWan(ov.totalOaContract), strong: true },
+    { label: '合同总额（收款月）', value: formatWan(ov.totalOaContractBySaleMonth ?? ov.totalOaContract), strong: true },
+    { label: 'OA 合同总额（交付日期）', value: formatWan(ov.totalOaContract) },
     { label: '已交付', value: formatWan(ov.totalDelivered) },
     { label: '预估交付', value: formatWan(ov.totalEstimated) },
     { label: '人工成本', value: formatWan(ov.totalLaborCost) },

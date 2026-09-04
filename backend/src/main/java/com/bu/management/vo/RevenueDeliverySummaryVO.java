@@ -144,8 +144,10 @@ public class RevenueDeliverySummaryVO {
     @Data
     public static class Overview {
         private Boolean includeEstimate;
-        /** 全年 OA 合同总额（元） */
+        /** 全年 OA 合同总额（元，按交付日期年份口径） */
         private BigDecimal totalOaContract;
+        /** 工时系统合同总额（元）：sale_month（收款月）在年度内的全部合同行合计，不含 pending 过滤 */
+        private BigDecimal totalOaContractBySaleMonth;
         /** 已确认业务线级合同（不指定项目）的整表金额 */
         private BigDecimal totalLineUnallocatedContract = BigDecimal.ZERO;
         private BigDecimal totalLineUnallocatedDelivered = BigDecimal.ZERO;
