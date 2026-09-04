@@ -166,8 +166,9 @@ class RevenueContractImportServiceTest {
         RevenueImportResultVO result = service.importContracts(file, 16L);
 
         assertThat(result.getTotalCount()).isEqualTo(7);
-        assertThat(result.getPendingCount()).isEqualTo(3);
-        assertThat(result.getSuccessCount()).isEqualTo(4);
+        // 短信类型 → 全域精准（d3）；d6 定制无品牌、d7 未知类型 → 待映射；其余 4 条按业务线/项目成功
+        assertThat(result.getPendingCount()).isEqualTo(2);
+        assertThat(result.getSuccessCount()).isEqualTo(5);
 
         List<RevenueContractEntry> inserted = captured();
         assertThat(inserted).hasSize(7);
@@ -178,11 +179,10 @@ class RevenueContractImportServiceTest {
         RevenueContractEntry speedo = entry(inserted, "d2");
         assertThat(speedo.getProjectId()).isNull();
         assertThat(speedo.getBizLineId()).isEqualTo(6L);
-        assertThat(speedo.getPending()).isZero();
         RevenueContractEntry hipro = entry(inserted, "d3");
         assertThat(hipro.getProjectId()).isNull();
-        assertThat(hipro.getBizLineId()).isNull();
-        assertThat(hipro.getPending()).isEqualTo(1);
+        assertThat(hipro.getBizLineId()).isEqualTo(6L);
+        assertThat(hipro.getPending()).isZero();
         RevenueContractEntry jiabe = entry(inserted, "d4");
         RevenueContractEntry member = entry(inserted, "d5");
         assertThat(member.getProjectId()).isNull();
@@ -194,6 +194,7 @@ class RevenueContractImportServiceTest {
         assertThat(pendingCustom.getBizLineId()).isEqualTo(1L);
         assertThat(pendingCustom.getPending()).isEqualTo(1);
         RevenueContractEntry pendingType = entry(inserted, "d7");
+        // d7 收款款项类型「全域-全渠道-全域未知类型」不含任何关键字 → 待映射
         assertThat(pendingType.getBizLineId()).isNull();
         assertThat(pendingType.getPending()).isEqualTo(1);
         // 解析字段

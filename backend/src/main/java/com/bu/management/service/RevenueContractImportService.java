@@ -64,7 +64,7 @@ public class RevenueContractImportService {
             Map.entry("逢时", "逢时"),
             Map.entry("黄天鹅", "黄天鹅"));
 
-    private static final String[] TYPE_KEYWORDS = {"会员通", "精准", "saas", "定制"};
+    private static final String[] TYPE_KEYWORDS = {"会员通", "精准", "saas", "定制", "短信"};
     private static final Pattern DATE_PATTERN =
             Pattern.compile("(\\d{4})[-/.年](\\d{1,2})[-/.月](\\d{1,2})");
     private static final Pattern MONTH_PATTERN = Pattern.compile("(\\d{4})[-/.年](\\d{1,2})");
@@ -274,8 +274,10 @@ public class RevenueContractImportService {
                 return new Assigned(lineId, brandProject.getId(), false);
             }
         }
-        // aggregate/simple 业务线天然有业务线级行；full 业务线进入待确认，保留原始归属。
-        return new Assigned(lineId, null, "full".equals(lineMode.get(lineId)));
+        // 仅 full 模式（定制/SAAS）需严格映射到系统项目，无品牌命中才待确认；
+        // 其余业务线（会员通/精准等）按业务线优先直接落业务线级，不再进入待映射。
+        boolean needProject = "full".equals(lineMode.get(lineId));
+        return new Assigned(lineId, null, needProject);
     }
 
     private String brandTarget(String brand) {
@@ -294,12 +296,23 @@ public class RevenueContractImportService {
         return best;
     }
 
-    /** 收款款项类型 → 业务线（会员通/精准/saas/定制 关键字，与既有营收导入一致） */
+    /**
+     * 收款款项类型 → 业务线（会员通/精准/saas/定制 关键字，与既有营收导入一致）。
+     * 短信充值类（如「全域-全渠道-全域京东文本短信」）固定归「全域精准」业务线。
+     */
     private Long matchTypeLine(String typeRaw, List<BusinessLine> lines) {
         if (!StringUtils.hasText(typeRaw)) {
             return null;
         }
         String lower = typeRaw.toLowerCase(Locale.ROOT);
+        if (lower.contains("短信")) {
+            return lines.stream()
+                    .filter(line -> line.getName() != null && line.getName().contains("精准"))
+                    .map(BusinessLine::getId)
+                    .sorted()
+                    .findFirst()
+                    .orElse(null);
+        }
         String keyword = null;
         for (String candidate : TYPE_KEYWORDS) {
             if (lower.contains(candidate.toLowerCase(Locale.ROOT))) {
