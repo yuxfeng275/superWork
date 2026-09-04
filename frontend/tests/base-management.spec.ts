@@ -176,6 +176,42 @@ test('项目管理支持直接编辑子项目', async ({ page }) => {
   })
 })
 
+test('项目管理支持删除子项目并发送DELETE请求', async ({ page }) => {
+  await page.goto('/projects')
+
+  const deleteRequest = page.waitForRequest(request =>
+    request.method() === 'DELETE' && new URL(request.url()).pathname === '/api/projects/12'
+  )
+  await page.getByRole('button', { name: '删除子项目 PMS' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '确定' }).click()
+
+  await expect(deleteRequest).resolves.toBeTruthy()
+})
+
+test('非管理序列角色在项目管理页面为只读', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'mock-token')
+    localStorage.setItem(
+      'user',
+      JSON.stringify({
+        id: 998,
+        username: 'dev_zhao',
+        realName: '赵全栈',
+        role: 'FULL_STACK_ENGINEER',
+        email: 'dev@example.com',
+        phone: '13800009998'
+      })
+    )
+  })
+  await page.goto('/projects')
+
+  await expect(page.getByRole('button', { name: '新增项目' })).toHaveCount(0)
+  await expect(page.locator('.card-footer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '编辑子项目 PMS' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '删除子项目 PMS' })).toHaveCount(0)
+  await expect(page.getByText('皇家项目').first()).toBeVisible()
+})
+
 test('客户信息管理页面展示联系人与关联项目', async ({ page }) => {
   await page.goto('/customers')
 

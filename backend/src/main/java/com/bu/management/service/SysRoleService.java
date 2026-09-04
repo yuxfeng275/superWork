@@ -58,7 +58,7 @@ public class SysRoleService extends ServiceImpl<SysRoleMapper, SysRole> {
                     "requirement:list", "requirement:create", "requirement:edit", "requirement:delete",
                     "task:list", "task:create", "task:edit", "task:assign",
                     "issue:list", "issue:create", "issue:edit", "issue:delete",
-                    "statistics:view", "org:view", "org:edit", "project:view", "customer-contact:view"
+                    "statistics:view", "org:view", "project:view", "customer-contact:view"
             )),
             Map.entry(PositionRoles.TECH_ARCHITECT, Set.of(
                     "requirement:list", "requirement:edit",

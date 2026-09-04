@@ -8,6 +8,7 @@ import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.CustomerContactMapper;
 import com.bu.management.mapper.IssueMapper;
 import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.ProjectMemberMapper;
 import com.bu.management.mapper.RequirementMapper;
 import com.bu.management.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,9 @@ class ProjectServiceTest {
 
     @Mock
     private IssueMapper issueMapper;
+
+    @Mock
+    private ProjectMemberMapper projectMemberMapper;
 
     @InjectMocks
     private ProjectService projectService;

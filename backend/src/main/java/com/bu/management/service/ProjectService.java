@@ -8,8 +8,11 @@ import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.CustomerContact;
 import com.bu.management.entity.Issue;
 import com.bu.management.entity.Project;
+import com.bu.management.entity.ProjectMember;
 import com.bu.management.entity.Requirement;
 import com.bu.management.entity.User;
+import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.ProjectMemberMapper;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.CustomerContactMapper;
 import com.bu.management.mapper.IssueMapper;
@@ -37,13 +40,13 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
-
+    private final RequirementMapper requirementMapper;
+    private final CustomerContactMapper customerContactMapper;
     private final ProjectMapper projectMapper;
     private final BusinessLineMapper businessLineMapper;
     private final UserMapper userMapper;
-    private final RequirementMapper requirementMapper;
-    private final CustomerContactMapper customerContactMapper;
     private final IssueMapper issueMapper;
+    private final ProjectMemberMapper projectMemberMapper;
 
     /**
      * 创建项目
@@ -190,6 +193,8 @@ public class ProjectService {
         }
 
         detachHistoricalRecords(id);
+        projectMemberMapper.delete(new LambdaQueryWrapper<ProjectMember>()
+                .eq(ProjectMember::getProjectId, id));
         projectMapper.deleteById(id);
     }
 

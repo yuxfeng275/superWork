@@ -325,6 +325,7 @@ test('事项概览与月份标题同排且不受快速筛选影响', async ({ pa
   expect(overviewBox!.y).toBeLessThan(titleBox!.y + titleBox!.height)
 
   const listRail = page.getByRole('complementary', { name: '列表快速筛选' })
+  await listRail.getByRole('tab', { name: '负责人' }).click()
   await listRail.getByRole('button', { name: /于峰/ }).click()
   await expect(page.getByText('运营平台数据质量治理')).toBeVisible()
   await expect(page.getByText('皇家会员体系二期上线')).toHaveCount(0)
@@ -378,6 +379,9 @@ test('台账可查看状态、详情并维护本周进展', async ({ page }, tes
   await expect(page.getByLabel('大事儿列表').getByText('本周待更新').first()).toBeVisible()
     const listRail = page.getByRole('complementary', { name: '列表快速筛选' })
     await expect(listRail.getByRole('button', { name: /皇家全渠道定制项目/ })).toBeVisible()
+    await listRail.getByRole('tab', { name: '负责人' }).click()
+    await listRail.getByRole('button', { name: /于峰/ }).click()
+    await listRail.getByRole('tab', { name: '项目' }).click()
     await expect(page.getByLabel('大事儿列表').locator('.list-status-tag.status-risk')).toBeVisible()
     await expect(page.getByLabel('大事儿列表').locator('.list-status-tag.status-progressing').first()).toBeVisible()
     await listRail.getByRole('button', { name: /于峰/ }).click()

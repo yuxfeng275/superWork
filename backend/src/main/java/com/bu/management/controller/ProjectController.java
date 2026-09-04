@@ -36,7 +36,7 @@ public class ProjectController {
      */
     @Operation(summary = "创建项目", description = "创建新的项目（支持主项目和子项目）")
     @PostMapping
-    @RequirePermission({"org:edit"})
+    @RequirePermission({"project:manage"})
     public Result<Project> create(@Valid @RequestBody ProjectRequest request) {
         Project project = projectService.create(request);
         return Result.success("创建成功", project);
@@ -47,7 +47,7 @@ public class ProjectController {
      */
     @Operation(summary = "更新项目", description = "更新项目信息")
     @PutMapping("/{id}")
-    @RequirePermission({"org:edit"})
+    @RequirePermission({"project:manage"})
     public Result<Project> update(
             @Parameter(description = "项目ID") @PathVariable Long id,
             @Valid @RequestBody ProjectRequest request) {
@@ -60,7 +60,7 @@ public class ProjectController {
      */
     @Operation(summary = "删除项目", description = "删除指定项目（不能有子项目）")
     @DeleteMapping("/{id}")
-    @RequirePermission({"org:edit"})
+    @RequirePermission({"project:manage"})
     public Result<Void> delete(@Parameter(description = "项目ID") @PathVariable Long id) {
         projectService.delete(id);
         return Result.success("删除成功", null);
