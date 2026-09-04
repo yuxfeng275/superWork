@@ -35,7 +35,7 @@ public class ProjectMemberController {
      */
     @Operation(summary = "添加项目成员", description = "将用户添加到项目中")
     @PostMapping
-    @RequirePermission({"org:edit"})
+    @RequirePermission({"project:manage"})
     public Result<ProjectMember> addMember(@Valid @RequestBody ProjectMemberRequest request) {
         ProjectMember member = projectMemberService.addMember(request);
         return Result.success("添加成功", member);
@@ -46,7 +46,7 @@ public class ProjectMemberController {
      */
     @Operation(summary = "移除项目成员", description = "将用户从项目中移除")
     @DeleteMapping
-    @RequirePermission({"org:edit"})
+    @RequirePermission({"project:manage"})
     public Result<Void> removeMember(
             @Parameter(description = "项目ID") @RequestParam Long projectId,
             @Parameter(description = "用户ID") @RequestParam Long userId) {

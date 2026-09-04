@@ -65,6 +65,15 @@ class ProjectServiceDatabaseTest {
                     CONSTRAINT fk_issue_project FOREIGN KEY (project_id) REFERENCES project(id)
                 )
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE project_member (
+                    id BIGINT PRIMARY KEY,
+                    project_id BIGINT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    role VARCHAR(50),
+                    joined_at TIMESTAMP
+                )
+                """);
 
         jdbcTemplate.update("""
                 INSERT INTO project (
@@ -75,6 +84,7 @@ class ProjectServiceDatabaseTest {
         jdbcTemplate.update(
                 "INSERT INTO requirement (id, project_id, customer_contact_id) VALUES (61, 5, 51)");
         jdbcTemplate.update("INSERT INTO issue (id, project_id) VALUES (71, 5)");
+        jdbcTemplate.update("INSERT INTO project_member (id, project_id, user_id, role) VALUES (81, 5, 7, '开发')");
     }
 
     @AfterEach
@@ -91,8 +101,7 @@ class ProjectServiceDatabaseTest {
         assertEquals(1, count("SELECT COUNT(*) FROM requirement WHERE id = 61"));
         assertNull(value("SELECT project_id FROM requirement WHERE id = 61"));
         assertNull(value("SELECT customer_contact_id FROM requirement WHERE id = 61"));
-        assertEquals(1, count("SELECT COUNT(*) FROM issue WHERE id = 71"));
-        assertNull(value("SELECT project_id FROM issue WHERE id = 71"));
+        assertEquals(0, count("SELECT COUNT(*) FROM project_member"));
     }
 
     @Test
@@ -132,6 +141,7 @@ class ProjectServiceDatabaseTest {
     }
 
     private void dropTables() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS project_member");
         jdbcTemplate.execute("DROP TABLE IF EXISTS issue");
         jdbcTemplate.execute("DROP TABLE IF EXISTS requirement");
         jdbcTemplate.execute("DROP TABLE IF EXISTS customer_contact");

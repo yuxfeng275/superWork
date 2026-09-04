@@ -83,6 +83,9 @@ interface QuickListGroup {
   id?: number
 }
 
+type QuickFilterTab = 'project' | 'owner'
+const quickFilterTab = ref<QuickFilterTab>('project')
+
 interface PresentationDraft {
   status: string
   progress: number
@@ -1800,7 +1803,23 @@ onBeforeUnmount(() => {
             <span class="list-filter-icon personal participating"><el-icon><User /></el-icon></span>
             <span><strong>我参与的事项</strong><small>{{ participatingMatters.length }} 项协作参与</small></span>
           </button>
-          <section class="list-filter-section" aria-label="按项目筛选">
+          <div class="list-filter-tabs" role="tablist" aria-label="快速筛选分类">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="quickFilterTab === 'project'"
+              :class="{ active: quickFilterTab === 'project' }"
+              @click="quickFilterTab = 'project'"
+            >项目</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="quickFilterTab === 'owner'"
+              :class="{ active: quickFilterTab === 'owner' }"
+              @click="quickFilterTab = 'owner'"
+            >负责人</button>
+          </div>
+          <section v-show="quickFilterTab === 'project'" class="list-filter-section" aria-label="按项目筛选">
             <header><span>项目</span><small>{{ listProjectGroups.length }}</small></header>
             <button
               v-for="group in listProjectGroups"
@@ -1813,7 +1832,7 @@ onBeforeUnmount(() => {
               <span><strong>{{ group.label }}</strong><small>{{ group.count }} 项</small></span>
             </button>
           </section>
-          <section class="list-filter-section" aria-label="按负责人筛选">
+          <section v-show="quickFilterTab === 'owner'" class="list-filter-section" aria-label="按负责人筛选">
             <header><span>负责人</span><small>{{ listOwnerGroups.length }}</small></header>
             <button
               v-for="group in listOwnerGroups"
@@ -2630,17 +2649,20 @@ onBeforeUnmount(() => {
                 <span>本周进展</span>
                 <p>{{ selectedMatter.latestUpdate.progressSummary }}</p>
               </article>
-              <article>
+              <article :class="{ 'brief-empty': !selectedMatter.latestUpdate.issues }">
                 <span>问题 / 风险</span>
-                <p>{{ selectedMatter.latestUpdate.issues || '本周暂无风险' }}</p>
+                <p v-if="selectedMatter.latestUpdate.issues">{{ selectedMatter.latestUpdate.issues }}</p>
+                <p v-else class="brief-empty-note"><el-icon><CircleCheck /></el-icon><em>本周暂无风险</em></p>
               </article>
-              <article>
+              <article :class="{ 'brief-empty': !selectedMatter.latestUpdate.supportNeeded }">
                 <span>需协调 / 决策</span>
-                <p>{{ selectedMatter.latestUpdate.supportNeeded || '暂无待协调事项' }}</p>
+                <p v-if="selectedMatter.latestUpdate.supportNeeded">{{ selectedMatter.latestUpdate.supportNeeded }}</p>
+                <p v-else class="brief-empty-note"><el-icon><CircleCheck /></el-icon><em>暂无待协调事项</em></p>
               </article>
-              <article class="brief-next">
+              <article class="brief-next" :class="{ 'brief-empty': !selectedMatter.latestUpdate.nextWeekPlan }">
                 <span>下一步行动</span>
-                <p>{{ selectedMatter.latestUpdate.nextWeekPlan || '待补充下一步行动' }}</p>
+                <p v-if="selectedMatter.latestUpdate.nextWeekPlan">{{ selectedMatter.latestUpdate.nextWeekPlan }}</p>
+                <p v-else class="brief-empty-note"><el-icon><EditPen /></el-icon><em>待补充下一步行动</em></p>
               </article>
             </div>
             <el-empty v-else :image-size="72" description="尚未填写周进展" />
@@ -2655,23 +2677,23 @@ onBeforeUnmount(() => {
               <small>{{ selectedMatter.weeklyUpdates?.length || 0 }} 次更新</small>
             </header>
             <ol v-if="selectedMatter.weeklyUpdates?.length" class="detail-clean-timeline">
-              <li v-for="(update, index) in selectedMatter.weeklyUpdates" :key="update.id">
-                <time :datetime="update.weekStartDate">{{ formatChineseDay(update.weekStartDate) }}</time>
+              <li v-for="(update, index) in selectedMatter.weeklyUpdates" :key="update.id" class="history-card">
+                <header class="history-card-head">
+                  <time :datetime="update.weekStartDate">{{ formatChineseDay(update.weekStartDate) }}</time>
+                  <div class="history-status">
+                    <el-tag size="small" :type="statusType(update.status)">{{ update.status }}</el-tag>
+                    <strong>{{ update.progress }}%</strong>
+                    <span class="history-delta" :class="`tone-${historyComparison(selectedMatter, index).tone}`">
+                      {{ historyComparison(selectedMatter, index).label }}
+                    </span>
+                    <span v-if="index === 0" class="latest-pill">最新</span>
+                  </div>
+                  <div v-if="canFeedbackMatter(selectedMatter)" class="history-actions">
+                    <el-button link type="primary" :icon="Edit" aria-label="编辑周进展" @click="openWeekly(selectedMatter, update.weekStartDate)" />
+                    <el-button link type="danger" :icon="Delete" aria-label="删除周进展" @click="confirmDeleteWeekly(selectedMatter, update)" />
+                  </div>
+                </header>
                 <article>
-                  <header>
-                    <div class="history-status">
-                      <el-tag size="small" :type="statusType(update.status)">{{ update.status }}</el-tag>
-                      <strong>{{ update.progress }}%</strong>
-                      <span class="history-delta" :class="`tone-${historyComparison(selectedMatter, index).tone}`">
-                        {{ historyComparison(selectedMatter, index).label }}
-                      </span>
-                      <span v-if="index === 0" class="latest-pill">最新</span>
-                    </div>
-                    <div v-if="canFeedbackMatter(selectedMatter)" class="history-actions">
-                      <el-button link type="primary" :icon="Edit" aria-label="编辑周进展" @click="openWeekly(selectedMatter, update.weekStartDate)" />
-                      <el-button link type="danger" :icon="Delete" aria-label="删除周进展" @click="confirmDeleteWeekly(selectedMatter, update)" />
-                    </div>
-                  </header>
                   <p>{{ update.progressSummary }}</p>
                   <dl v-if="update.issues || update.nextWeekPlan || update.supportNeeded" class="history-extra">
                     <div v-if="update.issues" class="history-extra-item risk">
@@ -3082,6 +3104,41 @@ onBeforeUnmount(() => {
 .list-filter-section button small {
   color: #94a3b8;
   font-size: 10px;
+}
+
+.list-filter-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.list-filter-tabs button {
+  padding: 6px 0;
+  border: 1px solid var(--gray-100);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.list-filter-tabs button:hover {
+  color: var(--primary);
+}
+
+.list-filter-tabs button.active {
+  color: var(--primary);
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+
+.list-filter-tabs button:focus-visible {
+  outline: 2px solid rgb(79 92 247 / 28%);
+  outline-offset: 1px;
 }
 
 .list-filter-section {
@@ -4949,6 +5006,20 @@ button:focus-visible {
   .list-filter-header,
   .list-filter-section > header {
     display: none;
+  }
+
+  .list-filter-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 0;
+    border-top: 0;
+  }
+
+  .list-filter-tabs button {
+    width: auto;
+    min-height: 0;
+    padding: 8px 14px;
+    min-width: 64px;
   }
 
   .list-filter-all,
@@ -7028,44 +7099,59 @@ button:focus-visible {
 
 .detail-clean-timeline {
   display: grid;
-  gap: 0;
+  gap: 10px;
   margin: 0;
-  padding: 0;
+  padding: 14px 16px 16px;
   list-style: none;
 }
 
-.detail-clean-timeline > li {
+.detail-clean-timeline > li.history-card {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 14px;
-  padding: 14px 16px;
-  border-bottom: 1px solid #eef2f7;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e8eef6;
+  border-radius: 10px;
+  background: #fff;
 }
 
-.detail-clean-timeline > li:last-child {
-  border-bottom: 0;
+.detail-clean-timeline > li.history-card:first-child {
+  border-color: #c7d2fe;
+  background: #fcfcff;
 }
 
-.detail-clean-timeline time {
-  padding-top: 4px;
-  color: #64748b;
+.history-card-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-card-head > time {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 12px;
   font-weight: 750;
+}
+
+.history-card-head .history-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history-card-head .history-actions {
+  margin-left: auto;
 }
 
 .detail-clean-timeline article {
   min-width: 0;
 }
 
-.detail-clean-timeline article > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
 .detail-clean-timeline article > p {
-  margin: 8px 0 0;
+  margin: 0;
   color: #334155;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -7079,6 +7165,30 @@ button:focus-visible {
   background: #dbeafe;
   font-size: 11px;
   font-weight: 750;
+}
+
+.detail-clean-brief-grid article.brief-empty {
+  background: #fcfdfe;
+}
+
+.detail-clean-brief-grid .brief-empty-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.detail-clean-brief-grid .brief-empty-note .el-icon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: #10b981;
+}
+
+.detail-clean-brief-grid .brief-empty-note em {
+  font-style: normal;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .key-matters-page button:focus-visible,
@@ -7419,14 +7529,12 @@ button:focus-visible {
     border-bottom: 0;
   }
 
-  .detail-clean-timeline > li {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  .detail-clean-timeline {
+    padding: 12px;
   }
 
-  .detail-clean-timeline article > header {
-    align-items: flex-start;
-    flex-direction: column;
+  .history-card-head .history-actions {
+    margin-left: 0;
   }
 
   .toolbar-actions :deep(.el-date-editor) {

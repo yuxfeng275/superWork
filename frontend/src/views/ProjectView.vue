@@ -2,8 +2,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit } from '@element-plus/icons-vue'
-import { getRoleLabel } from '@/constants/roles'
+import { Delete, Edit } from '@element-plus/icons-vue'
+import { getRoleLabel, hasRoleAccess } from '@/constants/roles'
 
 interface BusinessLine {
   id: number
@@ -39,7 +39,16 @@ interface Member {
   role: string
 }
 
-// State
+const storedRole = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}')?.role as string | undefined
+  } catch {
+    return undefined
+  }
+})()
+const canManageProjects = hasRoleAccess(storedRole, 'management')
+
+// Add-member form state
 const treeData = ref<ProjectTreeNode[]>([])
 const businessLines = ref<BusinessLine[]>([])
 const allUsers = ref<User[]>([])
@@ -345,7 +354,7 @@ onMounted(loadData)
           </svg>
           重置
         </button>
-        <button class="btn btn-primary" @click="openAdd()">
+        <button v-if="canManageProjects" class="btn btn-primary" @click="openAdd()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
@@ -395,7 +404,7 @@ onMounted(loadData)
             <span class="bl-title">{{ group.name }}</span>
             <span class="bl-badge">{{ group.projects.length }} 个项目</span>
           </div>
-          <span class="card-action primary" @click="openAddInBL(group.id)">+ 新增项目</span>
+          <span v-if="canManageProjects" class="card-action primary" @click="openAddInBL(group.id)">+ 新增项目</span>
         </div>
         <div class="project-card-grid">
           <div v-for="proj in group.projects" :key="proj.id" class="project-card">
@@ -423,7 +432,7 @@ onMounted(loadData)
                 <button type="button" class="sub-chip-name" @click.stop="openDrawer(sub)">
                   {{ sub.name }}
                 </button>
-                <el-tooltip content="编辑子项目" placement="top">
+                <el-tooltip v-if="canManageProjects" content="编辑子项目" placement="top">
                   <button
                     type="button"
                     class="sub-chip-edit"
@@ -433,9 +442,19 @@ onMounted(loadData)
                     <el-icon><Edit /></el-icon>
                   </button>
                 </el-tooltip>
+                <el-tooltip v-if="canManageProjects" content="删除子项目" placement="top">
+                  <button
+                    type="button"
+                    class="sub-chip-edit sub-chip-delete"
+                    :aria-label="`删除子项目 ${sub.name}`"
+                    @click.stop="handleDelete(sub)"
+                  >
+                    <el-icon><Delete /></el-icon>
+                  </button>
+                </el-tooltip>
               </span>
             </div>
-            <div class="card-footer">
+            <div v-if="canManageProjects" class="card-footer">
               <span class="card-action primary" @click.stop="openAdd(proj)">+ 子项目</span>
               <span class="card-action primary" @click.stop="openEdit(proj)">编辑</span>
               <span class="card-action danger" @click.stop="handleDelete(proj)">删除</span>
@@ -531,8 +550,8 @@ onMounted(loadData)
         <div class="member-section">
           <div class="section-header">
             <h4 class="section-title">项目成员</h4>
-            <span v-if="!addMemberVisible" class="action-link primary" style="font-size:13px;cursor:pointer" @click="addMemberVisible = true">+ 添加成员</span>
-            <span v-else class="action-link" style="font-size:13px;cursor:pointer;color:var(--gray-400)" @click="addMemberVisible = false; addMemberForm = { userId: undefined, role: '' }">取消</span>
+            <span v-if="canManageProjects && !addMemberVisible" class="action-link primary" style="font-size:13px;cursor:pointer" @click="addMemberVisible = true">+ 添加成员</span>
+            <span v-else-if="canManageProjects && addMemberVisible" class="action-link" style="font-size:13px;cursor:pointer;color:var(--gray-400)" @click="addMemberVisible = false; addMemberForm = { userId: undefined, role: '' }">取消</span>
           </div>
 
           <!-- 添加成员表单 -->
@@ -578,7 +597,7 @@ onMounted(loadData)
               </template>
             </el-table-column>
             <el-table-column label="角色" prop="role" />
-            <el-table-column label="操作" width="60" align="center">
+            <el-table-column v-if="canManageProjects" label="操作" width="60" align="center">
               <template #default="{ row }">
                 <span class="action-link danger" style="font-size:12px;cursor:pointer" @click="handleRemoveMember(row)">移除</span>
               </template>
@@ -935,6 +954,11 @@ onMounted(loadData)
   opacity: 1;
 }
 
+.sub-chip-delete:hover {
+  background: #fef2f2;
+  color: var(--danger, #dc2626);
+  opacity: 1;
+}
 .sub-chip-name:focus-visible,
 .sub-chip-edit:focus-visible {
   position: relative;
