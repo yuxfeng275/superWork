@@ -118,3 +118,11 @@ export type AiAgentStreamEvent =
   | AiAgentToolExecutionEndEvent
   | AiAgentRunEndEvent
   | AiAgentErrorEvent
+
+/** AI 连接器状态项（GET /api/ai-agent/connectors） */
+export interface AiConnectorStatus {
+  code: string
+  name: string
+  status: 'READY' | 'DISABLED' | 'NOT_CONFIGURED'
+  hint: string
+}

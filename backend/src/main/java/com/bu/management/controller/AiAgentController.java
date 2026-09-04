@@ -6,6 +6,7 @@ import com.bu.management.dto.CreateAiAgentSessionRequest;
 import com.bu.management.service.AiAgentModelConfigService;
 import com.bu.management.service.AiAgentSessionService;
 import com.bu.management.service.AiAgentToolService;
+import com.bu.management.service.ConnectorToolService;
 import com.bu.management.vo.AiAgentSessionSummary;
 import com.bu.management.vo.AiAgentSessionView;
 import com.bu.management.vo.Result;
@@ -63,6 +64,7 @@ public class AiAgentController {
     private final AiAgentSessionService sessionService;
     private final AiAgentToolService toolService;
     private final AiAgentModelConfigService modelConfigService;
+    private final ConnectorToolService connectorToolService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -80,6 +82,12 @@ public class AiAgentController {
     @GetMapping("/models")
     public Result<List<AiAgentModelConfigService.ModelOption>> models() {
         return Result.success(modelConfigService.listAvailableModels());
+    }
+
+    /** AI 连接器状态列表（供前端状态面板展示）。 */
+    @GetMapping("/connectors")
+    public Result<List<ConnectorToolService.ConnectorStatus>> connectors() {
+        return Result.success(connectorToolService.statuses());
     }
 
     @PostMapping("/sessions")

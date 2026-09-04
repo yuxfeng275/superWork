@@ -33,7 +33,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
-import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
+import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1670,6 +1670,9 @@ class ApiService {
 
   async getAiAgentModels(): Promise<AiAgentModelOption[]> {
     return this.request<AiAgentModelOption[]>('/api/ai-agent/models')
+  }
+  async getAiAgentConnectors(): Promise<AiConnectorStatus[]> {
+    return this.request<AiConnectorStatus[]>('/api/ai-agent/connectors')
   }
   async getAiAgentSessions(): Promise<AiAgentSessionSummary[]> {
     return this.request<AiAgentSessionSummary[]>('/api/ai-agent/sessions')

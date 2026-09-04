@@ -140,6 +140,71 @@ public class ConnectorToolService {
         return defs;
     }
 
+    /** 连接器状态项：code/名称/状态（READY、DISABLED、NOT_CONFIGURED）/提示文案。 */
+    public record ConnectorStatus(String code, String name, String status, String hint) {}
+
+    /**
+     * 连接器状态列表，供前端「AI 连接器」面板展示；就绪判定复用 definitions()
+     * 的裁剪口径，未就绪时进一步区分未启用与未配置。
+     */
+    public List<ConnectorStatus> statuses() {
+        List<ConnectorStatus> list = new ArrayList<>();
+        // 邮箱：恒就绪，执行期按用户检查 EmailAccount
+        list.add(new ConnectorStatus("mail", "邮箱", "READY",
+                "按用户隔离：在「邮箱管理」绑定邮箱后即可让 AI 查询已同步邮件"));
+        // 云效
+        if (yunxiaoReady()) {
+            list.add(new ConnectorStatus("yunxiao", "云效", "READY", "已就绪，AI 可查询工作项"));
+        } else {
+            try {
+                var cfg = yunxiaoConfigService.getRuntimeConfig();
+                list.add(cfg.enabled()
+                        ? new ConnectorStatus("yunxiao", "云效", "NOT_CONFIGURED", "云效连接参数不完整，请先完成云效配置")
+                        : new ConnectorStatus("yunxiao", "云效", "DISABLED", "请在「BU驾驶舱 → 云效配置」启用"));
+            } catch (Exception e) {
+                list.add(new ConnectorStatus("yunxiao", "云效", "DISABLED", "配置读取失败"));
+            }
+        }
+        // OA（致远）
+        if (seeyonReady()) {
+            list.add(new ConnectorStatus("oa", "OA（致远）", "READY", "已就绪，AI 可查询待办/已办/流程"));
+        } else {
+            try {
+                var cfg = seeyonOaConfigService.getRuntimeConfig();
+                list.add(cfg.enabled()
+                        ? new ConnectorStatus("oa", "OA（致远）", "NOT_CONFIGURED", "OA 连接参数不完整，请补全服务地址与账号")
+                        : new ConnectorStatus("oa", "OA（致远）", "DISABLED", "请在 OA 集成配置中启用"));
+            } catch (Exception e) {
+                list.add(new ConnectorStatus("oa", "OA（致远）", "DISABLED", "配置读取失败"));
+            }
+        }
+        // 语雀
+        if (yuqueReady()) {
+            list.add(new ConnectorStatus("yuque", "语雀", "READY", "已就绪，AI 可搜索/阅读语雀文档"));
+        } else {
+            try {
+                list.add(yuqueMcpClient.enabled()
+                        ? new ConnectorStatus("yuque", "语雀", "NOT_CONFIGURED", "请在 配置管理 → AI 连接器 补全 MCP 地址与 Token")
+                        : new ConnectorStatus("yuque", "语雀", "DISABLED", "请在 配置管理 → AI 连接器 启用"));
+            } catch (Exception e) {
+                list.add(new ConnectorStatus("yuque", "语雀", "DISABLED", "配置读取失败"));
+            }
+        }
+        // 工时系统
+        if (worktimeReady()) {
+            list.add(new ConnectorStatus("worktime", "工时系统", "READY", "已就绪，AI 可查询月度工时汇总"));
+        } else {
+            try {
+                list.add(worktimeClient.enabled()
+                        ? new ConnectorStatus("worktime", "工时系统", "NOT_CONFIGURED", "请在 配置管理 → AI 连接器 补全服务地址与服务账号")
+                        : new ConnectorStatus("worktime", "工时系统", "DISABLED", "请在 配置管理 → AI 连接器 启用"));
+            } catch (Exception e) {
+                list.add(new ConnectorStatus("worktime", "工时系统", "DISABLED", "配置读取失败"));
+            }
+        }
+        return list;
+    }
+
     /**
      * 执行连接器工具；userId 来自 AiAgentToolService 的 runId 注册表。
      */

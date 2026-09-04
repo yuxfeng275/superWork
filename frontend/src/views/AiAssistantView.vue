@@ -5,6 +5,7 @@ import {
   ChatDotRound,
   CircleCheck,
   CircleCloseFilled,
+  Connection,
   Delete,
   Loading,
   Plus,
@@ -12,7 +13,7 @@ import {
   VideoPause
 } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
-import type { AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent } from '@/types/ai-agent'
+import type { AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus } from '@/types/ai-agent'
 
 /** 会话列表 */
 const sessions = ref<AiAgentSessionSummary[]>([])
@@ -27,6 +28,8 @@ const activeController = ref<AbortController | null>(null)
 const draft = ref('')
 const modelOptions = ref<AiAgentModelOption[]>([])
 const selectedModel = ref('')
+const connectors = ref<AiConnectorStatus[]>([])
+const connectorDialogVisible = ref(false)
 
 /** 当前会话渲染条目：消息气泡 / 工具调用 / 错误提示 */
 interface ChatItem {
@@ -379,12 +382,32 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+/** 连接器状态 → 标签类型/文案 */
+type ConnectorTagType = 'success' | 'warning' | 'info'
+const CONNECTOR_TAG: Record<string, { type: ConnectorTagType; text: string }> = {
+  READY: { type: 'success', text: '已就绪' },
+  NOT_CONFIGURED: { type: 'warning', text: '未配置' },
+  DISABLED: { type: 'info', text: '未启用' }
+}
+
+function connectorTagType(status: string): ConnectorTagType {
+  return CONNECTOR_TAG[status]?.type ?? 'info'
+}
+
+function connectorTagText(status: string): string {
+  return CONNECTOR_TAG[status]?.text ?? status
+}
+
 onMounted(async () => {
+  const connectorsPromise = api.getAiAgentConnectors()
+    .then(list => { connectors.value = list })
+    .catch(() => { connectors.value = [] })
   try {
     modelOptions.value = await api.getAiAgentModels()
   } catch {
     modelOptions.value = []
   }
+  await connectorsPromise
   if (selectedModel.value === '' && modelOptions.value.length > 0) {
     selectedModel.value = `${modelOptions.value[0].provider}:${modelOptions.value[0].model}`
   }
@@ -460,6 +483,14 @@ onMounted(async () => {
               :label="`${option.label} · ${option.model}`"
             />
           </el-select>
+          <el-button
+            size="small"
+            text
+            bg
+            :icon="Connection"
+            :disabled="streaming || syncing"
+            @click="connectorDialogVisible = true"
+          >连接器</el-button>
           <el-tag v-if="modelInfo" type="info" effect="plain">{{ modelInfo }}</el-tag>
         </header>
 
@@ -535,6 +566,22 @@ onMounted(async () => {
           </div>
         </footer>
       </template>
+
+      <!-- 连接器状态 -->
+      <el-dialog v-model="connectorDialogVisible" title="AI 连接器" width="560px">
+        <div v-for="connector in connectors" :key="connector.code" class="connector-row">
+          <div class="connector-line">
+            <span class="connector-name">{{ connector.name }}</span>
+            <el-tag size="small" :type="connectorTagType(connector.status)">
+              {{ connectorTagText(connector.status) }}
+            </el-tag>
+          </div>
+          <div class="connector-hint">{{ connector.hint }}</div>
+        </div>
+        <template #footer>
+          <div class="connector-footer">连接器在「系统设置 → 配置管理 → AI 连接器」中配置；云效与 OA 沿用各自既有配置页。</div>
+        </template>
+      </el-dialog>
     </main>
   </div>
 </template>
@@ -682,6 +729,40 @@ onMounted(async () => {
 .model-select {
   width: 200px;
   flex: 0 0 auto;
+}
+
+/* ============ 连接器状态弹窗 ============ */
+.connector-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.connector-row:last-child {
+  border-bottom: none;
+}
+
+.connector-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connector-name {
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.connector-hint {
+  margin-top: 4px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.connector-footer {
+  color: var(--gray-500);
+  font-size: 12px;
 }
 
 .ai-main-title {

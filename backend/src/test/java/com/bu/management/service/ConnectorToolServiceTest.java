@@ -16,6 +16,7 @@ import com.bu.management.mapper.EmailMessageMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.UserMapper;
 import com.bu.management.mapper.YunxiaoProjectMappingMapper;
+import com.bu.management.service.ConnectorToolService.ConnectorStatus;
 import com.bu.management.vo.AiAgentToolDefinition;
 import com.bu.management.vo.AiAgentToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -122,6 +123,42 @@ class ConnectorToolServiceTest {
         assertThat(names).contains(
                 "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
                 "query_yunxiao_projects", "query_yunxiao_workitems");
+    }
+
+    // ==================== 连接器状态 ====================
+
+    @Test
+    @DisplayName("statuses：默认返回五个连接器，邮箱恒就绪")
+    void statusesDefaultsMailReady() {
+        List<ConnectorStatus> statuses = service.statuses();
+
+        assertThat(statuses).extracting(ConnectorStatus::code)
+                .containsExactly("mail", "yunxiao", "oa", "yuque", "worktime");
+        assertThat(statuses.get(0).status()).isEqualTo("READY");
+    }
+
+    @Test
+    @DisplayName("statuses：语雀启用但未配置时为 NOT_CONFIGURED")
+    void statusesYuqueEnabledNotConfigured() {
+        lenient().when(yuqueMcpClient.enabled()).thenReturn(true);
+        lenient().when(yuqueMcpClient.configured()).thenReturn(false);
+
+        ConnectorStatus yuque = service.statuses().stream()
+                .filter(s -> "yuque".equals(s.code())).findFirst().orElseThrow();
+
+        assertThat(yuque.status()).isEqualTo("NOT_CONFIGURED");
+    }
+
+    @Test
+    @DisplayName("statuses：语雀未启用时为 DISABLED")
+    void statusesYuqueDisabled() {
+        lenient().when(yuqueMcpClient.enabled()).thenReturn(false);
+        lenient().when(yuqueMcpClient.configured()).thenReturn(false);
+
+        ConnectorStatus yuque = service.statuses().stream()
+                .filter(s -> "yuque".equals(s.code())).findFirst().orElseThrow();
+
+        assertThat(yuque.status()).isEqualTo("DISABLED");
     }
 
     // ==================== 分发与错误映射 ====================
