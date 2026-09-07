@@ -833,9 +833,17 @@ defineExpose({ reload: () => refreshSummary() })
     <div v-loading="summaryLoading" class="delivery-body">
       <template v-if="summary">
         <div class="delivery-toolbar">
-          <span class="delivery-note">
-            {{ includeEstimate ? '含预估口径：营收=已交付+预估交付，成本含预估交付关联工时成本' : '只看实际口径：仅已交付与已发生成本参与利润' }}
-          </span>
+          <el-tooltip placement="top-start" effect="dark" :show-after="100">
+            <template #content>
+              {{ includeEstimate
+                ? '含预估口径：营收 = 已交付 + 预估交付，成本含预估交付关联工时成本'
+                : '只看实际口径：仅已交付与已发生成本参与利润' }}
+            </template>
+            <span class="delivery-note">
+              {{ includeEstimate ? '含预估口径' : '只看实际口径' }}
+              <el-icon class="delivery-note-hint"><InfoFilled /></el-icon>
+            </span>
+          </el-tooltip>
           <div class="segment-switch" aria-label="交付期间" role="group">
             <button
               v-for="group in periodGroups"
@@ -852,6 +860,7 @@ defineExpose({ reload: () => refreshSummary() })
           </div>
         </div>
 
+
         <section class="overview-strip" aria-label="交付与利润概览">
           <div v-for="card in overviewCards" :key="card.label" class="overview-cell">
             <span>{{ card.label }}</span>
@@ -859,15 +868,14 @@ defineExpose({ reload: () => refreshSummary() })
           </div>
         </section>
         <p class="overview-note">
-          概览为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按交付日期归集。
-          <el-popover placement="bottom-start" :width="380" trigger="hover" effect="dark">
+          <el-popover placement="bottom-start" :width="400" trigger="hover" effect="dark">
             <template #reference>
               <button type="button" class="caliber-help" aria-label="销售与利润口径说明">口径说明 ⓘ</button>
             </template>
             <div class="caliber-help-body">
+              <p>概览卡为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按合同交付日期（delivery_date）归集，年份=交付日期年份。</p>
               <p>「销售工时/销售成本」：项目行 = 成单销售（有明确成单证据才计入）；小计/合计行 = 未分配销售（仅扣业务线/整表利润，不分摊到项目）。</p>
               <p>「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。</p>
-              <p>{{ selectedPeriodGroup.label }}已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。</p>
               <p>业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行以「线」徽标标注，悬停可查看金额明细，不消失。</p>
               <p>合计行「销」「线」「无」为备注文号：销=含未分配销售，线=含业务线级合同，无=存在交付日期为空的合同。</p>
             </div>
@@ -1110,8 +1118,16 @@ defineExpose({ reload: () => refreshSummary() })
   margin-right: auto;
   color: #64748b;
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
 }
 
+.delivery-note-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
 .segment-switch {
   display: inline-flex;
   padding: 3px;
