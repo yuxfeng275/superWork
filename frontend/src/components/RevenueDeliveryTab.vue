@@ -1170,7 +1170,8 @@ defineExpose({ reload: () => refreshSummary() })
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  margin-bottom: 4px;
+  margin-top: 10px;
+  margin-bottom: 6px;
 }
 
 .overview-cell {
