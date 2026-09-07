@@ -162,10 +162,11 @@ export interface RevenueOpportunityOption {
 // 结构与后端 /api/revenue/delivery/summary 的 RevenueDeliverySummaryVO 对齐。
 // ---------------------------------------------------------------
 
-/** 手动维护的其他成本拆分（协力/服务器/其他） */
+/** 手动维护的其他成本拆分（协力/服务器/短信/其他） */
 export interface DeliveryOtherCosts {
   partner?: number | null
   server?: number | null
+  sms?: number | null
   other?: number | null
   total?: number | null
 }
@@ -332,9 +333,9 @@ export interface DeliveryPlan {
   createdAt?: string
 }
 
-export type DeliveryCostType = 'partner' | 'server' | 'other'
+export type DeliveryCostType = 'partner' | 'server' | 'sms' | 'other'
 
-/** 其他成本记录（协力/服务器/其他） */
+/** 其他成本记录（协力/服务器/短信/其他） */
 export interface DeliveryOtherCost {
   id: number
   yearMonth: string

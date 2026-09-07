@@ -128,6 +128,8 @@ public class RevenueDeliverySummaryVO {
     public static class OtherCosts {
         private BigDecimal partner;
         private BigDecimal server;
+        /** 短信成本 */
+        private BigDecimal sms;
         private BigDecimal other;
         private BigDecimal total;
     }
