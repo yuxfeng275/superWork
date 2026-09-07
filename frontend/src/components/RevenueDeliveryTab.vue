@@ -450,7 +450,8 @@ const overviewCards = computed(() => {
   const profit = ov.totalTrueProfit ?? ov.totalProfit
   const rate = ov.trueProfitRate ?? ov.profitRate
   return [
-    { label: 'OA 合同总额', value: formatWan(ov.totalOaContract), strong: true },
+    { label: '合同总额（收款月）', value: formatWan(ov.totalOaContractBySaleMonth ?? ov.totalOaContract), strong: true },
+    { label: 'OA 合同总额（交付日期）', value: formatWan(ov.totalOaContract) },
     { label: '已交付', value: formatWan(ov.totalDelivered) },
     { label: '预估交付', value: formatWan(ov.totalEstimated) },
     { label: '人工成本', value: formatWan(ov.totalLaborCost) },

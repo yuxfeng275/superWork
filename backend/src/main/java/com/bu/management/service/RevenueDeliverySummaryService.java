@@ -150,9 +150,14 @@ public class RevenueDeliverySummaryService {
         Map<Long, BigDecimal> lineUnallocatedDelivered = new HashMap<>();
         Map<String, BigDecimal[]> lineUnallocatedDeliveredByMonth = new HashMap<>();
         Map<Long, BigDecimal> noDeliveryDateByLine = new HashMap<>();
+        // 工时系统合同总额口径：sale_month（收款月）在年度内的全部合同行合计（不做 pending/业务线/交付日期过滤）
+        BigDecimal oaContractBySaleMonth = BigDecimal.ZERO;
         for (RevenueContractEntry entry : contractRows) {
             if (entry.getReceivableAmount() == null) {
                 continue;
+            }
+            if (entry.getSaleMonth() != null && entry.getSaleMonth().startsWith(yearPrefix)) {
+                oaContractBySaleMonth = oaContractBySaleMonth.add(entry.getReceivableAmount());
             }
             Long lineId = entry.getBizLineId();
             if (!includedLineIds.contains(lineId)) {
@@ -415,6 +420,7 @@ public class RevenueDeliverySummaryService {
         }
         RevenueDeliverySummaryVO.Overview overview = vo.getOverview();
         overview.setTotalOaContract(totalOa);
+        overview.setTotalOaContractBySaleMonth(oaContractBySaleMonth);
         overview.setTotalLineUnallocatedContract(totalLineContract);
         overview.setTotalLineUnallocatedDelivered(totalLineDelivered);
         overview.setTotalLineUnallocatedProfit(totalLineProfit);
@@ -828,6 +834,7 @@ public class RevenueDeliverySummaryService {
         RevenueDeliverySummaryVO.Overview overview = new RevenueDeliverySummaryVO.Overview();
         overview.setIncludeEstimate(includeEstimate);
         overview.setTotalOaContract(BigDecimal.ZERO);
+        overview.setTotalOaContractBySaleMonth(BigDecimal.ZERO);
         overview.setTotalDelivered(BigDecimal.ZERO);
         overview.setTotalEstimated(BigDecimal.ZERO);
         overview.setTotalLaborCost(BigDecimal.ZERO);
