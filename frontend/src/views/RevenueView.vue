@@ -881,6 +881,16 @@ onMounted(loadMatrix)
         <el-empty v-else-if="!loading" description="暂无营收数据，请先在「数据导入」中导入工时与成本明细" />
       </el-tab-pane>
 
+      <el-tab-pane label="交付与利润" name="delivery">
+        <RevenueDeliveryTab
+          v-if="deliveryMounted"
+          ref="deliveryTabRef"
+          :year="year"
+          :active="activeTab === 'delivery'"
+        />
+      </el-tab-pane>
+
+
       <el-tab-pane label="数据导入" name="import">
         <div class="import-grid">
           <section class="import-card">
@@ -1076,14 +1086,6 @@ onMounted(loadMatrix)
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="交付与利润" name="delivery">
-        <RevenueDeliveryTab
-          v-if="deliveryMounted"
-          ref="deliveryTabRef"
-          :year="year"
-          :active="activeTab === 'delivery'"
-        />
-      </el-tab-pane>
     </el-tabs>
 
     <el-drawer v-model="cellDrawer" :title="cellContext.title" size="min(640px, 96vw)" destroy-on-close>
