@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 营收其他成本手动维护：协力成本(partner)/服务器成本(server)/其他成本(other)，
+ * 营收其他成本手动维护：协力成本(partner)/服务器成本(server)/短信成本(sms)/其他成本(other)，
  * 按 月份×业务线×项目（项目可空=业务线级）。
  */
 @Data
@@ -23,7 +23,7 @@ public class RevenueOtherCost {
     private Long businessLineId;
     /** NULL=业务线级 */
     private Long projectId;
-    /** partner=协力/server=服务器/other=其他 */
+    /** partner=协力/server=服务器/sms=短信/other=其他 */
     private String costType;
     /** 金额（元） */
     private BigDecimal amountYuan;

@@ -719,6 +719,7 @@ public class RevenueDeliverySummaryService {
         RevenueDeliverySummaryVO.OtherCosts other = new RevenueDeliverySummaryVO.OtherCosts();
         BigDecimal partner = BigDecimal.ZERO;
         BigDecimal server = BigDecimal.ZERO;
+        BigDecimal sms = BigDecimal.ZERO;
         BigDecimal otherType = BigDecimal.ZERO;
         for (Map.Entry<String, Map<String, BigDecimal[]>> typeEntry : byType.entrySet()) {
             BigDecimal[] months = typeEntry.getValue().get(rowKey);
@@ -735,14 +736,17 @@ public class RevenueDeliverySummaryService {
                 partner = partner.add(sum);
             } else if ("server".equals(typeEntry.getKey())) {
                 server = server.add(sum);
+            } else if ("sms".equals(typeEntry.getKey())) {
+                sms = sms.add(sum);
             } else {
                 otherType = otherType.add(sum);
             }
         }
         other.setPartner(partner);
         other.setServer(server);
+        other.setSms(sms);
         other.setOther(otherType);
-        other.setTotal(partner.add(server).add(otherType));
+        other.setTotal(partner.add(server).add(sms).add(otherType));
         return other;
     }
 

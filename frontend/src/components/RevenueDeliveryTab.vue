@@ -37,6 +37,7 @@ interface PeriodView {
   unallocatedSalesCost: number
   partnerCost: number | null
   serverCost: number | null
+  smsCost: number | null
   otherCost: number
   grossProfit: number
   grossRate: number | null
@@ -169,8 +170,9 @@ const windowView = (window?: DeliveryPeriodBlock | null): PeriodView => {
   const parts = window?.otherCosts
   const partner = parts?.partner == null ? null : num(parts.partner)
   const server = parts?.server == null ? null : num(parts.server)
+  const sms = parts?.sms == null ? null : num(parts.sms)
   const otherCost = parts?.total == null
-    ? num(parts?.other) + (partner ?? 0) + (server ?? 0)
+    ? num(parts?.other) + (partner ?? 0) + (server ?? 0) + (sms ?? 0)
     : num(parts.total)
   return {
     delivered: num(window?.delivered),
@@ -186,6 +188,7 @@ const windowView = (window?: DeliveryPeriodBlock | null): PeriodView => {
     unallocatedSalesCost: num(window?.unallocatedSalesCost),
     partnerCost: partner,
     serverCost: server,
+    smsCost: sms,
     otherCost,
     grossProfit: num(window?.grossProfit),
     grossRate: window?.grossRate ?? null,
@@ -193,6 +196,7 @@ const windowView = (window?: DeliveryPeriodBlock | null): PeriodView => {
     trueProfitRate: window?.trueProfitRate ?? null
   }
 }
+
 const projectRow = (line: DeliverySummaryLine, project: DeliveryProjectRow, lineSpan: number): RowContext => ({
   kind: 'project',
   lineId: line.businessLineId,
@@ -323,6 +327,7 @@ const sumViews = (views: PeriodView[]): PeriodView => {
     unallocatedSalesCost: add(v => v.unallocatedSalesCost),
     partnerCost: null,
     serverCost: null,
+    smsCost: null,
     otherCost: add(v => v.otherCost),
     grossProfit,
     grossRate: revenue > 0 ? (grossProfit / revenue) * 100 : null,
@@ -416,6 +421,7 @@ const openProfitDetail = (row: RowContext, period: PeriodKey) => {
   }
   if (view.partnerCost != null) pushIf('减 · 协力成本', view.partnerCost)
   if (view.serverCost != null) pushIf('减 · 服务器成本', view.serverCost)
+  if (view.smsCost != null) pushIf('减 · 短信成本', view.smsCost)
   pushIf('减 · 其他成本', view.otherCost)
   items.push({
     label: row.kind === 'project' ? '真实利润（已扣成单销售成本）' : '业务线利润',
@@ -626,6 +632,7 @@ const costForm = reactive({
 const costTypeOptions: Array<{ value: DeliveryCostType; label: string }> = [
   { value: 'partner', label: '协力成本' },
   { value: 'server', label: '服务器成本' },
+  { value: 'sms', label: '短信成本' },
   { value: 'other', label: '其他成本' }
 ]
 
@@ -633,7 +640,7 @@ const costTypeMeta = (type: DeliveryCostType) => {
   const option = costTypeOptions.find(item => item.value === type)
   return {
     label: option?.label || type,
-    tag: type === 'partner' ? 'warning' : type === 'server' ? 'primary' : 'info'
+    tag: type === 'partner' ? 'warning' : type === 'server' ? 'primary' : type === 'sms' ? 'danger' : 'info'
   }
 }
 

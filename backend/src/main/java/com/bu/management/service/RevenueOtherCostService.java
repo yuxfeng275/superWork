@@ -17,13 +17,13 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 其他成本手动维护：按月×业务线×项目（项目可空=业务线级）×类型（partner/server/other）。
+ * 其他成本手动维护：按月×业务线×项目（项目可空=业务线级）×类型（partner/server/sms/other）。
  */
 @Service
 @RequiredArgsConstructor
 public class RevenueOtherCostService {
 
-    private static final Set<String> COST_TYPES = Set.of("partner", "server", "other");
+    private static final Set<String> COST_TYPES = Set.of("partner", "server", "sms", "other");
 
     private final RevenueOtherCostMapper otherCostMapper;
     private final BusinessLineMapper businessLineMapper;
@@ -79,7 +79,7 @@ public class RevenueOtherCostService {
             throw new IllegalArgumentException("业务线不能为空");
         }
         if (request.getCostType() == null || !COST_TYPES.contains(request.getCostType())) {
-            throw new IllegalArgumentException("成本类型必须为 partner/server/other 之一");
+            throw new IllegalArgumentException("成本类型必须为 partner/server/sms/other 之一");
         }
         if (request.getAmountYuan() == null || request.getAmountYuan().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("金额不能为空且不能为负");
