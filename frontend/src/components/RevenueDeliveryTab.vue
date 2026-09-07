@@ -114,6 +114,22 @@ const formatRate = (value?: number | null) => {
 const groupTip = (group: { key: PeriodKey; label: string }) =>
   `${group.label}：实际已交付金额按合同交付日期（delivery_date）归入本窗口，年份与交付日期年份一致`
 
+/** 合计/小计行备注徽标：以文号形式展示，悬停显示完整内容 */
+const rowNoteBadges = (row: RowContext): Array<{ key: string; mark: string; text: string }> => {
+  const badges: Array<{ key: string; mark: string; text: string }> = []
+  if (row.salesNote) {
+    badges.push({ key: 'sales', mark: '销', text: row.salesNote })
+  }
+  if (row.lineContractNote) {
+    const tip = lineContractTip(row)
+    badges.push({ key: 'contract', mark: '线', text: tip || row.lineContractNote })
+  }
+  if (row.noDateNote) {
+    badges.push({ key: 'no-date', mark: '无', text: row.noDateNote })
+  }
+  return badges
+}
+
 /** 业务线级合同说明 tooltip（金额已含在上方合计/明细中） */
 const lineContractTip = (row: RowContext) => {
   if (!row.lineContractNote) return undefined
@@ -810,15 +826,21 @@ defineExpose({ reload: () => refreshSummary() })
             <strong :class="card.tone"><small v-if="card.label !== '真实利润率'">万</small>{{ card.value }}</strong>
           </div>
         </section>
-        <p class="overview-note">概览为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按交付日期归集。</p>
-
-        <div class="matrix-legend" aria-label="销售与利润口径说明">
-          「销售工时/销售成本」：项目行 = 成单销售（已分配，有明确成单证据才计入）；
-          小计/合计行 = 未分配销售（仅扣业务线/整表利润，<b>不分摊到项目</b>）。
-          「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。
-          {{ selectedPeriodGroup.label }}已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。
-          业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行单独列示，不消失。
-        </div>
+        <p class="overview-note">
+          概览为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按交付日期归集。
+          <el-popover placement="bottom-start" :width="380" trigger="hover" effect="dark">
+            <template #reference>
+              <button type="button" class="caliber-help" aria-label="销售与利润口径说明">口径说明 ⓘ</button>
+            </template>
+            <div class="caliber-help-body">
+              <p>「销售工时/销售成本」：项目行 = 成单销售（有明确成单证据才计入）；小计/合计行 = 未分配销售（仅扣业务线/整表利润，不分摊到项目）。</p>
+              <p>「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。</p>
+              <p>{{ selectedPeriodGroup.label }}已交付金额按合同交付日期（delivery_date）归入对应窗口（年份=交付日期年份）。</p>
+              <p>业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行以「线」徽标标注，悬停可查看金额明细，不消失。</p>
+              <p>合计行「销」「线」「无」为备注文号：销=含未分配销售，线=含业务线级合同，无=存在交付日期为空的合同。</p>
+            </div>
+          </el-popover>
+        </p>
 
         <div class="matrix-scroll">
           <table class="matrix-table" aria-label="交付与利润汇总表">
@@ -845,9 +867,18 @@ defineExpose({ reload: () => refreshSummary() })
                   <td v-else-if="row.kind !== 'project'" class="col-line">{{ row.lineName }}</td>
                   <td class="col-project">
                     {{ row.name }}
-                    <small v-if="row.salesNote" class="sales-note">{{ row.salesNote }}</small>
-                    <small v-if="row.lineContractNote" class="sales-note contract-note" :title="lineContractTip(row)">{{ row.lineContractNote }}</small>
-                    <small v-if="row.noDateNote" class="sales-note no-date-note" :title="row.noDateNote">{{ row.noDateNote }}</small>
+                    <template v-if="row.kind !== 'project'">
+                      <el-tooltip
+                        v-for="badge in rowNoteBadges(row)"
+                        :key="badge.key"
+                        :content="badge.text"
+                        placement="top"
+                        :show-after="100"
+                        effect="dark"
+                      >
+                        <sup class="row-note-badge" :class="badge.key" role="button" tabindex="0" :aria-label="badge.text">{{ badge.mark }}</sup>
+                      </el-tooltip>
+                    </template>
                   </td>
                   <td class="col-oa">{{ row.oaContract == null || row.oaContract === 0 ? '—' : formatWan(row.oaContract) }}</td>
                   <template v-for="column in periodColumns" :key="`c-${rowKey(row)}-${selectedPeriod}-${column.key}`">
@@ -1109,20 +1140,63 @@ defineExpose({ reload: () => refreshSummary() })
   color: #dc2626;
 }
 
-.matrix-legend {
-  margin-bottom: 10px;
-  padding: 8px 12px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #64748b;
+.caliber-help {
+  border: 0;
+  padding: 0;
+  margin-left: 6px;
+  background: transparent;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  border-bottom: 1px dashed currentColor;
+}
+
+.caliber-help-body p {
+  margin: 0 0 8px;
   font-size: 12px;
   line-height: 1.7;
 }
 
-.matrix-legend b {
-  color: #475569;
+.caliber-help-body p:last-child {
+  margin-bottom: 0;
 }
+
+.row-note-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  vertical-align: 2px;
+}
+
+.row-note-badge.sales {
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
+.row-note-badge.contract {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.row-note-badge.no-date {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.row-note-badge:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+}
+
 
 .matrix-scroll {
   overflow-x: auto;
@@ -1189,20 +1263,6 @@ defineExpose({ reload: () => refreshSummary() })
   color: #64748b;
   font-size: 11px;
   font-weight: 400;
-}
-
-.contract-note {
-  color: #0f766e;
-  max-width: 320px;
-  white-space: normal;
-  line-height: 1.5;
-}
-
-.no-date-note {
-  color: #b45309;
-  max-width: 320px;
-  white-space: normal;
-  line-height: 1.5;
 }
 
 .period-basis {
