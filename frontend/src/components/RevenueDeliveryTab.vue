@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
 import type {
   DeliveryCostType,
@@ -147,11 +148,23 @@ const includeEstimate = ref(true)
 const selectedPeriod = ref<PeriodKey>('ytd')
 let summarySeq = 0
 
+/** 拉取全年其他成本全量（供表格单元格悬浮提示展示明细清单） */
+const loadAllYearCosts = async () => {
+  try {
+    allYearCosts.value = await api.getOtherCosts({ year: props.year })
+  } catch {
+    allYearCosts.value = []
+  }
+}
+
 const refreshSummary = async () => {
   const seq = ++summarySeq
   summaryLoading.value = true
   try {
-    const data = await api.getDeliverySummary({ year: props.year, includeEstimate: includeEstimate.value })
+    const [data] = await Promise.all([
+      api.getDeliverySummary({ year: props.year, includeEstimate: includeEstimate.value }),
+      loadAllYearCosts()
+    ])
     if (seq !== summarySeq) return
     summary.value = data
   } catch (error) {
@@ -388,6 +401,23 @@ const salesHoursOf = (row: RowContext, view: PeriodView) =>
 
 const salesCostOf = (row: RowContext, view: PeriodView) =>
   row.kind === 'project' ? view.allocatedSalesCost : view.unallocatedSalesCost
+
+const otherCostTip = (row: RowContext): string | undefined => {
+  const view = row.periods[selectedPeriod.value]
+  if (!view.otherCost) return undefined
+  const scoped = row.kind === 'grand'
+    ? allYearCosts.value.filter(item => item.projectId == null)
+    : allYearCosts.value.filter(item =>
+        item.businessLineId === row.lineId
+        && (row.kind === 'project' ? item.projectId === row.projectId : item.projectId == null))
+  if (!scoped.length) return undefined
+  const body = scoped
+    .slice()
+    .sort((a, b) => (a.yearMonth < b.yearMonth ? -1 : 1))
+    .map(item => `${item.yearMonth.slice(5)}月 ${costTypeMeta(item.costType).label} ${formatWan(item.amountYuan)} 万${item.note ? `（${item.note}）` : ''}`)
+    .join('\n')
+  return `其他成本明细（${selectedPeriodGroup.value.label}窗口，本行合计 ${formatWan(view.otherCost)} 万）：\n${body}`
+}
 
 const cellText = (row: RowContext, view: PeriodView, column: PeriodColumnKey) => {
   switch (column) {
@@ -637,6 +667,8 @@ const costsBusy = ref(false)
 const costSaving = ref(false)
 const costsContext = ref<RowContext | null>(null)
 const costs = ref<DeliveryOtherCost[]>([])
+/** 表格悬浮提示用：全年其他成本全量缓存（按行过滤展示） */
+const allYearCosts = ref<DeliveryOtherCost[]>([])
 const costForm = reactive({
   id: undefined as number | undefined,
   yearMonth: '',
@@ -749,7 +781,7 @@ const saveCost = async () => {
       ElMessage.success('其他成本已添加')
     }
     cancelCostEdit()
-    await Promise.all([loadCostList(), refreshSummary()])
+    await Promise.all([loadCostList(), refreshSummary(), loadAllYearCosts()])
   } catch (error) {
     ElMessage.error(errorMessage(error, '其他成本保存失败'))
   } finally {
@@ -766,7 +798,7 @@ const removeCost = async (item: DeliveryOtherCost) => {
   try {
     await api.deleteOtherCost(item.id)
     ElMessage.success('其他成本已删除')
-    await Promise.all([loadCostList(), refreshSummary()])
+    await Promise.all([loadCostList(), refreshSummary(), loadAllYearCosts()])
   } catch (error) {
     ElMessage.error(errorMessage(error, '其他成本删除失败'))
   }
@@ -888,13 +920,27 @@ defineExpose({ reload: () => refreshSummary() })
                       :title="column.key === 'profit' ? '点击查看利润构成' : undefined"
                       @click="column.key === 'profit' && openProfitDetail(row, selectedPeriod)"
                     >
-                      {{ cellText(row, row.periods[selectedPeriod], column.key) }}
+                      <el-tooltip
+                        v-if="column.key === 'other' && otherCostTip(row)"
+                        :content="otherCostTip(row)!"
+                        placement="top"
+                        effect="dark"
+                        :show-after="150"
+                      >
+                        <span class="cell other-cost-cell">{{ cellText(row, row.periods[selectedPeriod], column.key) }} <el-icon class="other-cost-hint"><InfoFilled /></el-icon></span>
+                      </el-tooltip>
+                      <template v-else>
+                        {{ cellText(row, row.periods[selectedPeriod], column.key) }}
+                      </template>
                     </td>
                   </template>
                   <td class="col-actions">
                     <template v-if="row.kind === 'project'">
                       <el-button link type="primary" size="small" @click="openPlansDialog(row)">预估交付</el-button>
                       <el-button link size="small" @click="openCostDialog(row)">其他成本</el-button>
+                    </template>
+                    <template v-else-if="row.kind === 'line'">
+                      <el-button link type="primary" size="small" @click="openCostDialog(row)">其他成本</el-button>
                     </template>
                   </td>
                 </tr>
@@ -1195,6 +1241,18 @@ defineExpose({ reload: () => refreshSummary() })
 .row-note-badge:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 1px;
+}
+
+.other-cost-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.other-cost-hint {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 
