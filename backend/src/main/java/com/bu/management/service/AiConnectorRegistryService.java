@@ -298,9 +298,11 @@ public class AiConnectorRegistryService {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 401 || response.statusCode() == 403) {
-                // 语雀 MCP 网关对无效/过期 token、未开通 MCP 权限的账号统一返回 403
+                // MCP 网关 403（Token 有效但未开通 MCP / 网关限制）→ 降级 REST v2 验证 Token 本身
+                restUserProbe(entity);
                 throw new IllegalStateException(entity.getName()
-                        + " 认证被拒绝(403)：请确认 Token 有效，且该账号已在语雀「设置→MCP 服务」中开通访问");
+                        + " Token 有效（REST 已验证），但 MCP 网关拒绝(403)：该账号未在语雀「设置→MCP 服务」开通或网关受限；"
+                        + "AI 查询已自动降级为 REST v2 通道");
             }
             if (response.statusCode() == 404) {
                 throw new IllegalStateException(entity.getName() + " MCP 端点不存在(404)：请检查 MCP 服务地址");
@@ -327,8 +329,8 @@ public class AiConnectorRegistryService {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 401 || response.statusCode() == 403 || response.statusCode() == 400
-                    || response.statusCode() == 422) {
+            if (response.statusCode() == 401 || response.statusCode() == 403
+                    || response.statusCode() == 400 || response.statusCode() == 422) {
                 throw new IllegalStateException(entity.getName() + "认证失败，请检查账号密码");
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -339,6 +341,29 @@ public class AiConnectorRegistryService {
             throw new IllegalStateException(entity.getName() + "暂时不可用，请稍后重试");
         }
     }
+
+    /** 语雀 REST v2 Token 校验（MCP 被网关拒绝时的降级验证）。 */
+    private void restUserProbe(AiConnector entity) {
+        String token = credential(entity, "token");
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://www.yuque.com/api/v2/user"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "application/json")
+                    .header("X-Auth-Token", token)
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            JsonNode root = objectMapper.readTree(response.body() == null ? "{}" : response.body());
+            if (response.statusCode() != 200 || root.path("data").path("id").asLong(0) <= 0) {
+                throw new IllegalStateException(entity.getName() + " Token 无效或已过期");
+            }
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException(entity.getName() + " Token 校验请求失败");
+        }
+    }
+
 
     private void validate(ConnectorSaveRequest request) {
         if (!StringUtils.hasText(request.code()) || !CODE_PATTERN.matcher(request.code()).matches()) {
