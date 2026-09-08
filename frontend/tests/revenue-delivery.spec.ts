@@ -408,6 +408,14 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   await expect(totalCell(TABLE.profit)).toContainText('198')
   await expect(totalCell(TABLE.rate)).toContainText('52.11%')
 
+  // 末行「全表（含销售）」：工时=工时+销售工时（76+12=88）、成本=工时成本+销售成本（110.4+15.9=126.3 万）
+  const combinedRow = dataRow(panel, '全表（含销售）')
+  const combinedCell = (index: number) => combinedRow.locator('td').nth(index)
+  await expect(combinedCell(TABLE.hours)).toContainText('88')
+  await expect(combinedCell(TABLE.labor)).toContainText('126.3')
+  await expect(combinedCell(TABLE.salesHours)).toHaveText('—')
+  await expect(combinedCell(TABLE.salesCost)).toHaveText('—')
+
   const overview = panel.locator('.overview-strip')
   await expect(overview).toContainText('OA 合同总额')
   await expect(overview).toContainText('真实利润率')
