@@ -770,7 +770,11 @@ const saveCost = async () => {
       note: costForm.note.trim()
     }
     if (costForm.id) {
-      await api.updateOtherCost(costForm.id, body)
+      await api.updateOtherCost(costForm.id, {
+        ...body,
+        businessLineId: ctx.lineId,
+        projectId: ctx.projectId ?? null
+      })
       ElMessage.success('其他成本已更新')
     } else {
       await api.createOtherCost({
