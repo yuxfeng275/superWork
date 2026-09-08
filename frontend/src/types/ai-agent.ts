@@ -168,3 +168,13 @@ export interface AiConnectorSavePayload {
   enabled?: boolean
   sortOrder?: number
 }
+
+/** 站内通知（GET /api/ai/notices） */
+export interface AiNotice {
+  kind: string
+  title: string
+  body: string
+  link?: string
+  date: string
+  read: boolean
+}

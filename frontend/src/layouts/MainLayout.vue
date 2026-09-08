@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
+import type { AiNotice } from '@/types/ai-agent'
 import { getRoleLabel, hasRoleAccess, type RoleAccess } from '@/constants/roles'
 
 const router = useRouter()
@@ -11,6 +12,55 @@ const authStore = useAuthStore()
 
 const isCollapsed = ref(false)
 const requirementBadge = ref<number | null>(null)
+
+/** 站内通知 */
+const notices = ref<AiNotice[]>([])
+const unreadCount = ref(0)
+const noticeLoading = ref(false)
+const noticePopoverVisible = ref(false)
+let unreadTimer: number | null = null
+
+const loadNotices = async () => {
+  noticeLoading.value = true
+  try {
+    notices.value = await api.getAiNotices()
+  } catch {
+    notices.value = []
+  } finally {
+    noticeLoading.value = false
+  }
+}
+
+const loadUnreadCount = async () => {
+  try {
+    unreadCount.value = (await api.getAiNoticeUnreadCount()).count ?? 0
+  } catch {
+    unreadCount.value = 0
+  }
+}
+
+const onNoticePopoverShow = () => {
+  void loadNotices()
+}
+
+/** 去处理：标记已读 → 跳转（OA 待办深链带 prefill）→ 刷新未读数 */
+const handleNoticeAction = async (notice: AiNotice) => {
+  try {
+    await api.markAiNoticeRead(notice.kind, notice.date)
+  } catch {
+    // 已读失败不阻断跳转
+  }
+  noticePopoverVisible.value = false
+  if (notice.link) {
+    const query = notice.link === '/ai-assistant' ? { prefill: '我的OA待办事项' } : {}
+    void router.push({ path: notice.link, query })
+  }
+  void loadUnreadCount()
+}
+
+onBeforeUnmount(() => {
+  if (unreadTimer !== null) window.clearInterval(unreadTimer)
+})
 
 interface NavItem {
   path: string
@@ -150,6 +200,8 @@ const loadRequirementBadge = async () => {
 }
 
 onMounted(() => {
+  void loadUnreadCount()
+  unreadTimer = window.setInterval(() => void loadUnreadCount(), 60_000)
   void Promise.allSettled([
     loadRequirementBadge(),
     authStore.loadKeyMatterAccess(),
@@ -214,10 +266,40 @@ onMounted(() => {
           <h1 class="header-title">{{ route.meta.title || '页面标题' }}</h1>
         </div>
         <div class="header-right">
-          <button class="header-action">
-            <el-icon><Bell /></el-icon>
-            <span class="badge"></span>
-          </button>
+          <el-popover
+            v-model:visible="noticePopoverVisible"
+            trigger="click"
+            :width="380"
+            placement="bottom-end"
+            @show="onNoticePopoverShow"
+          >
+            <template #reference>
+              <button class="header-action" type="button" aria-label="通知">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+                  <el-icon :size="18"><Bell /></el-icon>
+                </el-badge>
+              </button>
+            </template>
+            <div class="notice-panel">
+              <div class="notice-panel-header">通知</div>
+              <div v-if="noticeLoading" class="notice-empty">加载中…</div>
+              <div v-else-if="notices.length === 0" class="notice-empty">暂无通知</div>
+              <template v-else>
+                <div
+                  v-for="notice in notices"
+                  :key="`${notice.kind}:${notice.date}`"
+                  class="notice-item"
+                  :class="{ read: notice.read }"
+                >
+                  <div class="notice-title">{{ notice.title }}</div>
+                  <div v-if="notice.body" class="notice-body">{{ notice.body }}</div>
+                  <div v-if="!notice.read && notice.link" class="notice-actions">
+                    <el-button type="primary" link size="small" @click="handleNoticeAction(notice)">去处理</el-button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </el-popover>
           <div class="header-user">
             <div class="user-avatar sm">{{ authStore.user?.realName?.charAt(0) || '用户' }}</div>
             <div class="header-user-info">
@@ -538,6 +620,7 @@ onMounted(() => {
   height: 40px;
   border-radius: var(--radius-md);
   border: none;
+
   background: transparent;
   color: var(--gray-500);
   cursor: pointer;
@@ -545,6 +628,62 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   position: relative;
+}
+
+/* 通知面板 */
+.notice-panel {
+  margin: -12px;
+}
+
+.notice-panel-header {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.notice-empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+.notice-item {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.notice-item:last-child {
+  border-bottom: none;
+}
+
+.notice-item.read .notice-title,
+.notice-item.read .notice-body {
+  color: var(--gray-400);
+  font-weight: 400;
+}
+
+.notice-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.notice-body {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--gray-500);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notice-actions {
+  margin-top: 4px;
+  text-align: right;
 }
 
 .header-action:hover {

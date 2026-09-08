@@ -33,7 +33,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
-import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView } from '@/types/ai-agent'
+import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1705,6 +1705,22 @@ class ApiService {
   async testAiConnector(id: number): Promise<AiConnectorView> {
     return this.request<AiConnectorView>(`/api/ai/connectors/${id}/test`, {
       method: 'POST'
+    })
+  }
+
+  // 站内通知
+  async getAiNotices(): Promise<AiNotice[]> {
+    return this.request<AiNotice[]>('/api/ai/notices')
+  }
+
+  async getAiNoticeUnreadCount(): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/api/ai/notices/unread-count')
+  }
+
+  async markAiNoticeRead(kind: string, date: string): Promise<void> {
+    return this.request<void>('/api/ai/notices/read', {
+      method: 'POST',
+      body: JSON.stringify({ kind, date })
     })
   }
 

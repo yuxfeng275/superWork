@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ChatDotRound,
@@ -29,6 +30,21 @@ const streaming = ref(false)
 const syncing = ref(false)
 const activeController = ref<AbortController | null>(null)
 const draft = ref('')
+
+const route = useRoute()
+const router = useRouter()
+const draftInputRef = ref<InstanceType<typeof import('element-plus')['ElInput']> | null>(null)
+
+/** 深链预填充：通知中心等入口带 ?prefill=… 跳转时填入输入框并聚焦 */
+function applyPrefillFromRoute() {
+  const prefill = route.query.prefill
+  if (typeof prefill !== 'string' || prefill.length === 0) return
+  draft.value = prefill
+  void router.replace({ query: { ...route.query, prefill: undefined } })
+  void nextTick(() => {
+    draftInputRef.value?.focus()
+  })
+}
 const modelOptions = ref<AiAgentModelOption[]>([])
 const selectedModel = ref('')
 const connectors = ref<AiConnectorStatus[]>([])
@@ -425,6 +441,7 @@ function connectorTagText(status: string): string {
 }
 
 onMounted(async () => {
+  applyPrefillFromRoute()
   const connectorsPromise = api.getAiAgentConnectors()
     .then(list => { connectors.value = list })
     .catch(() => { connectors.value = [] })
@@ -585,6 +602,7 @@ onMounted(async () => {
           <!-- 输入区 -->
           <footer class="composer">
             <el-input
+              ref="draftInputRef"
               v-model="draft"
               type="textarea"
               resize="none"
