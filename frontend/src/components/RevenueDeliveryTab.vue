@@ -901,8 +901,11 @@ defineExpose({ reload: () => refreshSummary() })
               </tr>
             </thead>
             <tbody>
-              <template v-for="row in flatRows" :key="rowKey(row)">
-                <tr :class="row.kind === 'line' ? 'line-total-row' : row.kind === 'grand' ? 'grand-total-row' : ''">
+              <tr
+                v-for="row in flatRows"
+                :key="rowKey(row)"
+                :class="row.kind === 'line' ? 'line-total-row' : row.kind === 'grand' ? 'grand-total-row' : ''"
+              >
                   <td v-if="row.lineSpan > 0" class="col-line" :rowspan="row.lineSpan">{{ row.lineName }}</td>
                   <td v-else-if="row.kind !== 'project'" class="col-line">{{ row.lineName }}</td>
                   <td class="col-project">
@@ -921,13 +924,14 @@ defineExpose({ reload: () => refreshSummary() })
                     </template>
                   </td>
                   <td class="col-oa">{{ row.oaContract == null || row.oaContract === 0 ? '—' : formatWan(row.oaContract) }}</td>
-                  <template v-for="column in periodColumns" :key="`c-${rowKey(row)}-${selectedPeriod}-${column.key}`">
-                    <td
-                      class="cell"
-                      :class="[column.key === 'profit' ? 'cell-profit clickable' : '', cellTone(row.periods[selectedPeriod], column.key)]"
-                      :title="column.key === 'profit' ? '点击查看利润构成' : undefined"
-                      @click="column.key === 'profit' && openProfitDetail(row, selectedPeriod)"
-                    >
+                  <td
+                    v-for="column in periodColumns"
+                    :key="column.key"
+                    class="cell"
+                    :class="[column.key === 'profit' ? 'cell-profit clickable' : '', cellTone(row.periods[selectedPeriod], column.key)]"
+                    :title="column.key === 'profit' ? '点击查看利润构成' : undefined"
+                    @click="column.key === 'profit' && openProfitDetail(row, selectedPeriod)"
+                  >
                       <el-tooltip
                         v-if="column.key === 'other' && otherCostTip(row)"
                         :content="otherCostTip(row)!"
@@ -940,8 +944,7 @@ defineExpose({ reload: () => refreshSummary() })
                       <template v-else>
                         {{ cellText(row, row.periods[selectedPeriod], column.key) }}
                       </template>
-                    </td>
-                  </template>
+                  </td>
                   <td class="col-actions">
                     <template v-if="row.kind === 'project'">
                       <el-button link type="primary" size="small" @click="openPlansDialog(row)">预估交付</el-button>
@@ -951,8 +954,7 @@ defineExpose({ reload: () => refreshSummary() })
                       <el-button link type="primary" size="small" @click="openCostDialog(row)">其他成本</el-button>
                     </template>
                   </td>
-                </tr>
-              </template>
+              </tr>
             </tbody>
           </table>
         </div>
