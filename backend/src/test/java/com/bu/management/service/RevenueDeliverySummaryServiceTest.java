@@ -287,7 +287,7 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(customTotals.getYtd().getGrossProfit(), "117000");
         assertNum(customTotals.getYtd().getGrossRate(), "53.18");
 
-        // 会员通：业务线聚合行「项目集」+ 线销售成本在 totals 扣减
+        // 会员通：聚合线唯一「项目集」行即整线，销售工时/成本全口径落入该行并扣减真实利润
         RevenueDeliverySummaryVO.Line member = lineOf(vo, 3L);
         RevenueDeliverySummaryVO.ProjectRow agg = projectRow(member, "项目集");
         assertThat(agg.getProjectId()).isNull();
@@ -295,10 +295,18 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(agg.getOaContract(), "600000");
         assertNum(agg.getH1().getDelivered(), "200000");
         assertNum(agg.getH1().getGrossProfit(), "171000");
+        assertNum(agg.getH1().getAllocatedSalesHours(), "2");
+        assertNum(agg.getH1().getAllocatedSalesCost(), "9000");
+        assertNum(agg.getH1().getTrueProfit(), "162000");
+        assertNum(agg.getYtd().getAllocatedSalesCost(), "9000");
+        assertNum(agg.getYtd().getTrueProfit(), "232000");
         assertNum(member.getSalesCost(), "9000");
+        assertNum(member.getSalesAllocatedCost(), "9000");
+        assertNum(member.getSalesUnallocatedCost(), "0");
         RevenueDeliverySummaryVO.ProjectRow memberTotals = member.getTotals();
         assertNum(memberTotals.getH1().getSalesHours(), "2");
         assertNum(memberTotals.getH1().getSalesCost(), "9000");
+        assertNum(memberTotals.getH1().getUnallocatedSalesCost(), "0");
         assertNum(memberTotals.getH1().getGrossProfit(), "162000");
         assertNum(memberTotals.getH1().getGrossRate(), "81.00");
         assertNum(memberTotals.getYtd().getGrossProfit(), "232000");
