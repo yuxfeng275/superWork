@@ -180,17 +180,31 @@ const customLine = (includeEstimate: boolean) => {
 }
 
 const memberLine = () => {
+  // 会员通（aggregate）：唯一「项目集」行即整线，该线全部销售工时/成本计入该行（allocated*），
+  // totals 行销售成本全额扣减后毛利=真实利润，未分配为 0（前端对单聚合行隐藏合计行）
   const zero = window({})
+  const rowH1 = window({
+    delivered: 200000, projectHours: 4, projectLaborCost: 24000,
+    allocatedSalesHours: 2, allocatedSalesCost: 9000,
+    otherCosts: { partner: 5000, server: 0, other: 0, total: 5000 },
+    grossProfit: 171000, grossRate: 85.5, trueProfit: 162000, trueProfitRate: 81
+  })
+  const totalsH1 = window({
+    delivered: 200000, projectHours: 4, projectLaborCost: 24000,
+    salesHours: 2, salesCost: 9000, allocatedSalesHours: 2, allocatedSalesCost: 9000,
+    otherCosts: { partner: 5000, server: 0, other: 0, total: 5000 },
+    grossProfit: 162000, grossRate: 81, trueProfit: 162000, trueProfitRate: 81
+  })
   return {
     businessLineId: 3,
     businessLineName: '会员通',
-    salesHours: 0, salesCost: 0, salesAllocatedHours: 0, salesAllocatedCost: 0,
+    salesHours: 2, salesCost: 9000, salesAllocatedHours: 2, salesAllocatedCost: 9000,
     salesUnallocatedHours: 0, salesUnallocatedCost: 0, salesUnallocatedDetail: [],
     projects: [{
-      projectId: null, name: '项目集', isAggregate: true, oaContract: 0,
-      h1: zero, h2: zero, ytd: zero
+      projectId: null, name: '项目集', isAggregate: true, oaContract: 600000,
+      h1: rowH1, h2: zero, ytd: rowH1
     }],
-    totals: { projectId: null, name: '合计', isAggregate: false, oaContract: 0, h1: zero, h2: zero, ytd: zero }
+    totals: { projectId: null, name: '合计', isAggregate: false, oaContract: 600000, h1: totalsH1, h2: zero, ytd: totalsH1 }
   }
 }
 
@@ -332,7 +346,7 @@ const openDeliveryPanel = async (page: Page) => {
 const dataRow = (panel: Locator, name: string) =>
   panel.locator('.matrix-table tbody tr', { hasText: name })
 
-// 概览卡固定顺序：OA 合同总额 / 已交付 / 预估交付 / 人工成本 / 其他成本 / 真实利润 / 真实利润率
+// 概览卡固定顺序：合同总额（收款月）/ OA 合同总额 / 已交付 / 预估交付 / 人工成本 / 其他成本 / 真实利润 / 真实利润率
 const overviewCell = (panel: Locator, index: number) =>
   panel.locator('.overview-strip .overview-cell').nth(index)
 
@@ -356,6 +370,18 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   await expect(table).toContainText('会员通')
   await expect(table).toContainText('合计')
 
+  // 会员通聚合行：该线全部销售工时/成本计入「项目集」行并扣减真实利润
+  const memberRow = dataRow(panel, '项目集')
+  const memberCell = (index: number) => memberRow.locator('td').nth(index)
+  await expect(memberCell(TABLE.salesHours)).toContainText('2')
+  await expect(memberCell(TABLE.salesCost)).toContainText('0.9')
+  await expect(memberCell(TABLE.profit)).toContainText('16.2')
+  await memberRow.locator('td').nth(TABLE.profit).click()
+  const memberDrawer = page.getByRole('dialog')
+  await expect(memberDrawer).toContainText('减 · 销售成本')
+  await expect(memberDrawer).toContainText('真实利润（已扣销售成本）')
+  await page.keyboard.press('Escape')
+
   const royalRow = dataRow(panel, '皇家项目')
   const cell = (index: number) => royalRow.locator('td').nth(index)
   await expect(cell(2)).toContainText('200')
@@ -370,8 +396,9 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   await expect(cell(TABLE.rate)).toContainText('53.57%')
 
   const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
-  await expect(lineTotalRow).toContainText('未分配销售 7 人月 · 12 万')
-  await expect(lineTotalRow).toContainText('仅扣业务线利润')
+  const salesBadge = lineTotalRow.locator('.row-note-badge.sales')
+  await expect(salesBadge).toHaveAttribute('aria-label', /未分配销售 7 人月 · 12 万/)
+  await expect(salesBadge).toHaveAttribute('aria-label', /仅扣业务线利润/)
   const totalCell = (index: number) => lineTotalRow.locator('td').nth(index)
   await expect(totalCell(2)).toContainText('280')
   await expect(totalCell(TABLE.salesHours)).toContainText('7')
@@ -384,14 +411,16 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   const overview = panel.locator('.overview-strip')
   await expect(overview).toContainText('OA 合同总额')
   await expect(overview).toContainText('真实利润率')
-  await expect(panel.locator('.overview-note')).toContainText('概览为全年口径')
+  await panel.locator('.caliber-help').hover()
+  await expect(page.locator('.el-popper', { hasText: '概览卡为全年口径' })).toBeVisible()
   await expect(overviewCell(panel, 0)).toContainText('280')
-  await expect(overviewCell(panel, 1)).toContainText('240')
-  await expect(overviewCell(panel, 2)).toContainText('140')
-  await expect(overviewCell(panel, 3)).toContainText('155')
-  await expect(overviewCell(panel, 4)).toContainText('27')
-  await expect(overviewCell(panel, 5)).toContainText('198')
-  await expect(overviewCell(panel, 6)).toContainText('52.11%')
+  await expect(overviewCell(panel, 1)).toContainText('280')
+  await expect(overviewCell(panel, 2)).toContainText('240')
+  await expect(overviewCell(panel, 3)).toContainText('140')
+  await expect(overviewCell(panel, 4)).toContainText('155')
+  await expect(overviewCell(panel, 5)).toContainText('27')
+  await expect(overviewCell(panel, 6)).toContainText('198')
+  await expect(overviewCell(panel, 7)).toContainText('52.11%')
 
   const requestsBeforePeriodSwitch = summaryRequests.length
   await panel.getByRole('button', { name: '上半年 H1' }).click()
@@ -426,19 +455,19 @@ test('含预估开关联动：切换口径重新拉 summary 且预估列/利润�
   const panel = await openDeliveryPanel(page)
   const royalRow = dataRow(panel, '皇家项目')
 
-  await expect(overviewCell(panel, 5)).toContainText('198')
+  await expect(overviewCell(panel, 6)).toContainText('198')
   await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('150')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
 
   await panel.getByRole('button', { name: '只看实际' }).click()
-  await expect(overviewCell(panel, 5)).toContainText('90')
-  await expect(overviewCell(panel, 6)).toContainText('37.5%')
+  await expect(overviewCell(panel, 6)).toContainText('90')
+  await expect(overviewCell(panel, 7)).toContainText('37.5%')
   await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('70')
   await expect(royalRow.locator('td').nth(TABLE.estimated)).toHaveText('—')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=false')
 
   await panel.getByRole('button', { name: '含预估' }).click()
-  await expect(overviewCell(panel, 5)).toContainText('198')
+  await expect(overviewCell(panel, 6)).toContainText('198')
   await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('100')
   expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
 })
@@ -544,28 +573,30 @@ test('业务线级合同（福田定制不落项目）在业务线合计与整�
   const panel = await openDeliveryPanel(page)
   const table = panel.locator('.matrix-table')
 
-  // 业务线合计行：线级合同说明 + OA 列含线级合同金额
+  // 业务线合计行：线级合同说明（「线」徽标 tooltip）+ OA 列含线级合同金额
   const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
-  await expect(lineTotalRow).toContainText('业务线级合同（未落具体项目）')
-  await expect(lineTotalRow).toContainText('合同 0.47 万')
-  await expect(lineTotalRow).toContainText('已交付 0.47 万')
+  const lineContractBadge = lineTotalRow.locator('.row-note-badge.contract')
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /合同 0.47 万/)
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /已交付 0.47 万/)
   await expect(lineTotalRow.locator('td').nth(2)).toContainText('280.46') // OA=280万+0.47万（0.465 浮点进位显示 280.46）
 
   // 整表合计行：线级合同不消失
   const grandRow = table.locator('tbody tr.grand-total-row')
-  await expect(grandRow).toContainText('业务线级合同（未落具体项目）')
-  await expect(grandRow).toContainText('已交付 0.47 万')
+  const grandContractBadge = grandRow.locator('.row-note-badge.contract')
+  await expect(grandContractBadge).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
+  await expect(grandContractBadge).toHaveAttribute('aria-label', /已交付 0.47 万/)
 
-  // delivery_date 口径：图例 + 列头提示
-  await expect(panel.locator('.matrix-legend')).toContainText('按合同交付日期（delivery_date）')
+  // delivery_date 口径：列头提示
   const groupHead = table.locator('thead .group-head').first()
   await expect(groupHead).toContainText('按交付日期')
   await expect(groupHead).toHaveAttribute('title', /delivery_date/)
 
   // includeEstimate 联动不回归：切实际口径仍显示线级合同（不消失）
   await panel.getByRole('button', { name: '只看实际' }).click()
-  await expect(overviewCell(panel, 5)).toContainText('90') // 实际口径利润（回归锚点）
-  await expect(table.locator('tbody tr.line-total-row').first()).toContainText('业务线级合同（未落具体项目）')
+  await expect(overviewCell(panel, 6)).toContainText('90') // 实际口径利润（回归锚点）
+  const lineBadgeAfterToggle = table.locator('tbody tr.line-total-row').first().locator('.row-note-badge.contract')
+  await expect(lineBadgeAfterToggle).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
 })
 
 test('待映射合同可归属业务线级（不落具体项目），POST 携带 businessLineId', async ({ page }) => {

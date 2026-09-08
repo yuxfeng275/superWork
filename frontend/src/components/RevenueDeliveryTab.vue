@@ -21,7 +21,7 @@ type PeriodColumnKey = 'delivered' | 'estimated' | 'hours' | 'labor' | 'salesHou
 /**
  * 归一化窗口视图（金额元、工时人月）：
  * - partnerCost/serverCost 为 null 表示服务端未给出拆分；
- * - 销售语义按行角色区分：项目行取 allocated*（成单销售），小计/合计行取 unallocated*。
+ * - 销售语义按行角色区分：项目行取 allocated*（成单销售；会员通聚合行=该线全部销售），小计/合计行取 unallocated*。
  */
 interface PeriodView {
   delivered: number
@@ -461,7 +461,7 @@ const openProfitDetail = (row: RowContext, period: PeriodKey) => {
   pushIf('减 · 项目工时成本', view.projectLaborCost)
   pushIf('减 · 预估工时成本（含预估口径）', view.estimatedLaborCost)
   if (row.kind === 'project') {
-    pushIf('减 · 成单销售成本', view.allocatedSalesCost)
+    pushIf(row.isAggregate ? '减 · 销售成本' : '减 · 成单销售成本', view.allocatedSalesCost)
   } else {
     pushIf('减 · 销售成本（含成单+未分配）', view.salesCost)
   }
@@ -470,7 +470,9 @@ const openProfitDetail = (row: RowContext, period: PeriodKey) => {
   if (view.smsCost != null) pushIf('减 · 短信成本', view.smsCost)
   pushIf('减 · 其他成本', view.otherCost)
   items.push({
-    label: row.kind === 'project' ? '真实利润（已扣成单销售成本）' : '业务线利润',
+    label: row.kind === 'project'
+      ? (row.isAggregate ? '真实利润（已扣销售成本）' : '真实利润（已扣成单销售成本）')
+      : '业务线利润',
     value: profitOf(view),
     strong: true,
     tone: profitOf(view) < 0 ? 'neg' : undefined
@@ -874,7 +876,7 @@ defineExpose({ reload: () => refreshSummary() })
             </template>
             <div class="caliber-help-body">
               <p>概览卡为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按合同交付日期（delivery_date）归集，年份=交付日期年份。</p>
-              <p>「销售工时/销售成本」：项目行 = 成单销售（有明确成单证据才计入）；小计/合计行 = 未分配销售（仅扣业务线/整表利润，不分摊到项目）。</p>
+              <p>「销售工时/销售成本」：项目行 = 成单销售（有明确成单证据才计入）；小计/合计行 = 未分配销售（仅扣业务线/整表利润，不分摊到项目）；会员通「项目集」聚合行 = 该线全部销售。</p>
               <p>「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。</p>
               <p>业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行以「线」徽标标注，悬停可查看金额明细，不消失。</p>
               <p>合计行「销」「线」「无」为备注文号：销=含未分配销售，线=含业务线级合同，无=存在交付日期为空的合同。</p>

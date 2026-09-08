@@ -55,7 +55,8 @@ import java.util.stream.Collectors;
  * <p>销售成本 → 项目层拆分（成单证据制，确定性规则，不做均摊）：
  * <ul>
  *   <li>仅 full/aggregate 模式业务线参与拆分；simple 模式（产品/精准等）销售行并入单行项目工时，不做拆分。</li>
- *   <li>可分配证据：sales_kind='specific' 的销售成本行 → revenue_sales_project(商机绑定) →
+ *   <li>aggregate 线（会员通）唯一「项目集」行即整线：该线全部销售工时/成本直接计入该行。</li>
+ *   <li>full 线可分配证据：sales_kind='specific' 的销售成本行 → revenue_sales_project(商机绑定) →
  *       商机客户在同年合同明细中存在唯一已映射项目的同客户合同 → 落入该项目行。</li>
  *   <li>其余（商机集合/其他/无商机绑定/客户匹配多项目或无匹配合同）保留在业务线池（未分配），
  *       原因按代码汇总在 salesUnallocatedDetail（见 {@link RevenueDeliverySummaryVO.UnallocatedItem}）。</li>
@@ -446,7 +447,8 @@ public class RevenueDeliverySummaryService {
 
     /**
      * 成单销售成本分配（确定性规则，无证据不分配）：
-     * specific 销售行 → 销售项目商机 → 商机客户同年合同存在唯一项目 → 落该项目桶；
+     * aggregate 线（会员通）唯一「项目集」行即整线，销售行全部落入该聚合行；
+     * full 线 specific 销售行 → 销售项目商机 → 商机客户同年合同存在唯一项目 → 落该项目桶；
      * 其余（pool/other/无商机/多项目/无合同）→ 记入未分配原因。
      */
     private void allocateSales(RevenueCostEntry entry, int month, String mode,
@@ -460,7 +462,9 @@ public class RevenueDeliverySummaryService {
                                Map<Long, Map<String, BigDecimal>> unallocReasonsByLine) {
         String bucket = null;
         String reason = null;
-        if ("specific".equals(entry.getSalesKind()) && entry.getSalesProjectId() != null) {
+        if ("aggregate".equals(mode)) {
+            bucket = "agg:" + entry.getBusinessLineId();
+        } else if ("specific".equals(entry.getSalesKind()) && entry.getSalesProjectId() != null) {
             RevenueSalesProject salesProject = salesProjectsById.get(entry.getSalesProjectId());
             SalesOpportunity opportunity = salesProject == null || salesProject.getOpportunityId() == null
                     ? null : opportunitiesById.get(salesProject.getOpportunityId());
