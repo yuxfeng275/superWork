@@ -569,18 +569,19 @@ public class RevenueDeliverySummaryService {
         RevenueDeliverySummaryVO.OtherCosts other = target.getOtherCosts();
         other.setPartner(add(other.getPartner(), src.getOtherCosts().getPartner()));
         other.setServer(add(other.getServer(), src.getOtherCosts().getServer()));
+        other.setSms(add(other.getSms(), src.getOtherCosts().getSms()));
         other.setOther(add(other.getOther(), src.getOtherCosts().getOther()));
-        other.setTotal(other.getPartner().add(other.getServer()).add(other.getOther()));
+        other.setTotal(other.getPartner().add(other.getServer()).add(other.getSms()).add(other.getOther()));
     }
 
     private void mergeOther(RevenueDeliverySummaryVO.Window window, RevenueDeliverySummaryVO.OtherCosts source) {
         RevenueDeliverySummaryVO.OtherCosts target = window.getOtherCosts();
         target.setPartner(add(target.getPartner(), source.getPartner()));
         target.setServer(add(target.getServer(), source.getServer()));
+        target.setSms(add(target.getSms(), source.getSms()));
         target.setOther(add(target.getOther(), source.getOther()));
-        target.setTotal(target.getPartner().add(target.getServer()).add(target.getOther()));
+        target.setTotal(target.getPartner().add(target.getServer()).add(target.getSms()).add(target.getOther()));
     }
-
     /** 线 totals：项目行加总后补该线销售（窗口）工时/成本，拆分已分配/未分配并重算毛利 */
     private void addSalesInto(RevenueDeliverySummaryVO.ProjectRow totals, MonthAcc sales, boolean includeEstimate) {
         for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
@@ -719,6 +720,7 @@ public class RevenueDeliverySummaryService {
         RevenueDeliverySummaryVO.OtherCosts other = new RevenueDeliverySummaryVO.OtherCosts();
         BigDecimal partner = BigDecimal.ZERO;
         BigDecimal server = BigDecimal.ZERO;
+        BigDecimal sms = BigDecimal.ZERO;
         BigDecimal otherType = BigDecimal.ZERO;
         for (Map.Entry<String, Map<String, BigDecimal[]>> typeEntry : byType.entrySet()) {
             BigDecimal[] months = typeEntry.getValue().get(rowKey);
@@ -735,14 +737,17 @@ public class RevenueDeliverySummaryService {
                 partner = partner.add(sum);
             } else if ("server".equals(typeEntry.getKey())) {
                 server = server.add(sum);
+            } else if ("sms".equals(typeEntry.getKey())) {
+                sms = sms.add(sum);
             } else {
                 otherType = otherType.add(sum);
             }
         }
         other.setPartner(partner);
         other.setServer(server);
+        other.setSms(sms);
         other.setOther(otherType);
-        other.setTotal(partner.add(server).add(otherType));
+        other.setTotal(partner.add(server).add(sms).add(otherType));
         return other;
     }
 

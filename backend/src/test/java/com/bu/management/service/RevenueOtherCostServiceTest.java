@@ -86,7 +86,7 @@ class RevenueOtherCostServiceTest {
     void rejectsBadCostTypeBadMonthBadAmountAndForeignProject() {
         assertThatThrownBy(() -> service.create(request(1L, 11L, "weird"), 1L))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("partner/server/other");
+                .hasMessageContaining("partner/server/sms/other");
         RevenueOtherCost badMonth = request(1L, 11L, "server");
         badMonth.setYearMonth("2026-13");
         assertThatThrownBy(() -> service.create(badMonth, 1L))
