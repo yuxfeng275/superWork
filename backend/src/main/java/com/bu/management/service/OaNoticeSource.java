@@ -31,18 +31,36 @@ public class OaNoticeSource {
             }
             List<JsonNode> affairs = oaClient.listPendingAffairs();
             int mine = 0;
+            List<String> flowIds = new ArrayList<>();
+            List<String> subjects = new ArrayList<>();
             for (JsonNode affair : affairs) {
                 String owner = firstText(affair, "memberId", "hmemberId", "senderId", "principalId");
                 if (owner != null && owner.equals(memberId)) {
                     mine++;
+                    if (flowIds.size() < 3) {
+                        String flowId = firstText(affair, "flowId", "flowInstanceId");
+                        String subject = affair.path("subject").asText(affair.path("title").asText(""));
+                        if (flowId != null) {
+                            flowIds.add(flowId);
+                            subjects.add(subject.isBlank() ? flowId : subject);
+                        }
+                    }
                 }
             }
             if (mine == 0) {
                 return null;
             }
+            String body = "你在致远 OA 有 " + mine + " 条待办事项待处理。";
+            if (!flowIds.isEmpty()) {
+                body += "最近的待办：";
+                for (int i = 0; i < flowIds.size(); i++) {
+                    body += "\n- " + subjects.get(i) + "（flowId=" + flowIds.get(i) + "）";
+                }
+                body += "\n可以直接问我某条待办的流程详情。";
+            }
             return new AiNoticeService.Notice(KIND,
                     "OA 待办提醒",
-                    "你在致远 OA 有 " + mine + " 条待办事项待处理。",
+                    body,
                     "/ai-assistant",
                     today,
                     false);

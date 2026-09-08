@@ -98,6 +98,10 @@ public class ConnectorToolService {
                             "assigneeMe", booleanProperty("是否只看当前用户负责的，默认 true"),
                             "keyword", stringProperty("标题或编号关键词"),
                             "limit", integerProperty("返回条数上限，默认 10，最大 50")), null)));
+            defs.add(new AiAgentToolDefinition("get_yunxiao_workitem", "读取云效工作项详情（含描述/优先级/工时/截止日期），workitemId 来自 query_yunxiao_workitems 结果",
+                    objectSchema(Map.of(
+                            "workitemId", stringProperty("云效工作项 ID（必填），来自 query_yunxiao_workitems 结果的 workitemId 字段")),
+                            List.of("workitemId"))));
         }
 
         // OA
@@ -205,15 +209,16 @@ public class ConnectorToolService {
         return list;
     }
 
+    /** 内置连接器工具名集合。 */
+    private static final Set<String> BUILTIN_TOOLS = Set.of(
+            "search_my_emails", "read_my_email",
+            "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem",
+            "query_oa_pending", "query_oa_done", "get_oa_flow",
+            "search_yuque_docs", "read_yuque_doc", "query_my_worktime");
+
     /** 该工具名是否属于内置连接器工具集。 */
     public boolean handles(String toolName) {
-        return switch (toolName) {
-            case "search_my_emails", "read_my_email",
-                    "query_yunxiao_projects", "query_yunxiao_workitems",
-                    "query_oa_pending", "query_oa_done", "get_oa_flow",
-                    "search_yuque_docs", "read_yuque_doc", "query_my_worktime" -> true;
-            default -> false;
-        };
+        return BUILTIN_TOOLS.contains(toolName);
     }
 
     /**
@@ -226,6 +231,7 @@ public class ConnectorToolService {
                 case "read_my_email" -> readMyEmail(userId, args);
                 case "query_yunxiao_projects" -> queryYunxiaoProjects(args);
                 case "query_yunxiao_workitems" -> queryYunxiaoWorkitems(userId, args);
+                case "get_yunxiao_workitem" -> getYunxiaoWorkitem(userId, args);
                 case "query_oa_pending" -> queryOaAffairs(userId, args, true);
                 case "query_oa_done" -> queryOaAffairs(userId, args, false);
                 case "get_oa_flow" -> getOaFlow(args);
@@ -396,6 +402,7 @@ public class ConnectorToolService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (WorkItemOverviewItem item : items) {
             Map<String, Object> row = new LinkedHashMap<>();
+            row.put("workitemId", item.getYunxiaoWorkitemId());
             row.put("serialNumber", item.getSerialNumber());
             row.put("title", item.getTitle());
             row.put("category", item.getCategory());
@@ -403,10 +410,50 @@ public class ConnectorToolService {
             row.put("assignee", item.getAssigneeName());
             row.put("project", item.getProjectName());
             row.put("updatedAt", item.getUpdatedAt());
+            if (StringUtils.hasText(item.getDescription())) {
+                row.put("description", truncate(item.getDescription(), 150));
+            }
             rows.add(row);
         }
-        return new AiAgentToolResult(render(userId, "云效工作项", rows), false);
+        return new AiAgentToolResult(render(userId, "云效工作项（可用 workitemId 调 get_yunxiao_workitem 看详情）", rows), false);
     }
+
+    /**
+     * 云效工作项详情：按 workitemId（云效工作项 ID）从缓存读取并展开完整字段。
+     */
+    private AiAgentToolResult getYunxiaoWorkitem(Long userId, JsonNode args) {
+        String workitemId = textArg(args, "workitemId");
+        if (!StringUtils.hasText(workitemId)) {
+            return new AiAgentToolResult("缺少 workitemId，请先调用 query_yunxiao_workitems 获取", true);
+        }
+        String role = userRole(userId);
+        for (String cat : List.of("Req", "Task", "Bug")) {
+            for (WorkItemOverviewItem item : yunxiaoQueryService.listCloudItems(
+                    cat, userId, role, null, null, null, workitemId)) {
+                if (workitemId.equals(item.getYunxiaoWorkitemId())
+                        || workitemId.equals(item.getSerialNumber())) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("serialNumber", item.getSerialNumber());
+                    row.put("title", item.getTitle());
+                    row.put("category", item.getCategory());
+                    row.put("status", item.getStatus());
+                    row.put("assignee", item.getAssigneeName());
+                    row.put("project", item.getProjectName());
+                    row.put("priority", item.getPriority());
+                    row.put("dueDate", item.getDueDate());
+                    row.put("estimatedHours", item.getEstimatedHours());
+                    row.put("actualHours", item.getActualHours());
+                    if (StringUtils.hasText(item.getDescription())) {
+                        row.put("description", truncate(item.getDescription(), 1500));
+                    }
+                    row.put("updatedAt", item.getUpdatedAt());
+                    return new AiAgentToolResult(render(userId, "云效工作项详情", List.of(row)), false);
+                }
+            }
+        }
+        return new AiAgentToolResult("未找到工作项 " + workitemId + "，或其不在你的可见范围内", true);
+    }
+
 
     // ==================== OA（致远） ====================
 

@@ -122,7 +122,15 @@ class ConnectorToolServiceTest {
 
         assertThat(names).contains(
                 "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
-                "query_yunxiao_projects", "query_yunxiao_workitems");
+                "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem");
+    }
+
+    @Test
+    @DisplayName("handles：内置工具名识别，含新增的 get_yunxiao_workitem")
+    void handlesRecognizesBuiltinTools() {
+        assertThat(service.handles("get_yunxiao_workitem")).isTrue();
+        assertThat(service.handles("get_oa_flow")).isTrue();
+        assertThat(service.handles("no_such_tool")).isFalse();
     }
 
     // ==================== 连接器状态 ====================
