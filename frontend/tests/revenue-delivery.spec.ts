@@ -208,10 +208,26 @@ const memberLine = () => {
   }
 }
 
+// simple 模式单行业务线（精准等）：单行即整线，前端不再渲染业务线合计行
+const simpleLine = () => {
+  const zero = window({})
+  return {
+    businessLineId: 4,
+    businessLineName: '精准',
+    salesHours: 0, salesCost: 0, salesAllocatedHours: 0, salesAllocatedCost: 0,
+    salesUnallocatedHours: 0, salesUnallocatedCost: 0, salesUnallocatedDetail: [],
+    projects: [{
+      projectId: null, name: '精准', isAggregate: true, oaContract: 0,
+      h1: zero, h2: zero, ytd: zero
+    }],
+    totals: { projectId: null, name: '合计', isAggregate: false, oaContract: 0, h1: zero, h2: zero, ytd: zero }
+  }
+}
+
 const makeSummary = (includeEstimate: boolean) => ({
   year: 2026,
   includeEstimate,
-  lines: [customLine(includeEstimate), memberLine()],
+  lines: [customLine(includeEstimate), memberLine(), simpleLine()],
   overview: includeEstimate
     ? {
       includeEstimate: true,
@@ -399,6 +415,12 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   const salesBadge = lineTotalRow.locator('.row-note-badge.sales')
   await expect(salesBadge).toHaveAttribute('aria-label', /未分配销售 7 人月 · 12 万/)
   await expect(salesBadge).toHaveAttribute('aria-label', /仅扣业务线利润/)
+
+  // 单行聚合业务线（会员通/精准，无项目细拆）不渲染业务线合计行
+  await expect(table.locator('tbody tr.line-total-row', { hasText: '会员通' })).toHaveCount(0)
+  await expect(table.locator('tbody tr.line-total-row', { hasText: '精准' })).toHaveCount(0)
+  await expect(dataRow(panel, '项目集')).toHaveCount(1)
+  await expect(dataRow(panel, '项目集')).not.toHaveClass(/line-total-row/)
   const totalCell = (index: number) => lineTotalRow.locator('td').nth(index)
   await expect(totalCell(2)).toContainText('280')
   await expect(totalCell(TABLE.salesHours)).toContainText('7')
