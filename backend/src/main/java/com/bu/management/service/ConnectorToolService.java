@@ -502,11 +502,55 @@ public class ConnectorToolService {
                 flow.path("status").asText("未知")));
         sb.append("\n- 发起人=").append(flow.path("senderName").asText(
                 flow.path("starter").asText("未知")));
-        String summary = flow.path("formData").asText(flow.path("summary").asText(""));
+        appendFlowForm(sb, flow);
+        return new AiAgentToolResult(sb.toString(), false);
+    }
+
+    /**
+     * 表单数据展开：formData 为对象时逐字段输出（字段名=值，值截断 120 字符），
+     * 含 formTable 数组时按行展开；为纯文本时退回摘要模式（截断 500 字符）。
+     */
+    private void appendFlowForm(StringBuilder sb, JsonNode flow) {
+        JsonNode formData = flow.path("formData");
+        if (formData.isObject() && formData.size() > 0) {
+            sb.append("\n表单字段：");
+            formData.fields().forEachRemaining(entry -> {
+                JsonNode value = entry.getValue();
+                String text = value.isValueNode() ? value.asText()
+                        : value.isContainerNode() ? value.toString() : String.valueOf(value);
+                sb.append("\n- ").append(entry.getKey()).append("=").append(truncate(text, 120));
+            });
+            return;
+        }
+        // formTable：致远明细表结构 [{rows:[{label,value}...]}, ...]
+        JsonNode formTable = flow.path("formTable");
+        if (formTable.isArray() && formTable.size() > 0) {
+            sb.append("\n明细表：");
+            int line = 0;
+            for (JsonNode table : formTable) {
+                for (JsonNode row : table.path("rows")) {
+                    if (line++ >= 20) {
+                        sb.append("\n…（明细行过多已截断）");
+                        return;
+                    }
+                    sb.append("\n- ");
+                    boolean first = true;
+                    for (JsonNode cell : row.path("cells")) {
+                        String label = cell.path("label").asText("");
+                        String value = cell.path("value").asText("");
+                        if (!first) sb.append("，");
+                        sb.append(label).append("=").append(truncate(value, 60));
+                        first = false;
+                    }
+                }
+            }
+            return;
+        }
+        String summary = formData.isTextual() ? formData.asText("")
+                : flow.path("summary").asText("");
         if (StringUtils.hasText(summary)) {
             sb.append("\n- 摘要=").append(truncate(summary, 500));
         }
-        return new AiAgentToolResult(sb.toString(), false);
     }
 
     // ==================== 语雀（MCP） ====================

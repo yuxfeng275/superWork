@@ -27,11 +27,11 @@ public class AiNoticeService {
     /** 聚合后的通知条目（content 为实时计算，不落库）。 */
     public record Notice(String kind, String title, String body, String link, LocalDate date,
             boolean read) {}
-
     private final AiNoticeReadMapper readMapper;
     private final WorklogNoticeSource worklogSource;
     private final OaNoticeSource oaSource;
     private final MailNoticeSource mailSource;
+    private final MailArrivalNoticeSource mailArrivalSource;
 
     /** 当前用户的通知列表（已读的也返回，前端可折叠展示）。 */
     public List<Notice> list(Long userId) {
@@ -40,6 +40,7 @@ public class AiNoticeService {
         collect(notices, worklogSource.compute(userId, today));
         collect(notices, oaSource.compute(userId, today));
         collect(notices, mailSource.compute(userId, today));
+        collect(notices, mailArrivalSource.compute(userId, today));
         markRead(notices, userId);
         return notices;
     }

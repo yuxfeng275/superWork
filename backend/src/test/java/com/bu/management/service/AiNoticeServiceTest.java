@@ -35,12 +35,14 @@ class AiNoticeServiceTest {
     private OaNoticeSource oaSource;
     @Mock
     private MailNoticeSource mailSource;
+    @Mock
+    private MailArrivalNoticeSource mailArrivalSource;
 
     private AiNoticeService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiNoticeService(readMapper, worklogSource, oaSource, mailSource);
+        service = new AiNoticeService(readMapper, worklogSource, oaSource, mailSource, mailArrivalSource);
     }
 
     private AiNoticeService.Notice notice(String kind, boolean read) {
@@ -93,5 +95,18 @@ class AiNoticeServiceTest {
         when(readMapper.selectCount(any(Wrapper.class))).thenReturn(1L, 0L);
 
         assertThat(service.unreadCount(7L)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("list：新邮件到达通知（MAIL_ARRIVAL）被聚合")
+    void aggregatesMailArrival() {
+        lenient().when(mailArrivalSource.compute(7L, LocalDate.now()))
+                .thenReturn(notice("MAIL_ARRIVAL", false));
+        lenient().when(readMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+
+        List<AiNoticeService.Notice> result = service.list(7L);
+
+        assertThat(result).extracting(AiNoticeService.Notice::kind)
+                .containsExactly("MAIL_ARRIVAL");
     }
 }
