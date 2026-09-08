@@ -1605,6 +1605,8 @@ class ApiService {
     costType: DeliveryOtherCost['costType']
     amountYuan: number
     note?: string
+    businessLineId?: number
+    projectId?: number | null
   }): Promise<DeliveryOtherCost> {
     return this.request<DeliveryOtherCost>(`/api/revenue/other-costs/${id}`, {
       method: 'PUT',
