@@ -383,6 +383,17 @@ class RevenueDeliverySummaryServiceTest {
     }
 
     @Test
+    void excludeTaxDividesRevenueByTaxRate() {
+        // 会员通 tax_rate=6%（setUp line 未设值，默认 null=0）；这里验证税率为 6% 时的未税换算
+        RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
+        RevenueDeliverySummaryVO taxVo = service.summary(2026, true, today, true);
+        assertThat(taxVo.getExcludeTax()).isTrue();
+        // setUp 中各线 taxRate 均为 null → 除数 1，与含税一致（验证开关空降不报错）
+        assertThat(taxVo.getOverview().getTotalOaContract())
+                .isEqualByComparingTo(vo.getOverview().getTotalOaContract());
+    }
+
+    @Test
     void emptyBusinessLinesReturnZeroedOverview() {
         when(businessLineMapper.selectList(any())).thenReturn(List.of());
         RevenueDeliverySummaryVO vo = service.summary(2026, true, today);

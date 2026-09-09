@@ -35,6 +35,8 @@ public class RevenueDeliverySummaryVO {
 
     private Integer year;
     private Boolean includeEstimate;
+    /** 是否已换算为未税营收 */
+    private Boolean excludeTax;
     private List<Line> lines = new ArrayList<>();
     private Overview overview;
 
@@ -147,6 +149,8 @@ public class RevenueDeliverySummaryVO {
     @Data
     public static class Overview {
         private Boolean includeEstimate;
+        /** 是否已换算为未税营收 */
+        private Boolean excludeTax;
         /** 全年 OA 合同总额（元，按交付日期年份口径） */
         private BigDecimal totalOaContract;
         /** 工时系统合同总额（元）：sale_month（收款月）在年度内的全部合同行合计，不含 pending 过滤 */

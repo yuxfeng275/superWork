@@ -52,8 +52,9 @@ public class RevenueDeliveryController {
     @RequirePermission({"revenue:view"})
     @Operation(summary = "项目交付营收（利润）汇总：业务线×项目，h1/h2/ytd 三个时窗")
     public Result<RevenueDeliverySummaryVO> deliverySummary(@RequestParam int year,
-                                                            @RequestParam(defaultValue = "true") boolean includeEstimate) {
-        return Result.success(summaryService.summary(year, includeEstimate));
+                                                            @RequestParam(defaultValue = "true") boolean includeEstimate,
+                                                            @RequestParam(defaultValue = "false") boolean excludeTax) {
+        return Result.success(summaryService.summary(year, includeEstimate, excludeTax));
     }
 
     // ------------------------------------------------------------ 合同导入与待映射
