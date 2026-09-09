@@ -1537,10 +1537,11 @@ class ApiService {
 
   // ---------- 交付与利润（项目交付营收看板） ----------
 
-  async getDeliverySummary(params: { year: number; includeEstimate?: boolean }): Promise<DeliverySummary> {
+  async getDeliverySummary(params: { year: number; includeEstimate?: boolean; excludeTax?: boolean }): Promise<DeliverySummary> {
     const query = new URLSearchParams({
       year: String(params.year),
-      includeEstimate: params.includeEstimate === false ? 'false' : 'true'
+      includeEstimate: params.includeEstimate === false ? 'false' : 'true',
+      excludeTax: params.excludeTax ? 'true' : 'false'
     })
     return this.request<DeliverySummary>(`/api/revenue/delivery/summary?${query}`)
   }

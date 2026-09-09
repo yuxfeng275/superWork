@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -47,6 +48,11 @@ public class BusinessLine {
      * 营收矩阵是否展示成本：1=展示，0=只统计工时（成本计入公司公共投入）
      */
     private Integer costVisible;
+
+    /**
+     * 增值税率(%)，用于未税营收换算（含税 ÷ (1 + taxRate/100)）；null 等同 0
+     */
+    private BigDecimal taxRate;
 
     /**
      * 创建时间
