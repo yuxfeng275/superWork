@@ -94,15 +94,23 @@ public class RevenueDeliverySummaryService {
     private final SalesOpportunityMapper opportunityMapper;
 
     public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate) {
-        return summary(year, includeEstimate, LocalDate.now());
+        return summary(year, includeEstimate, false);
+    }
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, boolean excludeTax) {
+        return summary(year, includeEstimate, LocalDate.now(), excludeTax);
     }
 
     public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, LocalDate today) {
+        return summary(year, includeEstimate, today, false);
+    }
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, LocalDate today, boolean excludeTax) {
         List<BusinessLine> lines = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
                         .eq(BusinessLine::getStatus, 1).orderByAsc(BusinessLine::getId)).stream()
                 .filter(line -> !EXCLUDED_BUSINESS_LINE_NAMES.contains(line.getName()))
                 .toList();
-        RevenueDeliverySummaryVO vo = base(year, includeEstimate);
+        RevenueDeliverySummaryVO vo = base(year, includeEstimate, excludeTax);
         if (lines.isEmpty()) {
             return vo;
         }
@@ -323,6 +331,47 @@ public class RevenueDeliverySummaryService {
             }
             addMonth(otherByType.computeIfAbsent(cost.getCostType(), k -> new HashMap<>()), key, m,
                     cost.getAmountYuan());
+        }
+
+        // ===== 含税→未税换算（excludeTax=true 时，所有营收金额 ÷ (1 + taxRate/100)）=====
+        if (excludeTax) {
+            Map<Long, BigDecimal> divisorByLine = new HashMap<>();
+            for (BusinessLine line : lines) {
+                BigDecimal rate = line.getTaxRate() != null ? line.getTaxRate() : BigDecimal.ZERO;
+                divisorByLine.put(line.getId(),
+                        BigDecimal.ONE.add(rate.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
+            }
+            java.util.function.Function<String, BigDecimal> divOf = key -> {
+                RowDef def = rowsByKey.get(key);
+                return def != null ? divisorByLine.getOrDefault(def.businessLineId, BigDecimal.ONE) : BigDecimal.ONE;
+            };
+            // 行级 OA 合同总额
+            oaContract.replaceAll((k, v) -> v.divide(divOf.apply(k), 2, RoundingMode.HALF_UP));
+            // 行级已交付按月份
+            deliveredByMonth.forEach((k, arr) -> {
+                BigDecimal d = divOf.apply(k);
+                for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+            });
+            // 业务线级未指定项目合同
+            lineUnallocatedContract.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            lineUnallocatedDelivered.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            lineUnallocatedDeliveredByMonth.forEach((k, arr) -> {
+                try {
+                    Long lineId = Long.parseLong(k);
+                    BigDecimal d = divisorByLine.getOrDefault(lineId, BigDecimal.ONE);
+                    for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+                } catch (NumberFormatException ignored) {}
+            });
+            // 无交付日期合同
+            noDeliveryDateByLine.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            // 预估交付计划金额
+            planAmount.forEach((k, arr) -> {
+                BigDecimal d = divOf.apply(k);
+                for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+            });
         }
 
         // 组装输出：业务线 → 项目行 + 线 totals（扣销售成本）
@@ -868,12 +917,14 @@ public class RevenueDeliverySummaryService {
         return win;
     }
 
-    private RevenueDeliverySummaryVO base(int year, boolean includeEstimate) {
+    private RevenueDeliverySummaryVO base(int year, boolean includeEstimate, boolean excludeTax) {
         RevenueDeliverySummaryVO vo = new RevenueDeliverySummaryVO();
         vo.setYear(year);
         vo.setIncludeEstimate(includeEstimate);
+        vo.setExcludeTax(excludeTax);
         RevenueDeliverySummaryVO.Overview overview = new RevenueDeliverySummaryVO.Overview();
         overview.setIncludeEstimate(includeEstimate);
+        overview.setExcludeTax(excludeTax);
         overview.setTotalOaContract(BigDecimal.ZERO);
         overview.setTotalOaContractBySaleMonth(BigDecimal.ZERO);
         overview.setTotalDelivered(BigDecimal.ZERO);
