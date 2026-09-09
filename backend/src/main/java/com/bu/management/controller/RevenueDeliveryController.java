@@ -8,9 +8,11 @@ import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.RevenueContractImportBatch;
 import com.bu.management.entity.RevenueDeliveryPlan;
 import com.bu.management.entity.RevenueOtherCost;
+import com.bu.management.entity.RevenueFinancialReport;
 import com.bu.management.service.RevenueContractImportService;
 import com.bu.management.service.RevenueDeliveryPlanService;
 import com.bu.management.service.RevenueDeliverySummaryService;
+import com.bu.management.service.RevenueFinancialReportService;
 import com.bu.management.service.RevenueOtherCostService;
 import com.bu.management.vo.Result;
 import com.bu.management.vo.RevenueDeliverySummaryVO;
@@ -28,7 +30,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +57,7 @@ public class RevenueDeliveryController {
     private final RevenueContractImportService contractImportService;
     private final RevenueDeliveryPlanService planService;
     private final RevenueOtherCostService otherCostService;
+    private final RevenueFinancialReportService financialReportService;
 
     @GetMapping("/delivery/summary")
     @RequirePermission({"revenue:view"})
@@ -183,5 +194,72 @@ public class RevenueDeliveryController {
     public Result<Void> deleteOtherCost(@PathVariable Long id) {
         otherCostService.delete(id);
         return Result.success();
+    }
+
+    @PostMapping("/financial-report/import")
+    @RequirePermission({"revenue:manage"})
+    @Operation(summary = "导入财报月度收入 Excel，按 月份×业务线 覆盖")
+    public Result<Integer> importFinancialReport(@RequestParam("file") MultipartFile file) {
+        try {
+            List<RevenueFinancialReport> list = new ArrayList<>();
+            // 映射：财报业务线名 → 系统 business_line.id
+            Map<String, Long> nameToId = Map.of(
+                    "全域-全渠道-会员通", 3L,
+                    "全域-全渠道-全域私域精准", 6L,
+                    "全域-全渠道-全域云鹿定制", 1L,
+                    "全域-全渠道-全域云鹿Saas", 2L
+            );
+            Workbook wb = WorkbookFactory.create(file.getInputStream());
+            Sheet sheet = wb.getSheetAt(0);
+            String currentMonth = null;
+            for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+                // 第0列：月份标签（如 "1月"）或空（同上月）
+                String monthLabel = cellStr(row, 0);
+                if (monthLabel != null && monthLabel.matches("\\d+月")) {
+                    int m = Integer.parseInt(monthLabel.replace("月", ""));
+                    currentMonth = String.format("2026-%02d", m);
+                }
+                if (currentMonth == null) continue;
+                // 第1列：业务线名
+                String blName = cellStr(row, 1);
+                if (blName == null) continue;
+                Long blId = nameToId.get(blName.trim());
+                if (blId == null) continue;
+                // 第2列：营业收入
+                BigDecimal revenue = cellDecimal(row, 2);
+                if (revenue == null || revenue.compareTo(BigDecimal.ZERO) <= 0) continue;
+                RevenueFinancialReport rpt = new RevenueFinancialReport();
+                rpt.setYearMonth(currentMonth);
+                rpt.setBusinessLineId(blId);
+                rpt.setRevenueAmount(revenue);
+                list.add(rpt);
+            }
+            wb.close();
+            if (list.isEmpty()) return Result.error("未解析到有效数据");
+            financialReportService.batchSave(list);
+            return Result.success(list.size());
+        } catch (Exception e) {
+            return Result.error("导入失败: " + e.getMessage());
+        }
+    }
+
+    private String cellStr(Row row, int col) {
+        Cell cell = row.getCell(col);
+        if (cell == null) return null;
+        return cell.toString().trim();
+    }
+
+    private BigDecimal cellDecimal(Row row, int col) {
+        Cell cell = row.getCell(col);
+        if (cell == null) return BigDecimal.ZERO;
+        try {
+            if (cell.getCellType() == CellType.NUMERIC) return BigDecimal.valueOf(cell.getNumericCellValue());
+            String s = cell.toString().trim().replace(",", "");
+            return s.isEmpty() ? BigDecimal.ZERO : new BigDecimal(s);
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
     }
 }

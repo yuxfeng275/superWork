@@ -18,6 +18,9 @@ import com.bu.management.mapper.RevenueOtherCostMapper;
 import com.bu.management.mapper.RevenueSalesProjectMapper;
 import com.bu.management.mapper.RevenueWorklogEntryMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
+import com.bu.management.service.RevenueFinancialReportService;
+
+import java.util.Map;
 import com.bu.management.vo.RevenueDeliverySummaryVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +36,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -50,6 +54,7 @@ class RevenueDeliverySummaryServiceTest {
     @Mock private ProjectMapper projectMapper;
     @Mock private RevenueSalesProjectMapper salesProjectMapper;
     @Mock private SalesOpportunityMapper opportunityMapper;
+    @Mock private RevenueFinancialReportService financialReportService;
 
     private RevenueDeliverySummaryService service;
     private final LocalDate today = LocalDate.of(2026, 9, 2);
@@ -58,9 +63,10 @@ class RevenueDeliverySummaryServiceTest {
     void setUp() {
         service = new RevenueDeliverySummaryService(worklogEntryMapper, costEntryMapper, contractEntryMapper,
                 planMapper, otherCostMapper, monthService, businessLineMapper, projectMapper,
-                salesProjectMapper, opportunityMapper);
+                salesProjectMapper, opportunityMapper, financialReportService);
         lenient().when(salesProjectMapper.selectList(null)).thenReturn(List.of());
         lenient().when(opportunityMapper.selectList(null)).thenReturn(List.of());
+        lenient().when(financialReportService.loadYearMap(anyInt())).thenReturn(Map.of());
         lenient().when(monthService.closedMonths())
                 .thenReturn(Set.of("2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"));
         lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(
