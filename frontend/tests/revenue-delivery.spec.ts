@@ -378,6 +378,8 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   await expect(table).not.toContainText('上半年 H1')
   await expect(table).not.toContainText('下半年 H2')
   await expect(panel.getByRole('button', { name: '全年' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('button', { name: '未税' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('button', { name: '含税' })).toHaveAttribute('aria-pressed', 'false')
   await expect(table).toContainText('按交付日期')
   await expect(table).toContainText('皇家项目')
   await expect(table).toContainText('Speedo')

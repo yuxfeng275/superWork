@@ -146,6 +146,8 @@ const summaryLoading = ref(false)
 const summary = ref<DeliverySummary | null>(null)
 // 利润口径：true=含预估（营收含预估交付、成本含预估工时成本），false=只看实际
 const includeEstimate = ref(true)
+// 税务口径：true=未税营收（÷(1+税率)），false=含税（合同应收原始口径），与财报对齐用未税
+const excludeTax = ref(true)
 // 表格期间仅影响本地展示；切换期间不重新请求汇总
 const selectedPeriod = ref<PeriodKey>('ytd')
 let summarySeq = 0
@@ -164,7 +166,7 @@ const refreshSummary = async () => {
   summaryLoading.value = true
   try {
     const [data] = await Promise.all([
-      api.getDeliverySummary({ year: props.year, includeEstimate: includeEstimate.value }),
+      api.getDeliverySummary({ year: props.year, includeEstimate: includeEstimate.value, excludeTax: excludeTax.value }),
       loadAllYearCosts()
     ])
     if (seq !== summarySeq) return
@@ -865,6 +867,10 @@ watch(includeEstimate, () => {
   void refreshSummary()
 })
 
+watch(excludeTax, () => {
+  void refreshSummary()
+})
+
 defineExpose({ reload: () => refreshSummary() })
 </script>
 
@@ -898,6 +904,10 @@ defineExpose({ reload: () => refreshSummary() })
             <button type="button" :class="{ active: includeEstimate }" :aria-pressed="includeEstimate" @click="includeEstimate = true">含预估</button>
             <button type="button" :class="{ active: !includeEstimate }" :aria-pressed="!includeEstimate" @click="includeEstimate = false">只看实际</button>
           </div>
+          <div class="segment-switch" aria-label="营收税务口径" role="group">
+            <button type="button" :class="{ active: excludeTax }" :aria-pressed="excludeTax" @click="excludeTax = true">未税</button>
+            <button type="button" :class="{ active: !excludeTax }" :aria-pressed="!excludeTax" @click="excludeTax = false">含税</button>
+          </div>
         </div>
 
 
@@ -916,6 +926,7 @@ defineExpose({ reload: () => refreshSummary() })
               <p>概览卡为全年口径；下方表格当前显示 {{ selectedPeriodGroup.label }}，金额按合同交付日期（delivery_date）归集，年份=交付日期年份。</p>
               <p>「销售工时/销售成本」：项目行 = 成单销售（有明确成单证据才计入）；小计/合计行 = 未分配销售（仅扣业务线/整表利润，不分摊到项目）；会员通「项目集」聚合行 = 该线全部销售。</p>
               <p>「利润/利润率」为真实利润口径：项目行扣成单销售成本，业务线/整表再扣未分配销售成本。</p>
+              <p>左上角「未税/含税」切换营收税务口径：未税=已交付/预估交付/合同额 ÷(1+业务线税率)，默认未税（与财报一致）；含税=合同应收原始口径。</p>
               <p>末行「全表（含销售）」：工时列=工时+销售工时、成本列=工时成本+销售成本（销售为含已分配的全口径，与小计/合计行只列未分配不同），与「工时&成本」页全表口径对齐（两边均不含业务线级项目工时）。</p>
               <p>业务线级合同（如福田定制，未落具体项目）在业务线合计/整表合计行以「线」徽标标注，悬停可查看金额明细，不消失。</p>
               <p>合计行「销」「线」「无」为备注文号：销=含未分配销售，线=含业务线级合同，无=存在交付日期为空的合同。</p>
