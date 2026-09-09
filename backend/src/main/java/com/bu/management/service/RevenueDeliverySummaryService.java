@@ -60,8 +60,8 @@ import java.util.stream.Collectors;
  *       商机客户在同年合同明细中存在唯一已映射项目的同客户合同 → 落入该项目行。</li>
  *   <li>其余（商机集合/其他/无商机绑定/客户匹配多项目或无匹配合同）保留在业务线池（未分配），
  *       原因按代码汇总在 salesUnallocatedDetail（见 {@link RevenueDeliverySummaryVO.UnallocatedItem}）。</li>
- *   <li>项目真实利润 trueProfit = 营收 − 项目工时成本(±预估) − 已分配销售成本 − 其他成本；
- *       业务线/整表 trueProfit = Σ项目真实利润 − 未分配销售成本（=毛利，销售成本已全额计入）。</li>
+ *   <li>full 模式业务线级项目工时（project_id 为空，矩阵归入「其他」行）→ 计入线 totals 工时/成本，
+ *       项目行不污染；由此交付与利润的全表「含销售合计」行可与工时&成本对账。</li>
  * </ul>
  */
 @Service
@@ -210,6 +210,7 @@ public class RevenueDeliverySummaryService {
         // 完结月实际工时/成本按桶×月累计（工时=工时明细人月，缺失回退成本明细人月）
         Map<String, MonthAcc> laborAcc = new HashMap<>();
         Map<String, MonthAcc> salesAcc = new HashMap<>();
+        Map<Long, MonthAcc> lineProjectAcc = new HashMap<>();
         for (RevenueWorklogEntry entry : worklogEntryMapper.selectList(new LambdaQueryWrapper<RevenueWorklogEntry>()
                 .eq(RevenueWorklogEntry::getPending, 0).likeRight(RevenueWorklogEntry::getYearMonth, yearPrefix))) {
             if (!closed.contains(entry.getYearMonth())
@@ -229,6 +230,9 @@ public class RevenueDeliverySummaryService {
                         projectsById, aliasToRoot);
                 if (key != null) {
                     laborAcc.computeIfAbsent(key, k -> new MonthAcc()).addWorklogHours(m, entry.getHours());
+                } else if ("full".equals(mode) && entry.getProjectId() == null) {
+                    lineProjectAcc.computeIfAbsent(entry.getBusinessLineId(), k -> new MonthAcc())
+                            .addWorklogHours(m, entry.getHours());
                 }
             }
         }
@@ -259,9 +263,14 @@ public class RevenueDeliverySummaryService {
                 String key = laborBucketKey(entry.getBusinessLineId(), entry.getProjectId(), mode,
                         projectsById, aliasToRoot);
                 if (key == null) {
-                    continue;
+                    if ("full".equals(mode) && entry.getProjectId() == null) {
+                        acc = lineProjectAcc.computeIfAbsent(entry.getBusinessLineId(), k -> new MonthAcc());
+                    } else {
+                        continue;
+                    }
+                } else {
+                    acc = laborAcc.computeIfAbsent(key, k -> new MonthAcc());
                 }
-                acc = laborAcc.computeIfAbsent(key, k -> new MonthAcc());
             }
             acc.addCostHours(m, entry.getHours());
             if (visible) {
@@ -351,6 +360,11 @@ public class RevenueDeliverySummaryService {
                 addInto(totals, row);
             }
             addSalesInto(totals, sales, includeEstimate);
+            // full 模式业务线级项目工时（project_id 为空，矩阵归入「其他」行）→ 计入线 totals
+            MonthAcc lineProject = lineProjectAcc.get(line.getId());
+            if (lineProject != null) {
+                addLineProjectInto(totals, lineProject, includeEstimate);
+            }
             BigDecimal lineContract = lineUnallocatedContract.getOrDefault(line.getId(), BigDecimal.ZERO);
             BigDecimal lineDelivered = lineUnallocatedDelivered.getOrDefault(line.getId(), BigDecimal.ZERO);
             String lineKey = "line-unallocated:" + line.getId();
@@ -606,6 +620,24 @@ public class RevenueDeliverySummaryService {
             BigDecimal allocatedH = win.getAllocatedSalesHours();
             win.setUnallocatedSalesCost(sCost.subtract(allocatedC).max(BigDecimal.ZERO));
             win.setUnallocatedSalesHours(sHours.subtract(allocatedH).max(BigDecimal.ZERO));
+            recompute(win, includeEstimate);
+        }
+    }
+
+    /** 线 totals：业务线级项目工时（project_id=null，full 模式）→ 并入 totals 工时/成本列并重算利润 */
+    private void addLineProjectInto(RevenueDeliverySummaryVO.ProjectRow totals, MonthAcc lineProject,
+                                    boolean includeEstimate) {
+        for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
+            int from = win == totals.getH1() ? 0 : (win == totals.getH2() ? 6 : 0);
+            int to = win == totals.getH1() ? 5 : 11;
+            BigDecimal lpHours = BigDecimal.ZERO;
+            BigDecimal lpCost = BigDecimal.ZERO;
+            for (int m = from; m <= to; m++) {
+                lpHours = lpHours.add(lineProject.hoursOf(m));
+                lpCost = lpCost.add(lineProject.costOf(m));
+            }
+            win.setProjectHours(win.getProjectHours().add(lpHours));
+            win.setProjectLaborCost(win.getProjectLaborCost().add(lpCost));
             recompute(win, includeEstimate);
         }
     }
