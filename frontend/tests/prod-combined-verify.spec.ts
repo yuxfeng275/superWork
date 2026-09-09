@@ -1,0 +1,21 @@
+import { expect, test } from '@playwright/test'
+
+test('241 生产验证：全表（含销售）合计行', async ({ page }) => {
+  test.setTimeout(120000)
+  await page.goto('/')
+  await page.waitForTimeout(1000)
+  await page.locator('input[placeholder*="用户名"], input[type="text"]').first().fill('admin')
+  await page.locator('input[type="password"]').first().fill('123456')
+  await page.getByRole('button', { name: /登录|登 录/ }).click()
+  await page.waitForTimeout(1500)
+  await page.getByText('营收管理', { exact: true }).first().click()
+  await page.waitForTimeout(2000)
+  await page.getByRole('tab', { name: '交付与利润' }).click()
+  await page.waitForTimeout(2000)
+  const panel = page.getByRole('tabpanel', { name: '交付与利润' })
+  const combined = panel.locator('.matrix-table tbody tr', { hasText: '全表（含销售）' })
+  await expect(combined).toHaveCount(1)
+  const grand = panel.locator('.matrix-table tbody tr.grand-total-row').first()
+  console.log('全表     :', (await grand.innerText()).replace(/\s+/g, ' '))
+  console.log('含销售合计:', (await combined.innerText()).replace(/\s+/g, ' '))
+})

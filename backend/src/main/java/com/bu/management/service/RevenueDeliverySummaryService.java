@@ -92,6 +92,7 @@ public class RevenueDeliverySummaryService {
     private final ProjectMapper projectMapper;
     private final RevenueSalesProjectMapper salesProjectMapper;
     private final SalesOpportunityMapper opportunityMapper;
+    private final RevenueFinancialReportService financialReportService;
 
     public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate) {
         return summary(year, includeEstimate, false);
@@ -450,6 +451,105 @@ public class RevenueDeliverySummaryService {
             out.getSalesUnallocatedDetail().sort(Comparator.comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
             out.setTotals(totals);
             vo.getLines().add(out);
+        }
+
+        // ===== 财报收入对齐 =====
+        // 加载财报月度数据，按 会员通/精准/定制+SAAS 三类与系统收入对比，差额以「财务调节」行补充
+        Map<Long, Map<String, BigDecimal>> finByLine = financialReportService.loadYearMap(year);
+        // 计算系统各线 H1 / H2 / YTD 已交付收入（从 deliveredByMonth 按行汇总）
+        Map<Long, BigDecimal[]> sysRev = new HashMap<>(); // lineId -> [h1, h2, ytd]
+        for (BusinessLine line : lines) {
+            BigDecimal[] arr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+            List<RowDef> defs = rowsOfLine.get(line.getId());
+            if (defs != null) {
+                for (RowDef def : defs) {
+                    BigDecimal[] dm = deliveredByMonth.get(def.rowKey);
+                    if (dm != null) {
+                        for (int m = 0; m < 12; m++) {
+                            BigDecimal v = dm[m] != null ? dm[m] : BigDecimal.ZERO;
+                            arr[2] = arr[2].add(v);
+                            if (m <= 5) arr[0] = arr[0].add(v);
+                            else arr[1] = arr[1].add(v);
+                        }
+                    }
+                }
+            }
+            // 加上线级未分配已交付
+            BigDecimal[] ldm = lineUnallocatedDeliveredByMonth.get(String.valueOf(line.getId()));
+            if (ldm != null) {
+                for (int m = 0; m < 12; m++) {
+                    BigDecimal v = ldm[m] != null ? ldm[m] : BigDecimal.ZERO;
+                    arr[2] = arr[2].add(v);
+                    if (m <= 5) arr[0] = arr[0].add(v);
+                    else arr[1] = arr[1].add(v);
+                }
+            }
+            sysRev.put(line.getId(), arr);
+        }
+        // 计算财报各线 H1/H2/YTD
+        Map<Long, BigDecimal[]> finRev = new HashMap<>();
+        for (Map.Entry<Long, Map<String, BigDecimal>> e : finByLine.entrySet()) {
+            Long lid = e.getKey();
+            BigDecimal[] arr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+            for (Map.Entry<String, BigDecimal> me : e.getValue().entrySet()) {
+                int m = Integer.parseInt(me.getKey().substring(5, 7)) - 1;
+                arr[2] = arr[2].add(me.getValue());
+                if (m <= 5) arr[0] = arr[0].add(me.getValue());
+                else arr[1] = arr[1].add(me.getValue());
+            }
+            finRev.put(lid, arr);
+        }
+        // 定制+SAAS 合计对比
+        BigDecimal[] finCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        BigDecimal[] sysCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        for (Long lid : List.of(1L, 2L)) {
+            BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+            BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+            for (int i = 0; i < 3; i++) {
+                finCustomSaas[i] = finCustomSaas[i].add(f[i]);
+                sysCustomSaas[i] = sysCustomSaas[i].add(s[i]);
+            }
+        }
+        // 为每条线插入财务调节行（如果财报 > 系统）
+        for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
+            Long lid = out.getBusinessLineId();
+            BigDecimal gapH1 = BigDecimal.ZERO, gapH2 = BigDecimal.ZERO, gapYtd = BigDecimal.ZERO;
+            if (lid == 1L || lid == 2L) {
+                // 定制/SAAS 用合计对比，按各线系统收入占比分摊
+                BigDecimal totalSysCustomSaas = sysCustomSaas[2];
+                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                if (totalSysCustomSaas.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal ratio = s[2].divide(totalSysCustomSaas, 6, RoundingMode.HALF_UP);
+                    for (int i = 0; i < 3; i++) {
+                        BigDecimal combinedGap = finCustomSaas[i].subtract(sysCustomSaas[i]);
+                        if (combinedGap.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal[] arr = {gapH1, gapH2, gapYtd};
+                            arr[i] = combinedGap.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+                            gapH1 = arr[0]; gapH2 = arr[1]; gapYtd = arr[2];
+                        }
+                    }
+                }
+            } else {
+                // 会员通/精准：直接对比
+                BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                gapH1 = f[0].subtract(s[0]).max(BigDecimal.ZERO);
+                gapH2 = f[1].subtract(s[1]).max(BigDecimal.ZERO);
+                gapYtd = f[2].subtract(s[2]).max(BigDecimal.ZERO);
+            }
+            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0) continue;
+            // 创建财务调节行
+            RevenueDeliverySummaryVO.ProjectRow adj = new RevenueDeliverySummaryVO.ProjectRow();
+            adj.setName("财务调节");
+            adj.setIsAggregate(false);
+            adj.getH1().setDelivered(gapH1);
+            adj.getH2().setDelivered(gapH2);
+            adj.getYtd().setDelivered(gapYtd);
+            // 并入线 totals
+            addInto(out.getTotals(), adj);
+            // 追加到项目行列表
+            if (out.getProjects() == null) out.setProjects(new ArrayList<>());
+            out.getProjects().add(adj);
         }
 
         BigDecimal totalOa = BigDecimal.ZERO;
