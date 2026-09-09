@@ -537,7 +537,7 @@ public class RevenueDeliverySummaryService {
                 gapH2 = f[1].subtract(s[1]).max(BigDecimal.ZERO);
                 gapYtd = f[2].subtract(s[2]).max(BigDecimal.ZERO);
             }
-            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0) continue;
+            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0 && gapH1.compareTo(BigDecimal.ZERO) <= 0 && gapH2.compareTo(BigDecimal.ZERO) <= 0) continue;
             // 创建财务调节行
             RevenueDeliverySummaryVO.ProjectRow adj = new RevenueDeliverySummaryVO.ProjectRow();
             adj.setName("财务调节");
