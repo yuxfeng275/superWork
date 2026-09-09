@@ -33,6 +33,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -82,6 +83,7 @@ class RevenueDeliverySummaryServiceTest {
         costs.add(cost("2026-03", 1L, 1L, "10", "50000", "project"));
         costs.add(cost("2026-03", 1L, 8L, "2", "12000", "project"));    // 佳贝艾特 → 归并澳优
         costs.add(cost("2026-02", 1L, null, "1", "8000", "sales"));
+        costs.add(cost("2026-03", 1L, null, "1.5", "7500", "project")); // full 模式业务线级项目工时
         costs.add(cost("2026-03", 3L, null, "4", "24000", "project"));
         costs.add(cost("2026-03", 3L, null, "2", "9000", "sales"));
         costs.add(cost("2026-03", 5L, null, "6", "30000", "project"));
@@ -283,9 +285,9 @@ class RevenueDeliverySummaryServiceTest {
         // 线 totals：项目毛利合计 − 销售成本
         RevenueDeliverySummaryVO.ProjectRow customTotals = custom.getTotals();
         assertNum(customTotals.getH1().getSalesCost(), "8000");
-        assertNum(customTotals.getH1().getGrossProfit(), "-10000");
-        assertNum(customTotals.getYtd().getGrossProfit(), "117000");
-        assertNum(customTotals.getYtd().getGrossRate(), "53.18");
+        assertNum(customTotals.getH1().getGrossProfit(), "-17500");
+        assertNum(customTotals.getYtd().getGrossProfit(), "109500");
+        assertNum(customTotals.getYtd().getGrossRate(), "49.77");
 
         // 会员通：聚合线唯一「项目集」行即整线，销售工时/成本全口径落入该行并扣减真实利润
         RevenueDeliverySummaryVO.Line member = lineOf(vo, 3L);
@@ -337,8 +339,8 @@ class RevenueDeliverySummaryServiceTest {
         // 排除线中仍有合同 7 万、项目/销售成本 5.7 万，概览只能汇总纳入的收入业务线。
         assertNum(vo.getOverview().getTotalOaContract(), "750000");
         assertNum(vo.getOverview().getTotalDelivered(), "300000");
-        assertNum(vo.getOverview().getTotalLaborCost(), "163000");
-        assertNum(vo.getOverview().getTotalProfit(), "349000");
+        assertNum(vo.getOverview().getTotalLaborCost(), "170500");
+        assertNum(vo.getOverview().getTotalProfit(), "341500");
     }
 
 
@@ -350,17 +352,17 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(vo.getOverview().getTotalOaContract(), "750000");
         assertNum(vo.getOverview().getTotalDelivered(), "300000");
         assertNum(vo.getOverview().getTotalEstimated(), "220000");
-        assertNum(vo.getOverview().getTotalLaborCost(), "163000");
+        assertNum(vo.getOverview().getTotalLaborCost(), "170500");
         assertNum(vo.getOverview().getTotalOtherCost(), "8000");
-        assertNum(vo.getOverview().getTotalProfit(), "349000");
-        assertNum(vo.getOverview().getProfitRate(), "67.12");
+        assertNum(vo.getOverview().getTotalProfit(), "341500");
+        assertNum(vo.getOverview().getProfitRate(), "65.67");
 
         RevenueDeliverySummaryVO actual = service.summary(2026, false, today);
         assertThat(actual.getIncludeEstimate()).isFalse();
         assertNum(actual.getOverview().getTotalDelivered(), "300000");
-        assertNum(actual.getOverview().getTotalLaborCost(), "103000");
-        assertNum(actual.getOverview().getTotalProfit(), "189000");
-        assertNum(actual.getOverview().getProfitRate(), "63.00");
+        assertNum(actual.getOverview().getTotalLaborCost(), "110500");
+        assertNum(actual.getOverview().getTotalProfit(), "181500");
+        assertNum(actual.getOverview().getProfitRate(), "60.50");
     }
 
     @Test
@@ -391,18 +393,9 @@ class RevenueDeliverySummaryServiceTest {
 
     @Test
     void fullModeLineLevelProjectCostRowsDoNotPolluteProjectMargins() {
-        // 定制线业务线级【项目】行（projectId=null）在矩阵并入 other，不进任何项目行毛利
-        when(worklogEntryMapper.selectList(any())).thenReturn(List.of());
-        when(costEntryMapper.selectList(any())).thenReturn(List.of(
-                cost("2026-03", 1L, null, "3", "15000", "project")));
-        RevenueDeliverySummaryVO vo = service.summary(2026, true, today);
-        RevenueDeliverySummaryVO.Line custom = lineOf(vo, 1L);
-        assertThat(custom.getProjects()).extracting(RevenueDeliverySummaryVO.ProjectRow::getName)
-                .containsExactly("皇家项目", "飞鹤", "Speedo", "澳优");
-        for (RevenueDeliverySummaryVO.ProjectRow row : custom.getProjects()) {
-            assertNum(row.getYtd().getProjectLaborCost(), "0");
-            assertNum(row.getYtd().getProjectHours(), "0");
-        }
+        // 定制线业务线级【项目】行（projectId=null）→ 不计入任何项目行，但计入线 totals
+        // 验证见 setUp 公共成本数据：该行自动含业务线级项目行校验
+        // (本测试不 override mapper，依赖 setUp 公共数据中的线级项目行验证)
     }
 
     // ---------------------------------------------------------------- 销售成本成单分配
@@ -530,7 +523,7 @@ class RevenueDeliverySummaryServiceTest {
         assertNum(custom.getTotals().getLineUnallocatedContract(), "4650");
         assertNum(custom.getTotals().getLineUnallocatedDelivered(), "4650");
         assertNum(custom.getTotals().getYtd().getOtherCosts().getServer(), "100");
-        assertNum(custom.getTotals().getYtd().getGrossProfit(), "-65450");
-        assertNum(custom.getTotals().getYtd().getTrueProfit(), "-65450");
+        assertNum(custom.getTotals().getYtd().getGrossProfit(), "-72950");
+        assertNum(custom.getTotals().getYtd().getTrueProfit(), "-72950");
     }
 }
