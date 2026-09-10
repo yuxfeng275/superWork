@@ -87,6 +87,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '营收管理', roleAccess: 'management' }
       },
       {
+        path: 'kpi-report',
+        name: 'KpiReport',
+        component: () => import('@/views/KpiReportView.vue'),
+        meta: { title: 'KPI周报', roleAccess: 'management' }
+      },
+      {
         path: 'projects',
         name: 'Projects',
         component: () => import('@/views/ProjectView.vue'),

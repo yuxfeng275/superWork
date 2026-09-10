@@ -54,6 +54,9 @@ public class BusinessLine {
      */
     private BigDecimal taxRate;
 
+    /** KPI报表行分组（会员通/全渠道云鹿/全渠道精准），NULL=不参与 KPI 周报 */
+    private String kpiReportGroup;
+
     /**
      * 创建时间
      */

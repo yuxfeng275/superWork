@@ -38,6 +38,18 @@ public class RevenueContractEntry {
     private String saleMonth;
     /** 项目交付日期；NULL=未交付 */
     private LocalDate deliveryDate;
+    /** 短信成本（元），工时系统同步带入 */
+    private BigDecimal smsCost;
+    /** 直接成本（元） */
+    private BigDecimal directCost;
+    /** 三方采购成本（元） */
+    private BigDecimal thirdPartyCost;
+    /** 实收金额（元） */
+    private BigDecimal receivedAmount;
+    /** 收款状态 */
+    private String paymentStatus;
+    /** 1=人工调整过归属，自动同步不覆盖映射 */
+    private Integer mappingLocked;
     /** 1=待人工映射项目 */
     private Integer pending;
     private Long createdBy;

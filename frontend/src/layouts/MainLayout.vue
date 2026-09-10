@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
 import type { AiNotice } from '@/types/ai-agent'
 import { getRoleLabel, hasRoleAccess, type RoleAccess } from '@/constants/roles'
+import type { MenuTreeNode } from '@/types/kpi'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const app = getCurrentInstance()?.appContext.app
 
 const isCollapsed = ref(false)
 const requirementBadge = ref<number | null>(null)
@@ -81,7 +83,8 @@ interface NavSection {
   items: NavItem[]
 }
 
-const navItems: NavSection[] = [
+/** 内置默认菜单：仅在用户无任何菜单授权记录时回退（防止角色未配置锁死） */
+const defaultNavItems: NavSection[] = [
   {
     section: '工作台',
     items: [
@@ -117,7 +120,8 @@ const navItems: NavSection[] = [
     section: '数据分析',
     items: [
       { path: '/statistics', icon: 'DataAnalysis', label: 'BU驾驶舱', access: 'management' },
-      { path: '/revenue', icon: 'Coin', label: '营收管理', access: 'management' }
+      { path: '/revenue', icon: 'Coin', label: '营收管理', access: 'management' },
+      { path: '/kpi-report', icon: 'DataLine', label: 'KPI周报', access: 'management' }
     ]
   },
   {
@@ -135,6 +139,43 @@ const navItems: NavSection[] = [
 // 菜单授权：角色管理配置的菜单权限从后端读取；角色无任何授权时回退岗位默认
 const menuAuth = ref<{ allowed: Set<string>; managed: Set<string> } | null>(null)
 
+/** 动态菜单树（V57 起）：非空则完全以后端授权为准渲染侧边栏 */
+const menuTree = ref<MenuTreeNode[]>([])
+
+const resolveIcon = (name: string | null | undefined): string => {
+  if (name && app && app.component(name)) return name
+  return 'Menu'
+}
+
+/** 动态菜单 → 侧边栏分区结构。分区组节点（path 为 /sec-、/base、/system 伪路径）不跳转。 */
+const dynamicNavItems = computed<NavSection[]>(() =>
+  menuTree.value
+    .map(node => {
+      const children = (node.children ?? [])
+        .filter(child => child.path)
+        .map(child => ({
+          path: child.path === '/home' ? '/' : (child.path as string),
+          icon: resolveIcon(child.icon),
+          label: child.name,
+          requiresKeyMatterAccess: child.path === '/key-matters' ? true : undefined
+        }))
+      // 顶层叶子菜单（无子项且有真实路径）直接作为无分区项
+      if (children.length === 0 && node.path && !node.path.startsWith('/sec-') && node.path !== '/base' && node.path !== '/system') {
+        return {
+          section: '',
+          items: [{
+            path: node.path === '/home' ? '/' : node.path,
+            icon: resolveIcon(node.icon),
+            label: node.name,
+            requiresKeyMatterAccess: node.path === '/key-matters' ? true : undefined
+          }]
+        }
+      }
+      return { section: node.name, items: children }
+    })
+    .filter(section => section.items.length > 0)
+)
+
 const loadMenuAuth = async () => {
   try {
     const payload = await api.getMyMenus()
@@ -149,18 +190,37 @@ const loadMenuAuth = async () => {
   }
 }
 
+const loadMenuTree = async () => {
+  try {
+    const tree = await api.getMyMenuTree()
+    menuTree.value = Array.isArray(tree) ? tree : []
+  } catch {
+    menuTree.value = []
+  }
+}
+
 const menuPathAlias = (path: string) => path === '/' ? '/home' : path
 
 const menuAuthorized = (path: string) => {
   if (!menuAuth.value) return true
   const alias = menuPathAlias(path)
-  if (!menuAuth.value.managed.has(alias)) return true   // 未纳管菜单（如营收管理）不受授权影响
+  if (!menuAuth.value.managed.has(alias)) return true   // 未纳管菜单不受授权影响
   return menuAuth.value.allowed.has(alias)
 }
 
-
-const visibleNavItems = computed(() =>
-  navItems
+const visibleNavItems = computed(() => {
+  // 动态模式：后端授权树直接驱动，仅保留大事儿管理的领域准入叠加
+  if (menuTree.value.length > 0) {
+    return dynamicNavItems.value
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item =>
+          !item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
+      }))
+      .filter(section => section.items.length > 0)
+  }
+  // 回退模式：内置默认菜单 + 岗位默认 + 授权叠加（历史行为）
+  return defaultNavItems
     .map(section => ({
       ...section,
       items: section.items.filter(item =>
@@ -170,7 +230,7 @@ const visibleNavItems = computed(() =>
       )
     }))
     .filter(section => section.items.length > 0)
-)
+})
 
 const isActive = (path: string) => {
   if (path === '/') return route.path === '/'
@@ -210,7 +270,8 @@ onMounted(() => {
   void Promise.allSettled([
     loadRequirementBadge(),
     authStore.loadKeyMatterAccess(),
-    loadMenuAuth()
+    loadMenuAuth(),
+    loadMenuTree()
   ])
 })
 </script>
@@ -239,8 +300,8 @@ onMounted(() => {
 
       <!-- 导航菜单 -->
       <nav class="sidebar-nav">
-        <div v-for="section in visibleNavItems" :key="section.section" class="nav-section">
-          <div class="nav-section-title">{{ section.section }}</div>
+        <div v-for="(section, sectionIndex) in visibleNavItems" :key="section.section || sectionIndex" class="nav-section">
+          <div v-if="section.section" class="nav-section-title">{{ section.section }}</div>
           <router-link
             v-for="item in section.items"
             :key="item.path"

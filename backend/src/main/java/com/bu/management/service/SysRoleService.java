@@ -312,13 +312,7 @@ public class SysRoleService extends ServiceImpl<SysRoleMapper, SysRole> {
         if (roles.isEmpty()) {
             return List.of();
         }
-        if (roles.stream().anyMatch(role -> PositionRoles.isAdminRole(role.getCode()))) {
-            return sysMenuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
-                            .eq(SysMenu::getStatus, 1)).stream()
-                    .map(SysMenu::getPath)
-                    .distinct()
-                    .toList();
-        }
+        // 菜单可见性完全由角色菜单授权决定（V57 起移除管理员旁路，角色管理配置为唯一权威）
         List<Long> roleIds = roles.stream().map(SysRole::getId).toList();
         List<Long> menuIds = sysRoleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
                         .in(SysRoleMenu::getRoleId, roleIds)).stream()
@@ -342,6 +336,53 @@ public class SysRoleService extends ServiceImpl<SysRoleMapper, SysRole> {
                         .eq(SysMenu::getStatus, 1)).stream()
                 .map(SysMenu::getPath)
                 .distinct()
+                .toList();
+    }
+
+    /**
+     * 当前用户可见菜单树（侧边栏动态渲染用）：按角色菜单授权过滤，
+     * 仅含 status=1 且 visible=1；分区组（伪路径 /sec-、/base、/system）只在有可见子项时返回。
+     * 用户无任何菜单授权时返回空列表，前端回退内置默认菜单防止锁死。
+     */
+    public List<com.bu.management.vo.MenuTreeNode> getMenuTreeByUserId(Long userId) {
+        List<SysRole> roles = getRolesByUserId(userId);
+        if (roles.isEmpty()) {
+            return List.of();
+        }
+        List<Long> roleIds = roles.stream().map(SysRole::getId).toList();
+        List<Long> menuIds = sysRoleMenuMapper.selectList(new LambdaQueryWrapper<SysRoleMenu>()
+                        .in(SysRoleMenu::getRoleId, roleIds)).stream()
+                .map(SysRoleMenu::getMenuId)
+                .distinct()
+                .toList();
+        if (menuIds.isEmpty()) {
+            return List.of();
+        }
+        List<SysMenu> granted = sysMenuMapper.selectList(new LambdaQueryWrapper<SysMenu>()
+                .in(SysMenu::getId, menuIds)
+                .eq(SysMenu::getStatus, 1)
+                .eq(SysMenu::getVisible, 1));
+        java.util.Comparator<SysMenu> bySort = java.util.Comparator.comparing(
+                m -> m.getSortOrder() == null ? 0 : m.getSortOrder());
+        Map<Long, List<SysMenu>> childrenByParent = granted.stream()
+                .filter(m -> m.getParentId() != null && m.getParentId() != 0)
+                .sorted(bySort)
+                .collect(java.util.stream.Collectors.groupingBy(SysMenu::getParentId));
+        return granted.stream()
+                .filter(m -> m.getParentId() == null || m.getParentId() == 0)
+                .sorted(bySort)
+                .map(parent -> {
+                    List<com.bu.management.vo.MenuTreeNode> children = childrenByParent
+                            .getOrDefault(parent.getId(), List.of()).stream()
+                            .map(child -> new com.bu.management.vo.MenuTreeNode(
+                                    child.getId(), child.getName(), child.getIcon(), child.getPath(),
+                                    child.getSortOrder(), List.of()))
+                            .toList();
+                    return new com.bu.management.vo.MenuTreeNode(
+                            parent.getId(), parent.getName(), parent.getIcon(), parent.getPath(),
+                            parent.getSortOrder(), children);
+                })
+                .filter(node -> node.getPath() != null || !node.getChildren().isEmpty())
                 .toList();
     }
 

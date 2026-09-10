@@ -38,6 +38,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
+import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, WorktimeTestResult, MenuTreeNode } from '@/types/kpi'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
@@ -1386,6 +1387,91 @@ class ApiService {
 
   async getEmailValueMetrics(): Promise<EmailValueMetrics> {
     return this.request<EmailValueMetrics>('/api/emails/metrics')
+  }
+
+  async getKpiReport(year: number): Promise<KpiReport> {
+    return this.request<KpiReport>(`/api/kpi/report?year=${year}`)
+  }
+
+  async runKpiSnapshot(weekEndDate?: string): Promise<unknown> {
+    const query = weekEndDate ? `?weekEndDate=${weekEndDate}` : ''
+    return this.request<unknown>(`/api/kpi/snapshot/run${query}`, { method: 'POST' })
+  }
+
+  async getKpiTargets(year: number): Promise<KpiTarget[]> {
+    return this.request<KpiTarget[]>(`/api/kpi/targets?year=${year}`)
+  }
+
+  async saveKpiTarget(payload: {
+    year: number; reportGroup: string; revenueTarget: number; profitTarget: number; remark?: string
+  }): Promise<KpiTarget> {
+    return this.request<KpiTarget>('/api/kpi/targets', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async saveKpiNote(id: number, payload: {
+    deviationReason: string; isAbnormal: number | null; countermeasure?: string
+  }): Promise<KpiNote> {
+    return this.request<KpiNote>(`/api/kpi/notes/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async getKpiAlertRules(): Promise<KpiAlertRule[]> {
+    return this.request<KpiAlertRule[]>('/api/kpi/alert-rules')
+  }
+
+  async saveKpiAlertRule(payload: {
+    reportGroup?: string | null; weeklyDivisor?: number; yellowRatio?: number; enabled?: number
+  }): Promise<KpiAlertRule> {
+    return this.request<KpiAlertRule>('/api/kpi/alert-rules', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async getWorktimeStatus(): Promise<WorktimeStatus> {
+    return this.request<WorktimeStatus>('/api/worktime/status')
+  }
+
+  async saveWorktimeConfig(payload: {
+    enabled: boolean; baseUrl: string; employeeNo?: string; password?: string
+  }): Promise<unknown> {
+    return this.request<unknown>('/api/worktime/config', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async testWorktimeConnection(): Promise<WorktimeTestResult> {
+    return this.request<WorktimeTestResult>('/api/worktime/connection-test', { method: 'POST' })
+  }
+
+  async syncWorktimeContracts(year?: number): Promise<WorktimeSyncLog> {
+    const query = year ? `?year=${year}` : ''
+    return this.request<WorktimeSyncLog>(`/api/worktime/sync/contracts${query}`, { method: 'POST' })
+  }
+
+  async syncWorktimeMonthly(forceMonth?: string): Promise<WorktimeSyncLog[]> {
+    const query = forceMonth ? `?forceMonth=${forceMonth}` : ''
+    return this.request<WorktimeSyncLog[]>(`/api/worktime/sync/monthly${query}`, { method: 'POST' })
+  }
+
+  async downloadKpiReport(year: number): Promise<void> {
+    const token = this.getToken()
+    const response = await fetch(`${this.baseUrl}/api/kpi/report/export?year=${year}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (!response.ok) {
+      throw new ApiRequestError(`HTTP error! status: ${response.status}`, response.status)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `KPI周报-${year}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async getWorktimeSyncLogs(syncType?: string): Promise<WorktimeSyncLog[]> {
+    const query = syncType ? `?syncType=${syncType}` : ''
+    return this.request<WorktimeSyncLog[]>(`/api/worktime/sync/logs${query}`)
+  }
+
+  async getMyMenuTree(): Promise<MenuTreeNode[]> {
+    return this.request<MenuTreeNode[]>('/api/auth/my-menu-tree')
   }
 
   async getSystemConfigGroups(): Promise<SystemConfigGroupSummary[]> {

@@ -537,11 +537,14 @@ public class RevenueDeliverySummaryService {
                 gapH2 = f[1].subtract(s[1]).max(BigDecimal.ZERO);
                 gapYtd = f[2].subtract(s[2]).max(BigDecimal.ZERO);
             }
-            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0) continue;
-            // 创建财务调节行
+            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0 && gapH1.compareTo(BigDecimal.ZERO) <= 0 && gapH2.compareTo(BigDecimal.ZERO) <= 0) continue;
+            // 创建财务调节行（窗口需完整初始化，否则 addWindow 合并 otherCosts 时 NPE）
             RevenueDeliverySummaryVO.ProjectRow adj = new RevenueDeliverySummaryVO.ProjectRow();
             adj.setName("财务调节");
             adj.setIsAggregate(false);
+            adj.setH1(newRevenueWindow());
+            adj.setH2(newRevenueWindow());
+            adj.setYtd(newRevenueWindow());
             adj.getH1().setDelivered(gapH1);
             adj.getH2().setDelivered(gapH2);
             adj.getYtd().setDelivered(gapYtd);
@@ -734,15 +737,21 @@ public class RevenueDeliverySummaryService {
         target.setAllocatedSalesHours(add(target.getAllocatedSalesHours(), src.getAllocatedSalesHours()));
         target.setAllocatedSalesCost(add(target.getAllocatedSalesCost(), src.getAllocatedSalesCost()));
         RevenueDeliverySummaryVO.OtherCosts other = target.getOtherCosts();
-        other.setPartner(add(other.getPartner(), src.getOtherCosts().getPartner()));
-        other.setServer(add(other.getServer(), src.getOtherCosts().getServer()));
-        other.setSms(add(other.getSms(), src.getOtherCosts().getSms()));
-        other.setOther(add(other.getOther(), src.getOtherCosts().getOther()));
-        other.setTotal(other.getPartner().add(other.getServer()).add(other.getSms()).add(other.getOther()));
+        RevenueDeliverySummaryVO.OtherCosts srcOther = src.getOtherCosts();
+        if (other != null && srcOther != null) {
+            other.setPartner(add(other.getPartner(), srcOther.getPartner()));
+            other.setServer(add(other.getServer(), srcOther.getServer()));
+            other.setSms(add(other.getSms(), srcOther.getSms()));
+            other.setOther(add(other.getOther(), srcOther.getOther()));
+            other.setTotal(other.getPartner().add(other.getServer()).add(other.getSms()).add(other.getOther()));
+        }
     }
 
     private void mergeOther(RevenueDeliverySummaryVO.Window window, RevenueDeliverySummaryVO.OtherCosts source) {
         RevenueDeliverySummaryVO.OtherCosts target = window.getOtherCosts();
+        if (target == null || source == null) {
+            return;
+        }
         target.setPartner(add(target.getPartner(), source.getPartner()));
         target.setServer(add(target.getServer(), source.getServer()));
         target.setSms(add(target.getSms(), source.getSms()));

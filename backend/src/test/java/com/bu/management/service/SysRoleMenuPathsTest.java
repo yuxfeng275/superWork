@@ -75,11 +75,22 @@ class SysRoleMenuPathsTest {
     }
 
     @Test
-    void adminRoleGetsAllEnabledMenus() {
+    void adminRoleGetsAssignedMenuPaths() {
+        // V57 起移除管理员旁路：菜单可见性完全由角色菜单授权决定
         stubRoles(7L, List.of(role(1L, "DIRECTOR")));
+        when(sysRoleMenuMapper.selectList(any())).thenReturn(List.of(roleMenu(1L, 1L), roleMenu(1L, 2L)));
         when(sysMenuMapper.selectList(any())).thenReturn(List.of(menu(1L, "/home"), menu(2L, "/tasks")));
 
         assertThat(service.getMenuPathsByUserId(7L)).containsExactlyInAnyOrder("/home", "/tasks");
+    }
+
+    @Test
+    void adminRoleWithoutAssignmentsGetsEmptyList() {
+        // 管理员角色未配置菜单授权时同样为空（前端回退内置默认菜单防锁死）
+        stubRoles(7L, List.of(role(1L, "DIRECTOR")));
+        when(sysRoleMenuMapper.selectList(any())).thenReturn(List.of());
+
+        assertThat(service.getMenuPathsByUserId(7L)).isEmpty();
     }
 
     @Test

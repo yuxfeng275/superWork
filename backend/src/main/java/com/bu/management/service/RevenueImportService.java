@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -43,11 +44,21 @@ public class RevenueImportService {
 
     @Transactional
     public RevenueImportResultVO importWorklog(MultipartFile file, String yearMonth, Long userId) {
+        try {
+            return importWorklogStream(file.getInputStream(), file.getOriginalFilename(), yearMonth, userId);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("无法读取工时 Excel: " + exception.getMessage(), exception);
+        }
+    }
+
+    /** 工时明细导入（流式入口，供工时系统自动同步复用） */
+    @Transactional
+    public RevenueImportResultVO importWorklogStream(InputStream inputStream, String fileName, String yearMonth, Long userId) {
         monthService.assertNotClosed(yearMonth);
-        RevenueImportBatch batch = newBatch("worklog", yearMonth, file.getOriginalFilename(), userId);
+        RevenueImportBatch batch = newBatch("worklog", yearMonth, fileName, userId);
 
         List<RevenueWorklogEntry> parsed = new ArrayList<>();
-        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
+        try (Workbook workbook = WorkbookFactory.create(inputStream)) {
             DataFormatter formatter = new DataFormatter();
             Sheet sheet = workbook.getSheetAt(0);
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
@@ -108,8 +119,7 @@ public class RevenueImportService {
     @Transactional
     public RevenueImportResultVO importCost(MultipartFile file, Long userId) {
         List<RevenueCostEntry> parsed = new ArrayList<>();
-        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
-            DataFormatter formatter = new DataFormatter();
+        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {            DataFormatter formatter = new DataFormatter();
             Sheet sheet = workbook.getSheetAt(0);
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
@@ -152,11 +162,23 @@ public class RevenueImportService {
         if (parsed.isEmpty()) {
             throw new IllegalArgumentException("未解析到成本数据，请确认上传的是成本分析_项目 Excel");
         }
+        return saveCostEntries(parsed, file.getOriginalFilename(), userId);
+    }
+
+    /**
+     * 成本明细落库（整月覆盖），供 Excel 导入与工时系统自动同步共用。
+     * 已完结月份拒绝；同月重复导入以新数据为准。
+     */
+    @Transactional
+    public RevenueImportResultVO saveCostEntries(List<RevenueCostEntry> parsed, String fileName, Long userId) {
+        if (parsed == null || parsed.isEmpty()) {
+            throw new IllegalArgumentException("未解析到成本数据");
+        }
 
         List<String> months = parsed.stream().map(RevenueCostEntry::getYearMonth).distinct().sorted().toList();
         months.forEach(monthService::assertNotClosed);
         String batchMonth = months.size() == 1 ? months.get(0) : months.get(0) + "~" + months.get(months.size() - 1);
-        RevenueImportBatch batch = newBatch("cost", batchMonth, file.getOriginalFilename(), userId);
+        RevenueImportBatch batch = newBatch("cost", batchMonth, fileName, userId);
         parsed.forEach(item -> item.setBatchId(batch.getId()));
 
         // 整月覆盖：以导入文件为准（含手工补录行），导入后可在页面手工调整

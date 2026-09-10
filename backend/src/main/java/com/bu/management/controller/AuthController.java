@@ -68,4 +68,13 @@ public class AuthController {
                 "paths", sysRoleService.getMenuPathsByUserId(userId),
                 "managedPaths", sysRoleService.getManagedMenuPaths()));
     }
+
+    /**
+     * 当前用户可见菜单树（侧边栏动态渲染）；无任何授权时返回空列表，前端回退内置默认菜单。
+     */
+    @Operation(summary = "当前用户菜单树", description = "侧边栏动态渲染：分区组 + 页面，按角色菜单授权过滤")
+    @GetMapping("/my-menu-tree")
+    public Result<List<com.bu.management.vo.MenuTreeNode>> myMenuTree(@RequestAttribute("userId") Long userId) {
+        return Result.success(sysRoleService.getMenuTreeByUserId(userId));
+    }
 }
