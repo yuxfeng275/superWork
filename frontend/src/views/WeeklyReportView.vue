@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, MagicStick, CircleCheck, Promotion, CopyDocument, Plus } from '@element-plus/icons-vue'
+import {
+  Refresh, MagicStick, CircleCheck, Promotion, CopyDocument, Plus,
+  Document, Loading, Checked, Coin
+} from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 
@@ -21,7 +24,10 @@ const toMonday = (value: string | Date) => {
 const currentMonday = () => toMonday(new Date())
 
 const fmtWan = (value: number | null | undefined) =>
-  value === null || value === undefined ? '—' : (value / 10000).toFixed(1) + ' 万'
+  value === null || value === undefined ? '—' : (value / 10000).toFixed(1)
+
+const shortRange = (row: WeeklyReportVO) =>
+  `${row.weekStartDate.slice(5).replace('-', '.')} – ${row.periodEndDate.slice(5).replace('-', '.')}`
 
 // ==================== 列表 ====================
 
@@ -40,6 +46,20 @@ const loadList = async () => {
 }
 
 onMounted(loadList)
+
+const summary = computed(() => {
+  const total = list.value.length
+  const inFlight = list.value.filter(r => ['PENDING', 'GENERATING', 'DRAFT'].includes(r.status)).length
+  const confirmed = list.value.filter(r => ['CONFIRMED', 'PUBLISHED'].includes(r.status)).length
+  const sheetPending = list.value.filter(r => r.yuqueDocUrl && r.sheetSyncStatus !== 'MANUAL_DONE').length
+  return {
+    total,
+    inFlight,
+    confirmed,
+    sheetPending,
+    confirmedRate: total ? Math.round((confirmed / total) * 100) : 100
+  }
+})
 
 // ==================== 新建周报 ====================
 
@@ -74,6 +94,7 @@ const current = ref<WeeklyReportVO | null>(null)
 const detailLoading = ref(false)
 const facts = ref<WeeklyReportFacts | null>(null)
 const factsLoading = ref(false)
+const factsExpanded = ref(false)
 
 const draft = ref({
   coreWork: '',
@@ -87,6 +108,7 @@ const openEditor = async (weekStartDate: string) => {
   editorVisible.value = true
   detailLoading.value = true
   facts.value = null
+  factsExpanded.value = false
   try {
     current.value = await api.getWeeklyReport(weekStartDate)
     draft.value = {
@@ -308,84 +330,116 @@ const pushWecom = async () => {
 
 // ==================== 展示 ====================
 
-const statusMeta: Record<string, { label: string; type: 'info' | 'primary' | 'success' | 'warning' | 'danger' }> = {
-  PENDING: { label: '待生成', type: 'info' },
-  GENERATING: { label: '生成中', type: 'primary' },
-  DRAFT: { label: '草稿', type: 'warning' },
-  CONFIRMED: { label: '已确认', type: 'success' },
-  PUBLISHED: { label: '已发布', type: 'success' },
-  GENERATION_FAILED: { label: '生成失败', type: 'danger' }
+interface StatusMeta { label: string; tone: string }
+
+const statusMeta: Record<string, StatusMeta> = {
+  PENDING: { label: '待生成', tone: 'not-started' },
+  GENERATING: { label: '生成中', tone: 'progressing' },
+  DRAFT: { label: '草稿', tone: 'risk' },
+  CONFIRMED: { label: '已确认', tone: 'completed' },
+  PUBLISHED: { label: '已发布', tone: 'paused' },
+  GENERATION_FAILED: { label: '生成失败', tone: 'blocked' }
 }
 
-const currentStatusLabel = computed(() => statusMeta[current.value?.status ?? 'PENDING']?.label ?? '待生成')
-const currentStatusType = computed(() => statusMeta[current.value?.status ?? 'PENDING']?.type ?? 'info')
+const statusOf = (status: string | undefined) => statusMeta[status ?? 'PENDING'] ?? statusMeta.PENDING
 
 const editable = computed(() => current.value?.editable ?? true)
 </script>
 
 <template>
   <div class="weekly-report-page">
-    <div class="page-header">
-      <h2>周报中心</h2>
-      <div class="header-actions">
-        <el-button :icon="Refresh" :loading="listLoading" @click="loadList">刷新</el-button>
+    <!-- 操作栏：标题 + 概览 + 动作 -->
+    <section class="page-toolbar" aria-label="周报操作栏">
+      <div class="register-titlebar">
+        <h1>周报中心</h1>
+        <p>BG 周报与周会纪要 · 每周五 17:00 自动生成草稿</p>
+      </div>
+      <section class="summary-strip toolbar-summary" aria-label="周报概览">
+        <div class="summary-cell all">
+          <div class="summary-label"><span><el-icon><Document /></el-icon></span>全部周报</div>
+          <div class="summary-value"><strong>{{ summary.total }}</strong><small>周</small></div>
+          <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
+        </div>
+        <div class="summary-cell progressing">
+          <div class="summary-label"><span><el-icon><Loading /></el-icon></span>进行中</div>
+          <div class="summary-value"><strong>{{ summary.inFlight }}</strong><small>待办</small></div>
+          <div class="summary-meter"><i :style="{ width: `${summary.total ? summary.inFlight / summary.total * 100 : 0}%` }" /></div>
+        </div>
+        <div class="summary-cell confirmed">
+          <div class="summary-label"><span><el-icon><Checked /></el-icon></span>已确认/发布</div>
+          <div class="summary-value"><strong>{{ summary.confirmed }}</strong><small>{{ summary.confirmedRate }}%</small></div>
+          <div class="summary-meter"><i :style="{ width: `${summary.confirmedRate}%` }" /></div>
+        </div>
+        <div class="summary-cell pending">
+          <div class="summary-label"><span><el-icon><Coin /></el-icon></span>待回填汇总表</div>
+          <div class="summary-value"><strong>{{ summary.sheetPending }}</strong><small>周</small></div>
+          <div class="summary-meter"><i :style="{ width: `${summary.confirmed ? summary.sheetPending / summary.confirmed * 100 : 0}%` }" /></div>
+        </div>
+      </section>
+      <div class="toolbar-actions">
+        <el-button :icon="Refresh" aria-label="刷新" :loading="listLoading" @click="loadList" />
         <el-button type="primary" :icon="Plus" @click="openCreate">新建周报</el-button>
       </div>
-    </div>
+    </section>
 
     <!-- 记录列表 -->
-    <el-card shadow="never">
-      <el-table :data="list" v-loading="listLoading" border>
-        <el-table-column label="周" min-width="180">
-          <template #default="{ row }">{{ row.weekStartDate }} ~ {{ row.periodEndDate }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
+    <section class="table-panel" aria-label="周报记录">
+      <el-table
+        :data="list"
+        v-loading="listLoading"
+        row-key="id"
+        class="report-table"
+        empty-text="暂无周报记录，点击右上角「新建周报」开始"
+        @row-click="(row: WeeklyReportVO) => openEditor(row.weekStartDate)"
+      >
+        <el-table-column label="周" min-width="200">
           <template #default="{ row }">
-            <el-tag size="small" :type="statusMeta[row.status]?.type ?? 'info'">
-              {{ statusMeta[row.status]?.label ?? row.status }}
+            <div class="matter-title">{{ shortRange(row) }}</div>
+            <div class="matter-subline">
+              {{ row.weekStartDate.slice(0, 4) }} 年 · {{ row.generationMode ? `${row.generationMode} · ${row.generationModel ?? ''}` : '未生成' }}
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag class="list-status-tag" :class="`status-${statusOf(row.status).tone}`" effect="light">
+              {{ statusOf(row.status).label }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="生成方式" width="110">
+        <el-table-column label="同步状态" min-width="230">
           <template #default="{ row }">
-            <span v-if="row.generationMode">{{ row.generationMode }} · {{ row.generationModel ?? '—' }}</span>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="语雀" width="90">
-          <template #default="{ row }">
-            <el-link v-if="row.yuqueDocUrl" :href="row.yuqueDocUrl" target="_blank" type="primary">纪要链接</el-link>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="汇总表" width="90">
-          <template #default="{ row }">
-            <el-tag v-if="row.sheetSyncStatus === 'MANUAL_DONE'" size="small" type="success">已回填</el-tag>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="企微" width="90">
-          <template #default="{ row }">
-            <el-tag v-if="row.wecomPushStatus === 'SUCCESS'" size="small" type="success">已推送</el-tag>
-            <span v-else>—</span>
+            <div class="sync-pills">
+              <el-link v-if="row.yuqueDocUrl" :href="row.yuqueDocUrl" target="_blank" class="sync-pill done" @click.stop>
+                语雀已发布
+              </el-link>
+              <span v-else class="sync-pill">语雀未发布</span>
+              <span class="sync-pill" :class="{ done: row.sheetSyncStatus === 'MANUAL_DONE' }">
+                汇总表{{ row.sheetSyncStatus === 'MANUAL_DONE' ? '已回填' : '待回填' }}
+              </span>
+              <span class="sync-pill" :class="{ done: row.wecomPushStatus === 'SUCCESS' }">
+                企微{{ row.wecomPushStatus === 'SUCCESS' ? '已推送' : '未推送' }}
+              </span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="更新时间" width="150">
-          <template #default="{ row }">{{ row.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" link type="primary" @click="openEditor(row.weekStartDate)">
-              {{ row.editable ? '编辑' : '查看' }}
-            </el-button>
-            <el-button size="small" link type="primary" @click="openPublish(row)">同步</el-button>
+            <span class="matter-subline">{{ row.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}</span>
           </template>
         </el-table-column>
-        <template #empty>
-          <el-empty description="暂无周报记录，点击右上角「新建周报」开始" :image-size="60" />
-        </template>
+        <el-table-column label="操作" width="130" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions" @click.stop>
+              <el-button size="small" link type="primary" @click="openEditor(row.weekStartDate)">
+                {{ row.editable ? '编辑' : '查看' }}
+              </el-button>
+              <el-button size="small" link type="primary" @click="openPublish(row)">同步</el-button>
+            </div>
+          </template>
+        </el-table-column>
       </el-table>
-    </el-card>
+    </section>
 
     <!-- 新建周报 -->
     <el-dialog v-model="createVisible" title="新建周报" width="420px">
@@ -412,12 +466,17 @@ const editable = computed(() => current.value?.editable ?? true)
     <!-- 编辑器抽屉 -->
     <el-drawer v-model="editorVisible" size="75%" :with-header="false" @close="closeEditor">
       <div class="editor-wrap" v-loading="detailLoading">
-        <div class="editor-header" v-if="current">
-          <h3>
-            周报（{{ current.weekStartDate }} ~ {{ current.periodEndDate }}）
-            <el-tag :type="currentStatusType" effect="light" class="status-tag">{{ currentStatusLabel }}</el-tag>
-          </h3>
-          <div class="header-actions">
+        <section v-if="current" class="editor-toolbar">
+          <div class="register-titlebar">
+            <h1>
+              {{ shortRange(current) }} 周报
+              <el-tag class="list-status-tag" :class="`status-${statusOf(current.status).tone}`" effect="light">
+                {{ statusOf(current.status).label }}
+              </el-tag>
+            </h1>
+            <p>{{ current.weekStartDate }} ~ {{ current.periodEndDate }}<template v-if="current.generationModel"> · {{ current.generationModel }}</template></p>
+          </div>
+          <div class="toolbar-actions">
             <el-button
               type="primary"
               :icon="MagicStick"
@@ -433,26 +492,79 @@ const editable = computed(() => current.value?.editable ?? true)
               :disabled="!editable || current.status === 'CONFIRMED'"
               @click="confirmReport"
             >确认</el-button>
-            <el-button :icon="CopyDocument" @click="copyReport">复制全文</el-button>
+            <el-button :icon="CopyDocument" aria-label="复制全文" @click="copyReport" />
           </div>
-        </div>
+        </section>
 
         <template v-if="current">
           <el-alert
             v-if="current.status === 'GENERATION_FAILED' && current.generationError"
+            class="load-error"
             type="error"
             :title="current.generationError"
+            show-icon
             :closable="false"
-            class="error-alert"
           />
 
-          <el-card shadow="never" class="section-card">
-            <template #header>
-              <div class="card-header">
-                <span>人工输入</span>
-                <el-button size="small" :loading="savingInputs" :disabled="!editable" @click="saveInputs">保存输入</el-button>
+          <!-- 事实概览 -->
+          <section class="editor-section" v-loading="factsLoading" aria-label="自动采集事实">
+            <header class="section-header">
+              <div>
+                <span>自动采集事实</span>
+                <small v-if="facts">大事儿 {{ facts.keyMatters.length }} 项 · {{ facts.finance.month }}</small>
+              </div>
+              <button v-if="facts" type="button" class="section-toggle" @click="factsExpanded = !factsExpanded">
+                {{ factsExpanded ? '收起明细' : '展开明细' }}
+              </button>
+            </header>
+            <section v-if="facts" class="summary-strip facts-strip">
+              <div class="summary-cell all">
+                <div class="summary-label"><span><el-icon><Document /></el-icon></span>大事儿跟踪</div>
+                <div class="summary-value"><strong>{{ facts.keyMatters.length }}</strong><small>项</small></div>
+                <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
+              </div>
+              <div class="summary-cell progressing">
+                <div class="summary-label"><span><el-icon><Coin /></el-icon></span>新增合同</div>
+                <div class="summary-value"><strong>{{ fmtWan(facts.finance.newContractAmount) }}</strong><small>万元</small></div>
+                <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
+              </div>
+              <div class="summary-cell confirmed">
+                <div class="summary-label"><span><el-icon><Checked /></el-icon></span>交付口径</div>
+                <div class="summary-value"><strong>{{ fmtWan(facts.finance.deliveredAmount) }}</strong><small>万元</small></div>
+                <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
+              </div>
+              <div class="summary-cell pending">
+                <div class="summary-label"><span><el-icon><Coin /></el-icon></span>累计应收</div>
+                <div class="summary-value"><strong>{{ fmtWan(facts.finance.cumulativeReceivable) }}</strong><small>万元</small></div>
+                <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
+              </div>
+            </section>
+            <template v-if="facts && factsExpanded">
+              <el-table :data="facts.keyMatters" size="small" max-height="240" class="facts-table">
+                <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="ownerName" label="负责人" width="90" />
+                <el-table-column prop="status" label="状态" width="90" />
+                <el-table-column prop="progress" label="进度" width="70">
+                  <template #default="{ row }">{{ row.progress ?? '—' }}%</template>
+                </el-table-column>
+              </el-table>
+              <div v-if="facts.lastWeekReport.exists" class="last-week">
+                <div class="fact-title">上周计划（{{ facts.lastWeekReport.weekStart }} · {{ statusOf(facts.lastWeekReport.status).label }}）</div>
+                <pre class="fact-text">{{ facts.lastWeekReport.nextWeekPlan || '（无）' }}</pre>
               </div>
             </template>
+            <el-empty v-if="!facts && !factsLoading" description="本周尚无数据" :image-size="60" />
+          </section>
+
+          <!-- 人工输入 -->
+          <section class="editor-section" aria-label="人工输入">
+            <header class="section-header">
+              <div>
+                <span>人工输入</span>
+                <small>企微智能总结与补充信息，生成前保存</small>
+              </div>
+              <el-button size="small" :loading="savingInputs" :disabled="!editable" @click="saveInputs">保存输入</el-button>
+            </header>
             <el-input
               v-model="current.wecomSummary"
               type="textarea"
@@ -468,38 +580,16 @@ const editable = computed(() => current.value?.editable ?? true)
               placeholder="人为补充信息（可选）…"
               :disabled="!editable"
             />
-          </el-card>
+          </section>
 
-          <el-card shadow="never" class="section-card" v-loading="factsLoading">
-            <template #header><span>自动采集事实</span></template>
-            <div v-if="facts" class="facts-panel">
-              <div class="fact-block">
-                <div class="fact-title">大事儿进度（{{ facts.keyMatters.length }}）</div>
-                <el-table :data="facts.keyMatters" size="small" max-height="240" border>
-                  <el-table-column prop="title" label="事项" min-width="180" show-overflow-tooltip />
-                  <el-table-column prop="ownerName" label="负责人" width="90" />
-                  <el-table-column prop="status" label="状态" width="90" />
-                  <el-table-column prop="progress" label="进度" width="70">
-                    <template #default="{ row }">{{ row.progress ?? '—' }}%</template>
-                  </el-table-column>
-                </el-table>
+          <!-- 周报四段 -->
+          <section class="editor-section" aria-label="周报四段">
+            <header class="section-header">
+              <div>
+                <span>周报（四段）</span>
+                <small>纯文本，可直接复制提交企微汇报</small>
               </div>
-              <div class="fact-block finance-row">
-                <span class="fact-title">财务（{{ facts.finance.month }}）</span>
-                <el-tag size="small" effect="plain">新增合同 {{ fmtWan(facts.finance.newContractAmount) }}</el-tag>
-                <el-tag size="small" effect="plain">交付口径 {{ fmtWan(facts.finance.deliveredAmount) }}</el-tag>
-                <el-tag size="small" effect="plain">累计应收 {{ fmtWan(facts.finance.cumulativeReceivable) }}</el-tag>
-              </div>
-              <div class="fact-block" v-if="facts.lastWeekReport.exists">
-                <div class="fact-title">上周计划（{{ facts.lastWeekReport.weekStart }} · {{ facts.lastWeekReport.status }}）</div>
-                <pre class="fact-text">{{ facts.lastWeekReport.nextWeekPlan || '（无）' }}</pre>
-              </div>
-            </div>
-            <el-empty v-else description="本周尚无数据" :image-size="60" />
-          </el-card>
-
-          <el-card shadow="never" class="section-card">
-            <template #header><span>周报（四段）</span></template>
+            </header>
             <div class="output-block">
               <div class="output-label">本周核心工作完成情况</div>
               <el-input v-model="draft.coreWork" type="textarea" :rows="8" :disabled="!editable" />
@@ -516,31 +606,43 @@ const editable = computed(() => current.value?.editable ?? true)
               <div class="output-label">下周工作计划</div>
               <el-input v-model="draft.nextWeekPlan" type="textarea" :rows="5" :disabled="!editable" />
             </div>
-          </el-card>
+          </section>
 
-          <el-card shadow="never" class="section-card">
-            <template #header><span>周会纪要（Markdown，发布语雀用）</span></template>
+          <!-- 周会纪要 -->
+          <section class="editor-section" aria-label="周会纪要">
+            <header class="section-header">
+              <div>
+                <span>周会纪要</span>
+                <small>Markdown，发布至语雀部门会议目录</small>
+              </div>
+            </header>
             <el-input v-model="draft.minutesMarkdown" type="textarea" :rows="16" :disabled="!editable" />
-          </el-card>
+          </section>
         </template>
       </div>
     </el-drawer>
 
     <!-- 发布与同步抽屉 -->
-    <el-drawer v-model="publishVisible" title="发布与同步" size="440px">
-      <template v-if="publishTarget">
-        <div class="publish-week">{{ publishTarget.weekStartDate }} ~ {{ publishTarget.periodEndDate }}</div>
-        <div class="publish-block">
-          <div class="publish-title">语雀发布</div>
-          <div class="publish-row">
-            <span class="publish-label">TOC 状态</span>
-            <el-tag v-if="publishTarget.yuqueTocStatus" size="small"
-              :type="publishTarget.yuqueTocStatus === 'VERIFIED' ? 'success' : 'warning'">
-              {{ publishTarget.yuqueTocStatus === 'VERIFIED' ? '已挂载验证' : publishTarget.yuqueTocStatus === 'MOVED' ? '已创建待人工挂目录' : '未找到节点' }}
-            </el-tag>
-            <span v-else class="publish-empty">未发布</span>
+    <el-drawer v-model="publishVisible" size="440px" :with-header="false">
+      <div class="editor-wrap" v-if="publishTarget">
+        <section class="editor-toolbar">
+          <div class="register-titlebar">
+            <h1>发布与同步</h1>
+            <p>{{ publishTarget.weekStartDate }} ~ {{ publishTarget.periodEndDate }}</p>
           </div>
-          <div class="publish-row" v-if="publishTarget.yuqueDocUrl">
+        </section>
+
+        <section class="editor-section">
+          <header class="section-header">
+            <div>
+              <span>语雀发布</span>
+              <small>周会纪要发布至部门会议目录</small>
+            </div>
+            <span class="sync-pill" :class="{ done: publishTarget.yuqueTocStatus === 'VERIFIED' }">
+              {{ publishTarget.yuqueTocStatus === 'VERIFIED' ? '已挂载验证' : publishTarget.yuqueTocStatus === 'MOVED' ? '待人工挂目录' : publishTarget.yuqueTocStatus === 'NOT_FOUND' ? '未找到节点' : '未发布' }}
+            </span>
+          </header>
+          <div v-if="publishTarget.yuqueDocUrl" class="publish-row">
             <el-link :href="publishTarget.yuqueDocUrl" target="_blank" type="primary">{{ publishTarget.yuqueDocUrl }}</el-link>
           </div>
           <el-button
@@ -550,43 +652,38 @@ const editable = computed(() => current.value?.editable ?? true)
             :disabled="!publishTarget.minutesMarkdown"
             @click="publishYuque"
           >发布语雀</el-button>
-        </div>
+        </section>
 
-        <el-divider />
-
-        <div class="publish-block">
-          <div class="publish-title">汇总表回填</div>
+        <section class="editor-section">
+          <header class="section-header">
+            <div>
+              <span>汇总表回填</span>
+              <small>{{ publishTarget.sheetTargetInfo?.dateRangeLabel }} · {{ publishTarget.sheetTargetInfo?.teamName }} · K 列</small>
+            </div>
+            <span class="sync-pill" :class="{ done: publishTarget.sheetSyncStatus === 'MANUAL_DONE' }">
+              {{ publishTarget.sheetSyncStatus === 'MANUAL_DONE' ? '已回填' : '待回填' }}
+            </span>
+          </header>
           <div class="publish-row">
-            <span class="publish-label">目标行</span>
-            <span>{{ publishTarget.sheetTargetInfo?.dateRangeLabel }} · {{ publishTarget.sheetTargetInfo?.teamName }}</span>
-          </div>
-          <div class="publish-row">
-            <span class="publish-label">位置</span>
             <el-link :href="publishTarget.sheetTargetInfo?.sheetUrl" target="_blank" type="primary">
-              {{ publishTarget.sheetTargetInfo?.sheetName }} 表 K 列
+              打开「{{ publishTarget.sheetTargetInfo?.sheetName }}」汇总表
             </el-link>
-          </div>
-          <div class="publish-row">
-            <span class="publish-label">状态</span>
-            <el-tag v-if="publishTarget.sheetSyncStatus === 'MANUAL_DONE'" size="small" type="success">已回填</el-tag>
-            <span v-else class="publish-empty">待回填</span>
           </div>
           <el-button size="small" :loading="markingSheet" :disabled="!publishTarget.yuqueDocUrl" @click="markSheet">
             标记已回填
           </el-button>
-        </div>
+        </section>
 
-        <el-divider />
-
-        <div class="publish-block">
-          <div class="publish-title">企微推送</div>
-          <div class="publish-row">
-            <span class="publish-label">状态</span>
-            <el-tag v-if="publishTarget.wecomPushStatus === 'SUCCESS'" size="small" type="success">
-              已推送 {{ publishTarget.wecomPushedAt?.slice(0, 16) ?? '' }}
-            </el-tag>
-            <span v-else class="publish-empty">未推送</span>
-          </div>
+        <section class="editor-section">
+          <header class="section-header">
+            <div>
+              <span>企微推送</span>
+              <small>推送终稿内容提醒，配合一键复制提交</small>
+            </div>
+            <span class="sync-pill" :class="{ done: publishTarget.wecomPushStatus === 'SUCCESS' }">
+              {{ publishTarget.wecomPushStatus === 'SUCCESS' ? `已推送 ${publishTarget.wecomPushedAt?.slice(5, 16) ?? ''}` : '未推送' }}
+            </span>
+          </header>
           <el-button
             size="small"
             type="warning"
@@ -595,33 +692,420 @@ const editable = computed(() => current.value?.editable ?? true)
             :disabled="publishTarget.status !== 'CONFIRMED' && publishTarget.status !== 'PUBLISHED'"
             @click="pushWecom"
           >推送企微</el-button>
-        </div>
-      </template>
+        </section>
+      </div>
     </el-drawer>
   </div>
 </template>
 
 <style scoped>
+/* 与大事儿管理一致的冷白驾驶舱设计语言 */
 .weekly-report-page {
-  padding: 16px;
+  --km-primary: #4f5cf7;
+  --km-primary-strong: #315efb;
+  --km-indigo-soft: #eef2ff;
+  --km-surface: #ffffff;
+  --km-border: #e2e8f0;
+  --km-ink: #1e293b;
+  --km-muted: #64748b;
+  --km-success: #10b981;
+  --km-success-soft: #ecfdf5;
+  --km-warning: #f59e0b;
+  --km-warning-soft: #fffbeb;
+  --km-danger: #ef4444;
+  --km-danger-soft: #fff1f2;
+  --km-radius-md: 12px;
+  width: 100%;
+  min-width: 0;
+  color: var(--km-ink);
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
+.weekly-report-page :deep(.el-button--primary) {
+  --el-button-bg-color: var(--km-primary-strong);
+  --el-button-border-color: var(--km-primary-strong);
+  --el-button-hover-bg-color: #244fe4;
+  --el-button-hover-border-color: #244fe4;
+  box-shadow: 0 8px 18px rgb(49 94 251 / 20%);
+}
+
+/* ==================== 操作栏 ==================== */
+
+.page-toolbar {
+  display: grid;
+  grid-template-columns: max-content minmax(440px, 1fr) max-content;
   align-items: center;
+  gap: 18px;
+  min-height: 46px;
+  margin-bottom: 20px;
+}
+
+.register-titlebar {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.register-titlebar h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.register-titlebar p {
+  margin: 0;
+  color: var(--km-muted);
+  font-size: 13px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+/* ==================== 概览条 ==================== */
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.toolbar-summary {
+  min-width: 0;
+  margin: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--km-border);
+  border-radius: 10px;
+  background: var(--km-surface);
+  box-shadow: 0 3px 12px rgb(15 23 42 / 4%);
+}
+
+.summary-cell {
+  min-height: 104px;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--km-border);
+  border-radius: var(--km-radius-md);
+  background: var(--km-surface);
+  box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
+}
+
+.toolbar-summary .summary-cell {
+  min-width: 0;
+  min-height: 58px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 3px;
+  align-content: center;
+  gap: 7px 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-right: 1px solid var(--km-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.toolbar-summary .summary-cell:last-child {
+  border-right: 0;
+}
+
+.summary-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--km-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.summary-label > span {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--km-primary);
+  background: var(--km-indigo-soft);
+}
+
+.toolbar-summary .summary-label {
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.toolbar-summary .summary-label > span {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.summary-cell.progressing .summary-label > span { color: #2563eb; background: #eff6ff; }
+.summary-cell.confirmed .summary-label > span { color: var(--km-success); background: var(--km-success-soft); }
+.summary-cell.pending .summary-label > span { color: var(--km-warning); background: var(--km-warning-soft); }
+
+.summary-value {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.toolbar-summary .summary-value {
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.summary-value strong {
+  color: var(--km-ink);
+  font-size: 25px;
+  line-height: 1;
+}
+
+.toolbar-summary .summary-value strong {
+  font-size: 19px;
+}
+
+.summary-value small {
+  color: var(--km-muted);
+  font-size: 11px;
+}
+
+.toolbar-summary .summary-value small {
+  font-size: 9px;
+}
+
+.summary-meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.toolbar-summary .summary-meter {
+  grid-column: 1 / -1;
+  height: 3px;
+}
+
+.summary-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6366f1, #4f5cf7);
+}
+
+.summary-cell.progressing .summary-meter i { background: #3b82f6; }
+.summary-cell.confirmed .summary-meter i { background: var(--km-success); }
+.summary-cell.pending .summary-meter i { background: var(--km-warning); }
+
+/* ==================== 记录表 ==================== */
+
+.table-panel {
+  border: 1px solid var(--km-border);
+  border-radius: var(--km-radius-md);
+  background: var(--km-surface);
+  box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
+  overflow: hidden;
+}
+
+.report-table {
+  width: 100%;
+}
+
+.report-table :deep(.el-table__row) {
+  cursor: pointer;
+}
+
+.matter-title {
+  font-weight: 600;
+  color: var(--km-ink);
+  line-height: 1.4;
+}
+
+.matter-subline {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--km-muted);
+}
+
+.list-status-tag.status-not-started { color: #64748b; background: #f1f5f9; border-color: #cbd5e1; }
+.list-status-tag.status-progressing { color: #2563eb; background: #eff6ff; border-color: #bfdbfe; }
+.list-status-tag.status-risk { color: #d97706; background: #fffbeb; border-color: #fde68a; }
+.list-status-tag.status-blocked { color: #dc2626; background: #fef2f2; border-color: #fecaca; }
+.list-status-tag.status-completed { color: #059669; background: #ecfdf5; border-color: #a7f3d0; }
+.list-status-tag.status-paused { color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; }
+
+.sync-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--km-muted);
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+}
+
+.sync-pill.done {
+  color: #059669;
+  background: var(--km-success-soft);
+  border-color: #a7f3d0;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.row-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.list-status-tag {
+  min-width: 64px;
+  text-align: center;
+}
+
+.load-error {
   margin-bottom: 12px;
 }
 
-.page-header h2 {
-  margin: 0;
+/* ==================== 抽屉与区块 ==================== */
+
+.editor-wrap {
+  padding: 4px 8px 16px;
 }
 
-.header-actions {
+.editor-toolbar {
   display: flex;
-  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
+
+.editor-section {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--km-border);
+  border-radius: var(--km-radius-md);
+  background: var(--km-surface);
+  box-shadow: 0 4px 14px rgb(15 23 42 / 4%);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.section-header span {
+  font-weight: 650;
+  color: var(--km-ink);
+  font-size: 14px;
+}
+
+.section-header small {
+  color: var(--km-muted);
+  font-size: 12px;
+}
+
+.section-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--km-primary-strong);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.facts-strip {
+  margin-bottom: 4px;
+}
+
+.facts-table {
+  margin-top: 10px;
+}
+
+.last-week {
+  margin-top: 10px;
+}
+
+.fact-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--km-ink);
+}
+
+.fact-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--km-ink);
+  background: #f8fafc;
+  border: 1px solid var(--km-border);
+  padding: 8px 10px;
+  border-radius: 8px;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.input-block {
+  margin-bottom: 8px;
+}
+
+.output-block {
+  margin-bottom: 12px;
+}
+
+.output-block:last-child {
+  margin-bottom: 0;
+}
+
+.output-label {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--km-ink);
+}
+
+.publish-row {
+  margin-bottom: 10px;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+/* ==================== 新建对话框 ==================== */
 
 .create-body {
   display: flex;
@@ -630,125 +1114,25 @@ const editable = computed(() => current.value?.editable ?? true)
 }
 
 .create-label {
-  color: var(--el-text-color-secondary);
+  color: var(--km-muted);
   font-size: 13px;
 }
 
 .create-hint {
   margin-top: 8px;
-  color: var(--el-text-color-placeholder);
+  color: #94a3b8;
   font-size: 12px;
 }
 
-.editor-wrap {
-  padding: 0 4px;
-}
+/* ==================== 响应式 ==================== */
 
-.editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.editor-header h3 {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status-tag {
-  font-weight: 400;
-}
-
-.error-alert {
-  margin-bottom: 12px;
-}
-
-.section-card {
-  margin-bottom: 16px;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.input-block {
-  margin-bottom: 8px;
-}
-
-.facts-panel .fact-block {
-  margin-bottom: 12px;
-}
-
-.fact-title {
-  font-weight: 600;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-
-.fact-text {
-  margin: 0;
-  white-space: pre-wrap;
-  font-size: 12px;
-  color: var(--el-text-color-regular);
-  background: var(--el-fill-color-light);
-  padding: 8px;
-  border-radius: 4px;
-  max-height: 140px;
-  overflow: auto;
-}
-
-.finance-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.finance-row .fact-title {
-  margin-bottom: 0;
-}
-
-.output-block {
-  margin-bottom: 12px;
-}
-
-.output-label {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
-}
-
-.publish-week {
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-
-.publish-block .publish-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.publish-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-
-.publish-label {
-  color: var(--el-text-color-secondary);
-  min-width: 52px;
-}
-
-.publish-empty {
-  color: var(--el-text-color-placeholder);
+@media (max-width: 1200px) {
+  .page-toolbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .toolbar-actions {
+    justify-content: flex-end;
+  }
 }
 </style>
