@@ -283,6 +283,7 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
       model: model as Model<any>,
       thinkingLevel: input.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
       messages,
+      tools: input.tools,
     },
     streamFn: models.streamSimple.bind(models),
     convertToLlm: (msgs: AgentMessage[]): Message[] =>
