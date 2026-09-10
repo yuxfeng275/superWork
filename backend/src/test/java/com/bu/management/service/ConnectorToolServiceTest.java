@@ -66,6 +66,8 @@ class ConnectorToolServiceTest {
     private com.bu.management.service.WorktimeAnalyticsService worktimeAnalyticsService;
     @Mock
     private com.bu.management.service.SysRoleService sysRoleService;
+    @Mock
+    private WorktimeInsightToolService worktimeInsightToolService;
 
     private ConnectorToolService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -77,7 +79,7 @@ class ConnectorToolServiceTest {
                 yunxiaoProjectMappingMapper, projectMapper, userMapper,
                 seeyonOaClient, seeyonOaConfigService, yunxiaoConfigService,
                 yuqueMcpClient, worktimeClient, worktimeAnalyticsService,
-                sysRoleService, objectMapper);
+                sysRoleService, objectMapper, worktimeInsightToolService);
     }
 
     private EmailMessage message(Long id, Long ownerId, String subject, String body) {

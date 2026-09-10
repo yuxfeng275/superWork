@@ -19,6 +19,7 @@ import java.util.List;
 @Component
 @RequiredArgsConstructor
 @Order(999)
+@org.springframework.context.annotation.Profile("!test")
 public class QuotationPolicyDataInitializer implements CommandLineRunner {
 
     private final QuotationPolicyMapper policyMapper;
