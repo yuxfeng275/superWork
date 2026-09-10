@@ -41,11 +41,55 @@ public class WeComClient {
                   + encode(config.weComSecret()));
       requireSuccess(token, "企业微信令牌获取失败");
       String important = digest.getImportantItems();
+      int closedTotal = digest.getClosedTotal() == null ? 0 : digest.getClosedTotal();
+      int closedDone = digest.getClosedDone() == null ? 0 : digest.getClosedDone();
+      String closedLine = closedTotal == 0 ? ""
+          : "\n闭环进度：" + closedTotal + " 个待办/风险，已闭环 " + closedDone;
       String content =
           digest.getOverview()
+              + closedLine
               + "\n重要事项："
               + (important == null ? "[]" : important)
               + (detailUrl == null || detailUrl.isBlank() ? "" : "\n详情：" + detailUrl);
+      Map<String, Object> body =
+          Map.of(
+              "touser",
+              userId,
+              "msgtype",
+              "text",
+              "agentid",
+              Long.parseLong(config.weComAgentId()),
+              "text",
+              Map.of("content", content),
+              "safe",
+              0);
+      JsonNode response =
+          post(config.weComBaseUrl(),
+              "/cgi-bin/message/send?access_token=" + encode(token.path("access_token").asText()),
+              body);
+      requireSuccess(response, "企业微信推送失败");
+    } catch (Exception exception) {
+      if (exception instanceof IllegalStateException stateException) {
+        throw stateException;
+      }
+      throw new IllegalStateException("企业微信推送失败", exception);
+    }
+  }
+
+  /** 纯文本点对点推送（风险邮件即时提醒等）：复用已配置的企微内部应用。 */
+  public void pushText(String userId, String content) {
+    EmailIntegrationRuntimeConfig config = configService.getRuntimeConfig();
+    if (!config.isWeComConfigured()) {
+      throw new IllegalStateException("企业微信未配置");
+    }
+    try {
+      JsonNode token =
+          get(config.weComBaseUrl(),
+              "/cgi-bin/gettoken?corpid="
+                  + encode(config.weComCorpId())
+                  + "&corpsecret="
+                  + encode(config.weComSecret()));
+      requireSuccess(token, "企业微信令牌获取失败");
       Map<String, Object> body =
           Map.of(
               "touser",

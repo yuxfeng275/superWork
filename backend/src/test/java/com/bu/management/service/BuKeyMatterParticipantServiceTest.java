@@ -41,6 +41,7 @@ class BuKeyMatterParticipantServiceTest {
     @Mock private ProjectMapper projectMapper;
     @Mock private BuKeyMatterParticipantMapper participantMapper;
     @Mock private BuKeyMatterAccessService accessService;
+    @Mock private EmailActionLinkService emailActionLinkService;
 
     private BuKeyMatterService service;
 
@@ -48,7 +49,7 @@ class BuKeyMatterParticipantServiceTest {
     void setUp() {
         service = new BuKeyMatterService(
                 matterMapper, weeklyUpdateMapper, userMapper, projectMapper,
-                participantMapper, accessService);
+                participantMapper, accessService, emailActionLinkService);
     }
 
     @Test

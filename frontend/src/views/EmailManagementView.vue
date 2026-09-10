@@ -14,7 +14,9 @@ import type {
   EmailWeComMapping,
   EmailProjectGroup,
   EmailSenderCompanyGroup,
-  EmailGroupingJobStatus
+  EmailGroupingJobStatus,
+  EmailValueMetrics,
+  EmailActionLink
 } from '@/types/email'
 
 const pageSize = 20
@@ -184,7 +186,7 @@ async function loadAccount() {
     account.value = await api.getEmailAccount()
     if (account.value.configured) {
       bindForm.emailAddress = account.value.emailAddress || ''
-      await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false), loadProjectGroups(), loadSenderCompanyGroups(), loadGroupingStatus(false)])
+      await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false), loadProjectGroups(), loadSenderCompanyGroups(), loadGroupingStatus(false), loadValueMetrics()])
       void loadWeComMapping()
     }
   } catch (error: unknown) {
@@ -196,9 +198,10 @@ async function loadAccount() {
 
 async function loadWeComMapping() {
   try {
-    weComMapping.value = await api.getEmailWeComMapping()
-    weComForm.userId = weComMapping.value.weComUserId || ''
-    weComForm.enabled = weComMapping.value.enabled
+    const mapping = await api.getEmailWeComMapping()
+    weComMapping.value = mapping
+    weComForm.userId = mapping.weComUserId || ''
+    weComForm.enabled = mapping.enabled
   } catch {
     weComMapping.value = undefined
   }
@@ -639,6 +642,103 @@ function openDigestSource(messageIds?: number[]) {
   if (messageIds?.length) void openMessage(messageIds[0])
 }
 
+// ---------- 行动闭环：转任务/转事项、摘要反馈、价值面板 ----------
+
+const convertingKey = ref('')
+const valueMetrics = ref<EmailValueMetrics>()
+const sendingFeedback = ref(false)
+const replyDraft = ref('')
+const replying = ref(false)
+const actions = ref<EmailActionLink[]>([])
+
+const closedItemKeys = computed(() => {
+  const keys = new Set<string>()
+  if (actions.value) {
+    for (const action of actions.value.filter(a => a.status === 'CLOSED')) {
+      keys.add(`${action.itemKind}|${action.itemTitle}`)
+    }
+  }
+  return keys
+})
+
+function itemClosed(item: EmailDigestItem, kind: string) {
+  return closedItemKeys.value.has(`${kind}|${digestItemTitle(item)}`)
+}
+
+async function convertItem(item: EmailDigestItem, kind: 'TODO' | 'RISK', actionType: 'TASK' | 'ISSUE') {
+  if (!item.messageId || convertingKey.value) return
+  const key = `${actionType}:${item.messageId}:${digestItemTitle(item)}`
+  convertingKey.value = key
+  try {
+    const result = await api.convertEmailItem({
+      messageId: item.messageId,
+      itemKind: kind,
+      itemTitle: digestItemTitle(item),
+      actionType,
+      severity: kind === 'RISK' ? '中' : undefined
+    })
+    if (result.created) {
+      ElMessage.success(`已${actionType === 'TASK' ? '创建任务' : '创建事项'}「${result.targetTitle}」，完成后摘要自动标记闭环`)
+    } else {
+      ElMessage.info(`该条目已有对应的${actionType === 'TASK' ? '任务' : '事项'}，无需重复创建`)
+    }
+    actions.value = await api.getEmailActions(item.messageId)
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '转化失败，请稍后重试'))
+  } finally {
+    convertingKey.value = ''
+  }
+}
+
+async function sendFeedback(feedback: 'USEFUL' | 'USELESS') {
+  if (sendingFeedback.value) return
+  sendingFeedback.value = true
+  try {
+    digest.value = await api.feedbackEmailDigest(selectedDate.value, feedback)
+    ElMessage.success(feedback === 'USEFUL' ? '已反馈：有用' : '已反馈：没用，我们会改进摘要')
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '反馈失败'))
+  } finally {
+    sendingFeedback.value = false
+  }
+}
+
+async function loadValueMetrics() {
+  try {
+    valueMetrics.value = await api.getEmailValueMetrics()
+  } catch {
+    valueMetrics.value = undefined
+  }
+}
+
+const closeRatePercent = computed(() => {
+  const metrics = valueMetrics.value
+  if (!metrics || metrics.closeRate == null) return '—'
+  return `${Math.round(metrics.closeRate * 100)}%`
+})
+
+async function sendReplyDraft() {
+  if (!selectedMessage.value || replying.value) return
+  if (!replyDraft.value.trim()) {
+    ElMessage.warning('请先填写或生成回复内容')
+    return
+  }
+  replying.value = true
+  try {
+    const result = await api.replyEmail(selectedMessage.value.id, replyDraft.value)
+    if (result.status === 'SENT') {
+      ElMessage.success('回复已发送')
+      replyDraft.value = ''
+    } else {
+      ElMessage.error(result.errorMessage || '回复发送失败')
+    }
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '回复发送失败'))
+  } finally {
+    replying.value = false
+  }
+}
+
 onMounted(loadAccount)
 onBeforeUnmount(() => {
   stopSyncPolling()
@@ -701,6 +801,12 @@ onBeforeUnmount(() => {
           <el-button :icon="Edit" @click="openSettings">账户设置</el-button>
         </div>
       </header>
+      <section v-if="valueMetrics" class="value-bar" aria-label="本月邮件价值">
+        <div><strong>{{ valueMetrics.converted }}</strong><span>本月转化</span></div>
+        <div><strong>{{ closeRatePercent }}</strong><span>待办闭环率</span></div>
+        <div><strong>{{ valueMetrics.useful }}</strong><span>摘要好评</span></div>
+        <div><strong>{{ valueMetrics.avgResponseMinutes == null ? '—' : valueMetrics.avgResponseMinutes + ' 分' }}</strong><span>平均响应</span></div>
+      </section>
 
       <section class="digest-panel" aria-label="每日邮件摘要">
         <div class="section-heading">
@@ -737,7 +843,12 @@ onBeforeUnmount(() => {
                   <section class="digest-insight focus"><span class="insight-label">优先关注</span><ul><li v-for="item in digest.todos.slice(0, 3)" :key="`focus-${item.messageId}-${item.title}`"><button type="button" @click="openMessage(item.messageId)">{{ digestItemTitle(item) }}</button><small>{{ digestItemContent(item) }}</small></li><li v-if="!digest.todos.length">暂无需要立即推进的事项</li></ul></section>
                 </div>
                 <details class="digest-full-summary"><summary>查看 AI 完整总结</summary><p>{{ digest.overview || '暂无完整总结' }}</p></details>
-                <div class="digest-meta-line"><span v-if="digest.generatedModel">由 {{ digest.generatedModel }} 生成</span><span v-if="digest.generatedAt">{{ formatDateTime(digest.generatedAt) }} 更新</span><span v-if="digest.pushMessage">{{ digest.pushMessage }}</span></div>
+                <div class="digest-meta-line"><span v-if="digest.generatedModel">由 {{ digest.generatedModel }} 生成</span><span v-if="digest.generatedAt">{{ formatDateTime(digest.generatedAt) }} 更新</span><span v-if="digest.pushMessage">{{ digest.pushMessage }}</span><span v-if="digest.closedTotal">闭环：{{ digest.closedDone || 0 }}/{{ digest.closedTotal }}</span></div>
+                <div class="digest-feedback">
+                  <span>这份摘要有用吗？</span>
+                  <el-button size="small" :type="digest.feedback === 'USEFUL' ? 'success' : 'default'" plain :loading="sendingFeedback" @click="sendFeedback('USEFUL')">👍 有用</el-button>
+                  <el-button size="small" :type="digest.feedback === 'USELESS' ? 'danger' : 'default'" plain :loading="sendingFeedback" @click="sendFeedback('USELESS')">👎 没用</el-button>
+                </div>
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`议题归纳 ${digest.topics.length}`" name="topics">
@@ -769,21 +880,33 @@ onBeforeUnmount(() => {
             </el-tab-pane>
             <el-tab-pane :label="`待办事项 ${digest.todos.length}`" name="todos">
               <section aria-label="待办事项" class="digest-tab-list todo">
-                <button v-for="item in digest.todos" :key="`todo-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
-                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
-                  <p>{{ digestItemContent(item) }}</p>
-                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
-                </button>
+                <div v-for="item in digest.todos" :key="`todo-${item.messageId}`" class="digest-item-rich" :class="{ closed: itemClosed(item, 'TODO') }">
+                  <button type="button" class="digest-item-body" @click="openMessage(item.messageId)">
+                    <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag v-if="itemClosed(item, 'TODO')" type="success" size="small" effect="dark">已闭环</el-tag><el-tag v-else size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                    <p>{{ digestItemContent(item) }}</p>
+                    <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                  </button>
+                  <div v-if="!itemClosed(item, 'TODO')" class="digest-item-actions">
+                    <el-button size="small" type="primary" plain :loading="convertingKey === `TASK:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'TODO', 'TASK')">转任务</el-button>
+                    <el-button size="small" :loading="convertingKey === `ISSUE:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'TODO', 'ISSUE')">转事项</el-button>
+                  </div>
+                </div>
                 <el-empty v-if="!digest.todos.length" description="暂无待办事项" :image-size="70" />
               </section>
             </el-tab-pane>
             <el-tab-pane :label="`风险提醒 ${digest.risks.length}`" name="risks">
               <section aria-label="风险提醒" class="digest-tab-list risk">
-                <button v-for="item in digest.risks" :key="`risk-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
-                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
-                  <p>{{ digestItemContent(item) }}</p>
-                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
-                </button>
+                <div v-for="item in digest.risks" :key="`risk-${item.messageId}`" class="digest-item-rich" :class="{ closed: itemClosed(item, 'RISK') }">
+                  <button type="button" class="digest-item-body" @click="openMessage(item.messageId)">
+                    <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag v-if="itemClosed(item, 'RISK')" type="success" size="small" effect="dark">已闭环</el-tag><el-tag v-else size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                    <p>{{ digestItemContent(item) }}</p>
+                    <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                  </button>
+                  <div v-if="!itemClosed(item, 'RISK')" class="digest-item-actions">
+                    <el-button size="small" type="warning" plain :loading="convertingKey === `ISSUE:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'RISK', 'ISSUE')">转事项</el-button>
+                    <el-button size="small" :loading="convertingKey === `TASK:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'RISK', 'TASK')">转任务</el-button>
+                  </div>
+                </div>
                 <el-empty v-if="!digest.risks.length" description="暂无风险提醒" :image-size="70" />
               </section>
             </el-tab-pane>
@@ -1009,7 +1132,15 @@ onBeforeUnmount(() => {
                     <section class="ai-analysis-card points"><h3>关键要点</h3><ul><li v-for="(point, index) in selectedMessage.interpretation.keyPoints" :key="`point-${index}`">{{ point }}</li></ul><p v-if="!selectedMessage.interpretation.keyPoints.length">暂无关键要点</p></section>
                     <section class="ai-analysis-card actions"><h3>待办事项</h3><article v-for="(action, index) in selectedMessage.interpretation.actionItems" :key="`action-${index}`" class="ai-action-item"><div><strong>{{ action.content || '待办事项' }}</strong><span v-if="action.deadline">截止：{{ action.deadline }}</span></div><el-tag :type="interpretationPriorityType(action.priority)" size="small">{{ action.priority || '普通' }}</el-tag></article><p v-if="!selectedMessage.interpretation.actionItems.length">暂无明确待办</p></section>
                     <section class="ai-analysis-card risks"><h3>风险提醒</h3><ul><li v-for="(risk, index) in selectedMessage.interpretation.risks" :key="`risk-${index}`">{{ risk }}</li></ul><p v-if="!selectedMessage.interpretation.risks.length">未识别到明显风险</p></section>
-                    <section class="ai-analysis-card reply"><h3>建议回复</h3><pre>{{ selectedMessage.interpretation.replySuggestion || '暂无回复建议' }}</pre></section>
+                    <section class="ai-analysis-card reply"><h3>建议回复</h3><pre>{{ selectedMessage.interpretation.replySuggestion || '暂无回复建议' }}</pre>
+                      <div v-if="selectedMessage.interpretation.replySuggestion" class="reply-send">
+                        <el-input v-model="replyDraft" type="textarea" :rows="4" placeholder="可编辑后通过绑定邮箱直接发送" aria-label="回复草稿" />
+                        <div class="reply-send-actions">
+                          <el-button size="small" @click="replyDraft = selectedMessage!.interpretation!.replySuggestion!">填入建议</el-button>
+                          <el-button size="small" type="primary" :loading="replying" @click="sendReplyDraft">通过邮箱发送</el-button>
+                        </div>
+                      </div>
+                    </section>
                   </div>
                   <footer class="ai-result-foot">由 {{ selectedMessage.interpretation.model || 'AI' }} 生成 · {{ formatDateTime(selectedMessage.interpretation.generatedAt) }} · 请结合邮件原文核验</footer>
                 </div>
@@ -1109,8 +1240,11 @@ onBeforeUnmount(() => {
 @media (max-width: 700px) { .digest-overview-rich { padding: 18px; }.digest-overview-head { flex-direction: column; }.digest-overview-head .digest-status-row { justify-content: flex-start; }.digest-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.digest-metrics > div:first-child { grid-column: 1 / -1; }.digest-item-rich-head strong { line-height: 1.5; }.digest-item-rich-meta span + span { padding-left: 0; border-left: 0; } }
 
 .digest-flow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 24px 0 18px; padding: 16px 10px; border-radius: 14px; background: #f8f9fc; }.flow-node { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid #e2e6ef; border-radius: 10px; background: #fff; }.flow-node .flow-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-weight: 800; }.flow-node.received .flow-icon { background: #7085df; }.flow-node.analyzed .flow-icon { background: #8a62d9; }.flow-node.action .flow-icon { background: #27a879; }.flow-node.risk .flow-icon { background: #e58b47; }.flow-node strong { color: #374154; font-size: 12px; white-space: nowrap; }.flow-node small { color: #8a93a2; font-size: 10px; white-space: nowrap; }.flow-arrow { flex-shrink: 0; color: #aab3c2; font-size: 20px; font-weight: 700; }.digest-insight-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; }.digest-insight { min-width: 0; padding: 17px 19px; border-radius: 12px; background: #fff; border: 1px solid #e1e5ed; }.digest-insight.conclusion { border-left: 4px solid #687bd2; }.digest-insight.focus { border-left: 4px solid #e58b47; }.insight-label { color: #78849a; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.digest-insight p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; color: #394456; font-size: 14px; line-height: 1.75; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }.digest-insight ul { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 0; padding: 0; list-style: none; }.digest-insight li { position: relative; padding-left: 14px; color: #727e90; font-size: 12px; line-height: 1.45; }.digest-insight li::before { position: absolute; top: 7px; left: 0; width: 5px; height: 5px; border-radius: 50%; background: #e58b47; content: ''; }.digest-insight li button { display: block; max-width: 100%; padding: 0; overflow: hidden; border: 0; background: transparent; color: #3d4a61; font-size: 12px; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }.digest-insight li button:hover { color: var(--primary); }.digest-insight li small { display: block; overflow: hidden; color: #8a93a2; text-overflow: ellipsis; white-space: nowrap; }.digest-full-summary { margin-top: 14px; border-top: 1px solid #e5e8ef; }.digest-full-summary summary { padding-top: 12px; color: #6473b4; font-size: 12px; cursor: pointer; }.digest-full-summary p { margin: 10px 0 0; color: #778193; font-size: 13px; line-height: 1.8; }
+.value-bar { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; padding: 14px 18px; border: 1px solid #e3e7ef; border-radius: 12px; background: linear-gradient(135deg, #f0f7ff 0%, #fff 70%); }.value-bar > div { display: flex; flex-direction: column; gap: 4px; }.value-bar strong { color: #283346; font-size: 20px; }.value-bar span { color: #75809a; font-size: 12px; }
 @media (max-width: 700px) { .digest-flow { align-items: stretch; flex-direction: column; gap: 6px; padding: 10px; }.flow-node { justify-content: flex-start; }.flow-arrow { align-self: center; transform: rotate(90deg); font-size: 16px; }.digest-insight-grid { grid-template-columns: 1fr; }.digest-insight p { -webkit-line-clamp: 5; } }
 
 .minutes-topic-list { display: flex; flex-direction: column; gap: 12px; }.minutes-topic-card { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 15px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 12px; background: #fff; }.topic-index { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg,#e9edff,#f5f2ff); color: #6272c3; font-size: 13px; font-weight: 800; }.topic-copy, .minutes-progress-item > div { min-width: 0; }.topic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.topic-head h3 { margin: 0; color: #354052; font-size: 15px; line-height: 1.5; }.topic-copy p, .minutes-progress-item p { margin: 8px 0 0; color: #657084; font-size: 13px; line-height: 1.75; }.topic-copy button, .minutes-progress-item button { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 0; border: 0; background: transparent; color: #6475c4; font-size: 11px; cursor: pointer; }.minutes-progress-list { position: relative; display: flex; flex-direction: column; gap: 0; padding-left: 18px; }.minutes-progress-list::before { position: absolute; top: 12px; bottom: 12px; left: 24px; width: 2px; background: #e3e7ee; content: ''; }.minutes-progress-item { position: relative; display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 14px; padding: 0 0 24px; }.progress-dot { z-index: 1; width: 14px; height: 14px; margin-top: 4px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #aab4c5; background: #aab4c5; }.minutes-progress-item.done .progress-dot { box-shadow: 0 0 0 2px #37a678; background: #37a678; }.minutes-progress-item.doing .progress-dot { box-shadow: 0 0 0 2px #e6a24d; background: #e6a24d; }.minutes-progress-item.pending .progress-dot { box-shadow: 0 0 0 2px #8190a6; background: #fff; }
 @media (max-width:700px) { .minutes-topic-card { grid-template-columns: 38px minmax(0,1fr); padding: 14px; }.topic-index { width: 34px; height: 34px; }.topic-head { flex-direction: column; gap: 6px; } }
+
+.digest-item-rich { border: 1px solid #e4e7ed; border-radius: 12px; background: #fff; overflow: hidden; }.digest-item-rich.closed { opacity: .68; }.digest-item-body { display: block; width: 100%; padding: 14px 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }.digest-item-body:hover { background: #f8f9fd; }.digest-item-body.closed strong { text-decoration: line-through; color: #97a1b3; }.digest-item-actions { display: flex; gap: 8px; padding: 0 16px 12px; }.digest-feedback { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: #687386; font-size: 13px; }.reply-send { margin-top: 10px; }.reply-send-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 </style>

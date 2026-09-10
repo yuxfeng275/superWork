@@ -20,4 +20,7 @@ public record EmailDigestResponse(
     JsonNode replySuggestions,
     LocalDateTime generatedAt,
     String pushStatus,
-    String pushMessage) {}
+    String pushMessage,
+    String feedback,
+    Integer closedTotal,
+    Integer closedDone) {}

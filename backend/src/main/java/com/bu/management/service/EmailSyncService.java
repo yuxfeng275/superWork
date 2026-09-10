@@ -28,6 +28,7 @@ public class EmailSyncService {
   private final EmailAccountService accountService;
   private final AlibabaMailClient mailClient;
   private final EmailProjectGroupingService groupingService;
+  private final EmailRiskAlertService riskAlertService;
   private final Executor taskExecutor;
 
   public EmailSyncService(
@@ -36,12 +37,14 @@ public class EmailSyncService {
       EmailAccountService accountService,
       AlibabaMailClient mailClient,
       EmailProjectGroupingService groupingService,
+      EmailRiskAlertService riskAlertService,
       @Qualifier("emailTaskExecutor") Executor taskExecutor) {
     this.accountMapper = accountMapper;
     this.messageMapper = messageMapper;
     this.accountService = accountService;
     this.mailClient = mailClient;
     this.groupingService = groupingService;
+    this.riskAlertService = riskAlertService;
     this.taskExecutor = taskExecutor;
   }
 
@@ -115,7 +118,10 @@ public class EmailSyncService {
       account.setSyncError(null);
       account.setLastSyncCount(snapshot.messages().size());
       account.setLastSyncCompletedAt(LocalDateTime.now());
-      if (!snapshot.messages().isEmpty()) groupingService.startAsync(ownerUserId, false);
+      if (!snapshot.messages().isEmpty()) {
+        groupingService.startAsync(ownerUserId, false);
+        riskAlertService.scanAndPush(ownerUserId);
+      }
     } catch (Exception exception) {
       account.setSyncStatus("FAILED");
       account.setSyncError(limit(exception.getMessage(), 500));

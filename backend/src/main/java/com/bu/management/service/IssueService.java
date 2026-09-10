@@ -24,6 +24,7 @@ import java.util.List;
 public class IssueService {
 
     private final IssueMapper issueMapper;
+    private final EmailActionLinkService emailActionLinkService;
 
     /**
      * 创建事项
@@ -74,10 +75,14 @@ public class IssueService {
             issue.setSeverity(dto.getSeverity());
         }
         if (dto.getStatus() != null) {
+            String previous = issue.getStatus();
             issue.setStatus(dto.getStatus());
-            if ("已解决".equals(dto.getStatus()) || "已关闭".equals(dto.getStatus())) {
-                issue.setResolvedAt(LocalDateTime.now());
+            if ((!"已解决".equals(previous) && !"已关闭".equals(previous))
+                    && ("已解决".equals(dto.getStatus()) || "已关闭".equals(dto.getStatus()))) {
+                emailActionLinkService.markClosed("ISSUE", issue.getId());
             }
+            issue.setResolvedAt(("已解决".equals(dto.getStatus()) || "已关闭".equals(dto.getStatus()))
+                    && issue.getResolvedAt() == null ? LocalDateTime.now() : issue.getResolvedAt());
         }
         if (dto.getAssigneeId() != null) {
             issue.setAssigneeId(dto.getAssigneeId());

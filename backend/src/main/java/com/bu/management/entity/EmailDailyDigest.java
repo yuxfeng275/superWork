@@ -30,6 +30,9 @@ public class EmailDailyDigest {
   private String pushStatus;
   private Integer pushAttempts;
   private String pushError;
+  private String feedback;
+  private Integer closedTotal;
+  private Integer closedDone;
   private LocalDateTime pushedAt;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;

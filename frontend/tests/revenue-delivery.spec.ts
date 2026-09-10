@@ -423,6 +423,7 @@ test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page
   await expect(table.locator('tbody tr.line-total-row', { hasText: '精准' })).toHaveCount(0)
   await expect(dataRow(panel, '项目集')).toHaveCount(1)
   await expect(dataRow(panel, '项目集')).not.toHaveClass(/line-total-row/)
+
   const totalCell = (index: number) => lineTotalRow.locator('td').nth(index)
   await expect(totalCell(2)).toContainText('280')
   await expect(totalCell(TABLE.salesHours)).toContainText('7')
@@ -592,8 +593,6 @@ test('待映射黄天鹅合同切换业务线后映射到 SAAS 项目', async ({
   await expect(page.locator('.el-message').last()).toContainText('合同已映射')
   await expect(pendingTable).toContainText('暂无待映射合同')
 })
-
-
 
 test('业务线级合同（福田定制不落项目）在业务线合计与整表合计可见，含交付日期口径提示', async ({ page }) => {
   // 定制线叠加业务线级未落项目合同（4650 元 = 0.47 万）

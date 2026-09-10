@@ -55,6 +55,7 @@ public class TaskService {
     private final ProjectMapper projectMapper;
     private final UserMapper userMapper;
     private final YunxiaoWorkItemQueryService yunxiaoWorkItemQueryService;
+    private final EmailActionLinkService emailActionLinkService;
 
     /**
      * 创建任务
@@ -114,9 +115,14 @@ public class TaskService {
             task.setActualHours(dto.getActualHours());
         }
         if (dto.getStatus() != null) {
+            String previous = task.getStatus();
             task.setStatus(dto.getStatus());
+            if (!"已完成".equals(previous) && "已完成".equals(dto.getStatus())) {
+                emailActionLinkService.markClosed("TASK", task.getId());
+            }
         }
         task.setUpdatedAt(LocalDateTime.now());
+
 
         taskMapper.updateById(task);
         return task;

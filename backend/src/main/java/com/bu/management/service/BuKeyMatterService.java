@@ -49,6 +49,7 @@ public class BuKeyMatterService {
     private final ProjectMapper projectMapper;
     private final BuKeyMatterParticipantMapper participantMapper;
     private final BuKeyMatterAccessService accessService;
+    private final EmailActionLinkService emailActionLinkService;
 
     @Transactional
     public BuKeyMatter create(BuKeyMatterRequest request, Long userId, String username) {
@@ -117,6 +118,9 @@ public class BuKeyMatterService {
         matter.setUpdatedAt(LocalDateTime.now());
         matterMapper.updateById(matter);
         syncParticipants(matter.getId(), participantIds);
+        if ("已完成".equals(matter.getStatus()) && !wasCompleted) {
+            emailActionLinkService.markClosed("KEY_MATTER", matter.getId());
+        }
         return matter;
     }
 
