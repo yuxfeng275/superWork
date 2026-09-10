@@ -43,8 +43,9 @@ public class WorkLog {
     private BigDecimal hours;
 
     /**
-     * 工作内容描述
+     * 工作内容描述（表列名 description）
      */
+    @com.baomidou.mybatisplus.annotation.TableField("description")
     private String workContent;
 
     /**
