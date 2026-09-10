@@ -184,9 +184,59 @@ export interface EmailDailyDigest {
   generatedAt?: string
   pushStatus?: EmailPushStatus
   pushMessage?: string
+  feedback?: 'USEFUL' | 'USELESS' | null
+  closedTotal?: number
+  closedDone?: number
 }
 export interface EmailWeComMapping {
   configured: boolean
   enabled: boolean
   weComUserId?: string
+}
+
+export interface EmailConvertResult {
+  actionType: 'TASK' | 'ISSUE' | 'KEY_MATTER'
+  targetId: number
+  targetTitle: string
+  created: boolean
+}
+
+export interface EmailActionLink {
+  id: number
+  messageId: number
+  itemKind: string
+  itemTitle: string
+  actionType: string
+  targetId: number
+  targetTitle?: string
+  status: 'OPEN' | 'CLOSED'
+  closedAt?: string
+  createdAt?: string
+}
+
+export interface EmailReplyResult {
+  replyId: number
+  status: 'SENT' | 'FAILED'
+  errorMessage?: string
+}
+
+export interface EmailSentReplyItem {
+  id: number
+  messageId: number
+  toAddress: string
+  subject: string
+  status: string
+  errorMessage?: string
+  sentAt: string
+}
+
+export interface EmailValueMetrics {
+  monthStart: string
+  converted: number
+  closed: number
+  closeRate?: number | null
+  digests: number
+  useful: number
+  useless: number
+  avgResponseMinutes?: number | null
 }

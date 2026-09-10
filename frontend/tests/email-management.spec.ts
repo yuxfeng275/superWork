@@ -342,3 +342,35 @@ test('智能分组批量归类邮件并支持按项目和未分组筛选', async
   await page.getByLabel('发件人公司分组').getByRole('button', { name: /customer.example/ }).click()
   await expect.poll(() => messageQueries.some(query => query.includes('senderDomain=customer.example'))).toBe(true)
 })
+
+test('摘要待办一键转任务并反馈摘要有用', async ({ page }) => {
+  await mockConfiguredPage(page)
+  let convertPosted: Record<string, unknown> | null = null
+  let feedbackPosted: string | null = null
+  await page.route('**/api/emails/actions/*', route => fulfill(route, []))
+  await page.route('**/api/emails/actions/convert', route => {
+    convertPosted = route.request().postDataJSON()
+    return fulfill(route, { actionType: 'TASK', targetId: 88, targetTitle: '回复合同', created: true })
+  })
+  await page.route('**/api/emails/digests/*/feedback', route => {
+    feedbackPosted = (route.request().postDataJSON() as { feedback: string }).feedback
+    return fulfill(route, { ...digest, feedback: feedbackPosted })
+  })
+  await page.route('**/api/emails/metrics', route => fulfill(route, {
+    monthStart: '2026-09-01', converted: 1, closed: 0, closeRate: 0,
+    digests: 1, useful: 1, useless: 0, avgResponseMinutes: 30
+  }))
+
+  await page.goto('/emails')
+  await page.getByRole('tab', { name: /待办事项/ }).click()
+  await expect(page.getByRole('button', { name: /回复合同 查看邮件/ })).toBeVisible()
+  await page.getByRole('button', { name: '转任务' }).click()
+  await expect.poll(() => convertPosted).toBeTruthy()
+  expect((convertPosted as Record<string, unknown>).actionType).toBe('TASK')
+  expect((convertPosted as Record<string, unknown>).messageId).toBe(101)
+
+  await page.getByRole('tab', { name: '摘要总览' }).click()
+  await page.getByRole('button', { name: /有用/ }).click()
+  await expect.poll(() => feedbackPosted).toBe('USEFUL')
+  await expect(page.getByText('待办闭环率')).toBeVisible()
+})

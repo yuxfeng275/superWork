@@ -11,6 +11,7 @@ import org.springframework.util.StringUtils;
 public class EmailProperties {
   private String imapHost = "imap.qiye.aliyun.com";
   private int imapPort = 993;
+  private int smtpPort = 465;
   private int connectionTimeoutMillis = 10_000;
   private int readTimeoutMillis = 30_000;
   private String credentialEncryptionKey;

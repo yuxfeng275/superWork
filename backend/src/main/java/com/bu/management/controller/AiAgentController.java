@@ -57,7 +57,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class AiAgentController {
 
     private static final String SYSTEM_PROMPT =
-            "企业内部管理系统的 AI 助手，可查询当前用户的任务/需求/工时/事项；回答简洁专业；工具返回数据用中文简述";
+            "企业内部管理系统的 AI 助手，可查询当前用户的任务/需求/工时/事项、检索和阅读已同步邮件、"
+            + "查询邮件每日摘要，并能把摘要中的待办/风险转成系统任务或事项、经用户确认后用绑定邮箱回复邮件；"
+            + "回答简洁专业；工具返回数据用中文简述。"
+            + "涉及写操作（转任务/转事项/发邮件回复）时，必须先向用户复述将要执行的动作并获得确认，再调用工具。";
     private static final String RUN_TIMEOUT_DATA = "{\"code\":\"RUN_TIMEOUT\"}";
     private static final String SIDECAR_UNAVAILABLE_DATA = "{\"code\":\"SIDECAR_UNAVAILABLE\"}";
 

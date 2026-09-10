@@ -46,6 +46,7 @@ public class AiAgentToolService {
     private final ObjectMapper objectMapper;
     private final ConnectorToolService connectorToolService;
     private final GenericConnectorToolService genericConnectorToolService;
+    private final EmailActionToolService emailActionToolService;
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -92,6 +93,7 @@ public class AiAgentToolService {
                         "status", stringProperty("事项状态过滤")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
+        defs.addAll(emailActionToolService.definitions());
         return defs;
     }
 
@@ -116,6 +118,8 @@ public class AiAgentToolService {
                 case "count_my_issues" -> countMyIssues(userId, args);
                 default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
+                        : emailActionToolService.handles(toolName)
+                        ? emailActionToolService.execute(userId, toolName, args)
                         : genericConnectorToolService.execute(toolName, args);
             };
         } catch (Exception e) {

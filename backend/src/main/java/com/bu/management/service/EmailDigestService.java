@@ -16,6 +16,7 @@ import com.bu.management.vo.EmailWeComMappingStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +28,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 import jakarta.annotation.Resource;
-
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmailDigestService {
@@ -42,8 +43,8 @@ public class EmailDigestService {
     private final RuleEmailDigestGenerator fallbackGenerator;
     private final WeComClient weComClient;
     private final EmailIntegrationConfigService integrationConfigService;
+    private final EmailActionLinkService actionLinkService;
     private final ObjectMapper objectMapper;
-
     @Resource(name = "emailTaskExecutor")
     private Executor taskExecutor;
 
@@ -106,7 +107,58 @@ public class EmailDigestService {
         if (!messages.isEmpty()) {
             tryPush(ownerUserId, digest);
         }
+        applyClosedSnapshot(ownerUserId, digest);
         return digest;
+    }
+
+    /**
+     * 闭环快照（P0-1）：生成时统计本次摘要待办+风险条目中已登记转化且已闭环的数量。
+     */
+    private void applyClosedSnapshot(Long ownerUserId, EmailDailyDigest digest) {
+        try {
+            java.util.Set<String> closedKeys = actionLinkService.closedItemKeys(ownerUserId);
+            int total = countItems(digest.getTodoItems()) + countItems(digest.getRiskItems());
+            int done = countClosed(digest.getTodoItems(), closedKeys)
+                    + countClosed(digest.getRiskItems(), closedKeys);
+            digest.setClosedTotal(total);
+            digest.setClosedDone(done);
+            digestMapper.updateById(digest);
+        } catch (Exception e) {
+            log.warn("摘要闭环快照统计失败: {}", e.getMessage());
+        }
+    }
+
+    private int countItems(String itemsJson) {
+        JsonNode arr = parseArray(itemsJson);
+        return arr.size();
+    }
+
+    private int countClosed(String itemsJson, java.util.Set<String> closedKeys) {
+        int count = 0;
+        for (JsonNode item : parseArray(itemsJson)) {
+            String title = item.path("title").asText(item.path("subject").asText(""));
+            if (!title.isEmpty() && closedKeys.contains("TODO|" + title)) count++;
+            else if (!title.isEmpty() && closedKeys.contains("RISK|" + title)) count++;
+        }
+        return count;
+    }
+
+    /**
+     * 摘要反馈（P1-4）：USEFUL/USELESS 落库，用于质量周报与 prompt 迭代。
+     */
+    @Transactional
+    public EmailDigestResponse saveFeedback(Long ownerUserId, LocalDate date, String feedback) {
+        if (!"USEFUL".equals(feedback) && !"USELESS".equals(feedback)) {
+            throw new IllegalArgumentException("feedback 仅支持 USEFUL/USELESS");
+        }
+        EmailDailyDigest digest = find(ownerUserId, normalizeDate(date));
+        if (digest == null) {
+            throw new ResourceNotFoundException("摘要不存在");
+        }
+        digest.setFeedback(feedback);
+        digest.setUpdatedAt(LocalDateTime.now(BUSINESS_ZONE));
+        digestMapper.updateById(digest);
+        return toResponse(digest);
     }
 
     public EmailDigestResponse startRegeneration(Long ownerUserId, LocalDate date) {
@@ -230,7 +282,6 @@ public class EmailDigestService {
         }
         digestMapper.updateById(digest);
     }
-
     private EmailDailyDigest find(Long ownerUserId, LocalDate date) {
         return digestMapper.selectOne(new LambdaQueryWrapper<EmailDailyDigest>()
                 .eq(EmailDailyDigest::getOwnerUserId, ownerUserId)
@@ -256,7 +307,8 @@ public class EmailDigestService {
 
     private EmailDigestResponse pendingResponse(LocalDate date, int count) {
         return new EmailDigestResponse(null, date, "PENDING", "NONE", null, null, count,
-                emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(), null, "PENDING", null);
+                emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(), emptyArray(),
+                null, "PENDING", null, null, 0, 0);
     }
 
     private EmailDigestResponse toResponse(EmailDailyDigest digest) {
@@ -266,7 +318,8 @@ public class EmailDigestService {
                 parseArray(digest.getTopicItems()), parseArray(digest.getProgressItems()),
                 parseArray(digest.getImportantItems()), parseArray(digest.getTodoItems()),
                 parseArray(digest.getRiskItems()), parseArray(digest.getReplyItems()),
-                digest.getUpdatedAt(), digest.getPushStatus(), digest.getPushError());
+                digest.getUpdatedAt(), digest.getPushStatus(), digest.getPushError(),
+                digest.getFeedback(), digest.getClosedTotal(), digest.getClosedDone());
     }
 
     private JsonNode parseArray(String value) {

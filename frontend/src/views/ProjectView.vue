@@ -4,6 +4,7 @@ import { api } from '@/utils/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit } from '@element-plus/icons-vue'
 import { getRoleLabel, hasRoleAccess } from '@/constants/roles'
+import type { EmailMessageSummary } from '@/types/email'
 
 interface BusinessLine {
   id: number
@@ -268,6 +269,7 @@ const openDrawer = async (node: ProjectTreeNode) => {
   addMemberForm.value = { userId: undefined, role: '' }
   drawerMembers.value = []
   drawerLoading.value = true
+  void loadRelatedMails(node.id)
   try {
     const members: any = await api.getProjectMembers(node.id)
     drawerMembers.value = Array.isArray(members) ? members : (members?.data ?? [])
@@ -276,6 +278,31 @@ const openDrawer = async (node: ProjectTreeNode) => {
   } finally {
     drawerLoading.value = false
   }
+}
+
+// ---- 相关邮件（P1-3：项目反向挂载邮件流） ----
+const relatedMails = ref<EmailMessageSummary[]>([])
+const relatedMailsLoading = ref(false)
+const relatedMailsError = ref(false)
+
+async function loadRelatedMails(projectId: number) {
+  relatedMails.value = []
+  relatedMailsError.value = false
+  relatedMailsLoading.value = true
+  try {
+    const page = await api.getEmailMessages({ projectId, size: 5 })
+    relatedMails.value = page.records.slice(0, 5)
+  } catch {
+    // 邮件权限不可用（未绑定邮箱/无 email:view）时静默降级
+    relatedMailsError.value = true
+  } finally {
+    relatedMailsLoading.value = false
+  }
+}
+
+function formatMailTime(value?: string) {
+  if (!value) return ''
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 const openAddInBL = async (blId: number) => {
@@ -546,6 +573,24 @@ onMounted(loadData)
             </span>
           </el-descriptions-item>
         </el-descriptions>
+
+        <div class="member-section related-mails">
+          <div class="section-header">
+            <h4 class="section-title">相关邮件</h4>
+            <span class="action-link" style="font-size:12px;color:var(--gray-400)">近 30 天往来</span>
+          </div>
+          <div v-if="relatedMailsLoading" v-loading="relatedMailsLoading" style="min-height:60px"></div>
+          <template v-else-if="relatedMails.length">
+            <div v-for="mail in relatedMails" :key="mail.id" class="related-mail-item">
+              <div class="related-mail-head">
+                <strong>{{ mail.subject || '（无主题）' }}</strong>
+                <small>{{ formatMailTime(mail.receivedAt) }}</small>
+              </div>
+              <p>{{ mail.preview || '暂无预览' }}</p>
+            </div>
+          </template>
+          <el-empty v-else description="暂无相关邮件" :image-size="54" />
+        </div>
 
         <div class="member-section">
           <div class="section-header">
@@ -1131,4 +1176,11 @@ onMounted(loadData)
   background: var(--gray-50);
   border-radius: var(--radius-sm);
 }
+
+.related-mails { margin-top: 14px; }
+.related-mail-item { padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--gray-200, #e4e7ed); border-radius: 8px; background: #fafbfc; }
+.related-mail-item p { margin: 4px 0 0; color: var(--gray-500, #75809a); font-size: 12px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.related-mail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.related-mail-head strong { font-size: 13px; color: var(--gray-700, #374154); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.related-mail-head small { flex-shrink: 0; color: var(--gray-400, #97a1b3); font-size: 11px; }
 </style>

@@ -27,6 +27,11 @@ import type {
   EmailMessagePage,
   EmailMessageQuery,
   EmailInterpretation,
+  EmailConvertResult,
+  EmailActionLink,
+  EmailReplyResult,
+  EmailSentReplyItem,
+  EmailValueMetrics,
   EmailProjectGroup,
   EmailSenderCompanyGroup,
   EmailGroupingJobStatus,
@@ -1330,7 +1335,6 @@ class ApiService {
   async getEmailSyncStatus(): Promise<EmailSyncStatus> {
     return this.request<EmailSyncStatus>('/api/emails/sync/status')
   }
-
   async getEmailWeComMapping(): Promise<EmailWeComMapping> {
     return this.request<EmailWeComMapping>('/api/emails/wecom-mapping')
   }
@@ -1340,6 +1344,48 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify({ weComUserId, enabled })
     })
+  }
+
+  async convertEmailItem(payload: {
+    messageId: number
+    itemKind: string
+    itemTitle: string
+    actionType: 'TASK' | 'ISSUE' | 'KEY_MATTER'
+    requirementId?: number
+    assigneeId?: number
+    severity?: string
+    projectId?: number
+  }): Promise<EmailConvertResult> {
+    return this.request<EmailConvertResult>('/api/emails/actions/convert', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async getEmailActions(messageId: number): Promise<EmailActionLink[]> {
+    return this.request<EmailActionLink[]>(`/api/emails/actions/${messageId}`)
+  }
+
+  async replyEmail(messageId: number, bodyText: string, subject?: string): Promise<EmailReplyResult> {
+    return this.request<EmailReplyResult>(`/api/emails/messages/${messageId}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ bodyText, subject })
+    })
+  }
+
+  async getEmailReplies(messageId: number): Promise<EmailSentReplyItem[]> {
+    return this.request<EmailSentReplyItem[]>(`/api/emails/messages/${messageId}/replies`)
+  }
+
+  async feedbackEmailDigest(date: string, feedback: 'USEFUL' | 'USELESS'): Promise<EmailDailyDigest> {
+    return this.request<EmailDailyDigest>(`/api/emails/digests/${encodeURIComponent(date)}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback })
+    })
+  }
+
+  async getEmailValueMetrics(): Promise<EmailValueMetrics> {
+    return this.request<EmailValueMetrics>('/api/emails/metrics')
   }
 
   async getSystemConfigGroups(): Promise<SystemConfigGroupSummary[]> {
