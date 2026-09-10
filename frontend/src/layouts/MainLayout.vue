@@ -52,7 +52,12 @@ const handleNoticeAction = async (notice: AiNotice) => {
   }
   noticePopoverVisible.value = false
   if (notice.link) {
-    const query = notice.link === '/ai-assistant' ? { prefill: '我的OA待办事项' } : {}
+    const prefillByKind: Record<string, string> = {
+      WORKLOG_MISSING: '帮我分析一下我最近几个月的工时填报情况',
+      WORKTIME_MONTH_MISSING: '帮我分析一下我最近几个月的工时填报情况'
+    }
+    const query = notice.link === '/ai-assistant'
+      ? { prefill: prefillByKind[notice.kind] || '我的OA待办事项' } : {}
     void router.push({ path: notice.link, query })
   }
   void loadUnreadCount()

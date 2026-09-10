@@ -19,6 +19,8 @@ import com.bu.management.vo.AiAgentToolResult;
 import com.bu.management.vo.WorkItemOverviewItem;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -64,6 +66,8 @@ public class ConnectorToolService {
     private final YunxiaoConfigService yunxiaoConfigService;
     private final YuqueMcpClient yuqueMcpClient;
     private final WorktimeClient worktimeClient;
+    private final WorktimeAnalyticsService worktimeAnalyticsService;
+    private final SysRoleService sysRoleService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -132,14 +136,18 @@ public class ConnectorToolService {
                             "doc", stringProperty("文档 URL 或 slug（必填），来自 search_yuque_docs 结果")),
                             List.of("doc"))));
         }
-
-        // 工时系统
-        if (worktimeReady()) {
-            defs.add(new AiAgentToolDefinition("query_my_worktime", "查询当前用户在工时系统的月度工时汇总与填报状态",
-                    objectSchema(Map.of(
-                            "month", stringProperty("月份 YYYY-MM，默认当月"),
-                            "detail", booleanProperty("是否返回项目明细，默认 true")), null)));
-        }
+        // 工时系统：query_my_worktime 恒下发（读本地同步库），分析工具同源
+        defs.add(new AiAgentToolDefinition("query_my_worktime", "查询当前用户在工时系统的月度工时汇总与填报状态",
+                objectSchema(Map.of(
+                        "month", stringProperty("月份 YYYY-MM，默认上个月"),
+                        "detail", booleanProperty("是否返回项目明细，默认 true")), null)));
+        defs.add(new AiAgentToolDefinition("analyze_my_worktime", "分析当前用户近几个月的工时趋势与项目分布，对比环比变化，判断填报是否偏少",
+                objectSchema(Map.of(
+                        "months", stringProperty("对比月份数，默认 3（含上个月往前推）"),
+                        "month", stringProperty("主分析月份 YYYY-MM，默认上个月")), null)));
+        defs.add(new AiAgentToolDefinition("analyze_team_worktime", "按业务线汇总全团队某月工时投入并列出未填报成员（需要营收查看权限）",
+                objectSchema(Map.of(
+                        "month", stringProperty("月份 YYYY-MM，默认上个月")), null)));
 
         return defs;
     }
@@ -194,18 +202,9 @@ public class ConnectorToolService {
                 list.add(new ConnectorStatus("yuque", "语雀", "DISABLED", "配置读取失败"));
             }
         }
-        // 工时系统
-        if (worktimeReady()) {
-            list.add(new ConnectorStatus("worktime", "工时系统", "READY", "已就绪，AI 可查询月度工时汇总"));
-        } else {
-            try {
-                list.add(worktimeClient.enabled()
-                        ? new ConnectorStatus("worktime", "工时系统", "NOT_CONFIGURED", "请在 配置管理 → AI 连接器 补全服务地址与服务账号")
-                        : new ConnectorStatus("worktime", "工时系统", "DISABLED", "请在 配置管理 → AI 连接器 启用"));
-            } catch (Exception e) {
-                list.add(new ConnectorStatus("worktime", "工时系统", "DISABLED", "配置读取失败"));
-            }
-        }
+        // 工时系统：读本地同步库（revenue_worklog_entry），恒就绪；身份按 ai_connector_identity 或姓名匹配
+        list.add(new ConnectorStatus("worktime", "工时系统", "READY",
+                "已接入：AI 可查询你的月度工时、趋势分析；团队分析需营收权限"));
         return list;
     }
 
@@ -214,7 +213,8 @@ public class ConnectorToolService {
             "search_my_emails", "read_my_email",
             "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem",
             "query_oa_pending", "query_oa_done", "get_oa_flow",
-            "search_yuque_docs", "read_yuque_doc", "query_my_worktime");
+            "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
+            "analyze_my_worktime", "analyze_team_worktime");
 
     /** 该工具名是否属于内置连接器工具集。 */
     public boolean handles(String toolName) {
@@ -238,6 +238,8 @@ public class ConnectorToolService {
                 case "search_yuque_docs" -> searchYuqueDocs(args);
                 case "read_yuque_doc" -> readYuqueDoc(args);
                 case "query_my_worktime" -> queryMyWorktime(userId, args);
+                case "analyze_my_worktime" -> analyzeMyWorktime(userId, args);
+                case "analyze_team_worktime" -> analyzeTeamWorktime(userId, args);
                 default -> new AiAgentToolResult("未知工具：" + toolName, true);
             };
         } catch (Exception e) {
@@ -585,16 +587,106 @@ public class ConnectorToolService {
     }
 
     // ==================== 工时系统 ====================
-
     private AiAgentToolResult queryMyWorktime(Long userId, JsonNode args) {
-        String employeeId = identityService.resolve(userId,
-                AiConnectorIdentityService.CONNECTOR_WORKTIME);
-        if (employeeId == null) {
-            return new AiAgentToolResult("未能识别你在工时系统的身份，请联系管理员补录", true);
+        String month = normalizeReportMonth(textArg(args, "month"));
+        var report = worktimeAnalyticsService.personalMonthly(userId, month);
+        if (report == null) {
+            return new AiAgentToolResult(
+                    "未能识别你在工时系统的身份：请确认系统内姓名与工时系统一致，或联系管理员在 AI 连接器身份映射中补录", true);
         }
-        String month = worktimeClient.normalizeMonth(textArg(args, "month"));
-        JsonNode data = worktimeClient.employeeMonthly(employeeId, month);
-        return new AiAgentToolResult(worktimeClient.renderMonthly(data, month), false);
+        if (report.entryCount() == 0) {
+            return new AiAgentToolResult(report.employeeName() + " " + month
+                    + " 月在工时系统无填报记录（或该月尚未同步）。已同步月份以「BU驾驶舱 → 营收管理」导入为准。", false);
+        }
+        StringBuilder sb = new StringBuilder("工时系统 ").append(month).append(" 月度汇总：状态=已同步，合计=")
+                .append(report.totalHours()).append(" 小时，条目数=").append(report.entryCount());
+        boolean detail = !args.has("detail") || args.path("detail").asBoolean(true);
+        if (detail) {
+            appendTopProjects(sb, report.projectHours());
+        }
+        return new AiAgentToolResult(sb.toString(), false);
+    }
+
+    /** 近 N 月趋势 + 主月项目分布 + 环比。 */
+    private AiAgentToolResult analyzeMyWorktime(Long userId, JsonNode args) {
+        int months = Math.min(Math.max(intArg(args, "months", 3), 2), 6);
+        String focusMonth = normalizeReportMonth(textArg(args, "month"));
+        var trend = worktimeAnalyticsService.personalTrend(userId, months);
+        if (trend == null || trend.isEmpty()) {
+            return new AiAgentToolResult("未能识别你在工时系统的身份，或暂无已同步工时数据", true);
+        }
+        StringBuilder sb = new StringBuilder("近 ").append(trend.size()).append(" 个月工时趋势（")
+                .append(trend.get(0).month()).append(" ~ ").append(trend.get(trend.size() - 1).month()).append("）：");
+        for (var point : trend) {
+            sb.append("\n- ").append(point.month()).append("：").append(point.hours()).append(" 小时（")
+                    .append(point.entries()).append(" 条）");
+        }
+        if (trend.size() >= 2) {
+            var last = trend.get(trend.size() - 1);
+            var prev = trend.get(trend.size() - 2);
+            sb.append("\n环比：").append(prev.hours().signum() == 0 ? "上月无数据"
+                    : (last.hours().subtract(prev.hours()).compareTo(BigDecimal.ZERO) >= 0 ? "+" : "")
+                    + last.hours().subtract(prev.hours()).setScale(2, RoundingMode.HALF_UP) + " 小时");
+        }
+        var report = worktimeAnalyticsService.personalMonthly(userId, focusMonth);
+        if (report != null && report.entryCount() > 0) {
+            sb.append("\n\n").append(focusMonth).append(" 项目分布（Top 5）：");
+            appendTopProjects(sb, report.projectHours());
+            String topType = report.workTypeHours().entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey).orElse("");
+            if (!topType.isEmpty()) {
+                sb.append("\n主要投入类型：").append(topType);
+            }
+        }
+        return new AiAgentToolResult(sb.toString(), false);
+    }
+
+    /** 团队月度汇总（revenue:view 权限）。 */
+    private AiAgentToolResult analyzeTeamWorktime(Long userId, JsonNode args) {
+        List<String> permissions = sysRoleService.getPermissionCodesByUserId(userId);
+        if (permissions == null || !permissions.contains("revenue:view")) {
+            return new AiAgentToolResult("团队工时分析需要「营收查看」权限，当前账号无权访问", true);
+        }
+        String month = normalizeReportMonth(textArg(args, "month"));
+        var report = worktimeAnalyticsService.teamMonthly(month);
+        if (report.entryCount() == 0) {
+            return new AiAgentToolResult(month + " 月暂无已同步的团队工时数据", false);
+        }
+        StringBuilder sb = new StringBuilder("团队 ").append(month).append(" 工时汇总（合计 ")
+                .append(report.totalHours()).append(" 小时，").append(report.entryCount()).append(" 条）：");
+        for (var line : report.lines()) {
+            sb.append("\n- ").append(line.businessLine()).append("：")
+                    .append(line.hours()).append(" 小时，").append(line.people()).append(" 人");
+        }
+        List<String> missing = worktimeAnalyticsService.missingReportUsers(month);
+        if (!missing.isEmpty()) {
+            sb.append("\n\n本月未填报成员（").append(missing.size()).append("）：").append(String.join("、", missing));
+        }
+        return new AiAgentToolResult(sb.toString(), false);
+    }
+
+    private void appendTopProjects(StringBuilder sb, Map<String, BigDecimal> projectHours) {
+        int shown = 0;
+        for (Map.Entry<String, BigDecimal> entry : projectHours.entrySet()) {
+            if (shown++ >= 5) {
+                sb.append("\n…（其余 ").append(projectHours.size() - 5).append(" 个项目省略）");
+                break;
+            }
+            sb.append("\n- ").append(entry.getKey()).append("：").append(entry.getValue()).append(" 小时");
+        }
+    }
+
+    /** 分析月份默认上个月（同步数据按月滞后），格式非法抛出统一文案。 */
+    private String normalizeReportMonth(String month) {
+        if (!StringUtils.hasText(month)) {
+            return java.time.YearMonth.now().minusMonths(1).toString();
+        }
+        try {
+            return java.time.YearMonth.parse(month).toString();
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("月份格式无效，请使用 YYYY-MM");
+        }
     }
 
     // ==================== 就绪判定（动态裁剪） ====================

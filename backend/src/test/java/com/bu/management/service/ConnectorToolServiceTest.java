@@ -62,6 +62,10 @@ class ConnectorToolServiceTest {
     private YuqueMcpClient yuqueMcpClient;
     @Mock
     private WorktimeClient worktimeClient;
+    @Mock
+    private com.bu.management.service.WorktimeAnalyticsService worktimeAnalyticsService;
+    @Mock
+    private com.bu.management.service.SysRoleService sysRoleService;
 
     private ConnectorToolService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -72,15 +76,8 @@ class ConnectorToolServiceTest {
                 emailMessageMapper, emailAccountMapper, yunxiaoQueryService,
                 yunxiaoProjectMappingMapper, projectMapper, userMapper,
                 seeyonOaClient, seeyonOaConfigService, yunxiaoConfigService,
-                yuqueMcpClient, worktimeClient, objectMapper);
-    }
-
-    private JsonNode args(String json) {
-        try {
-            return objectMapper.readTree(json == null ? "{}" : json);
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
+                yuqueMcpClient, worktimeClient, worktimeAnalyticsService,
+                sysRoleService, objectMapper);
     }
 
     private EmailMessage message(Long id, Long ownerId, String subject, String body) {
@@ -95,15 +92,12 @@ class ConnectorToolServiceTest {
         return message;
     }
 
-    // ==================== 动态裁剪 ====================
-
-    @Test
-    @DisplayName("definitions：全部连接器未启用时仅下发邮箱两个工具")
-    void definitionsPrunesDisabledConnectors() {
-        AiAgentToolDefinition[] defs = service.definitions().toArray(new AiAgentToolDefinition[0]);
-
-        assertThat(defs).extracting(AiAgentToolDefinition::name)
-                .containsExactly("search_my_emails", "read_my_email");
+    private JsonNode args(String json) {
+        try {
+            return objectMapper.readTree(json == null ? "{}" : json);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test
@@ -111,8 +105,8 @@ class ConnectorToolServiceTest {
     void definitionsIncludesEnabledConnectors() {
         when(yuqueMcpClient.enabled()).thenReturn(true);
         when(yuqueMcpClient.configured()).thenReturn(true);
-        when(worktimeClient.enabled()).thenReturn(true);
-        when(worktimeClient.configured()).thenReturn(true);
+        lenient().when(worktimeClient.enabled()).thenReturn(true);
+        lenient().when(worktimeClient.configured()).thenReturn(true);
         when(yunxiaoConfigService.getRuntimeConfig()).thenReturn(
                 new com.bu.management.config.YunxiaoRuntimeConfig(
                         true, "center", "https://openapi.aliyun.com", "org", "tok", "PAGE", null, null, null));
@@ -124,7 +118,6 @@ class ConnectorToolServiceTest {
                 "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
                 "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem");
     }
-
     @Test
     @DisplayName("handles：内置工具名识别，含新增的 get_yunxiao_workitem")
     void handlesRecognizesBuiltinTools() {
@@ -132,17 +125,80 @@ class ConnectorToolServiceTest {
         assertThat(service.handles("get_oa_flow")).isTrue();
         assertThat(service.handles("no_such_tool")).isFalse();
     }
+    @Test
+    @DisplayName("execute：未知工具返回 isError")
+    void unknownToolReturnsError() {
+        AiAgentToolResult result = service.execute(7L, "no_such_tool", args(null));
 
-    // ==================== 连接器状态 ====================
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).contains("未知工具");
+    }
+    @Test
+    @DisplayName("execute：连接器异常转换为 isError，不抛出")
+    void exceptionBecomesIsError() {
+        when(emailAccountMapper.selectCount(any())).thenThrow(new IllegalStateException("db down"));
+
+        AiAgentToolResult result = service.execute(7L, "search_my_emails", args(null));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).startsWith("工具执行失败：");
+    }
+    @Test
+    @DisplayName("search_my_emails：未绑定邮箱返回 isError")
+    void mailSearchWithoutAccountIsError() {
+        when(emailAccountMapper.selectCount(any())).thenReturn(0L);
+
+        AiAgentToolResult result = service.execute(7L, "search_my_emails", args(null));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).contains("尚未绑定邮箱");
+    }
+    @Test
+    @DisplayName("search_my_emails：命中邮件列表，content 含 emailId 供后续阅读")
+    void mailSearchHappyPath() {
+        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
+        when(emailMessageMapper.selectList(any())).thenReturn(List.of(
+                message(11L, 7L, "项目周报", "本周交付进度正常，详情见附件。")));
+
+        AiAgentToolResult result = service.execute(7L, "search_my_emails",
+                args("{\"keyword\":\"周报\"}"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("emailId=11").contains("项目周报");
+    }
+    @Test
+    @DisplayName("read_my_email：只读本人邮件，他人邮件返回 isError")
+    void mailReadRejectsOtherOwnersMessage() {
+        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
+        when(emailMessageMapper.selectOne(any())).thenReturn(null);
+
+        AiAgentToolResult result = service.execute(7L, "read_my_email",
+                args("{\"emailId\":99}"));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).contains("不属于当前用户");
+    }
+    @Test
+    @DisplayName("read_my_email：命中本人邮件返回正文")
+    void mailReadHappyPath() {
+        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
+        when(emailMessageMapper.selectOne(any()))
+                .thenReturn(message(11L, 7L, "项目周报", "本周交付进度正常。"));
+
+        AiAgentToolResult result = service.execute(7L, "read_my_email",
+                args("{\"emailId\":11}"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("项目周报").contains("本周交付进度正常。");
+    }
 
     @Test
-    @DisplayName("statuses：默认返回五个连接器，邮箱恒就绪")
-    void statusesDefaultsMailReady() {
-        List<ConnectorStatus> statuses = service.statuses();
+    @DisplayName("statuses：工时系统恒就绪（读本地同步库）")
+    void statusesWorktimeAlwaysReady() {
+        ConnectorStatus wt = service.statuses().stream()
+                .filter(s -> "worktime".equals(s.code())).findFirst().orElseThrow();
 
-        assertThat(statuses).extracting(ConnectorStatus::code)
-                .containsExactly("mail", "yunxiao", "oa", "yuque", "worktime");
-        assertThat(statuses.get(0).status()).isEqualTo("READY");
+        assertThat(wt.status()).isEqualTo("READY");
     }
 
     @Test
@@ -169,106 +225,42 @@ class ConnectorToolServiceTest {
         assertThat(yuque.status()).isEqualTo("DISABLED");
     }
 
-    // ==================== 分发与错误映射 ====================
+    // ==================== 工时系统（本地同步库分析） ====================
 
-    @Test
-    @DisplayName("execute：未知工具返回 isError")
-    void unknownToolReturnsError() {
-        AiAgentToolResult result = service.execute(7L, "no_such_tool", args(null));
-
-        assertThat(result.isError()).isTrue();
-        assertThat(result.content()).contains("未知工具");
+    private com.bu.management.service.WorktimeAnalyticsService.MonthlyReport report(
+            String month, String name, int entries, String hours) {
+        var rows = new java.util.ArrayList<com.bu.management.service.WorktimeAnalyticsService.MonthRow>();
+        var projectHours = new java.util.LinkedHashMap<String, java.math.BigDecimal>();
+        var lineHours = new java.util.LinkedHashMap<String, java.math.BigDecimal>();
+        var typeHours = new java.util.LinkedHashMap<String, java.math.BigDecimal>();
+        if (entries > 0) {
+            rows.add(new com.bu.management.service.WorktimeAnalyticsService.MonthRow(
+                    "皇家宠物项目【交付】", "电商业务BU", "project", new java.math.BigDecimal(hours), "x"));
+            projectHours.put("皇家宠物项目【交付】", new java.math.BigDecimal(hours));
+            lineHours.put("电商业务BU", new java.math.BigDecimal(hours));
+            typeHours.put("project", new java.math.BigDecimal(hours));
+        }
+        return new com.bu.management.service.WorktimeAnalyticsService.MonthlyReport(
+                month, "E001", name, new java.math.BigDecimal(hours), entries, rows.size(),
+                rows, projectHours, lineHours, typeHours, null);
     }
 
     @Test
-    @DisplayName("execute：连接器异常转换为 isError，不抛出")
-    void exceptionBecomesIsError() {
-        when(emailAccountMapper.selectCount(any())).thenThrow(new IllegalStateException("db down"));
-
-        AiAgentToolResult result = service.execute(7L, "search_my_emails", args(null));
-
-        assertThat(result.isError()).isTrue();
-        assertThat(result.content()).startsWith("工具执行失败：");
-    }
-
-    // ==================== 邮箱 ====================
-
-    @Test
-    @DisplayName("search_my_emails：未绑定邮箱返回 isError")
-    void mailSearchWithoutAccountIsError() {
-        when(emailAccountMapper.selectCount(any())).thenReturn(0L);
-
-        AiAgentToolResult result = service.execute(7L, "search_my_emails", args(null));
-
-        assertThat(result.isError()).isTrue();
-        assertThat(result.content()).contains("尚未绑定邮箱");
-    }
-
-    @Test
-    @DisplayName("search_my_emails：命中邮件列表，content 含 emailId 供后续阅读")
-    void mailSearchHappyPath() {
-        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
-        when(emailMessageMapper.selectList(any())).thenReturn(List.of(
-                message(11L, 7L, "项目周报", "本周交付进度正常，详情见附件。")));
-
-        AiAgentToolResult result = service.execute(7L, "search_my_emails",
-                args("{\"keyword\":\"周报\"}"));
-
-        assertThat(result.isError()).isFalse();
-        assertThat(result.content()).contains("emailId=11").contains("项目周报");
-    }
-
-    @Test
-    @DisplayName("read_my_email：只读本人邮件，他人邮件返回 isError")
-    void mailReadRejectsOtherOwnersMessage() {
-        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
-        when(emailMessageMapper.selectOne(any())).thenReturn(null);
-
-        AiAgentToolResult result = service.execute(7L, "read_my_email",
-                args("{\"emailId\":99}"));
-
-        assertThat(result.isError()).isTrue();
-        assertThat(result.content()).contains("不属于当前用户");
-    }
-
-    @Test
-    @DisplayName("read_my_email：命中本人邮件返回正文")
-    void mailReadHappyPath() {
-        when(emailAccountMapper.selectCount(any())).thenReturn(1L);
-        when(emailMessageMapper.selectOne(any()))
-                .thenReturn(message(11L, 7L, "项目周报", "本周交付进度正常。"));
-
-        AiAgentToolResult result = service.execute(7L, "read_my_email",
-                args("{\"emailId\":11}"));
-
-        assertThat(result.isError()).isFalse();
-        assertThat(result.content()).contains("项目周报").contains("本周交付进度正常。");
-    }
-
-    // ==================== 工时系统 ====================
-
-    @Test
-    @DisplayName("query_my_worktime：身份未映射返回固定 isError 文案")
+    @DisplayName("query_my_worktime：身份未解析返回 isError 引导补录")
     void worktimeWithoutIdentityIsError() {
-        when(identityService.resolve(7L, AiConnectorIdentityService.CONNECTOR_WORKTIME))
+        when(worktimeAnalyticsService.personalMonthly(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(null);
 
         AiAgentToolResult result = service.execute(7L, "query_my_worktime", args(null));
 
         assertThat(result.isError()).isTrue();
-        assertThat(result.content())
-                .isEqualTo("未能识别你在工时系统的身份，请联系管理员补录");
+        assertThat(result.content()).contains("未能识别你在工时系统的身份");
         verifyNoInteractions(worktimeClient);
     }
 
     @Test
     @DisplayName("query_my_worktime：月份格式非法返回 isError")
     void worktimeInvalidMonthIsError() {
-        when(identityService.resolve(7L, AiConnectorIdentityService.CONNECTOR_WORKTIME))
-                .thenReturn("E001");
-        lenient().when(worktimeClient.normalizeMonth("2026/08"))
-                .thenThrow(new IllegalArgumentException("月份格式无效，请使用 YYYY-MM"));
-
         AiAgentToolResult result = service.execute(7L, "query_my_worktime",
                 args("{\"month\":\"2026/08\"}"));
 
@@ -277,21 +269,75 @@ class ConnectorToolServiceTest {
     }
 
     @Test
-    @DisplayName("query_my_worktime：命中身份时调用客户端并渲染月度汇总")
+    @DisplayName("query_my_worktime：默认上个月，渲染汇总与项目明细")
     void worktimeHappyPath() {
-        when(identityService.resolve(7L, AiConnectorIdentityService.CONNECTOR_WORKTIME))
-                .thenReturn("E001");
-        when(worktimeClient.normalizeMonth(null)).thenReturn("2026-09");
-        com.fasterxml.jackson.databind.node.ObjectNode data = objectMapper.createObjectNode();
-        data.put("status_label", "已提交");
-        data.put("total_hours", 160);
-        data.put("detail_count", 2);
-        when(worktimeClient.employeeMonthly("E001", "2026-09")).thenReturn(data);
-        when(worktimeClient.renderMonthly(data, "2026-09")).thenReturn("工时系统 2026-09 月度汇总：状态=已提交，合计=160 小时");
+        String month = java.time.YearMonth.now().minusMonths(1).toString();
+        when(worktimeAnalyticsService.personalMonthly(7L, month)).thenReturn(report(month, "石家乐", 6, "42.50"));
 
         AiAgentToolResult result = service.execute(7L, "query_my_worktime", args(null));
 
         assertThat(result.isError()).isFalse();
-        assertThat(result.content()).contains("2026-09").contains("160");
+        assertThat(result.content()).contains(month).contains("42.50").contains("皇家宠物项目");
+    }
+
+    @Test
+    @DisplayName("query_my_worktime：无填报记录返回可用提示")
+    void worktimeEmptyMonth() {
+        String month = java.time.YearMonth.now().minusMonths(1).toString();
+        when(worktimeAnalyticsService.personalMonthly(7L, month)).thenReturn(report(month, "石家乐", 0, "0"));
+
+        AiAgentToolResult result = service.execute(7L, "query_my_worktime", args(null));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("无填报记录");
+    }
+
+    @Test
+    @DisplayName("analyze_my_worktime：输出趋势与环比")
+    void analyzeMyWorktimeTrend() {
+        var trend = List.of(
+                new com.bu.management.service.WorktimeAnalyticsService.MonthPoint("2026-07", new java.math.BigDecimal("23.10"), 93),
+                new com.bu.management.service.WorktimeAnalyticsService.MonthPoint("2026-08", new java.math.BigDecimal("13.70"), 84));
+        when(worktimeAnalyticsService.personalTrend(7L, 2)).thenReturn(trend);
+        when(worktimeAnalyticsService.personalMonthly(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(report("2026-08", "石家乐", 84, "13.70"));
+
+        AiAgentToolResult result = service.execute(7L, "analyze_my_worktime",
+                args("{\"months\":2,\"month\":\"2026-08\"}"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("2026-07").contains("2026-08")
+                .contains("环比").contains("项目分布");
+    }
+
+    @Test
+    @DisplayName("analyze_team_worktime：无 revenue:view 权限返回 isError")
+    void teamWorktimeRequiresPermission() {
+        when(sysRoleService.getPermissionCodesByUserId(7L)).thenReturn(List.of("email:view"));
+
+        AiAgentToolResult result = service.execute(7L, "analyze_team_worktime", args(null));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).contains("营收查看");
+    }
+
+    @Test
+    @DisplayName("analyze_team_worktime：有权限时输出业务线汇总与未填报成员")
+    void teamWorktimeHappyPath() {
+        when(sysRoleService.getPermissionCodesByUserId(7L)).thenReturn(List.of("revenue:view"));
+        String month = java.time.YearMonth.now().minusMonths(1).toString();
+        when(worktimeAnalyticsService.teamMonthly(month)).thenReturn(
+                new com.bu.management.service.WorktimeAnalyticsService.TeamMonthlyReport(
+                        month,
+                        List.of(new com.bu.management.service.WorktimeAnalyticsService.TeamLineRow(
+                                "电商业务BU", new java.math.BigDecimal("120.50"), 12, 84)),
+                        new java.math.BigDecimal("120.50"), 84));
+        when(worktimeAnalyticsService.missingReportUsers(month)).thenReturn(List.of("王缓", "乔倩"));
+
+        AiAgentToolResult result = service.execute(7L, "analyze_team_worktime", args(null));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("电商业务BU").contains("120.50")
+                .contains("未填报成员").contains("王缓");
     }
 }

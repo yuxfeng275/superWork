@@ -54,9 +54,9 @@ const connectorDialogVisible = ref(false)
 const welcomeCards: Array<{ icon: typeof ChatDotRound; title: string; desc: string; question: string }> = [
   {
     icon: Search,
-    title: '查我的任务和工时',
-    desc: '查看本周任务安排与工时填写',
-    question: '帮我看看我本周的任务和工时填写情况'
+    title: '工时填报分析',
+    desc: '分析我在工时系统的月度工时与趋势',
+    question: '帮我分析一下我最近三个月的工时填报情况，和上月环比有变化吗？'
   },
   {
     icon: Search,
