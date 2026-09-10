@@ -120,6 +120,21 @@ seeyon-oa:
   config-encryption-key: ${SEEYON_OA_CONFIG_ENCRYPTION_KEY:}
   sync-cron: ${SEEYON_OA_SYNC_CRON:0 30 * * * *}
 
+# 工时系统 (worktime.lucidata.cn) 集成配置
+worktime:
+  enabled: ${WORKTIME_ENABLED:false}
+  base-url: ${WORKTIME_BASE_URL:https://worktime.lucidata.cn}
+  employee-no: ${WORKTIME_EMPLOYEE_NO:}
+  password: ${WORKTIME_PASSWORD:}
+  config-encryption-key: ${WORKTIME_CONFIG_ENCRYPTION_KEY:}
+  contract-sync-cron: ${WORKTIME_CONTRACT_SYNC_CRON:0 30 6 * * *}
+  monthly-sync-cron: ${WORKTIME_MONTHLY_SYNC_CRON:0 0 7 * * *}
+
+# KPI 周报
+kpi:
+  snapshot-cron: ${KPI_SNAPSHOT_CRON:0 0 18 * * SUN}
+  notify-wecom-user: ${KPI_NOTIFY_WECOM_USER:}
+
 # BG 周报（周五 17:00 自动生成草稿）
 weekly:
   report-cron: ${WEEKLY_REPORT_CRON:0 0 17 * * FRI}
