@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '大事儿管理', requiresKeyMatterAccess: true }
       },
       {
+        path: 'weekly-report',
+        name: 'WeeklyReport',
+        component: () => import('@/views/WeeklyReportView.vue'),
+        meta: { title: '周报中心', requiresAuth: true }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/StatisticsView.vue'),
@@ -85,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         name: 'Revenue',
         component: () => import('@/views/RevenueView.vue'),
         meta: { title: '营收管理', roleAccess: 'management' }
+      },
+      {
+        path: 'kpi-report',
+        name: 'KpiReport',
+        component: () => import('@/views/KpiReportView.vue'),
+        meta: { title: 'KPI周报', roleAccess: 'management' }
       },
       {
         path: 'projects',

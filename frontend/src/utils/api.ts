@@ -34,6 +34,17 @@ import type {
   EmailWeComMapping,
 } from '@/types/email'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView } from '@/types/ai-agent'
+import type {
+  KpiAlertRule,
+  KpiNote,
+  KpiReport,
+  KpiTarget,
+  MenuTreeNode,
+  WorktimeStatus,
+  WorktimeSyncLog,
+  WorktimeTestResult
+} from '@/types/kpi'
+import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1409,6 +1420,11 @@ class ApiService {
     return this.request<{ paths: string[]; managedPaths: string[] }>('/api/auth/my-menus')
   }
 
+  // 当前用户可见菜单树（侧边栏动态渲染）；空数组表示无授权记录，前端回退默认菜单
+  async getMyMenuTree(): Promise<MenuTreeNode[]> {
+    return this.request<MenuTreeNode[]>('/api/auth/my-menu-tree')
+  }
+
   // Revenue management APIs（工时与成本）
   async getRevenueMatrix(year: number): Promise<RevenueMatrix> {
     return this.request<RevenueMatrix>(`/api/revenue/matrix?year=${year}`)
@@ -1809,6 +1825,142 @@ class ApiService {
       reader.releaseLock()
     }
   }
+
+  // ==================== KPI 周报与工时系统集成 ====================
+
+  async getKpiReport(year: number): Promise<KpiReport> {
+    return this.request<KpiReport>(`/api/kpi/report?year=${year}`)
+  }
+
+  async runKpiSnapshot(weekEndDate?: string): Promise<unknown> {
+    const query = weekEndDate ? `?weekEndDate=${weekEndDate}` : ''
+    return this.request<unknown>(`/api/kpi/snapshot/run${query}`, { method: 'POST' })
+  }
+
+  async getKpiTargets(year: number): Promise<KpiTarget[]> {
+    return this.request<KpiTarget[]>(`/api/kpi/targets?year=${year}`)
+  }
+
+  async saveKpiTarget(payload: {
+    year: number; reportGroup: string; revenueTarget: number; profitTarget: number; remark?: string
+  }): Promise<KpiTarget> {
+    return this.request<KpiTarget>('/api/kpi/targets', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async saveKpiNote(id: number, payload: {
+    deviationReason: string; isAbnormal: number | null; countermeasure?: string
+  }): Promise<KpiNote> {
+    return this.request<KpiNote>(`/api/kpi/notes/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async getKpiAlertRules(): Promise<KpiAlertRule[]> {
+    return this.request<KpiAlertRule[]>('/api/kpi/alert-rules')
+  }
+
+  async saveKpiAlertRule(payload: {
+    reportGroup?: string | null; weeklyDivisor?: number; yellowRatio?: number; enabled?: number
+  }): Promise<KpiAlertRule> {
+    return this.request<KpiAlertRule>('/api/kpi/alert-rules', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async getWorktimeStatus(): Promise<WorktimeStatus> {
+    return this.request<WorktimeStatus>('/api/worktime/status')
+  }
+
+  async saveWorktimeConfig(payload: {
+    enabled: boolean; baseUrl: string; employeeNo?: string; password?: string
+  }): Promise<unknown> {
+    return this.request<unknown>('/api/worktime/config', { method: 'PUT', body: JSON.stringify(payload) })
+  }
+
+  async testWorktimeConnection(): Promise<WorktimeTestResult> {
+    return this.request<WorktimeTestResult>('/api/worktime/connection-test', { method: 'POST' })
+  }
+
+  async syncWorktimeContracts(year?: number): Promise<WorktimeSyncLog> {
+    const query = year ? `?year=${year}` : ''
+    return this.request<WorktimeSyncLog>(`/api/worktime/sync/contracts${query}`, { method: 'POST' })
+  }
+
+  async syncWorktimeMonthly(forceMonth?: string): Promise<WorktimeSyncLog[]> {
+    const query = forceMonth ? `?forceMonth=${forceMonth}` : ''
+    return this.request<WorktimeSyncLog[]>(`/api/worktime/sync/monthly${query}`, { method: 'POST' })
+  }
+
+  async getWorktimeSyncLogs(syncType?: string): Promise<WorktimeSyncLog[]> {
+    const query = syncType ? `?syncType=${syncType}` : ''
+    return this.request<WorktimeSyncLog[]>(`/api/worktime/sync/logs${query}`)
+  }
+
+  // ==================== BG 周报中心 ====================
+
+  async getWeeklyReport(weekStart?: string): Promise<WeeklyReportVO> {
+    const query = weekStart ? `?weekStart=${weekStart}` : ''
+    return this.request<WeeklyReportVO>(`/api/weekly-reports${query}`)
+  }
+
+  async getWeeklyFacts(weekStart?: string): Promise<WeeklyReportFacts> {
+    const query = weekStart ? `?weekStart=${weekStart}` : ''
+    return this.request<WeeklyReportFacts>(`/api/weekly-reports/facts${query}`)
+  }
+
+  async saveWeeklyInputs(id: number, payload: {
+    wecomSummary?: string; manualNotes?: string
+  }): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/inputs`, {
+      method: 'PUT', body: JSON.stringify(payload)
+    })
+  }
+
+  async generateWeeklyReport(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/generate`, { method: 'POST' })
+  }
+
+  async saveWeeklyContent(id: number, payload: {
+    coreWork?: string; kpiSection?: string; risks?: string;
+    nextWeekPlan?: string; minutesMarkdown?: string
+  }): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/content`, {
+      method: 'PUT', body: JSON.stringify(payload)
+    })
+  }
+
+  async confirmWeeklyReport(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/confirm`, { method: 'PUT' })
+  }
+
+  async publishWeeklyYuque(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/publish-yuque`, { method: 'POST' })
+  }
+
+  async publishWeeklySheet(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/publish-sheet`, { method: 'POST' })
+  }
+
+  async pushWeeklyWecom(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/push-wecom`, { method: 'POST' })
+  }
+
+  async getWeeklyHistory(): Promise<WeeklyReportVO[]> {
+    return this.request<WeeklyReportVO[]>('/api/weekly-reports/history')
+  }
+
+  async downloadKpiReport(year: number): Promise<void> {
+    const token = this.getToken()
+    const response = await fetch(`${this.baseUrl}/api/kpi/report/export?year=${year}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (!response.ok) {
+      throw new ApiRequestError(`HTTP error! status: ${response.status}`, response.status)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `KPI周报-${year}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 }
 
 /**
@@ -1898,6 +2050,7 @@ function parseSseEvent(block: string): AiAgentStreamEvent | null {
       return null
   }
 }
+
 
 export const api = new ApiService()
 export default api

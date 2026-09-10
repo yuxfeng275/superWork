@@ -130,6 +130,228 @@ public class YuqueMcpClient {
         }
     }
 
+    // ==================== 周报：文档创建 / TOC / 列表 ====================
+
+    /**
+     * 创建语雀文档。优先 MCP（yuque_create_doc），MCP 403 时降级 REST v2。
+     * repoId 形如 "vuntcs/cf_records"（namespace）或数字 ID。
+     *
+     * @return {id, slug, url}
+     */
+    public Map<String, Object> createDoc(String repoId, String title, String body, String format,
+                                         int isPublic) {
+        if (restFallback) {
+            return restCreateDoc(repoId, title, body, format, isPublic);
+        }
+        try {
+            JsonNode content = callTool("yuque_create_doc", Map.of(
+                    "repo_id", repoId,
+                    "title", title,
+                    "body", body == null ? "" : body,
+                    "format", format == null ? "markdown" : format,
+                    "public", isPublic));
+            Map<String, Object> doc = firstObject(content);
+            if (doc == null || doc.get("id") == null) {
+                throw new IllegalStateException("语雀创建文档返回异常");
+            }
+            return doc;
+        } catch (IllegalStateException e) {
+            if (isAuthError(e)) {
+                restFallback = true;
+                return restCreateDoc(repoId, title, body, format, isPublic);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 获取知识库 TOC 树（仅 MCP 提供；MCP 不可用时抛可操作错误）。
+     */
+    public JsonNode getToc(String repoId) {
+        try {
+            JsonNode content = callTool("yuque_get_toc", Map.of("repo_id", repoId));
+            JsonNode parsed = parseStructured(content);
+            if (parsed != null) return parsed;
+            throw new IllegalStateException("语雀 TOC 返回异常");
+        } catch (IllegalStateException e) {
+            if (isAuthError(e)) {
+                throw new IllegalStateException(
+                        "语雀 MCP 不可用，无法获取目录（TOC 为 MCP 独有能力），请检查语雀 MCP Token 权限", e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 更新 TOC：tocDataJson 形如
+     * {"action":"appendNode","action_mode":"child","target_uuid":"<yearUUID>","node_uuid":"<docNodeUUID>"}
+     * 仅 MCP 提供。
+     */
+    public void updateToc(String repoId, String tocDataJson) {
+        try {
+            callTool("yuque_update_toc", Map.of(
+                    "repo_id", repoId,
+                    "toc_data", tocDataJson == null ? "" : tocDataJson));
+        } catch (IllegalStateException e) {
+            if (isAuthError(e)) {
+                throw new IllegalStateException(
+                        "语雀 MCP 不可用，无法调整目录（TOC 为 MCP 独有能力），请检查语雀 MCP Token 权限", e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 列出知识库文档。优先 MCP（yuque_list_docs），MCP 403 时降级 REST v2。
+     */
+    public JsonNode listDocs(String repoId) {
+        if (restFallback) {
+            return restListDocs(repoId);
+        }
+        try {
+            JsonNode content = callTool("yuque_list_docs", Map.of("repo_id", repoId));
+            JsonNode parsed = parseStructured(content);
+            if (parsed != null) return parsed;
+            throw new IllegalStateException("语雀文档列表返回异常");
+        } catch (IllegalStateException e) {
+            if (isAuthError(e)) {
+                restFallback = true;
+                return restListDocs(repoId);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 读取指定文档正文。优先 MCP（yuque_get_doc），MCP 403 时降级 REST v2。
+     */
+    public String getDocBody(String repoId, String docIdOrSlug, String format) {
+        if (restFallback) {
+            return restReadDoc(repoId + "/" + docIdOrSlug);
+        }
+        try {
+            JsonNode content = callTool("yuque_get_doc", Map.of(
+                    "repo_id", repoId,
+                    "doc_id", docIdOrSlug,
+                    "format", format == null ? "markdown" : format));
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode item : textItems(content)) {
+                String text = item.path("text").asText("");
+                if (!text.isBlank()) {
+                    if (sb.length() > 0) sb.append("\n\n");
+                    sb.append(text);
+                }
+            }
+            if (sb.length() == 0) {
+                JsonNode parsed = parseStructured(content);
+                if (parsed != null) {
+                    return parsed.path("body").asText("");
+                }
+            }
+            return sb.toString();
+        } catch (IllegalStateException e) {
+            if (isAuthError(e)) {
+                restFallback = true;
+                return restReadDoc(repoId + "/" + docIdOrSlug);
+            }
+            throw e;
+        }
+    }
+
+    /** 汇总表回填结果 */
+    public record SheetWriteResult(boolean success, String message) {}
+
+    /**
+     * 汇总表回填（占位实现）。
+     * sheet.mode=MANUAL（默认）→ 抛错提示人工回填；sheet.mode=API → 走配置端点（占位）。
+     */
+    public SheetWriteResult writeSheetRow(String mode, String apiBaseUrl, String apiToken,
+                                          String docSlug, String sheetName, String dateRangeLabel,
+                                          String teamName, String cellValue) {
+        if (!"API".equalsIgnoreCase(mode)) {
+            throw new IllegalStateException("汇总表模式为 MANUAL，请手动回填");
+        }
+        // TODO: 语雀表格公开 API 可用后按 spec 实现（apiBaseUrl + apiToken）。
+        throw new IllegalStateException("汇总表 API 模式尚未实现，请切换 MANUAL 模式人工回填");
+    }
+
+    private boolean isAuthError(IllegalStateException e) {
+        String message = String.valueOf(e.getMessage());
+        return message.contains("403") || message.contains("认证");
+    }
+
+    /** 从 MCP content 文本项中解析第一个 JSON 结构化对象。 */
+    private JsonNode parseStructured(JsonNode content) {
+        for (JsonNode item : textItems(content)) {
+            if (item.isObject() && !item.has("type")) {
+                return item;
+            }
+            String text = item.path("text").asText("");
+            if (text.isBlank()) continue;
+            String trimmed = text.trim();
+            if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+                try {
+                    return objectMapper.readTree(trimmed);
+                } catch (Exception ignored) {
+                    // 非 JSON 文本项，跳过
+                }
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> firstObject(JsonNode content) {
+        JsonNode parsed = parseStructured(content);
+        if (parsed == null) return null;
+        JsonNode node = parsed.has("data") ? parsed.path("data") : parsed;
+        if (node.isArray() && node.size() > 0) {
+            node = node.get(0);
+        }
+        if (!node.isObject()) return null;
+        return objectMapper.convertValue(node, Map.class);
+    }
+
+    private Map<String, Object> restCreateDoc(String repoId, String title, String body,
+                                              String format, int isPublic) {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("title", title);
+            payload.put("body", body == null ? "" : body);
+            payload.put("format", format == null ? "markdown" : format);
+            payload.put("public", isPublic);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(YUQUE_API_BASE + "/repos/" + repoId + "/docs"))
+                    .timeout(Duration.ofSeconds(timeoutSeconds()))
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .header("X-Auth-Token", token())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                throw new IllegalStateException("语雀认证失败，请检查访问 Token 配置");
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("语雀创建文档失败(" + response.statusCode() + ")");
+            }
+            JsonNode data = objectMapper.readTree(response.body()).path("data");
+            Map<String, Object> doc = new LinkedHashMap<>();
+            doc.put("id", data.path("id").asLong(0));
+            doc.put("slug", data.path("slug").asText(""));
+            doc.put("url", data.path("url").asText(""));
+            return doc;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("语雀服务暂时不可用，请稍后重试", e);
+        }
+    }
+
+    private JsonNode restListDocs(String repoId) {
+        return restGet("/repos/" + repoId + "/docs").path("data");
+    }
+
     private String mcpReadDoc(String doc) {
         JsonNode content = callTool("read", Map.of("doc", doc == null ? "" : doc));
         StringBuilder sb = new StringBuilder();

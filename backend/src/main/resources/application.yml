@@ -120,6 +120,11 @@ seeyon-oa:
   config-encryption-key: ${SEEYON_OA_CONFIG_ENCRYPTION_KEY:}
   sync-cron: ${SEEYON_OA_SYNC_CRON:0 30 * * * *}
 
+# BG 周报（周五 17:00 自动生成草稿）
+weekly:
+  report-cron: ${WEEKLY_REPORT_CRON:0 0 17 * * FRI}
+  report-notify-wecom-user: ${WEEKLY_NOTIFY_WECOM_USER:}
+
 # 服务器配置
 server:
   port: 8081
