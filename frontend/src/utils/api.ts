@@ -40,6 +40,7 @@ import type {
 } from '@/types/email'
 import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, WorktimeTestResult, MenuTreeNode } from '@/types/kpi'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
+import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1470,10 +1471,6 @@ class ApiService {
     return this.request<WorktimeSyncLog[]>(`/api/worktime/sync/logs${query}`)
   }
 
-  async getMyMenuTree(): Promise<MenuTreeNode[]> {
-    return this.request<MenuTreeNode[]>('/api/auth/my-menu-tree')
-  }
-
   async getSystemConfigGroups(): Promise<SystemConfigGroupSummary[]> {
     return this.request<SystemConfigGroupSummary[]>('/api/system/configs')
   }
@@ -1539,6 +1536,11 @@ class ApiService {
   // 当前用户菜单授权（角色管理配置生效）
   async getMyMenus(): Promise<{ paths: string[]; managedPaths: string[] }> {
     return this.request<{ paths: string[]; managedPaths: string[] }>('/api/auth/my-menus')
+  }
+
+  // 当前用户可见菜单树（侧边栏动态渲染）；空数组表示无授权记录，前端回退默认菜单
+  async getMyMenuTree(): Promise<MenuTreeNode[]> {
+    return this.request<MenuTreeNode[]>('/api/auth/my-menu-tree')
   }
 
   // Revenue management APIs（工时与成本）
@@ -1959,6 +1961,59 @@ class ApiService {
       reader.releaseLock()
     }
   }
+
+  // ==================== BG 周报中心 ====================
+
+  async getWeeklyReport(weekStart?: string): Promise<WeeklyReportVO> {
+    const query = weekStart ? `?weekStart=${weekStart}` : ''
+    return this.request<WeeklyReportVO>(`/api/weekly-reports${query}`)
+  }
+
+  async getWeeklyFacts(weekStart?: string): Promise<WeeklyReportFacts> {
+    const query = weekStart ? `?weekStart=${weekStart}` : ''
+    return this.request<WeeklyReportFacts>(`/api/weekly-reports/facts${query}`)
+  }
+
+  async saveWeeklyInputs(id: number, payload: {
+    wecomSummary?: string; manualNotes?: string
+  }): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/inputs`, {
+      method: 'PUT', body: JSON.stringify(payload)
+    })
+  }
+
+  async generateWeeklyReport(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/generate`, { method: 'POST' })
+  }
+
+  async saveWeeklyContent(id: number, payload: {
+    coreWork?: string; kpiSection?: string; risks?: string;
+    nextWeekPlan?: string; minutesMarkdown?: string
+  }): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/content`, {
+      method: 'PUT', body: JSON.stringify(payload)
+    })
+  }
+
+  async confirmWeeklyReport(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/confirm`, { method: 'PUT' })
+  }
+
+  async publishWeeklyYuque(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/publish-yuque`, { method: 'POST' })
+  }
+
+  async publishWeeklySheet(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/publish-sheet`, { method: 'POST' })
+  }
+
+  async pushWeeklyWecom(id: number): Promise<WeeklyReportVO> {
+    return this.request<WeeklyReportVO>(`/api/weekly-reports/${id}/push-wecom`, { method: 'POST' })
+  }
+
+  async getWeeklyHistory(): Promise<WeeklyReportVO[]> {
+    return this.request<WeeklyReportVO[]>('/api/weekly-reports/history')
+  }
 }
 
 /**
@@ -2048,6 +2103,7 @@ function parseSseEvent(block: string): AiAgentStreamEvent | null {
       return null
   }
 }
+
 
 export const api = new ApiService()
 export default api

@@ -232,6 +232,14 @@ public class DeepSeekDigestClient {
     }
   }
 
+  /**
+   * 通用 JSON 补全，供周报/周会等场景复用（同套 email-integration DeepSeek 配置）。
+   */
+  public JsonNode chatCompletion(EmailIntegrationRuntimeConfig config, String systemPrompt,
+                                 String userInput) throws Exception {
+    return callJson(config, systemPrompt, userInput);
+  }
+
   private JsonNode callJson(EmailIntegrationRuntimeConfig config, String prompt, String input)
       throws Exception {
     Map<String, Object> requestBody = new LinkedHashMap<>();

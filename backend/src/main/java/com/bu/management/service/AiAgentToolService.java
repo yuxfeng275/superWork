@@ -47,6 +47,7 @@ public class AiAgentToolService {
     private final ConnectorToolService connectorToolService;
     private final GenericConnectorToolService genericConnectorToolService;
     private final EmailActionToolService emailActionToolService;
+    private final WeeklyReportService weeklyReportService;
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -91,6 +92,15 @@ public class AiAgentToolService {
         defs.add(new AiAgentToolDefinition("count_my_issues", "统计当前登录用户负责的事项数量，可按状态过滤",
                 objectSchema(Map.of(
                         "status", stringProperty("事项状态过滤")))));
+        defs.add(new AiAgentToolDefinition("weekly_report_facts",
+                "查询本周周报自动采集的事实（大事儿进度 + 财务数据 + 上周计划闭环）",
+                objectSchema(Map.of(
+                        "weekStart", stringProperty("本周周一 YYYY-MM-DD，可选，默认本周一")))));
+        defs.add(new AiAgentToolDefinition("weekly_report_input",
+                "将对话中的内容写入本周周报草稿（企微智能总结或补充信息）",
+                objectSchema(Map.of(
+                        "wecomSummary", stringProperty("企微智能总结内容，可选"),
+                        "manualNotes", stringProperty("人为补充信息，可选")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
@@ -116,6 +126,8 @@ public class AiAgentToolService {
                 case "query_my_requirements" -> queryMyRequirements(userId, args);
                 case "query_my_worklogs" -> queryMyWorklogs(userId, args);
                 case "count_my_issues" -> countMyIssues(userId, args);
+                case "weekly_report_facts" -> weeklyReportFacts(args);
+                case "weekly_report_input" -> weeklyReportInput(args);
                 default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
                         : emailActionToolService.handles(toolName)
@@ -218,6 +230,47 @@ public class AiAgentToolService {
     private String textArg(JsonNode args, String name) {
         JsonNode node = args.path(name);
         return node.isTextual() ? node.asText() : null;
+    }
+
+    private AiAgentToolResult weeklyReportFacts(JsonNode args) {
+        try {
+            LocalDate weekStart = parseWeekStart(textArg(args, "weekStart"));
+            Map<String, Object> facts = weeklyReportService.collectFacts(weekStart);
+            return new AiAgentToolResult(objectMapper.writeValueAsString(facts), false);
+        } catch (DateTimeParseException | IllegalArgumentException e) {
+            return new AiAgentToolResult("weekStart 格式无效，应为周一日期 YYYY-MM-DD", true);
+        } catch (Exception e) {
+            return new AiAgentToolResult("周报事实采集失败：" + e.getMessage(), true);
+        }
+    }
+
+    private AiAgentToolResult weeklyReportInput(JsonNode args) {
+        String wecomSummary = textArg(args, "wecomSummary");
+        String manualNotes = textArg(args, "manualNotes");
+        if (!StringUtils.hasText(wecomSummary) && !StringUtils.hasText(manualNotes)) {
+            return new AiAgentToolResult("请提供 wecomSummary 或 manualNotes 至少一项", true);
+        }
+        try {
+            LocalDate weekStart = parseWeekStart(textArg(args, "weekStart"));
+            var report = weeklyReportService.getOrCreate(weekStart);
+            weeklyReportService.saveInputs(report.getId(), wecomSummary, manualNotes);
+            return new AiAgentToolResult("已写入本周（" + weekStart + "）周报草稿："
+                    + (StringUtils.hasText(wecomSummary) ? "企微智能总结 " : "")
+                    + (StringUtils.hasText(manualNotes) ? "补充信息" : ""), false);
+        } catch (Exception e) {
+            return new AiAgentToolResult("写入周报失败：" + e.getMessage(), true);
+        }
+    }
+
+    private LocalDate parseWeekStart(String value) {
+        if (!StringUtils.hasText(value)) {
+            return LocalDate.now().with(java.time.DayOfWeek.MONDAY);
+        }
+        LocalDate date = LocalDate.parse(value);
+        if (date.getDayOfWeek() != java.time.DayOfWeek.MONDAY) {
+            throw new IllegalArgumentException("weekStart 必须是周一");
+        }
+        return date;
     }
 
     private int limit(JsonNode args) {
