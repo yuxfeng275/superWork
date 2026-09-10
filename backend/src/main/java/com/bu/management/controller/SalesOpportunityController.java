@@ -6,7 +6,9 @@ import com.bu.management.dto.SalesOpportunitySupportWorkLogRequest;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.SalesOpportunitySupportWorkLog;
+import com.bu.management.service.QuotationService;
 import com.bu.management.service.SalesOpportunityService;
+import com.bu.management.vo.QuotationListVO;
 import com.bu.management.vo.Result;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +19,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SalesOpportunityController {
     private final SalesOpportunityService service;
+    private final QuotationService quotationService;
     @GetMapping public Result<List<SalesOpportunity>> list(@RequestParam(required=false) String keyword, @RequestParam(required=false) String type, @RequestParam(required=false) String status, @RequestParam(required=false) String owner, @RequestParam(required=false) String businessLine) { return Result.success(service.list(keyword, type, status, owner, businessLine)); }
     @GetMapping("/{id}") public Result<SalesOpportunity> get(@PathVariable Long id) { return Result.success(service.get(id)); }
     @GetMapping("/{id}/follow-ups") public Result<List<SalesOpportunityFollowUp>> listFollowUps(@PathVariable Long id) { return Result.success(service.listFollowUps(id)); }
@@ -26,4 +29,9 @@ public class SalesOpportunityController {
     @PostMapping("/{id}/support-worklogs") public Result<SalesOpportunitySupportWorkLog> createSupportWorkLog(@PathVariable Long id, @RequestBody SalesOpportunitySupportWorkLogRequest request) { return Result.success(service.createSupportWorkLog(id, request)); }
     @PutMapping("/{id}") public Result<SalesOpportunity> update(@PathVariable Long id, @RequestBody SalesOpportunityRequest request) { return Result.success(service.update(id, request)); }
     @DeleteMapping("/{id}") public Result<Void> delete(@PathVariable Long id) { service.delete(id); return Result.success(); }
+
+    @GetMapping("/{id}/quotations")
+    public Result<List<QuotationListVO>> listQuotations(@PathVariable Long id) {
+        return Result.success(quotationService.listQuotationsByOpportunity(id));
+    }
 }

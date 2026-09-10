@@ -1,0 +1,21 @@
+CREATE TABLE quotation_line_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    quotation_id BIGINT NOT NULL COMMENT '报价单ID',
+    policy_item_id BIGINT COMMENT '来源策略明细项ID',
+    section VARCHAR(100) NOT NULL COMMENT '报价分组',
+    category VARCHAR(100) COMMENT '报价项目分类',
+    item_name VARCHAR(200) NOT NULL COMMENT '明细项名称',
+    description TEXT COMMENT '功能描述',
+    price_description VARCHAR(500) COMMENT '价格说明',
+    is_selected TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否勾选',
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 1 COMMENT '数量',
+    unit_price_ex_tax DECIMAL(15,2) COMMENT '未税单价',
+    tax_rate DECIMAL(5,4) COMMENT '税率',
+    discount_rate DECIMAL(5,4) NOT NULL DEFAULT 1 COMMENT '折扣率',
+    subtotal_ex_tax DECIMAL(15,2) COMMENT '未税小计',
+    subtotal_incl_tax DECIMAL(15,2) COMMENT '含税小计',
+    charge_method VARCHAR(100) COMMENT '收费方式',
+    remark TEXT COMMENT '备注',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序',
+    INDEX idx_qli_quotation_id (quotation_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价明细';

@@ -1,0 +1,21 @@
+CREATE TABLE quotation_policy_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    policy_id BIGINT NOT NULL COMMENT '策略ID',
+    section VARCHAR(100) NOT NULL COMMENT '报价分组: 产品模块/运维服务/定制开发/会员通对接',
+    category VARCHAR(100) NOT NULL COMMENT '报价项目分类',
+    item_key VARCHAR(200) NOT NULL COMMENT '明细项标识',
+    item_name VARCHAR(200) NOT NULL COMMENT '明细项名称',
+    description TEXT COMMENT '功能描述',
+    price_description VARCHAR(500) COMMENT '价格说明',
+    is_required TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否必选',
+    unit_price DECIMAL(15,2) COMMENT '未税单价',
+    tax_rate DECIMAL(5,4) COMMENT '税率(如0.06=6%)',
+    charge_method VARCHAR(100) COMMENT '收费方式: 按年收取/按店铺数量收取/按模块收取',
+    charge_unit VARCHAR(50) COMMENT '计费单位: 年/店铺/模块/次',
+    remark TEXT COMMENT '备注',
+    sort_order INT NOT NULL DEFAULT 0 COMMENT '排序',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_qpi_policy_id (policy_id),
+    INDEX idx_qpi_section (section)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价策略明细项';
