@@ -487,7 +487,7 @@ onMounted(() => {
           </el-form-item>
         </div>
         <el-form-item label="是否必选">
-          <el-switch :model-value="!!itemForm.isRequired" @update:model-value="val => itemForm.isRequired = val ? 1 : 0" />
+          <el-switch :model-value="!!itemForm.isRequired" @update:model-value="(val: boolean) => itemForm.isRequired = val ? 1 : 0" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="itemForm.remark" type="textarea" :rows="2" placeholder="备注" />

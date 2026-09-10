@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, ArrowLeft, Edit, Delete, Check } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
-import type { Quotation, QuotationLineItem, QuotationBrandScope } from '@/types/quotation'
+import type { Quotation, QuotationLineItem } from '@/types/quotation'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,10 +24,6 @@ const lineItemsBySection = computed(() => {
   }
   return map
 })
-
-const selectedItems = computed(() =>
-  quotation.value?.lineItems?.filter(item => item.isSelected === 1) ?? []
-)
 
 const sectionNames = computed(() => [...lineItemsBySection.value.keys()])
 
