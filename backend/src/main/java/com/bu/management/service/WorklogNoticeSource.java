@@ -19,10 +19,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class WorklogNoticeSource {
 
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
-
     private final WorkLogMapper workLogMapper;
-
+    private final WorktimeAnalyticsService worktimeAnalyticsService;
     /** 通知类型编码（与 ai_notice_read.notice_kind 对应）。 */
     public static final String KIND = "WORKLOG_MISSING";
 
@@ -35,10 +33,16 @@ public class WorklogNoticeSource {
             if (count != null && count > 0) {
                 return null;
             }
+            // 交叉校验：工时系统上月同步数据里是否有这个人（有则填报习惯正常，缺昨天仅提醒；
+            // 无则可能未接入工时系统，不重复打扰）
+            boolean inWorktime = worktimeAnalyticsService.resolveIdentity(userId) != null;
+            if (!inWorktime) {
+                return null;
+            }
             return new AiNoticeService.Notice(KIND,
                     "工时缺填提醒",
-                    target + " 的工时尚未填写，请在「BU驾驶舱 → 工时管理」补填，避免影响统计。",
-                    "/tasks",
+                    target + " 的工时尚未填写。可让 AI 助手分析你的月度工时趋势并确认缺填情况。",
+                    "/ai-assistant",
                     today,
                     false);
         } catch (Exception e) {
