@@ -127,6 +127,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '线索商机管理' }
       },
       {
+        path: 'quotation-policies',
+        name: 'QuotationPolicies',
+        component: () => import('@/views/QuotationPolicyView.vue'),
+        meta: { title: '报价策略管理' }
+      },
+      {
+        path: 'quotations',
+        name: 'Quotations',
+        component: () => import('@/views/QuotationView.vue'),
+        meta: { title: '报价单管理' }
+      },
+      {
+        path: 'quotations/:id',
+        name: 'QuotationDetail',
+        component: () => import('@/views/QuoteDetailView.vue'),
+        meta: { title: '报价单详情' }
+      },
+      {
         path: 'system/users',
         name: 'SystemUsers',
         component: () => import('@/views/SystemUserView.vue'),

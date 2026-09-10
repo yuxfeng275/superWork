@@ -1054,6 +1054,99 @@ class ApiService {
     return this.request(`/api/sales-opportunities/${id}/support-worklogs`, { method: 'POST', body: JSON.stringify(data) })
   }
 
+  async getOpportunityQuotations(opportunityId: number): Promise<any[]> {
+    return this.request(`/api/sales-opportunities/${opportunityId}/quotations`)
+  }
+
+  // Quotation Policy APIs
+  async getQuotationPolicies(params?: { type?: string; taxMode?: string; status?: string }): Promise<any[]> {
+    const query = new URLSearchParams()
+    Object.entries(params || {}).forEach(([key, value]) => { if (value) query.set(key, value) })
+    const result = await this.request<any>(`/api/quotation-policies${query.toString() ? `?${query}` : ''}`)
+    return Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : []
+  }
+
+  async getQuotationPolicyDetail(id: number): Promise<any> {
+    return this.request(`/api/quotation-policies/${id}`)
+  }
+
+  async getPublishedPolicy(type: string, taxMode: string): Promise<any> {
+    return this.request(`/api/quotation-policies/published?type=${type}&taxMode=${taxMode}`)
+  }
+
+  async createQuotationPolicy(data: any): Promise<any> {
+    return this.request('/api/quotation-policies', { method: 'POST', body: JSON.stringify(data) })
+  }
+
+  async updateQuotationPolicy(id: number, data: any): Promise<any> {
+    return this.request(`/api/quotation-policies/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  async publishPolicy(id: number): Promise<any> {
+    return this.request(`/api/quotation-policies/${id}/publish`, { method: 'PUT' })
+  }
+
+  async archivePolicy(id: number): Promise<void> {
+    return this.request(`/api/quotation-policies/${id}/archive`, { method: 'PUT' })
+  }
+
+  async deleteQuotationPolicy(id: number): Promise<void> {
+    return this.request(`/api/quotation-policies/${id}`, { method: 'DELETE' })
+  }
+
+  async getPolicyItems(policyId: number): Promise<any[]> {
+    return this.request(`/api/quotation-policies/${policyId}/items`)
+  }
+
+  async addPolicyItems(policyId: number, items: any[]): Promise<void> {
+    return this.request(`/api/quotation-policies/${policyId}/items`, { method: 'POST', body: JSON.stringify(items) })
+  }
+
+  async updatePolicyItem(itemId: number, data: any): Promise<void> {
+    return this.request(`/api/quotation-policies/items/${itemId}`, { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  async deletePolicyItem(itemId: number): Promise<void> {
+    return this.request(`/api/quotation-policies/items/${itemId}`, { method: 'DELETE' })
+  }
+
+  // Quotation APIs
+  async getQuotations(params?: { keyword?: string; status?: string; customerName?: string; page?: number; size?: number }): Promise<any> {
+    const query = new URLSearchParams()
+    Object.entries(params || {}).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') query.set(key, String(value)) })
+    const result = await this.request<any>(`/api/quotations${query.toString() ? `?${query}` : ''}`)
+    return result
+  }
+
+  async getQuotationDetail(id: number): Promise<any> {
+    return this.request(`/api/quotations/${id}`)
+  }
+
+  async generateQuotation(data: any): Promise<any> {
+    return this.request('/api/quotations/generate', { method: 'POST', body: JSON.stringify(data) })
+  }
+
+  async updateQuotation(id: number, data: any): Promise<any> {
+    return this.request(`/api/quotations/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  async updateQuotationStatus(id: number, status: string): Promise<void> {
+    return this.request(`/api/quotations/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) })
+  }
+
+  async deleteQuotation(id: number): Promise<void> {
+    return this.request(`/api/quotations/${id}`, { method: 'DELETE' })
+  }
+
+  async exportQuotation(id: number): Promise<Blob> {
+    const token = localStorage.getItem('token')
+    const resp = await fetch(`${API_BASE_URL}/api/quotations/${id}/export`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+    if (!resp.ok) throw new Error('导出失败')
+    return resp.blob()
+  }
+
   // Project Member APIs
   async getProjectMembers(projectId: number): Promise<any[]> {
     return this.request(`/api/project-members/by-project?projectId=${projectId}`)

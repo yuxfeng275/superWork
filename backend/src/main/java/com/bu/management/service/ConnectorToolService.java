@@ -69,6 +69,7 @@ public class ConnectorToolService {
     private final WorktimeAnalyticsService worktimeAnalyticsService;
     private final SysRoleService sysRoleService;
     private final ObjectMapper objectMapper;
+    private final WorktimeInsightToolService worktimeInsightToolService;
 
     /**
      * 连接器工具定义；仅包含已启用且已配置的连接器（邮箱工具恒下发，
@@ -149,6 +150,7 @@ public class ConnectorToolService {
                 objectSchema(Map.of(
                         "month", stringProperty("月份 YYYY-MM，默认上个月")), null)));
 
+        defs.addAll(worktimeInsightToolService.definitions());
         return defs;
     }
 
@@ -214,7 +216,8 @@ public class ConnectorToolService {
             "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem",
             "query_oa_pending", "query_oa_done", "get_oa_flow",
             "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
-            "analyze_my_worktime", "analyze_team_worktime");
+            "analyze_my_worktime", "analyze_team_worktime",
+            "analyze_my_contracts", "analyze_cost_structure", "get_kpi_summary", "get_worktime_sync_status");
 
     /** 该工具名是否属于内置连接器工具集。 */
     public boolean handles(String toolName) {
@@ -240,7 +243,9 @@ public class ConnectorToolService {
                 case "query_my_worktime" -> queryMyWorktime(userId, args);
                 case "analyze_my_worktime" -> analyzeMyWorktime(userId, args);
                 case "analyze_team_worktime" -> analyzeTeamWorktime(userId, args);
-                default -> new AiAgentToolResult("未知工具：" + toolName, true);
+                default -> worktimeInsightToolService.handles(toolName)
+                        ? worktimeInsightToolService.execute(userId, toolName, args)
+                        : new AiAgentToolResult("未知工具：" + toolName, true);
             };
         } catch (Exception e) {
             log.warn("AI 连接器工具执行失败: tool={}, error={}", toolName, e.getMessage());
