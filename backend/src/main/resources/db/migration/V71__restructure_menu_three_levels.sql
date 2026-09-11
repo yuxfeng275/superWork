@@ -69,3 +69,12 @@ UPDATE sys_menu SET name = '基础数据' WHERE id = 13;  -- 原"基础分类"
 -- ============ 4. 修复权限管理的 visible ============
 
 UPDATE sys_menu SET visible = 1 WHERE id = 11;  -- 权限管理显示
+
+
+-- ============ 5. 为新分组菜单分配角色权限 ============
+
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT DISTINCT role_menu.role_id, new_menu.id
+FROM sys_role_menu role_menu
+JOIN sys_menu new_menu ON new_menu.parent_id IN (22, 7)
+WHERE new_menu.path IS NULL OR new_menu.path = '';
