@@ -242,9 +242,20 @@ const visibleNavItems = computed(() => {
     .filter(section => section.items.length > 0)
 })
 
-const isActive = (path: string) => {
-  if (path === '/') return route.path === '/'
-  return route.path.startsWith(path)
+/** el-menu 的 default-active：以当前路由路径为激活项 */
+const activeMenuIndex = computed(() => {
+  const p = route.path
+  if (p === '/') return '/home'
+  return p
+})
+
+/** 一级分区图标映射 */
+const sectionIcons: Record<string, string> = {
+  '工作台': 'HomeFilled',
+  '销售管理': 'Connection',
+  '数据分析': 'DataAnalysis',
+  '基础数据': 'Collection',
+  '系统': 'Setting'
 }
 
 const handleLogout = () => {
@@ -310,49 +321,60 @@ onMounted(() => {
 
       <!-- 导航菜单 -->
       <nav class="sidebar-nav">
-        <div v-for="(section, sectionIndex) in visibleNavItems" :key="section.section || sectionIndex" class="nav-section">
-          <div v-if="section.section" class="nav-section-title">{{ section.section }}</div>
-          <template v-for="item in section.items" :key="item.path || item.label">
-            <!-- 二级分组节点：可折叠的子菜单组 -->
-            <template v-if="item.children && item.children.length > 0">
-              <div class="nav-group-title">{{ item.groupLabel || item.label }}</div>
-              <router-link
-                v-for="sub in item.children"
-                :key="sub.path"
-                :to="sub.path"
-                class="nav-item nav-item-indented"
-                :class="{ active: isActive(sub.path) }"
-                :aria-label="sub.label"
-                :title="sub.label"
-              >
-                <span class="nav-item-icon">
-                  <el-icon><component :is="sub.icon" /></el-icon>
-                </span>
-                <span class="nav-item-text">{{ sub.label }}</span>
-                <span v-if="sub.path === '/requirements' ? requirementBadge !== null : sub.badge" class="nav-item-badge">
-                  {{ sub.path === '/requirements' ? requirementBadge : sub.badge }}
-                </span>
-              </router-link>
-            </template>
-            <!-- 普通叶子节点 -->
-            <router-link
-              v-else
-              :to="item.path"
-              class="nav-item"
-              :class="{ active: isActive(item.path) }"
-              :aria-label="item.label"
-              :title="item.label"
+        <el-menu
+          :default-active="activeMenuIndex"
+          :collapse="isCollapsed"
+          router
+          class="sidebar-menu"
+        >
+          <template v-for="section in visibleNavItems" :key="section.section">
+            <el-sub-menu
+              v-if="section.items.length > 0"
+              :index="section.section"
+              class="nav-section-group"
             >
-              <span class="nav-item-icon">
-                <el-icon><component :is="item.icon" /></el-icon>
-              </span>
-              <span class="nav-item-text">{{ item.label }}</span>
-              <span v-if="item.path === '/requirements' ? requirementBadge !== null : item.badge" class="nav-item-badge">
-                {{ item.path === '/requirements' ? requirementBadge : item.badge }}
-              </span>
-            </router-link>
+              <template #title>
+                <el-icon v-if="sectionIcons[section.section]"><component :is="sectionIcons[section.section]" /></el-icon>
+                <span>{{ section.section }}</span>
+              </template>
+              <template v-for="item in section.items" :key="item.path || item.label">
+                <!-- 二级分组 -->
+                <el-sub-menu v-if="item.children && item.children.length > 0" :index="item.label" class="nav-sub-group">
+                  <template #title>
+                    <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+                    <span>{{ item.label }}</span>
+                  </template>
+                  <el-menu-item
+                    v-for="sub in item.children"
+                    :key="sub.path"
+                    :index="sub.path"
+                  >
+                    <template v-if="sub.path === '/requirements' && requirementBadge !== null">
+                      <el-badge :value="requirementBadge" :max="99" class="nav-badge-item">
+                        <span>{{ sub.label }}</span>
+                      </el-badge>
+                    </template>
+                    <template v-else>
+                      {{ sub.label }}
+                    </template>
+                  </el-menu-item>
+                </el-sub-menu>
+                <!-- 叶子节点 -->
+                <el-menu-item v-else :index="item.path">
+                  <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
+                  <template v-if="item.path === '/requirements' && requirementBadge !== null">
+                    <el-badge :value="requirementBadge" :max="99" class="nav-badge-item">
+                      <span>{{ item.label }}</span>
+                    </el-badge>
+                  </template>
+                  <template v-else>
+                    {{ item.label }}
+                  </template>
+                </el-menu-item>
+              </template>
+            </el-sub-menu>
           </template>
-        </div>
+        </el-menu>
       </nav>
 
     </aside>
@@ -447,10 +469,6 @@ onMounted(() => {
 
 .sidebar.collapsed .sidebar-logo-text,
 .sidebar.collapsed .user-info,
-.sidebar.collapsed .nav-section-title,
-.sidebar.collapsed .nav-group-title,
-.sidebar.collapsed .nav-item-text,
-.sidebar.collapsed .nav-item-badge,
 .sidebar.collapsed .logout-btn span {
   display: none;
 }
@@ -552,87 +570,107 @@ onMounted(() => {
   color: var(--gray-500);
 }
 
-/* 导航菜单 */
+/* 导航菜单 — el-menu */
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  overflow-x: hidden;
 }
 
-.nav-section {
-  margin-bottom: 8px;
+.sidebar-menu {
+  border-right: none !important;
+  background: transparent;
 }
 
-.nav-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--gray-400);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 8px 12px 4px;
-}
-
-.nav-group-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--gray-500);
-  padding: 6px 12px 2px;
-  margin-top: 4px;
-  letter-spacing: 0.3px;
-}
-
-.nav-item-indented {
-  padding-left: 24px;
+.sidebar-menu :deep(.el-sub-menu__title) {
+  height: 40px;
+  line-height: 40px;
   font-size: 13px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  font-weight: 600;
   color: var(--gray-600);
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  padding: 0 16px;
+  border-radius: 0;
 }
-
-.nav-item:hover {
+.sidebar-menu :deep(.el-sub-menu__title):hover {
   background: var(--gray-100);
   color: var(--gray-800);
 }
 
-.nav-item.active {
+/* 一级分区 — 加分割线和间距 */
+.nav-section-group {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.nav-section-group:last-child {
+  border-bottom: none;
+}
+.nav-section-group :deep(> .el-sub-menu__title) {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  height: 36px;
+  line-height: 36px;
+}
+.nav-section-group :deep(> .el-sub-menu__title):hover {
+  color: var(--gray-600);
+}
+
+/* 二级分组 */
+.nav-sub-group :deep(.el-sub-menu__title) {
+  padding-left: 32px !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-500);
+  height: 36px;
+  line-height: 36px;
+}
+.nav-sub-group :deep(.el-sub-menu__title):hover {
+  color: var(--gray-700);
+}
+
+/* 菜单项 */
+.sidebar-menu :deep(.el-menu-item) {
+  height: 38px;
+  line-height: 38px;
+  font-size: 13px;
+  color: var(--gray-600);
+  padding-left: 28px !important;
+  margin: 1px 8px;
+  border-radius: 6px;
+}
+.nav-sub-group :deep(.el-menu-item) {
+  padding-left: 44px !important;
+}
+.sidebar-menu :deep(.el-menu-item):hover {
+  background: var(--gray-100);
+  color: var(--gray-800);
+}
+.sidebar-menu :deep(.el-menu-item.is-active) {
   background: var(--primary-light);
   color: var(--primary);
-}
-
-.nav-item-icon {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.nav-item-text {
-  flex: 1;
-  white-space: nowrap;
-}
-
-.nav-item-badge {
-  background: var(--danger);
-  color: white;
-  font-size: 11px;
   font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
 }
+
+/* 图标 */
+.sidebar-menu :deep(.el-sub-menu__title .el-icon),
+.sidebar-menu :deep(.el-menu-item .el-icon) {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+/* 徽标 */
+.nav-badge-item {
+  width: 100%;
+}
+.nav-badge-item :deep(.el-badge__content) {
+  background: var(--danger);
+  font-size: 11px;
+}
+
+/* 折叠态：el-menu[collapse] 自动隐藏文字只留图标，无需额外处理 */
 
 /* 退出登录 */
 .sidebar-footer {
@@ -864,11 +902,7 @@ onMounted(() => {
     flex-basis: var(--sidebar-collapsed-width);
   }
 
-  .sidebar .sidebar-logo-text,
-  .sidebar .nav-section-title,
-  .sidebar .nav-group-title,
-  .sidebar .nav-item-text,
-  .sidebar .nav-item-badge {
+  .sidebar .sidebar-logo-text {
     display: none;
   }
 
