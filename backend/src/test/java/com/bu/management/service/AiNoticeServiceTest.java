@@ -37,12 +37,15 @@ class AiNoticeServiceTest {
     private MailNoticeSource mailSource;
     @Mock
     private MailArrivalNoticeSource mailArrivalSource;
+    @Mock
+    private WorktimeSyncNoticeSource worktimeSyncSource;
 
     private AiNoticeService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiNoticeService(readMapper, worklogSource, oaSource, mailSource, mailArrivalSource);
+        service = new AiNoticeService(readMapper, worklogSource, oaSource, mailSource, mailArrivalSource,
+                worktimeSyncSource);
     }
 
     private AiNoticeService.Notice notice(String kind, boolean read) {

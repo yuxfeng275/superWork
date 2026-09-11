@@ -32,6 +32,7 @@ public class AiNoticeService {
     private final OaNoticeSource oaSource;
     private final MailNoticeSource mailSource;
     private final MailArrivalNoticeSource mailArrivalSource;
+    private final WorktimeSyncNoticeSource worktimeSyncSource;
 
     /** 当前用户的通知列表（已读的也返回，前端可折叠展示）。 */
     public List<Notice> list(Long userId) {
@@ -39,8 +40,8 @@ public class AiNoticeService {
         List<Notice> notices = new ArrayList<>();
         collect(notices, worklogSource.compute(userId, today));
         collect(notices, oaSource.compute(userId, today));
-        collect(notices, mailSource.compute(userId, today));
         collect(notices, mailArrivalSource.compute(userId, today));
+        collect(notices, worktimeSyncSource.compute(userId, today));
         markRead(notices, userId);
         return notices;
     }
