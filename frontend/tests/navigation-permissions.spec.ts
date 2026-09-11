@@ -41,15 +41,17 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('执行岗位不展示系统管理入口且不能直接进入系统路由', async ({ page }) => {
+test('执行岗位仅展示获授权业务域且不能直接进入受限路由', async ({ page }) => {
   await page.goto('/')
 
-  await expect(page.locator('.nav-section-title', { hasText: '系统' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: '用户管理' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: '数据统计' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: '客户信息管理' })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: '项目管理' })).toHaveCount(1)
-  await expect(page.getByRole('link', { name: '大事儿管理' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '系统', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '数据分析', exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: '基础数据', exact: true }).click()
+  const visibleBaseMenu = page.locator('.secondary-menu-item, .tertiary-menu-item')
+  await expect(visibleBaseMenu.filter({ hasText: '项目管理' })).toHaveCount(1)
+  await expect(visibleBaseMenu.filter({ hasText: '客户信息管理' })).toHaveCount(0)
+  await expect(visibleBaseMenu.filter({ hasText: '大事儿管理' })).toHaveCount(0)
 
   await page.goto('/system/users')
   await expect(page).toHaveURL('/')

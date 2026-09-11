@@ -38,6 +38,7 @@ public class BuKeyMatterController {
     private final BuKeyMatterAccessService accessService;
 
     @GetMapping("/access")
+    @RequirePermission({"bu:key-matter:view", "bu:key-matter:feedback", "bu:key-matter:manage"})
     @Operation(summary = "查询当前用户大事儿访问能力")
     public Result<BuKeyMatterAccessView> access(
             @RequestAttribute("userId") Long userId,
