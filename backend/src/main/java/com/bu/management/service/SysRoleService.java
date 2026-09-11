@@ -368,20 +368,24 @@ public class SysRoleService extends ServiceImpl<SysRoleMapper, SysRole> {
                 .filter(m -> m.getParentId() != null && m.getParentId() != 0)
                 .sorted(bySort)
                 .collect(java.util.stream.Collectors.groupingBy(SysMenu::getParentId));
+
+        java.util.function.Function<Long, List<com.bu.management.vo.MenuTreeNode>> buildChildren = new java.util.function.Function<>() {
+            @Override
+            public List<com.bu.management.vo.MenuTreeNode> apply(Long parentId) {
+                return childrenByParent.getOrDefault(parentId, List.of()).stream()
+                        .map(m -> new com.bu.management.vo.MenuTreeNode(
+                                m.getId(), m.getName(), m.getIcon(), m.getPath(),
+                                m.getSortOrder(), apply(m.getId())))
+                        .toList();
+            }
+        };
+
         return granted.stream()
                 .filter(m -> m.getParentId() == null || m.getParentId() == 0)
                 .sorted(bySort)
-                .map(parent -> {
-                    List<com.bu.management.vo.MenuTreeNode> children = childrenByParent
-                            .getOrDefault(parent.getId(), List.of()).stream()
-                            .map(child -> new com.bu.management.vo.MenuTreeNode(
-                                    child.getId(), child.getName(), child.getIcon(), child.getPath(),
-                                    child.getSortOrder(), List.of()))
-                            .toList();
-                    return new com.bu.management.vo.MenuTreeNode(
-                            parent.getId(), parent.getName(), parent.getIcon(), parent.getPath(),
-                            parent.getSortOrder(), children);
-                })
+                .map(parent -> new com.bu.management.vo.MenuTreeNode(
+                        parent.getId(), parent.getName(), parent.getIcon(), parent.getPath(),
+                        parent.getSortOrder(), buildChildren.apply(parent.getId())))
                 .filter(node -> node.getPath() != null || !node.getChildren().isEmpty())
                 .toList();
     }

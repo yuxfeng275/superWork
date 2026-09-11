@@ -41,3 +41,5 @@ docker/.omc/
 # ai-sidecar
 ai-sidecar/node_modules/
 ai-sidecar/dist/
+.pnpm-store/
+.pnpm-store/
