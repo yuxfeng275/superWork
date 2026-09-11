@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/utils/api'
@@ -70,19 +70,19 @@ onBeforeUnmount(() => {
 })
 
 interface NavItem {
+  key?: string
   path: string
   icon: string
   label: string
   badge?: number
   access?: RoleAccess
   requiresKeyMatterAccess?: boolean
-  /** 三级菜单：当该项为分组节点时，groupLabel 为分组标题，children 为子项 */
-  groupLabel?: string
   children?: NavItem[]
 }
 
 interface NavSection {
   section: string
+  icon?: string
   items: NavItem[]
 }
 
@@ -106,7 +106,7 @@ const defaultNavItems: NavSection[] = [
     ]
   },
   {
-    section: '基础分类',
+    section: '基础数据',
     items: [
       { path: '/business-lines', icon: 'Collection', label: '业务线管理' },
       { path: '/projects', icon: 'Folder', label: '项目管理', access: 'project' },
@@ -150,39 +150,44 @@ const resolveIcon = (name: string | null | undefined): string => {
   return 'Menu'
 }
 
-/** 动态菜单 → 侧边栏分区结构。支持三级：二级分组（有 children 的路由容器）展开为嵌套组。 */
+/** 将后端菜单节点转换为可渲染的递归导航项。 */
+const mapMenuNode = (node: MenuTreeNode): NavItem => ({
+  key: String(node.id),
+  path: node.path === '/home' ? '/' : (node.path || ''),
+  icon: resolveIcon(node.icon),
+  label: node.name,
+  children: (node.children ?? [])
+    .filter(child => Boolean(child.path) || Boolean(child.children?.length))
+    .map(mapMenuNode),
+  requiresKeyMatterAccess: node.path === '/key-matters' ? true : undefined
+})
+
+const filterKeyMatterItems = (items: NavItem[]): NavItem[] =>
+  items.reduce<NavItem[]>((visible, item) => {
+    if (item.requiresKeyMatterAccess && authStore.keyMatterAccess?.canAccess !== true) return visible
+
+    const children = item.children ? filterKeyMatterItems(item.children) : []
+    if (!item.path && children.length === 0) return visible
+
+    visible.push({
+      ...item,
+      children: children.length > 0 ? children : undefined
+    })
+    return visible
+  }, [])
+
+/** 动态菜单树（V57 起）：非空则完全以后端授权为准渲染侧边栏。 */
 const dynamicNavItems = computed<NavSection[]>(() =>
   menuTree.value
-    .map(node => {
-      const items: NavItem[] = (node.children ?? [])
-        .filter(child => child.path || (child.children && child.children.length > 0))
-        .map(child => {
-          // 二级分组节点：有 children 且其中有真实路径的子项 → 展开为嵌套组
-          const grandChildren = (child.children ?? []).filter(gc => gc.path)
-          if (grandChildren.length > 0) {
-            return {
-              path: child.path || '',
-              icon: resolveIcon(child.icon),
-              label: child.name,
-              groupLabel: child.name,
-              children: grandChildren.map(gc => ({
-                path: gc.path === '/home' ? '/' : (gc.path as string),
-                icon: resolveIcon(gc.icon),
-                label: gc.name,
-                requiresKeyMatterAccess: gc.path === '/key-matters' ? true : undefined
-              }))
-            }
-          }
-          // 叶子节点
-          return {
-            path: child.path === '/home' ? '/' : (child.path as string),
-            icon: resolveIcon(child.icon),
-            label: child.name,
-            requiresKeyMatterAccess: child.path === '/key-matters' ? true : undefined
-          }
-        })
-      return { section: node.name, items }
-    })
+    .map(node => ({
+      section: node.name,
+      icon: resolveIcon(node.icon),
+      items: filterKeyMatterItems(
+        (node.children ?? [])
+          .filter(child => Boolean(child.path) || Boolean(child.children?.length))
+          .map(mapMenuNode)
+      )
+    }))
     .filter(section => section.items.length > 0)
 )
 
@@ -218,45 +223,95 @@ const menuAuthorized = (path: string) => {
   return menuAuth.value.allowed.has(alias)
 }
 
-const visibleNavItems = computed(() => {
-  // 动态模式：后端授权树直接驱动，仅保留大事儿管理的领域准入叠加
-  if (menuTree.value.length > 0) {
-    return dynamicNavItems.value
-      .map(section => ({
-        ...section,
-        items: section.items.filter(item =>
-          !item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
-      }))
-      .filter(section => section.items.length > 0)
-  }
-  // 回退模式：内置默认菜单 + 岗位默认 + 授权叠加（历史行为）
-  return defaultNavItems
-    .map(section => ({
-      ...section,
-      items: section.items.filter(item =>
-        (!item.access || hasRoleAccess(authStore.user?.role, item.access))
-        && menuAuthorized(item.path)
-        && (!item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
-      )
-    }))
-    .filter(section => section.items.length > 0)
-})
+/** 默认菜单也走同一套递归过滤，避免回退模式绕过权限。 */
+const filterDefaultItems = (items: NavItem[]): NavItem[] =>
+  items.reduce<NavItem[]>((visible, item) => {
+    const selfAllowed =
+      (!item.access || hasRoleAccess(authStore.user?.role, item.access))
+      && (!item.path || menuAuthorized(item.path))
+      && (!item.requiresKeyMatterAccess || authStore.keyMatterAccess?.canAccess === true)
+    const children = item.children ? filterDefaultItems(item.children) : []
 
-/** el-menu 的 default-active：以当前路由路径为激活项 */
-const activeMenuIndex = computed(() => {
-  const p = route.path
-  if (p === '/') return '/home'
-  return p
-})
+    if (!selfAllowed && children.length === 0) return visible
+    visible.push({
+      ...item,
+      children: children.length > 0 ? children : undefined
+    })
+    return visible
+  }, [])
 
-/** 一级分区图标映射 */
+/** 一级分区图标映射。 */
 const sectionIcons: Record<string, string> = {
   '工作台': 'HomeFilled',
   '销售管理': 'Connection',
   '数据分析': 'DataAnalysis',
   '基础数据': 'Collection',
+  '基础分类': 'Collection',
   '系统': 'Setting'
 }
+
+const visibleNavItems = computed<NavSection[]>(() => {
+  // 动态模式：后端授权树直接驱动，仅保留大事儿管理的领域准入叠加。
+  if (menuTree.value.length > 0) return dynamicNavItems.value
+
+  // 回退模式：内置默认菜单 + 岗位默认 + 授权叠加（历史行为）。
+  return defaultNavItems
+    .map(section => ({
+      ...section,
+      icon: section.icon || sectionIcons[section.section] || 'Menu',
+      items: filterDefaultItems(section.items)
+    }))
+    .filter(section => section.items.length > 0)
+})
+
+const pathMatches = (configuredPath: string, currentPath = route.path) => {
+  if (!configuredPath) return false
+  if (configuredPath === '/') return currentPath === '/'
+  return currentPath === configuredPath || currentPath.startsWith(`${configuredPath}/`)
+}
+
+const hasActiveRoute = (items: NavItem[], currentPath = route.path): boolean =>
+  items.some(item => pathMatches(item.path, currentPath) || (item.children ? hasActiveRoute(item.children, currentPath) : false))
+
+const selectedSectionName = ref<string | null>(null)
+const expandedGroups = ref<Record<string, boolean>>({})
+
+const selectedSection = computed<NavSection | null>(() => {
+  const sections = visibleNavItems.value
+  return sections.find(section => section.section === selectedSectionName.value)
+    || sections.find(section => hasActiveRoute(section.items))
+    || sections[0]
+    || null
+})
+
+watch(() => route.path, currentPath => {
+  const routeSection = visibleNavItems.value.find(section => hasActiveRoute(section.items, currentPath))
+  if (routeSection) selectedSectionName.value = routeSection.section
+})
+
+const getSectionIcon = (section: NavSection) => section.icon || sectionIcons[section.section] || 'Menu'
+
+const selectSection = (section: NavSection) => {
+  selectedSectionName.value = section.section
+  if (isCollapsed.value) isCollapsed.value = false
+}
+
+const navigateTo = (item: NavItem) => {
+  if (item.path) void router.push(item.path)
+}
+
+const groupKey = (section: NavSection, item: NavItem) =>
+  `${section.section}:${item.key || item.path || item.label}`
+
+const isGroupExpanded = (section: NavSection, item: NavItem) =>
+  expandedGroups.value[groupKey(section, item)] !== false
+
+const toggleGroup = (section: NavSection, item: NavItem) => {
+  const key = groupKey(section, item)
+  expandedGroups.value[key] = !isGroupExpanded(section, item)
+}
+
+const isNavItemActive = (item: NavItem) => pathMatches(item.path)
 
 const handleLogout = () => {
   authStore.logout()
@@ -296,16 +351,14 @@ onMounted(() => {
   ])
 })
 </script>
-
 <template>
   <div class="layout">
-    <!-- 侧边栏 -->
+    <!-- 千牛式双栏导航：左侧业务域，右侧二/三级菜单。 -->
     <aside class="sidebar" :class="{ collapsed: isCollapsed }">
-      <!-- Logo -->
       <div class="sidebar-header">
-        <a href="/" class="sidebar-logo">
+        <a href="/" class="sidebar-logo" aria-label="返回首页">
           <div class="sidebar-logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="8" y="2" width="8" height="4" rx="1" />
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
               <path d="m9 12 2 2 4-4" />
@@ -313,70 +366,116 @@ onMounted(() => {
           </div>
           <span class="sidebar-logo-text">BU管理系统</span>
         </a>
-        <button class="sidebar-toggle" type="button" :aria-label="isCollapsed ? '展开侧边栏' : '收起侧边栏'" @click="isCollapsed = !isCollapsed">
-          <el-icon v-if="isCollapsed"><Expand /></el-icon>
-          <el-icon v-else><Fold /></el-icon>
-        </button>
+        <div class="sidebar-header-actions">
+          <span class="sidebar-ai-mode" aria-label="AI 模式">
+            <el-icon><MagicStick /></el-icon>
+            <span>AI模式</span>
+          </span>
+          <button
+            class="sidebar-toggle"
+            type="button"
+            :aria-label="isCollapsed ? '展开侧边栏' : '收起侧边栏'"
+            :title="isCollapsed ? '展开侧边栏' : '收起侧边栏'"
+            @click="isCollapsed = !isCollapsed"
+          >
+            <el-icon v-if="isCollapsed"><Expand /></el-icon>
+            <el-icon v-else><Fold /></el-icon>
+          </button>
+        </div>
       </div>
 
-      <!-- 导航菜单 -->
-      <nav class="sidebar-nav">
-        <el-menu
-          :default-active="activeMenuIndex"
-          :collapse="isCollapsed"
-          router
-          class="sidebar-menu"
-        >
-          <template v-for="section in visibleNavItems" :key="section.section">
-            <el-sub-menu
-              v-if="section.items.length > 0"
-              :index="section.section"
-              class="nav-section-group"
-            >
-              <template #title>
-                <el-icon v-if="sectionIcons[section.section]"><component :is="sectionIcons[section.section]" /></el-icon>
-                <span>{{ section.section }}</span>
-              </template>
-              <template v-for="item in section.items" :key="item.path || item.label">
-                <!-- 二级分组 -->
-                <el-sub-menu v-if="item.children && item.children.length > 0" :index="item.label" class="nav-sub-group">
-                  <template #title>
-                    <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
-                    <span>{{ item.label }}</span>
-                  </template>
-                  <el-menu-item
-                    v-for="sub in item.children"
-                    :key="sub.path"
-                    :index="sub.path"
-                  >
-                    <template v-if="sub.path === '/requirements' && requirementBadge !== null">
-                      <el-badge :value="requirementBadge" :max="99" class="nav-badge-item">
-                        <span>{{ sub.label }}</span>
-                      </el-badge>
-                    </template>
-                    <template v-else>
-                      {{ sub.label }}
-                    </template>
-                  </el-menu-item>
-                </el-sub-menu>
-                <!-- 叶子节点 -->
-                <el-menu-item v-else :index="item.path">
-                  <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
-                  <template v-if="item.path === '/requirements' && requirementBadge !== null">
-                    <el-badge :value="requirementBadge" :max="99" class="nav-badge-item">
-                      <span>{{ item.label }}</span>
-                    </el-badge>
-                  </template>
-                  <template v-else>
-                    {{ item.label }}
-                  </template>
-                </el-menu-item>
-              </template>
-            </el-sub-menu>
-          </template>
-        </el-menu>
-      </nav>
+      <div class="sidebar-content">
+        <nav class="primary-nav" aria-label="业务模块">
+          <button
+            v-for="section in visibleNavItems"
+            :key="section.section"
+            type="button"
+            class="primary-nav-item"
+            :class="{ active: selectedSection?.section === section.section }"
+            :aria-current="selectedSection?.section === section.section ? 'page' : undefined"
+            :title="section.section"
+            @click="selectSection(section)"
+          >
+            <span class="primary-nav-icon" aria-hidden="true">
+              <el-icon><component :is="getSectionIcon(section)" /></el-icon>
+            </span>
+            <span class="primary-nav-label">{{ section.section }}</span>
+          </button>
+        </nav>
 
+        <section
+          v-if="selectedSection && !isCollapsed"
+          class="secondary-panel"
+          :aria-label="`${selectedSection.section}菜单`"
+        >
+          <header class="secondary-header">
+            <span>{{ selectedSection.section }}</span>
+          </header>
+          <nav class="secondary-nav" :aria-label="`${selectedSection.section}子菜单`">
+            <template v-for="item in selectedSection.items" :key="item.key || item.path || item.label">
+              <button
+                v-if="item.children && item.children.length > 0"
+                type="button"
+                class="secondary-menu-group"
+                :class="{ 'is-active': hasActiveRoute(item.children) }"
+                :aria-expanded="isGroupExpanded(selectedSection, item)"
+                @click="toggleGroup(selectedSection, item)"
+              >
+                <span>{{ item.label }}</span>
+                <el-icon class="menu-chevron">
+                  <ArrowUp v-if="isGroupExpanded(selectedSection, item)" />
+                  <ArrowDown v-else />
+                </el-icon>
+              </button>
+
+              <div
+                v-if="item.children && item.children.length > 0"
+                v-show="isGroupExpanded(selectedSection, item)"
+                class="tertiary-menu"
+              >
+                <button
+                  v-for="child in item.children"
+                  :key="child.key || child.path || child.label"
+                  type="button"
+                  class="tertiary-menu-item"
+                  :class="{ active: isNavItemActive(child) }"
+                  :aria-current="isNavItemActive(child) ? 'page' : undefined"
+                  @click="navigateTo(child)"
+                >
+                  <el-badge
+                    v-if="child.path === '/requirements' && requirementBadge !== null"
+                    :value="requirementBadge"
+                    :max="99"
+                    class="nav-badge-item"
+                  >
+                    <span>{{ child.label }}</span>
+                  </el-badge>
+                  <template v-else>{{ child.label }}</template>
+                </button>
+              </div>
+
+              <button
+                v-else
+                type="button"
+                class="secondary-menu-item"
+                :class="{ active: isNavItemActive(item) }"
+                :aria-current="isNavItemActive(item) ? 'page' : undefined"
+                @click="navigateTo(item)"
+              >
+                <el-badge
+                  v-if="item.path === '/requirements' && requirementBadge !== null"
+                  :value="requirementBadge"
+                  :max="99"
+                  class="nav-badge-item"
+                >
+                  <span>{{ item.label }}</span>
+                </el-badge>
+                <template v-else>{{ item.label }}</template>
+              </button>
+            </template>
+          </nav>
+        </section>
+      </div>
     </aside>
 
     <!-- 主内容区 -->
@@ -442,271 +541,307 @@ onMounted(() => {
     </main>
   </div>
 </template>
-
 <style scoped>
 .layout {
   display: flex;
+  width: 100%;
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
 }
 
-/* 侧边栏 */
+/* 千牛式导航：一级业务域窄栏 + 二/三级菜单面板。 */
 .sidebar {
   width: var(--sidebar-width);
   flex: 0 0 var(--sidebar-width);
-  background: #fff;
-  border-right: 1px solid var(--gray-200);
+  min-width: 0;
+  background: #f8f9fb;
+  border-right: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
-  transition: width 0.3s ease;
+  overflow: hidden;
+  transition: width 0.22s ease, flex-basis 0.22s ease;
 }
 
-/* 展开/折叠由下方 .sidebar.collapsed 控制 */
 .sidebar-header {
   height: 64px;
-  padding: 0 20px;
+  flex: 0 0 64px;
+  padding: 0 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--gray-200);
+  gap: 8px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .sidebar-logo {
-  display: flex;
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  color: #202124;
   text-decoration: none;
-  color: var(--gray-800);
 }
 
 .sidebar-logo-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: white;
-  display: flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  color: #fff;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .sidebar-logo-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
 }
 
 .sidebar-logo-text {
-  font-size: 16px;
+  overflow: hidden;
+  font-size: 15px;
   font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sidebar-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.sidebar-ai-mode {
+  height: 24px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #e9c94b;
+  border-radius: 999px;
+  background: #fff;
+  color: #303030;
+  font-size: 11px;
+  line-height: 1;
   white-space: nowrap;
 }
 
+.sidebar-ai-mode :deep(.el-icon) {
+  color: #d99a00;
+  font-size: 12px;
+}
+
 .sidebar-toggle {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--gray-500);
-  cursor: pointer;
-  display: flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #737780;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
 .sidebar-toggle:hover {
-  background: var(--gray-100);
-  color: var(--gray-700);
+  background: #eef0f3;
+  color: #40434a;
 }
 
-/* 用户信息 */
-.sidebar-user {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--gray-200);
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.sidebar-toggle:focus-visible,
+.primary-nav-item:focus-visible,
+.secondary-menu-item:focus-visible,
+.secondary-menu-group:focus-visible,
+.tertiary-menu-item:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: -2px;
 }
 
-.user-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.user-avatar.sm {
-  width: 32px;
-  height: 32px;
-  font-size: 12px;
-}
-
-.user-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gray-800);
-}
-
-.user-role {
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-/* ═══════════════════════════════════════════════════
-   导航菜单 — 有赞风格 el-menu
-   ═══════════════════════════════════════════════════ */
-
-.sidebar-nav {
+.sidebar-content {
+  min-height: 0;
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  overflow: hidden;
+}
+
+.primary-nav {
+  width: 112px;
+  flex: 0 0 112px;
+  padding: 14px 8px;
   overflow-x: hidden;
-  padding: 8px 0;
+  overflow-y: auto;
+  border-right: 1px solid #e9ebef;
 }
 
-/* 根菜单 — 无边框透明底 */
-.sidebar-menu {
-  border-right: none !important;
-  background: transparent;
-}
-
-/* ── 通用菜单项 ── */
-.sidebar-menu :deep(.el-menu-item) {
-  height: 40px;
-  line-height: 40px;
-  margin: 2px 8px;
-  padding-left: 24px !important;
+.primary-nav-item {
+  width: 100%;
+  min-height: 40px;
+  margin: 2px 0;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
   border-radius: 6px;
-  font-size: 14px;
-  font-weight: 400;
-  color: #323233;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.sidebar-menu :deep(.el-menu-item:hover) {
-  background: #f2f3f5;
-  color: #323233;
-}
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  background: #e8f4ff;
-  color: #1677ff;
-  font-weight: 500;
-}
-/* 有赞式激活态左边框 */
-.sidebar-menu :deep(.el-menu-item.is-active::before) {
-  content: '';
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 2px;
-  background: #1677ff;
-}
-/* 三级叶子（二级分组下的菜单项）更多缩进 */
-.nav-sub-group :deep(.el-menu-item) {
-  padding-left: 48px !important;
-}
-.nav-sub-group :deep(.el-menu-item.is-active::before) {
-  left: 32px; /* 对齐缩进后的位置 */
-}
-
-/* ── el-sub-menu 通用 title ── */
-.sidebar-menu :deep(.el-sub-menu__title) {
-  height: 40px;
-  line-height: 40px;
-  padding: 0 16px !important;
-  font-size: 14px;
-  color: #323233;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.sidebar-menu :deep(.el-sub-menu__title):hover {
-  background: #f2f3f5;
-}
-/* 隐藏 el-menu 自带的激活蓝条（我们用自定义的） */
-.sidebar-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  color: #323233;
-  border-bottom: none;
-}
-
-/* ── 一级分区（section：工作台/销售管理/…） ── */
-.nav-section-group {
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #ebedf0;
-}
-.nav-section-group:last-child {
-  border-bottom: none;
-}
-.nav-section-group :deep(> .el-sub-menu__title) {
-  height: 38px;
-  line-height: 38px;
-  padding: 0 16px !important;
+  background: transparent;
+  color: #303238;
+  font: inherit;
   font-size: 13px;
-  font-weight: 500;
-  color: #969799;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
 }
-.nav-section-group :deep(> .el-sub-menu__title):hover {
-  color: #646566;
-  background: transparent; /* 分区标题不显 hover 背景 */
+
+.primary-nav-item:hover {
+  background: #eef0f3;
 }
-/* 分区标题的展开箭头缩小 */
-.nav-section-group :deep(> .el-sub-menu__title .el-sub-menu__icon-arrow) {
+
+.primary-nav-item.active {
+  background: #e8e9ee;
+  color: #4f46d8;
+  font-weight: 600;
+}
+
+.primary-nav-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.primary-nav-icon :deep(.el-icon) {
+  font-size: 16px;
+}
+
+.primary-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.secondary-panel {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fafbfc;
+}
+
+.secondary-header {
+  height: 56px;
+  flex: 0 0 56px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  color: #202124;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.secondary-nav {
+  min-height: 0;
+  flex: 1;
+  padding: 6px 8px 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.secondary-menu-item,
+.secondary-menu-group {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #303238;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.secondary-menu-item:hover,
+.secondary-menu-group:hover {
+  background: #f0f1f4;
+}
+
+.secondary-menu-item.active {
+  background: #eef0ff;
+  color: #4f46d8;
+  font-weight: 600;
+}
+
+.secondary-menu-group.is-active {
+  color: #4f46d8;
+  font-weight: 600;
+}
+
+.menu-chevron {
+  flex: 0 0 auto;
+  color: #727680;
   font-size: 12px;
 }
 
-/* ── 二级分组（商机管理/报价管理/…） ── */
-.nav-sub-group {
-  /* 无额外样式，靠 el-menu 默认缩进 */
+.tertiary-menu {
+  margin: 1px 0 5px 14px;
+  padding: 1px 0 1px 8px;
+  border-left: 1px solid #e1e4e9;
 }
-.nav-sub-group :deep(.el-sub-menu__title) {
-  padding-left: 28px !important;
+
+.tertiary-menu-item {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #3f4248;
+  font: inherit;
   font-size: 13px;
-  color: #646566;
-}
-.nav-sub-group :deep(.el-sub-menu__title):hover {
-  color: #323233;
-}
-
-/* ── 图标 ── */
-.sidebar-menu :deep(.el-sub-menu__title .el-icon),
-.sidebar-menu :deep(.el-menu-item .el-icon) {
-  margin-right: 10px;
-  font-size: 18px;
-  color: inherit;
-  flex-shrink: 0;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
-/* ── 折叠态：图标居中 ── */
-.sidebar-menu.el-menu--collapse {
-  width: 64px;
-}
-.sidebar-menu.el-menu--collapse :deep(.el-menu-item),
-.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title) {
-  padding: 0 !important;
-  justify-content: center;
-  margin: 2px 8px;
-}
-.sidebar-menu.el-menu--collapse :deep(.el-menu-item .el-icon),
-.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title .el-icon) {
-  margin-right: 0 !important;
-}
-.sidebar-menu.el-menu--collapse :deep(.el-menu-item.is-active::before) {
-  left: 4px;
+.tertiary-menu-item:hover {
+  background: #f0f1f4;
 }
 
-/* ── 徽标 ── */
+.tertiary-menu-item.active {
+  background: #eef0ff;
+  color: #4f46d8;
+  font-weight: 600;
+}
+
 .nav-badge-item {
   width: 100%;
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
 }
+
 .nav-badge-item :deep(.el-badge__content) {
   background: #ee0a24;
   font-size: 10px;
@@ -716,50 +851,48 @@ onMounted(() => {
   padding: 0 5px;
 }
 
-/* ═══════════════════════════════════════════════════
-   折叠侧边栏全局
-   ═══════════════════════════════════════════════════ */
-
 .sidebar.collapsed {
-  width: 64px;
-  flex-basis: 64px;
+  width: var(--sidebar-collapsed-width);
+  flex-basis: var(--sidebar-collapsed-width);
 }
-.sidebar.collapsed .sidebar-logo-text,
-.sidebar.collapsed .logout-btn span {
-  display: none;
-}
+
 .sidebar.collapsed .sidebar-header {
-  padding: 0 12px;
-  justify-content: center;
+  height: auto;
+  flex-basis: auto;
+  padding: 12px 8px;
+  flex-direction: column;
+  gap: 10px;
 }
-.sidebar.collapsed .sidebar-toggle {
+
+.sidebar.collapsed .sidebar-logo-text,
+.sidebar.collapsed .sidebar-ai-mode,
+.sidebar.collapsed .secondary-panel {
   display: none;
 }
 
-/* 退出登录 */
-.sidebar-footer {
-  padding: 12px;
-  border-top: 1px solid var(--gray-200);
+.sidebar.collapsed .sidebar-header-actions {
+  display: contents;
 }
 
-.logout-btn {
+.sidebar.collapsed .sidebar-toggle {
+  background: #eef0f3;
+}
+
+.sidebar.collapsed .primary-nav {
   width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: var(--gray-500);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  flex-basis: 100%;
+  padding: 12px 8px;
+  border-right: none;
 }
 
-.logout-btn:hover {
-  background: #FEE2E2;
-  color: var(--danger);
+.sidebar.collapsed .primary-nav-item {
+  justify-content: center;
+  min-height: 44px;
+  padding: 0;
+}
+
+.sidebar.collapsed .primary-nav-label {
+  display: none;
 }
 
 /* 主内容区 */
@@ -792,6 +925,38 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.user-avatar.sm {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+  font-size: 12px;
+}
+
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+.user-role {
+  font-size: 12px;
+  color: var(--gray-500);
 }
 
 .header-user {
@@ -836,7 +1001,6 @@ onMounted(() => {
   height: 40px;
   border-radius: var(--radius-md);
   border: none;
-
   background: transparent;
   color: var(--gray-500);
   cursor: pointer;
@@ -961,21 +1125,38 @@ onMounted(() => {
 @media (max-width: 1024px) {
   .sidebar {
     width: var(--sidebar-collapsed-width);
-    min-width: var(--sidebar-collapsed-width);
-    max-width: var(--sidebar-collapsed-width);
     flex-basis: var(--sidebar-collapsed-width);
   }
 
-  .sidebar .sidebar-logo-text {
+  .sidebar-header {
+    height: auto;
+    flex-basis: auto;
+    padding: 12px 8px;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .sidebar-logo-text,
+  .sidebar-ai-mode,
+  .secondary-panel,
+  .sidebar-toggle {
     display: none;
   }
 
-  .sidebar-header {
-    padding: 0 18px;
-    justify-content: center;
+  .primary-nav {
+    width: 100%;
+    flex-basis: 100%;
+    padding: 12px 8px;
+    border-right: none;
   }
 
-  .sidebar-toggle {
+  .primary-nav-item {
+    justify-content: center;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  .primary-nav-label {
     display: none;
   }
 }
