@@ -179,11 +179,12 @@ onMounted(() => {
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
               <div class="menu-icon-box child-icon">
-                <svg v-if="!child.icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/></svg>
+                <svg v-if="!child.icon && !child.path" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/></svg>
+                <svg v-else-if="!child.icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/></svg>
                 <span v-else class="icon-text">{{ child.icon }}</span>
               </div>
               <div class="menu-info">
-                <span class="menu-name-text child-name">{{ child.name }}</span>
+                <span class="menu-name-text" :class="{ 'group-name': !child.path }">{{ child.name }}</span>
                 <code v-if="child.path" class="route-tag">{{ child.path }}</code>
               </div>
             </div>
@@ -206,6 +207,45 @@ onMounted(() => {
               </div>
             </div>
           </div>
+
+          <!-- 三级菜单 -->
+          <template v-for="child in menu.children" :key="'gc-' + child.id">
+            <div v-if="child.children && child.children.length" class="menu-grandchildren">
+              <div v-for="gc in child.children" :key="gc.id" class="menu-row grandchild">
+                <div class="menu-row-left">
+                  <div class="grandchild-indent">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </div>
+                  <div class="menu-icon-box grandchild-icon">
+                    <svg v-if="!gc.icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>
+                    <span v-else class="icon-text">{{ gc.icon }}</span>
+                  </div>
+                  <div class="menu-info">
+                    <span class="menu-name-text grandchild-name">{{ gc.name }}</span>
+                    <code v-if="gc.path" class="route-tag">{{ gc.path }}</code>
+                  </div>
+                </div>
+                <div class="menu-row-right">
+                  <span :class="['badge', (gc.visible ?? 1) === 1 ? 'badge-blue' : 'badge-gray']">
+                    {{ (gc.visible ?? 1) === 1 ? '显示' : '隐藏' }}
+                  </span>
+                  <span :class="['badge', (gc.status ?? 1) === 1 ? 'badge-green' : 'badge-gray']">
+                    {{ (gc.status ?? 1) === 1 ? '启用' : '禁用' }}
+                  </span>
+                  <span class="sort-num">{{ gc.sortOrder ?? 0 }}</span>
+                  <div class="perm-tags">
+                    <span
+                      v-for="perm in permissions.filter(p => p.menuId === gc.id)"
+                      :key="perm.id"
+                      class="perm-tag"
+                      :title="perm.description"
+                    >{{ perm.name }}</span>
+                    <span v-if="!permissions.filter(p => p.menuId === gc.id).length" class="no-perm">—</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -267,6 +307,15 @@ onMounted(() => {
 .icon-text { font-size: 13px; }
 
 .child-indent { color: var(--gray-300); flex-shrink: 0; margin-left: 8px; }
+
+.menu-grandchildren { border-top: 1px solid var(--gray-50); }
+.menu-row.grandchild { border-bottom: 1px solid var(--gray-50); background: #fafbfd; }
+.menu-row.grandchild:last-child { border-bottom: none; }
+.menu-row.grandchild:hover { background: var(--gray-50); }
+.grandchild-indent { color: var(--gray-300); flex-shrink: 0; margin-left: 24px; }
+.grandchild-icon { background: #f1f5f9; }
+.grandchild-name { font-size: 13px; font-weight: 500; }
+.group-name { font-weight: 500; color: var(--gray-600); }
 
 .menu-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .menu-name-text { font-size: 14px; font-weight: 600; color: var(--gray-800); white-space: nowrap; }

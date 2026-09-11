@@ -76,6 +76,9 @@ interface NavItem {
   badge?: number
   access?: RoleAccess
   requiresKeyMatterAccess?: boolean
+  /** 三级菜单：当该项为分组节点时，groupLabel 为分组标题，children 为子项 */
+  groupLabel?: string
+  children?: NavItem[]
 }
 
 interface NavSection {
@@ -147,31 +150,38 @@ const resolveIcon = (name: string | null | undefined): string => {
   return 'Menu'
 }
 
-/** 动态菜单 → 侧边栏分区结构。分区组节点（path 为 /sec-、/base、/system 伪路径）不跳转。 */
+/** 动态菜单 → 侧边栏分区结构。支持三级：二级分组（有 children 的路由容器）展开为嵌套组。 */
 const dynamicNavItems = computed<NavSection[]>(() =>
   menuTree.value
     .map(node => {
-      const children = (node.children ?? [])
-        .filter(child => child.path)
-        .map(child => ({
-          path: child.path === '/home' ? '/' : (child.path as string),
-          icon: resolveIcon(child.icon),
-          label: child.name,
-          requiresKeyMatterAccess: child.path === '/key-matters' ? true : undefined
-        }))
-      // 顶层叶子菜单（无子项且有真实路径）直接作为无分区项
-      if (children.length === 0 && node.path && !node.path.startsWith('/sec-') && node.path !== '/base' && node.path !== '/system') {
-        return {
-          section: '',
-          items: [{
-            path: node.path === '/home' ? '/' : node.path,
-            icon: resolveIcon(node.icon),
-            label: node.name,
-            requiresKeyMatterAccess: node.path === '/key-matters' ? true : undefined
-          }]
-        }
-      }
-      return { section: node.name, items: children }
+      const items: NavItem[] = (node.children ?? [])
+        .filter(child => child.path || (child.children && child.children.length > 0))
+        .map(child => {
+          // 二级分组节点：有 children 且其中有真实路径的子项 → 展开为嵌套组
+          const grandChildren = (child.children ?? []).filter(gc => gc.path)
+          if (grandChildren.length > 0) {
+            return {
+              path: child.path || '',
+              icon: resolveIcon(child.icon),
+              label: child.name,
+              groupLabel: child.name,
+              children: grandChildren.map(gc => ({
+                path: gc.path === '/home' ? '/' : (gc.path as string),
+                icon: resolveIcon(gc.icon),
+                label: gc.name,
+                requiresKeyMatterAccess: gc.path === '/key-matters' ? true : undefined
+              }))
+            }
+          }
+          // 叶子节点
+          return {
+            path: child.path === '/home' ? '/' : (child.path as string),
+            icon: resolveIcon(child.icon),
+            label: child.name,
+            requiresKeyMatterAccess: child.path === '/key-matters' ? true : undefined
+          }
+        })
+      return { section: node.name, items }
     })
     .filter(section => section.items.length > 0)
 )
@@ -302,23 +312,46 @@ onMounted(() => {
       <nav class="sidebar-nav">
         <div v-for="(section, sectionIndex) in visibleNavItems" :key="section.section || sectionIndex" class="nav-section">
           <div v-if="section.section" class="nav-section-title">{{ section.section }}</div>
-          <router-link
-            v-for="item in section.items"
-            :key="item.path"
-            :to="item.path"
-            class="nav-item"
-            :class="{ active: isActive(item.path) }"
-            :aria-label="item.label"
-            :title="item.label"
-          >
-            <span class="nav-item-icon">
-              <el-icon><component :is="item.icon" /></el-icon>
-            </span>
-            <span class="nav-item-text">{{ item.label }}</span>
-            <span v-if="item.path === '/requirements' ? requirementBadge !== null : item.badge" class="nav-item-badge">
-              {{ item.path === '/requirements' ? requirementBadge : item.badge }}
-            </span>
-          </router-link>
+          <template v-for="item in section.items" :key="item.path || item.label">
+            <!-- 二级分组节点：可折叠的子菜单组 -->
+            <template v-if="item.children && item.children.length > 0">
+              <div class="nav-group-title">{{ item.groupLabel || item.label }}</div>
+              <router-link
+                v-for="sub in item.children"
+                :key="sub.path"
+                :to="sub.path"
+                class="nav-item nav-item-indented"
+                :class="{ active: isActive(sub.path) }"
+                :aria-label="sub.label"
+                :title="sub.label"
+              >
+                <span class="nav-item-icon">
+                  <el-icon><component :is="sub.icon" /></el-icon>
+                </span>
+                <span class="nav-item-text">{{ sub.label }}</span>
+                <span v-if="sub.path === '/requirements' ? requirementBadge !== null : sub.badge" class="nav-item-badge">
+                  {{ sub.path === '/requirements' ? requirementBadge : sub.badge }}
+                </span>
+              </router-link>
+            </template>
+            <!-- 普通叶子节点 -->
+            <router-link
+              v-else
+              :to="item.path"
+              class="nav-item"
+              :class="{ active: isActive(item.path) }"
+              :aria-label="item.label"
+              :title="item.label"
+            >
+              <span class="nav-item-icon">
+                <el-icon><component :is="item.icon" /></el-icon>
+              </span>
+              <span class="nav-item-text">{{ item.label }}</span>
+              <span v-if="item.path === '/requirements' ? requirementBadge !== null : item.badge" class="nav-item-badge">
+                {{ item.path === '/requirements' ? requirementBadge : item.badge }}
+              </span>
+            </router-link>
+          </template>
         </div>
       </nav>
 
@@ -415,6 +448,7 @@ onMounted(() => {
 .sidebar.collapsed .sidebar-logo-text,
 .sidebar.collapsed .user-info,
 .sidebar.collapsed .nav-section-title,
+.sidebar.collapsed .nav-group-title,
 .sidebar.collapsed .nav-item-text,
 .sidebar.collapsed .nav-item-badge,
 .sidebar.collapsed .logout-btn span {
@@ -536,6 +570,20 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 8px 12px 4px;
+}
+
+.nav-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-500);
+  padding: 6px 12px 2px;
+  margin-top: 4px;
+  letter-spacing: 0.3px;
+}
+
+.nav-item-indented {
+  padding-left: 24px;
+  font-size: 13px;
 }
 
 .nav-item {
@@ -818,6 +866,7 @@ onMounted(() => {
 
   .sidebar .sidebar-logo-text,
   .sidebar .nav-section-title,
+  .sidebar .nav-group-title,
   .sidebar .nav-item-text,
   .sidebar .nav-item-badge {
     display: none;
