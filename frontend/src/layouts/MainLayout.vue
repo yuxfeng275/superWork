@@ -462,17 +462,7 @@ onMounted(() => {
   transition: width 0.3s ease;
 }
 
-.sidebar.collapsed {
-  width: var(--sidebar-collapsed-width);
-  flex-basis: var(--sidebar-collapsed-width);
-}
-
-.sidebar.collapsed .sidebar-logo-text,
-.sidebar.collapsed .user-info,
-.sidebar.collapsed .logout-btn span {
-  display: none;
-}
-
+/* 展开/折叠由下方 .sidebar.collapsed 控制 */
 .sidebar-header {
   height: 64px;
   padding: 0 20px;
@@ -570,107 +560,181 @@ onMounted(() => {
   color: var(--gray-500);
 }
 
-/* 导航菜单 — el-menu */
+/* ═══════════════════════════════════════════════════
+   导航菜单 — 有赞风格 el-menu
+   ═══════════════════════════════════════════════════ */
+
 .sidebar-nav {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 8px 0;
 }
 
+/* 根菜单 — 无边框透明底 */
 .sidebar-menu {
   border-right: none !important;
   background: transparent;
 }
 
+/* ── 通用菜单项 ── */
+.sidebar-menu :deep(.el-menu-item) {
+  height: 40px;
+  line-height: 40px;
+  margin: 2px 8px;
+  padding-left: 24px !important;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #323233;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background: #f2f3f5;
+  color: #323233;
+}
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: #e8f4ff;
+  color: #1677ff;
+  font-weight: 500;
+}
+/* 有赞式激活态左边框 */
+.sidebar-menu :deep(.el-menu-item.is-active::before) {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: #1677ff;
+}
+/* 三级叶子（二级分组下的菜单项）更多缩进 */
+.nav-sub-group :deep(.el-menu-item) {
+  padding-left: 48px !important;
+}
+.nav-sub-group :deep(.el-menu-item.is-active::before) {
+  left: 32px; /* 对齐缩进后的位置 */
+}
+
+/* ── el-sub-menu 通用 title ── */
 .sidebar-menu :deep(.el-sub-menu__title) {
   height: 40px;
   line-height: 40px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gray-600);
-  padding: 0 16px;
-  border-radius: 0;
+  padding: 0 16px !important;
+  font-size: 14px;
+  color: #323233;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .sidebar-menu :deep(.el-sub-menu__title):hover {
-  background: var(--gray-100);
-  color: var(--gray-800);
+  background: #f2f3f5;
+}
+/* 隐藏 el-menu 自带的激活蓝条（我们用自定义的） */
+.sidebar-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+  color: #323233;
+  border-bottom: none;
 }
 
-/* 一级分区 — 加分割线和间距 */
+/* ── 一级分区（section：工作台/销售管理/…） ── */
 .nav-section-group {
   margin-bottom: 4px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--gray-100);
+  border-bottom: 1px solid #ebedf0;
 }
 .nav-section-group:last-child {
   border-bottom: none;
 }
 .nav-section-group :deep(> .el-sub-menu__title) {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--gray-400);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  height: 36px;
-  line-height: 36px;
-}
-.nav-section-group :deep(> .el-sub-menu__title):hover {
-  color: var(--gray-600);
-}
-
-/* 二级分组 */
-.nav-sub-group :deep(.el-sub-menu__title) {
-  padding-left: 32px !important;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--gray-500);
-  height: 36px;
-  line-height: 36px;
-}
-.nav-sub-group :deep(.el-sub-menu__title):hover {
-  color: var(--gray-700);
-}
-
-/* 菜单项 */
-.sidebar-menu :deep(.el-menu-item) {
   height: 38px;
   line-height: 38px;
+  padding: 0 16px !important;
   font-size: 13px;
-  color: var(--gray-600);
-  padding-left: 28px !important;
-  margin: 1px 8px;
-  border-radius: 6px;
+  font-weight: 500;
+  color: #969799;
 }
-.nav-sub-group :deep(.el-menu-item) {
-  padding-left: 44px !important;
+.nav-section-group :deep(> .el-sub-menu__title):hover {
+  color: #646566;
+  background: transparent; /* 分区标题不显 hover 背景 */
 }
-.sidebar-menu :deep(.el-menu-item):hover {
-  background: var(--gray-100);
-  color: var(--gray-800);
-}
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  background: var(--primary-light);
-  color: var(--primary);
-  font-weight: 600;
+/* 分区标题的展开箭头缩小 */
+.nav-section-group :deep(> .el-sub-menu__title .el-sub-menu__icon-arrow) {
+  font-size: 12px;
 }
 
-/* 图标 */
+/* ── 二级分组（商机管理/报价管理/…） ── */
+.nav-sub-group {
+  /* 无额外样式，靠 el-menu 默认缩进 */
+}
+.nav-sub-group :deep(.el-sub-menu__title) {
+  padding-left: 28px !important;
+  font-size: 13px;
+  color: #646566;
+}
+.nav-sub-group :deep(.el-sub-menu__title):hover {
+  color: #323233;
+}
+
+/* ── 图标 ── */
 .sidebar-menu :deep(.el-sub-menu__title .el-icon),
 .sidebar-menu :deep(.el-menu-item .el-icon) {
-  margin-right: 8px;
-  font-size: 16px;
+  margin-right: 10px;
+  font-size: 18px;
+  color: inherit;
+  flex-shrink: 0;
 }
 
-/* 徽标 */
+/* ── 折叠态：图标居中 ── */
+.sidebar-menu.el-menu--collapse {
+  width: 64px;
+}
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item),
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title) {
+  padding: 0 !important;
+  justify-content: center;
+  margin: 2px 8px;
+}
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item .el-icon),
+.sidebar-menu.el-menu--collapse :deep(.el-sub-menu__title .el-icon) {
+  margin-right: 0 !important;
+}
+.sidebar-menu.el-menu--collapse :deep(.el-menu-item.is-active::before) {
+  left: 4px;
+}
+
+/* ── 徽标 ── */
 .nav-badge-item {
   width: 100%;
+  display: inline-flex;
+  align-items: center;
 }
 .nav-badge-item :deep(.el-badge__content) {
-  background: var(--danger);
-  font-size: 11px;
+  background: #ee0a24;
+  font-size: 10px;
+  font-weight: 600;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 5px;
 }
 
-/* 折叠态：el-menu[collapse] 自动隐藏文字只留图标，无需额外处理 */
+/* ═══════════════════════════════════════════════════
+   折叠侧边栏全局
+   ═══════════════════════════════════════════════════ */
+
+.sidebar.collapsed {
+  width: 64px;
+  flex-basis: 64px;
+}
+.sidebar.collapsed .sidebar-logo-text,
+.sidebar.collapsed .logout-btn span {
+  display: none;
+}
+.sidebar.collapsed .sidebar-header {
+  padding: 0 12px;
+  justify-content: center;
+}
+.sidebar.collapsed .sidebar-toggle {
+  display: none;
+}
 
 /* 退出登录 */
 .sidebar-footer {
@@ -913,14 +977,6 @@ onMounted(() => {
 
   .sidebar-toggle {
     display: none;
-  }
-
-  .sidebar-nav {
-    padding: 8px;
-  }
-
-  .nav-item {
-    justify-content: center;
   }
 }
 
