@@ -112,13 +112,19 @@ class ConnectorToolServiceTest {
         when(yunxiaoConfigService.getRuntimeConfig()).thenReturn(
                 new com.bu.management.config.YunxiaoRuntimeConfig(
                         true, "center", "https://openapi.aliyun.com", "org", "tok", "PAGE", null, null, null));
+        when(worktimeInsightToolService.definitions()).thenReturn(List.of(
+                new AiAgentToolDefinition("analyze_my_contracts", "合同应收回款分析", objectMapper.createObjectNode()),
+                new AiAgentToolDefinition("analyze_cost_structure", "成本结构分析", objectMapper.createObjectNode()),
+                new AiAgentToolDefinition("get_kpi_summary", "KPI 摘要", objectMapper.createObjectNode()),
+                new AiAgentToolDefinition("get_worktime_sync_status", "同步状态", objectMapper.createObjectNode())));
 
         List<String> names = service.definitions().stream()
                 .map(AiAgentToolDefinition::name).toList();
 
         assertThat(names).contains(
                 "search_yuque_docs", "read_yuque_doc", "query_my_worktime",
-                "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem");
+                "query_yunxiao_projects", "query_yunxiao_workitems", "get_yunxiao_workitem",
+                "analyze_my_contracts", "analyze_cost_structure", "get_kpi_summary", "get_worktime_sync_status");
     }
     @Test
     @DisplayName("handles：内置工具名识别，含新增的 get_yunxiao_workitem")
@@ -341,5 +347,51 @@ class ConnectorToolServiceTest {
         assertThat(result.isError()).isFalse();
         assertThat(result.content()).contains("电商业务BU").contains("120.50")
                 .contains("未填报成员").contains("王缓");
+    }
+
+    // ==================== 工时经营洞察工具 ====================
+
+    @Test
+    @DisplayName("analyze_team_worktime 与 insight 工具：handles 识别")
+    void insightToolsRecognized() {
+        lenient().when(worktimeInsightToolService.handles("analyze_my_contracts")).thenReturn(true);
+        lenient().when(worktimeInsightToolService.handles("analyze_cost_structure")).thenReturn(true);
+        lenient().when(worktimeInsightToolService.handles("get_kpi_summary")).thenReturn(true);
+        lenient().when(worktimeInsightToolService.handles("get_worktime_sync_status")).thenReturn(true);
+        lenient().when(worktimeInsightToolService.handles("no_such_tool")).thenReturn(false);
+        assertThat(service.handles("analyze_my_contracts")).isTrue();
+        assertThat(service.handles("analyze_cost_structure")).isTrue();
+        assertThat(service.handles("get_kpi_summary")).isTrue();
+        assertThat(service.handles("get_worktime_sync_status")).isTrue();
+        assertThat(service.handles("no_such_tool")).isFalse();
+    }
+
+    @Test
+    @DisplayName("analyze_my_contracts：无 revenue:view 权限返回 isError")
+    void contractsRequirePermission() {
+        when(worktimeInsightToolService.handles("analyze_my_contracts")).thenReturn(true);
+        lenient().when(sysRoleService.getPermissionCodesByUserId(7L)).thenReturn(List.of("email:view"));
+        when(worktimeInsightToolService.execute(7L, "analyze_my_contracts", args(null)))
+                .thenReturn(new AiAgentToolResult("合同分析需要「营收查看」权限", true));
+
+        AiAgentToolResult result = service.execute(7L, "analyze_my_contracts", args(null));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).contains("营收查看");
+    }
+
+    @Test
+    @DisplayName("get_kpi_summary：有权限时委托 insight 服务")
+    void kpiSummaryDelegates() {
+        when(worktimeInsightToolService.handles("get_kpi_summary")).thenReturn(true);
+        lenient().when(sysRoleService.getPermissionCodesByUserId(7L)).thenReturn(List.of("revenue:view"));
+        when(worktimeInsightToolService.execute(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq("get_kpi_summary"), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new AiAgentToolResult("2026 年经营 KPI：…", false));
+
+        AiAgentToolResult result = service.execute(7L, "get_kpi_summary", args(null));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("KPI");
     }
 }

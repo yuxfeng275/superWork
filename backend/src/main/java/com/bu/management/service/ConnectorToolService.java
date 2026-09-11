@@ -219,9 +219,9 @@ public class ConnectorToolService {
             "analyze_my_worktime", "analyze_team_worktime",
             "analyze_my_contracts", "analyze_cost_structure", "get_kpi_summary", "get_worktime_sync_status");
 
-    /** 该工具名是否属于内置连接器工具集。 */
+    /** 该工具名是否属于内置连接器工具集（含工时经营洞察工具）。 */
     public boolean handles(String toolName) {
-        return BUILTIN_TOOLS.contains(toolName);
+        return BUILTIN_TOOLS.contains(toolName) || worktimeInsightToolService.handles(toolName);
     }
 
     /**
