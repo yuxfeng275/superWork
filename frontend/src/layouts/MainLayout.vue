@@ -295,11 +295,14 @@ const hasActiveRoute = (items: NavItem[], currentPath = route.path): boolean =>
 const selectedSectionName = ref<string | null>(null)
 const expandedGroups = ref<Record<string, boolean>>({})
 
-/** 当前路由是否为独立首页：首页激活时不选中任何业务分区。 */
+/** 当前路由是否为独立首页。 */
 const isHomeActive = computed(() => route.path === '/' || route.path === '/home')
 
+/** 首页固定态：位于首页且用户未显式选择业务分区时，不展示二级面板。 */
+const homePinned = ref(true)
+
 const selectedSection = computed<NavSection | null>(() => {
-  if (isHomeActive.value) return null
+  if (isHomeActive.value && homePinned.value) return null
   const sections = visibleNavItems.value
   return sections.find(section => section.section === selectedSectionName.value)
     || sections.find(section => hasActiveRoute(section.items))
@@ -308,6 +311,7 @@ const selectedSection = computed<NavSection | null>(() => {
 })
 
 watch(() => route.path, currentPath => {
+  homePinned.value = currentPath === '/' || currentPath === '/home'
   const routeSection = visibleNavItems.value.find(section => hasActiveRoute(section.items, currentPath))
   if (routeSection) selectedSectionName.value = routeSection.section
 })
@@ -315,12 +319,14 @@ watch(() => route.path, currentPath => {
 const getSectionIcon = (section: NavSection) => section.icon || sectionIcons[section.section] || 'Menu'
 
 const selectSection = (section: NavSection) => {
+  homePinned.value = false
   selectedSectionName.value = section.section
   if (isCollapsed.value) isCollapsed.value = false
 }
 
 const goHome = () => {
   if (!homeNavItem.value) return
+  homePinned.value = true
   selectedSectionName.value = null
   void router.push(homeNavItem.value.path || '/')
 }
