@@ -250,7 +250,11 @@ const sectionIcons: Record<string, string> = {
   '系统': 'Setting'
 }
 
-const visibleNavItems = computed<NavSection[]>(() => {
+/** 首页在任何授权模式下都独立于业务分区，单独置顶渲染。 */
+const isHomeItem = (item: NavItem) => item.path === '/' || item.path === '/home'
+
+/** 完整分区列表（含首页），动态模式与回退模式统一在此收口。 */
+const allNavSections = computed<NavSection[]>(() => {
   // 动态模式：后端授权树直接驱动，仅保留大事儿管理的领域准入叠加。
   if (menuTree.value.length > 0) return dynamicNavItems.value
 
@@ -264,6 +268,21 @@ const visibleNavItems = computed<NavSection[]>(() => {
     .filter(section => section.items.length > 0)
 })
 
+/** 独立的首页入口：取自授权后的分区数据，未授权时不渲染。 */
+const homeNavItem = computed<NavItem | null>(() => {
+  for (const section of allNavSections.value) {
+    const home = section.items.find(isHomeItem)
+    if (home) return home
+  }
+  return null
+})
+
+const visibleNavItems = computed<NavSection[]>(() =>
+  allNavSections.value
+    .map(section => ({ ...section, items: section.items.filter(item => !isHomeItem(item)) }))
+    .filter(section => section.items.length > 0)
+)
+
 const pathMatches = (configuredPath: string, currentPath = route.path) => {
   if (!configuredPath) return false
   if (configuredPath === '/') return currentPath === '/'
@@ -276,7 +295,11 @@ const hasActiveRoute = (items: NavItem[], currentPath = route.path): boolean =>
 const selectedSectionName = ref<string | null>(null)
 const expandedGroups = ref<Record<string, boolean>>({})
 
+/** 当前路由是否为独立首页：首页激活时不选中任何业务分区。 */
+const isHomeActive = computed(() => route.path === '/' || route.path === '/home')
+
 const selectedSection = computed<NavSection | null>(() => {
+  if (isHomeActive.value) return null
   const sections = visibleNavItems.value
   return sections.find(section => section.section === selectedSectionName.value)
     || sections.find(section => hasActiveRoute(section.items))
@@ -295,6 +318,13 @@ const selectSection = (section: NavSection) => {
   selectedSectionName.value = section.section
   if (isCollapsed.value) isCollapsed.value = false
 }
+
+const goHome = () => {
+  if (!homeNavItem.value) return
+  selectedSectionName.value = null
+  void router.push(homeNavItem.value.path || '/')
+}
+
 
 const navigateTo = (item: NavItem) => {
   if (item.path) void router.push(item.path)
@@ -386,6 +416,21 @@ onMounted(() => {
 
       <div class="sidebar-content">
         <nav class="primary-nav" aria-label="业务模块">
+          <button
+            v-if="homeNavItem"
+            type="button"
+            class="primary-nav-item"
+            :class="{ active: isHomeActive }"
+            :aria-current="isHomeActive ? 'page' : undefined"
+            :title="homeNavItem.label"
+            @click="goHome"
+          >
+            <span class="primary-nav-icon" aria-hidden="true">
+              <el-icon><component :is="homeNavItem.icon" /></el-icon>
+            </span>
+            <span class="primary-nav-label">{{ homeNavItem.label }}</span>
+          </button>
+          <div v-if="homeNavItem" class="primary-nav-divider" aria-hidden="true"></div>
           <button
             v-for="section in visibleNavItems"
             :key="section.section"
@@ -729,6 +774,13 @@ onMounted(() => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.primary-nav-divider {
+  height: 1px;
+  margin: 6px 10px;
+  background: #e5e7eb;
+  flex: 0 0 auto;
 }
 
 .secondary-panel {
