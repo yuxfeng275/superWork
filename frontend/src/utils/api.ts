@@ -41,6 +41,7 @@ import type {
 import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, WorktimeTestResult, MenuTreeNode } from '@/types/kpi'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
+import type { BizLineProfitReport } from '@/types/businessLineProfit'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1634,6 +1635,22 @@ class ApiService {
   // 当前用户可见菜单树（侧边栏动态渲染）；空数组表示无授权记录，前端回退默认菜单
   async getMyMenuTree(): Promise<MenuTreeNode[]> {
     return this.request<MenuTreeNode[]>('/api/auth/my-menu-tree')
+  }
+
+  // 业务线利润报表（数据源自工时系统，支持手动同步）
+  async getBlProfitReport(year: number): Promise<BizLineProfitReport> {
+    return this.request<BizLineProfitReport>(`/api/finance/bl-profit?year=${year}`)
+  }
+
+  async syncBlProfit(body: { year?: number; month?: string }): Promise<WorktimeSyncLog[]> {
+    return this.request<WorktimeSyncLog[]>('/api/finance/bl-profit/sync', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
+  }
+
+  async getBlProfitSyncLogs(limit = 10): Promise<WorktimeSyncLog[]> {
+    return this.request<WorktimeSyncLog[]>(`/api/finance/bl-profit/sync-logs?limit=${limit}`)
   }
 
   // Revenue management APIs（工时与成本）

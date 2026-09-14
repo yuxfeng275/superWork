@@ -118,6 +118,20 @@ public class WorktimeApiClient {
         }
     }
 
+    // ==================== 业务线利润报表 ====================
+
+    /** 业务线利润月报：data = { items: [...], groups, summary, year_month } */
+    public JsonNode fetchBusinessLineMonthlyReport(String yearMonth) {
+        WorktimeRuntimeConfig config = configuredRuntime();
+        return unwrap(sendJson(config, "GET", API + "/finance/report/business-line/" + yearMonth, null, true, 1));
+    }
+
+    /** 业务线利润报表最新可用月份（data 形如 { year_month: "2026-08" } 或字符串） */
+    public JsonNode fetchBusinessLineReportLatestMonth() {
+        WorktimeRuntimeConfig config = configuredRuntime();
+        return unwrap(sendJson(config, "GET", API + "/finance/report/business-line/latest-month", null, true, 1));
+    }
+
     // ==================== 工时 ====================
 
     /** 工时月度确认状态列表：[{year_month, status, status_label, deadline}] */

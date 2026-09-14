@@ -126,6 +126,7 @@ const defaultNavItems: NavSection[] = [
       { path: '/revenue/worktime', icon: 'Timer', label: '工时 & 成本', access: 'management' },
       { path: '/revenue/delivery', icon: 'TrendCharts', label: '交付与利润', access: 'management' },
       { path: '/kpi-report', icon: 'DataLine', label: 'KPI周报', access: 'management' },
+      { path: '/bl-profit', icon: 'DataAnalysis', label: '业务线利润', access: 'management' },
       {
         path: '',
         icon: 'Setting',

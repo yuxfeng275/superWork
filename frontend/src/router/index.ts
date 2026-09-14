@@ -121,6 +121,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'KPI周报', roleAccess: 'management' }
       },
       {
+        path: 'bl-profit',
+        name: 'BusinessLineProfit',
+        component: () => import('@/views/BusinessLineProfitView.vue'),
+        meta: { title: '业务线利润', roleAccess: 'management' }
+      },
+      {
         path: 'projects',
         name: 'Projects',
         component: () => import('@/views/ProjectView.vue'),

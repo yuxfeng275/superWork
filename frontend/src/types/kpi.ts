@@ -71,7 +71,7 @@ export interface KpiAlertRule {
 
 export interface WorktimeSyncLog {
   id: number
-  syncType: 'contract' | 'worklog' | 'cost'
+  syncType: 'contract' | 'worklog' | 'cost' | 'bl_profit'
   scope: string | null
   status: 'running' | 'success' | 'failed'
   totalCount: number
