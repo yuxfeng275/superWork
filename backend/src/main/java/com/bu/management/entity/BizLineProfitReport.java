@@ -34,7 +34,9 @@ public class BizLineProfitReport {
     /** 工时（人月） */
     private BigDecimal totalHours;
     private BigDecimal hoursRatio;
+    @TableField("expense_1")
     private BigDecimal expense1;
+    @TableField("labor_cost_1")
     private BigDecimal laborCost1;
     /** 考核毛利 */
     private BigDecimal grossProfit;
@@ -44,6 +46,7 @@ public class BizLineProfitReport {
     private BigDecimal laborCost3Backend;
     private BigDecimal laborCost3Tech;
     private BigDecimal laborCost3Rd;
+    @TableField("expense_2")
     private BigDecimal expense2;
     /** 净利润 */
     private BigDecimal netProfit;
