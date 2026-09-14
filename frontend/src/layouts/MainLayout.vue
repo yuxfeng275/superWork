@@ -123,8 +123,19 @@ const defaultNavItems: NavSection[] = [
     section: '数据分析',
     items: [
       { path: '/statistics', icon: 'DataAnalysis', label: 'BU驾驶舱', access: 'management' },
-      { path: '/revenue', icon: 'Coin', label: '营收管理', access: 'management' },
-      { path: '/kpi-report', icon: 'DataLine', label: 'KPI周报', access: 'management' }
+      { path: '/revenue/worktime', icon: 'Timer', label: '工时 & 成本', access: 'management' },
+      { path: '/revenue/delivery', icon: 'TrendCharts', label: '交付与利润', access: 'management' },
+      { path: '/kpi-report', icon: 'DataLine', label: 'KPI周报', access: 'management' },
+      {
+        path: '',
+        icon: 'Setting',
+        label: '配置',
+        access: 'management',
+        children: [
+          { path: '/revenue/import', icon: 'Upload', label: '数据导入', access: 'management' },
+          { path: '/revenue/pending', icon: 'Link', label: '待映射与销售项目', access: 'management' }
+        ]
+      }
     ]
   },
   {

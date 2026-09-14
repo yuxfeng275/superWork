@@ -88,9 +88,31 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'revenue',
-        name: 'Revenue',
+        redirect: '/revenue/worktime'
+      },
+      {
+        path: 'revenue/worktime',
+        name: 'RevenueWorktime',
         component: () => import('@/views/RevenueView.vue'),
-        meta: { title: '营收管理', roleAccess: 'management' }
+        meta: { title: '工时 & 成本', roleAccess: 'management', revenueTab: 'matrix' }
+      },
+      {
+        path: 'revenue/delivery',
+        name: 'RevenueDelivery',
+        component: () => import('@/views/RevenueView.vue'),
+        meta: { title: '交付与利润', roleAccess: 'management', revenueTab: 'delivery' }
+      },
+      {
+        path: 'revenue/import',
+        name: 'RevenueImport',
+        component: () => import('@/views/RevenueView.vue'),
+        meta: { title: '数据导入', roleAccess: 'management', revenueTab: 'import' }
+      },
+      {
+        path: 'revenue/pending',
+        name: 'RevenuePending',
+        component: () => import('@/views/RevenueView.vue'),
+        meta: { title: '待映射与销售项目', roleAccess: 'management', revenueTab: 'pending' }
       },
       {
         path: 'kpi-report',

@@ -154,7 +154,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('营收矩阵展示完结实际值与未完结预估', async ({ page }, testInfo) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const table = page.locator('.matrix-table')
   await expect(table).toBeVisible()
 
@@ -189,7 +189,7 @@ test('营收矩阵展示完结实际值与未完结预估', async ({ page }, tes
 })
 
 test('切换仅工时后单元格不再显示成本', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await expect(royalRow.locator('td.actual').first()).toContainText('9.8')
 
@@ -203,7 +203,7 @@ test('切换仅工时后单元格不再显示成本', async ({ page }) => {
 })
 
 test('只看实际口径隐藏预估且合计同步剔除', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const table = page.locator('.matrix-table')
   const royalRow = table.locator('tr', { hasText: '皇家项目' })
 
@@ -225,7 +225,7 @@ test('只看实际口径隐藏预估且合计同步剔除', async ({ page }) => 
 })
 
 test('完结月单元格下钻展示工时与成本明细及预估偏差', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await royalRow.locator('td.actual').first().click()
 
@@ -243,7 +243,7 @@ test('完结月单元格下钻展示工时与成本明细及预估偏差', async
 })
 
 test('未完结月单元格展示预估明细并可新增', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await royalRow.locator('td.estimate').first().click()
 
@@ -303,7 +303,7 @@ test('未完结月单元格展示预估明细并可新增', async ({ page }) => 
 })
 
 test('会员通聚合为项目销售两行且简单业务线单行不可下钻', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const table = page.locator('.matrix-table')
 
   // 项目集行全局移除
@@ -331,7 +331,7 @@ test('会员通聚合为项目销售两行且简单业务线单行不可下钻',
 })
 
 test('完结月单元格支持补录和修改工时明细', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const royalRow = page.locator('.matrix-table tr', { hasText: '皇家项目' })
   await royalRow.locator('td.actual').first().click()
 
@@ -359,7 +359,7 @@ test('完结月单元格支持补录和修改工时明细', async ({ page }) => 
 })
 
 test('筛选 pill 支持多选且小计紧随业务线', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const table = page.locator('.matrix-table')
 
   // 多选两个业务线：定制 + 会员通
@@ -392,7 +392,7 @@ test('筛选 pill 支持多选且小计紧随业务线', async ({ page }) => {
 })
 
 test('业务线和项目筛选联动合计与概览', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const table = page.locator('.matrix-table')
   await expect(table).toContainText('皇家项目')
 
@@ -426,7 +426,7 @@ test('业务线和项目筛选联动合计与概览', async ({ page }) => {
 })
 
 test('全渠道产品未完结月可录入预估，完结月仍不可下钻', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   const productRow = page.locator('.matrix-table tbody tr:not(.line-total-row)', { hasText: '全渠道产品' })
 
   // 完结月（7月实际格）不可点击
@@ -457,7 +457,7 @@ test('全渠道产品未完结月可录入预估，完结月仍不可下钻', as
 })
 
 test('点击未完结月表头可标记完结', async ({ page }) => {
-  await page.goto('/revenue')
+  await page.goto('/revenue/worktime')
   let closedMonth = ''
   await page.route('**/api/revenue/months/*/close', route => {
     closedMonth = route.request().url().match(/months\/([\d-]+)\/close/)?.[1] || ''

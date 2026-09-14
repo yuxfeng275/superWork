@@ -10,11 +10,8 @@ test('生产环境 H1 H2 切换实测', async ({ page }) => {
   await page.locator('input[type="password"]').first().fill('123456')
   await page.getByRole('button', { name: /登录|登 录/ }).click()
   await page.waitForTimeout(1500)
-  // 进入营收管理
-  await page.getByText('营收管理', { exact: true }).first().click()
+  await page.goto('/revenue/delivery')
   await page.waitForTimeout(2000)
-  // 切到交付与利润 tab
-  await page.getByRole('tab', { name: '交付与利润' }).click()
   await page.waitForTimeout(2000)
   const tbody = page.locator('.matrix-table tbody').last()
   await expect(tbody).toBeVisible()

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Upload } from '@element-plus/icons-vue'
 import type { UploadFile } from 'element-plus'
@@ -41,17 +42,17 @@ const matrix = ref<RevenueMatrix | null>(null)
 const displayMode = ref<'merge' | 'hours' | 'cost'>('merge')
 // 数据口径：true=含预估，false=只看实际
 const showEstimates = ref(true)
-const activeTab = ref('matrix')
-// 交付与利润面板：首次切入时挂载（Element Plus pane 默认全部渲染，用 v-if 延迟到首次激活）
-const deliveryMounted = ref(false)
+// 当前面板由路由 meta.revenueTab 驱动（菜单拆分后每个面板对应独立菜单路径）
+const route = useRoute()
+const activeTab = computed(() => (route.meta.revenueTab as string) || 'matrix')
 const deliveryTabRef = ref<{ reload: () => Promise<void> } | null>(null)
 
 const reloadForActiveTab = () => {
   if (activeTab.value === 'delivery') {
-    deliveryTabRef.value?.reload()
-  } else {
-    loadMatrix()
+    void deliveryTabRef.value?.reload()
+    return
   }
+  activateTab(activeTab.value)
 }
 
 const handleYearChange = () => {
@@ -715,13 +716,34 @@ const bindOpportunity = async (item: RevenueSalesProject, opportunityId: number 
 const businessLineNameOf = (id: number) =>
   businessLines.value.find(item => item.id === id)?.name || `#${id}`
 
-const handleTabChange = (name: string | number) => {
-  if (name === 'delivery') deliveryMounted.value = true
-  if (name === 'import') Promise.all([loadBatches(), loadContractBatches()])
-  if (name === 'pending') Promise.all([loadPending(), loadSalesProjects(), loadContractTools()])
+const pageMeta = computed(() => {
+  switch (activeTab.value) {
+    case 'delivery':
+      return { title: '交付与利润', desc: '按交付口径展示项目交付金额、成本与利润表现。' }
+    case 'import':
+      return { title: '数据导入', desc: '导入工时、成本与合同数据；同月重复导入以文件为准整月覆盖。' }
+    case 'pending':
+      return { title: '待映射与销售项目', desc: '处理待映射明细与合同归属，维护销售项目与商机关联。' }
+    default:
+      return { title: '工时 & 成本', desc: '工时与成本矩阵：完结月展示导入实际值，未完结月展示预估，点击单元格查看明细。' }
+  }
+})
+
+// 面板激活时加载对应数据（immediate 覆盖直接通过菜单进入的场景）
+const activateTab = (name: string) => {
+  if (name === 'delivery') return // RevenueDeliveryTab 挂载后自行加载
+  if (name === 'import') {
+    void Promise.all([loadBatches(), loadContractBatches()])
+    return
+  }
+  if (name === 'pending') {
+    void Promise.all([loadPending(), loadSalesProjects(), loadContractTools()])
+    return
+  }
+  void loadMatrix()
 }
 
-onMounted(loadMatrix)
+watch(activeTab, activateTab, { immediate: true })
 </script>
 
 <template>
@@ -729,19 +751,18 @@ onMounted(loadMatrix)
     <header class="page-head">
       <div>
         <span class="eyebrow">REVENUE MANAGEMENT</span>
-        <h2>营收管理</h2>
-        <p>工时与成本矩阵：完结月展示导入实际值，未完结月展示预估，点击单元格查看明细。</p>
+        <h2>{{ pageMeta.title }}</h2>
+        <p>{{ pageMeta.desc }}</p>
       </div>
       <div class="head-actions">
-        <el-select v-model="year" aria-label="选择年份" style="width: 130px" @change="handleYearChange">
+        <el-select v-if="activeTab === 'matrix' || activeTab === 'delivery'" v-model="year" aria-label="选择年份" style="width: 130px" @change="handleYearChange">
           <el-option v-for="y in [currentYear - 1, currentYear, currentYear + 1]" :key="y" :label="`${y}年`" :value="y" />
         </el-select>
         <el-button :icon="Refresh" aria-label="刷新" @click="reloadForActiveTab" />
       </div>
     </header>
 
-    <el-tabs v-model="activeTab" class="revenue-tabs" @tab-change="handleTabChange">
-      <el-tab-pane label="工时 & 成本" name="matrix">
+    <template v-if="activeTab === 'matrix'">
         <template v-if="matrix">
           <div class="filter-row" aria-label="营收筛选">
             <div class="filter-pills" aria-label="业务线筛选">
@@ -879,19 +900,18 @@ onMounted(loadMatrix)
           </div>
         </template>
         <el-empty v-else-if="!loading" description="暂无营收数据，请先在「数据导入」中导入工时与成本明细" />
-      </el-tab-pane>
+    </template>
 
-      <el-tab-pane label="交付与利润" name="delivery">
+    <template v-if="activeTab === 'delivery'">
         <RevenueDeliveryTab
-          v-if="deliveryMounted"
           ref="deliveryTabRef"
           :year="year"
           :active="activeTab === 'delivery'"
         />
-      </el-tab-pane>
+    </template>
 
 
-      <el-tab-pane label="数据导入" name="import">
+    <template v-if="activeTab === 'import'">
         <div class="import-grid">
           <section class="import-card">
             <h4>工时明细导入</h4>
@@ -954,9 +974,9 @@ onMounted(loadMatrix)
             <el-table-column prop="pendingCount" label="待映射" />
           </el-table>
         </section>
-      </el-tab-pane>
+    </template>
 
-      <el-tab-pane label="待映射与销售项目" name="pending">
+    <template v-if="activeTab === 'pending'">
         <section class="pending-section" v-loading="pendingLoading">
           <h4>待映射明细（{{ pendingWorklog.length + pendingCost.length }}）</h4>
           <el-table :data="pendingWorklog" class="data-table" empty-text="暂无待映射工时明细">
@@ -1084,9 +1104,7 @@ onMounted(loadMatrix)
             </el-table-column>
           </el-table>
         </section>
-      </el-tab-pane>
-
-    </el-tabs>
+    </template>
 
     <el-drawer v-model="cellDrawer" :title="cellContext.title" size="min(640px, 96vw)" destroy-on-close>
       <div v-loading="cellLoading" class="cell-drawer">
