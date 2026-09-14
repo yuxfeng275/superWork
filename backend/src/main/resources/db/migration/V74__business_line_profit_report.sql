@@ -3,7 +3,7 @@
 
 CREATE TABLE biz_line_profit_report (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    year_month VARCHAR(7) NOT NULL COMMENT '归属月份 YYYY-MM',
+    `year_month` VARCHAR(7) NOT NULL COMMENT '归属月份 YYYY-MM',
     worktime_business_line_id BIGINT DEFAULT NULL COMMENT '工时系统业务线ID',
     worktime_business_line_name VARCHAR(200) NOT NULL COMMENT '工时系统业务线名称',
     business_line_id BIGINT DEFAULT NULL COMMENT '本系统业务线ID（映射成功时填充）',
@@ -32,8 +32,8 @@ CREATE TABLE biz_line_profit_report (
     synced_at DATETIME DEFAULT NULL COMMENT '最近同步时间',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_month_wtbl (year_month, worktime_business_line_id),
-    INDEX idx_month (year_month),
+    UNIQUE KEY uk_month_wtbl (`year_month`, worktime_business_line_id),
+    INDEX idx_month (`year_month`),
     INDEX idx_bl (business_line_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务线月度利润报表（工时系统同步）';
 
