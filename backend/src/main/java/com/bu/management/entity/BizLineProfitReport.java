@@ -42,9 +42,13 @@ public class BizLineProfitReport {
     private BigDecimal grossProfit;
     private BigDecimal grossProfitRate;
     private BigDecimal marketingCost;
+    @TableField("labor_cost_2_sales")
     private BigDecimal laborCost2Sales;
+    @TableField("labor_cost_3_backend")
     private BigDecimal laborCost3Backend;
+    @TableField("labor_cost_3_tech")
     private BigDecimal laborCost3Tech;
+    @TableField("labor_cost_3_rd")
     private BigDecimal laborCost3Rd;
     @TableField("expense_2")
     private BigDecimal expense2;
