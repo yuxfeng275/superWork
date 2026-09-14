@@ -1,297 +1,200 @@
 /**
- * @name umi 的路由配置
- * @description 只支持 path,component,routes,redirect,wrappers,name,icon 的配置
- * @param path  path 只支持两种占位符配置，第一种是动态参数 :id 的形式，第二种是 * 通配符，通配符只能出现路由字符串的最后。
- * @param component 配置 location 和 path 匹配后用于渲染的 React 组件路径。可以是绝对路径，也可以是相对路径，如果是相对路径，会从 src/pages 开始找起。
- * @param routes 配置子路由，通常在需要为多个路径增加 layout 组件时使用。
- * @param redirect 配置路由跳转
- * @param wrappers 配置路由组件的包装组件，通过包装组件可以为当前的路由组件组合进更多的功能。 比如，可以用于路由级别的权限校验
- * @param name 配置路由的标题，默认读取国际化文件 menu.ts 中 menu.xxxx 的值，如配置 name 为 login，则读取 menu.ts 中 menu.login 的取值作为标题
- * @param icon 配置路由的图标，取值参考 https://ant.design/components/icon-cn， 注意去除风格后缀和大小写，如想要配置图标为 <StepBackwardOutlined /> 则取值应为 stepBackward 或 StepBackward，如想要配置图标为 <UserOutlined /> 则取值应为 user 或者 User
- * @doc https://umijs.org/docs/guides/routes
+ * 迁移期路由白名单：只注册已经接入真实业务接口的页面。
+ * 未迁移模块继续由旧 Vue 工程承载，避免用 Pro 示例页面冒充功能。
  */
 export default [
   {
     path: '/user',
     layout: false,
     routes: [
-      {
-        path: '/user/login',
-        name: 'login',
-        component: './user/login',
-      },
-      {
-        path: '/user',
-        redirect: '/user/login',
-      },
-      {
-        name: 'register-result',
-        icon: 'checkCircle',
-        path: '/user/register-result',
-        component: './user/register-result',
-      },
-      {
-        name: 'register',
-        icon: 'userAdd',
-        path: '/user/register',
-        component: './user/register',
-      },
-      {
-        name: '404',
-        component: './exception/404',
-        path: '/user/*',
-      },
+      { path: '/user/login', component: './user/login' },
+      { path: '/user', redirect: '/user/login' },
     ],
   },
+  { path: '/login', layout: false, redirect: '/user/login' },
   {
-    path: '/welcome',
-    name: 'welcome',
+    path: '/workbench',
+    name: '工作台',
     icon: 'home',
-    component: './Welcome',
+    component: './workbench',
   },
   {
-    path: '/admin',
-    name: 'admin',
-    icon: 'crown',
-    access: 'canAdmin',
-    routes: [
-      {
-        path: '/admin',
-        redirect: '/admin/sub-page',
-      },
-      {
-        path: '/admin/sub-page',
-        name: 'sub-page',
-        component: './Admin',
-      },
-    ],
+    path: '/requirements',
+    name: '需求管理',
+    icon: 'fileText',
+    component: './requirements',
   },
   {
-    path: '/dashboard',
-    name: 'dashboard',
-    icon: 'dashboard',
-    routes: [
-      {
-        path: '/dashboard',
-        redirect: '/dashboard/analysis',
-      },
-      {
-        name: 'analysis',
-        icon: 'barChart',
-        path: '/dashboard/analysis',
-        component: './dashboard/analysis',
-      },
-      {
-        name: 'monitor',
-        icon: 'monitor',
-        path: '/dashboard/monitor',
-        component: './dashboard/monitor',
-      },
-      {
-        name: 'workplace',
-        icon: 'desktop',
-        path: '/dashboard/workplace',
-        component: './dashboard/workplace',
-      },
-    ],
+    path: '/requirements/:id',
+    name: '需求详情',
+    hideInMenu: true,
+    component: './requirements',
   },
   {
-    path: '/form',
-    icon: 'form',
-    name: 'form',
-    routes: [
-      {
-        path: '/form',
-        redirect: '/form/basic-form',
-      },
-      {
-        name: 'basic-form',
-        icon: 'form',
-        path: '/form/basic-form',
-        component: './form/basic-form',
-      },
-      {
-        name: 'step-form',
-        icon: 'orderedList',
-        path: '/form/step-form',
-        component: './form/step-form',
-      },
-      {
-        name: 'advanced-form',
-        icon: 'profile',
-        path: '/form/advanced-form',
-        component: './form/advanced-form',
-      },
-    ],
+    path: '/requirements-standalone/:id',
+    name: '需求详情（独立页）',
+    hideInMenu: true,
+    component: './requirements',
   },
   {
-    path: '/list',
-    icon: 'table',
-    name: 'list',
-    routes: [
-      {
-        path: '/list/search',
-        name: 'search-list',
-        component: './list/search',
-        routes: [
-          {
-            path: '/list/search',
-            redirect: '/list/search/articles',
-          },
-          {
-            name: 'articles',
-            icon: 'read',
-            path: '/list/search/articles',
-            component: './list/search/articles',
-          },
-          {
-            name: 'projects',
-            icon: 'project',
-            path: '/list/search/projects',
-            component: './list/search/projects',
-          },
-          {
-            name: 'applications',
-            icon: 'appstore',
-            path: '/list/search/applications',
-            component: './list/search/applications',
-          },
-        ],
-      },
-      {
-        path: '/list',
-        redirect: '/list/table-list',
-      },
-      {
-        name: 'table-list',
-        icon: 'table',
-        path: '/list/table-list',
-        component: './table-list',
-      },
-      {
-        name: 'basic-list',
-        icon: 'unorderedList',
-        path: '/list/basic-list',
-        component: './list/basic-list',
-      },
-      {
-        name: 'card-list',
-        icon: 'creditCard',
-        path: '/list/card-list',
-        component: './list/card-list',
-      },
-    ],
+    path: '/tasks',
+    name: '任务管理',
+    icon: 'checkSquare',
+    component: './tasks',
   },
   {
-    path: '/profile',
-    name: 'profile',
+    path: '/defects',
+    name: '缺陷管理',
+    icon: 'closeCircle',
+    component: './defects',
+  },
+  {
+    path: '/weekly-report',
+    name: '周报中心',
     icon: 'profile',
-    routes: [
-      {
-        path: '/profile',
-        redirect: '/profile/basic',
-      },
-      {
-        name: 'basic',
-        icon: 'idcard',
-        path: '/profile/basic',
-        component: './profile/basic',
-      },
-      {
-        name: 'advanced',
-        icon: 'crown',
-        path: '/profile/advanced',
-        component: './profile/advanced',
-      },
-    ],
+    component: './weekly-report',
   },
   {
-    name: 'result',
-    icon: 'checkCircle',
-    path: '/result',
-    routes: [
-      {
-        path: '/result',
-        redirect: '/result/success',
-      },
-      {
-        name: 'success',
-        icon: 'checkCircle',
-        path: '/result/success',
-        component: './result/success',
-      },
-      {
-        name: 'fail',
-        icon: 'closeCircle',
-        path: '/result/fail',
-        component: './result/fail',
-      },
-    ],
+    path: '/business-lines',
+    name: '业务线管理',
+    icon: 'apartment',
+    component: './business-lines',
+  },
+  { path: '/organization', redirect: '/business-lines' },
+  {
+    path: '/projects',
+    name: '项目管理',
+    icon: 'folderOpen',
+    component: './projects',
   },
   {
-    name: 'exception',
-    icon: 'warning',
-    path: '/exception',
-    routes: [
-      {
-        path: '/exception',
-        redirect: '/exception/403',
-      },
-      {
-        name: '403',
-        icon: 'stop',
-        path: '/exception/403',
-        component: './exception/403',
-      },
-      {
-        name: '404',
-        icon: 'warning',
-        path: '/exception/404',
-        component: './exception/404',
-      },
-      {
-        name: '500',
-        icon: 'bug',
-        path: '/exception/500',
-        component: './exception/500',
-      },
-    ],
+    path: '/customers',
+    name: '客户信息管理',
+    icon: 'contacts',
+    component: './customers',
   },
   {
-    name: 'account',
-    icon: 'user',
-    path: '/account',
-    routes: [
-      {
-        path: '/account',
-        redirect: '/account/center',
-      },
-      {
-        name: 'center',
-        icon: 'user',
-        path: '/account/center',
-        component: './account/center',
-      },
-      {
-        name: 'settings',
-        icon: 'setting',
-        path: '/account/settings',
-        component: './account/settings',
-      },
-    ],
+    path: '/opportunities',
+    name: '线索商机管理',
+    icon: 'rise',
+    component: './opportunities',
   },
   {
-    path: '/chatbot',
-    name: 'chatbot',
-    icon: 'robot',
-    component: './chatbot',
+    path: '/quotation-policies',
+    name: '报价策略管理',
+    icon: 'sliders',
+    component: './quotation-policies',
   },
   {
-    path: '/',
-    redirect: '/dashboard/analysis',
+    path: '/quotations',
+    name: '报价单管理',
+    icon: 'fileText',
+    component: './quotations',
   },
   {
-    component: './exception/404',
-    path: '/*',
+    path: '/quotations/:id',
+    name: '报价单详情',
+    hideInMenu: true,
+    component: './quotations',
   },
+  {
+    path: '/system/users',
+    name: '用户管理',
+    icon: 'team',
+    component: './system-users',
+  },
+  {
+    path: '/system/roles',
+    name: '角色管理',
+    icon: 'safety',
+    component: './system-roles',
+  },
+  {
+    path: '/system/menus',
+    name: '菜单管理',
+    icon: 'menu',
+    component: './system-menus',
+  },
+  {
+    path: '/system/workflow',
+    name: '工作流配置',
+    icon: 'branches',
+    component: './system-workflow',
+  },
+  {
+    path: '/system/configs',
+    name: '配置管理',
+    icon: 'setting',
+    component: './system-configs',
+  },
+  {
+    path: '/ai-connectors',
+    name: 'AI 连接器',
+    icon: 'api',
+    component: './ai-connectors',
+  },
+  {
+    path: '/ai-assistant',
+    name: 'AI 助手',
+    icon: 'message',
+    component: './ai-assistant',
+  },
+  { path: '/emails', name: '邮件管理', icon: 'mail', component: './emails' },
+  {
+    path: '/key-matters',
+    name: '大事儿管理',
+    icon: 'flag',
+    component: './key-matters',
+  },
+  {
+    path: '/key-matters-meeting',
+    name: '大事儿会议视图',
+    icon: 'calendar',
+    component: './key-matters',
+  },
+  {
+    path: '/statistics',
+    name: 'BU 驾驶舱',
+    icon: 'dashboard',
+    component: './statistics',
+  },
+  { path: '/revenue', redirect: '/revenue/worktime' },
+  {
+    path: '/revenue/worktime',
+    name: '工时 & 成本',
+    hideInMenu: true,
+    component: './revenue',
+  },
+  {
+    path: '/revenue/delivery',
+    name: '交付与利润',
+    hideInMenu: true,
+    component: './revenue',
+  },
+  {
+    path: '/revenue/import',
+    name: '数据导入',
+    hideInMenu: true,
+    component: './revenue',
+  },
+  {
+    path: '/revenue/pending',
+    name: '待映射与销售项目',
+    hideInMenu: true,
+    component: './revenue',
+  },
+  {
+    path: '/kpi-report',
+    name: 'KPI 周报',
+    icon: 'lineChart',
+    component: './kpi-report',
+  },
+  {
+    path: '/bl-profit',
+    name: '业务线利润',
+    icon: 'fund',
+    component: './bl-profit',
+  },
+  { path: '/', redirect: '/workbench' },
+  { path: '/*', redirect: '/workbench' },
 ];

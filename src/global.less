@@ -1,92 +1,103 @@
 @font-face {
-  font-family: "AlibabaSans";
-  font-style: normal;
-  font-weight: 300;
-  font-display: swap;
-  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*1GSgSYDD_aIAAAAAQsAAAAgAegCCAQ/AlibabaSans-Light.woff2")
-    format("woff2");
-}
-@font-face {
-  font-family: "AlibabaSans";
+  font-family: 'AlibabaSans';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*2zEUQqnPNesAAAAAQtAAAAgAegCCAQ/AlibabaSans-Regular.woff2")
-    format("woff2");
+  src: url('//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*2zEUQqnPNesAAAAAQtAAAAgAegCCAQ/AlibabaSans-Regular.woff2') format('woff2');
 }
+
 @font-face {
-  font-family: "AlibabaSans";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Medium.woff2")
-    format("woff2");
-}
-@font-face {
-  font-family: "AlibabaSans";
+  font-family: 'AlibabaSans';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Bold.woff2")
-    format("woff2");
+  src: url('//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Bold.woff2') format('woff2');
 }
-@font-face {
-  font-family: "AlibabaSans";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("//mdn.alipayobjects.com/huamei_iwk9zp/afts/file/A*E_cxRbMlZqUAAAAAQuAAAAgAegCCAQ/AlibabaSans-Heavy.woff2")
-    format("woff2");
+
+:root {
+  --sw-blue: #2563eb;
+  --sw-ink: #172033;
+  --sw-muted: #667085;
+  --sw-line: #e5eaf2;
+  --sw-surface: #ffffff;
+  --sw-layout: #f6f8fb;
 }
 
 html,
 body,
 #root {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
-  padding: 0;
-  font-family:
-    AlibabaSans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
-    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-family: AlibabaSans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--sw-ink);
+  background: var(--sw-layout);
 }
 
-.colorWeak {
-  filter: invert(80%);
+* { box-sizing: border-box; }
+.ant-layout { min-height: 100vh; }
+.ant-pro-sider-logo { padding-inline: 20px !important; }
+.ant-pro-global-header { border-bottom: 1px solid var(--sw-line); box-shadow: 0 1px 10px rgba(16, 24, 40, .04); }
+.ant-pro-layout-content { padding-block: 20px !important; }
+.ant-table-wrapper { background: var(--sw-surface); }
+.sw-brand { padding: 8px 0; }
+.sw-brand-mark { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #fff; font-weight: 700; letter-spacing: -.08em; background: #2563eb; box-shadow: 0 8px 18px rgba(37,99,235,.28); }
+.sw-brand strong { display: block; font-size: 15px; line-height: 1.1; }
+.sw-brand small { display: block; color: #98a2b3; font-size: 11px; margin-top: 3px; }
+.ant-pro-sider-logo .sw-brand strong { color: #fff !important; }
+.ant-pro-sider-logo .sw-brand small { color: #a8b3c7 !important; }
+.ant-pro-sider .ant-menu-dark .ant-menu-item:hover,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-title:hover,
+.ant-pro-sider .ant-menu-dark .ant-menu-item-active,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  color: #fff !important;
+  background: rgba(255, 255, 255, .08) !important;
 }
-
-.ant-layout {
-  min-height: 100vh;
+.ant-pro-sider .ant-menu-dark .ant-menu-item:hover .ant-menu-title-content,
+.ant-pro-sider .ant-menu-dark .ant-menu-item:hover .anticon,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-title:hover .ant-menu-title-content,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-title:hover .anticon,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-title:hover .ant-menu-submenu-arrow {
+  color: #fff !important;
 }
-.ant-pro-sider.ant-layout-sider.ant-pro-sider-fixed {
-  left: unset;
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-title-content,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title .anticon,
+.ant-pro-sider .ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  color: #fff !important;
 }
-
-.ant-pro-sider-collapsed .ant-pro-sider-link span:not([role='img']) {
-  display: none;
+.ant-btn:focus-visible,
+.ant-input:focus-visible,
+.ant-input-affix-wrapper:focus-within,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused,
+.ant-menu-item:focus-visible,
+.ant-menu-submenu-title:focus-visible,
+.ant-tabs-tab:focus-visible {
+  outline: 2px solid #60a5fa !important;
+  outline-offset: 2px;
 }
-
-canvas {
-  display: block;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
 }
-
-ul,
-ol {
-  list-style: none;
-}
+.sw-header-icon { color: #667085; font-size: 18px; }
+.sw-user-menu { cursor: pointer; }
+.sw-user-copy { display: inline-flex; flex-direction: column; line-height: 1.15; white-space: nowrap; }
+.sw-user-copy strong { font-size: 13px; font-weight: 600; }
+.sw-user-copy small { color: #98a2b3; font-size: 11px; margin-top: 4px; }
+.sw-notice-list { max-height: 360px; margin: 0; padding: 0; list-style: none; overflow: auto; }
+.sw-notice-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eef1f5; }
+.sw-notice-item:last-child { border-bottom: 0; }
+.sw-notice-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.sw-notice-copy strong, .sw-notice-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-notice-copy span { color: var(--sw-muted); font-size: 12px; }
 
 @media (max-width: 768px) {
-  .ant-table {
-    width: 100%;
-    overflow-x: auto;
-    &-thead > tr,
-    &-tbody > tr {
-      > th,
-      > td {
-        white-space: pre;
-        > span {
-          display: block;
-        }
-      }
-    }
-  }
+  .ant-pro-layout-content { padding: 12px !important; }
+  .ant-table-wrapper { overflow-x: auto; }
 }

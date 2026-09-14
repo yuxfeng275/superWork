@@ -1,0 +1,16 @@
+.sw-quotations .ant-table-cell { vertical-align: middle; }
+.sw-quotation-subtitle { display: block; margin-top: 3px; font-size: 12px; }
+.sw-quotation-wizard { min-height: 360px; padding: 24px 0 8px; }
+.sw-policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.sw-policy-card { border: 1px solid #e5e7eb; transition: border-color .2s ease, box-shadow .2s ease; }
+.sw-policy-card.is-selected { border-color: #2563eb; box-shadow: 0 0 0 2px rgb(37 99 235 / 12%); }
+.sw-quotation-totals { display: flex; gap: 48px; align-items: flex-start; }
+.sw-quotation-totals .ant-typography { margin: 4px 0 0; }
+.sw-quotation-total-row { margin-top: 18px; }
+.sw-brand-scope { display: flex; flex-direction: column; padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+@media (max-width: 768px) {
+  .sw-quotations .sw-filter-card .ant-form { display: block; }
+  .sw-quotations .sw-filter-card .ant-form-item { margin: 0 0 12px; }
+  .sw-quotation-wizard { min-height: 300px; }
+  .sw-quotation-totals { gap: 20px; flex-wrap: wrap; }
+}

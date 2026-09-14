@@ -12,14 +12,24 @@ const mockHistory = {
 };
 
 const mockQueryCurrentUser = vi.fn();
+const mockQueryMenus = vi.fn().mockResolvedValue(undefined);
+const mockQueryMenuTree = vi.fn().mockResolvedValue(undefined);
+const mockQueryRequirements = vi.fn().mockResolvedValue({ total: 0 });
+const mockQueryKeyMatterAccess = vi.fn().mockResolvedValue({ canAccess: true });
 
 vi.mock('@umijs/max', () => ({
   history: mockHistory,
   Link: ({ children }: any) => children,
 }));
 
-vi.mock('@/services/ant-design-pro/api', () => ({
-  currentUser: mockQueryCurrentUser,
+vi.mock('@/services/superwork/api', () => ({
+  superworkApi: {
+    getCurrentUser: mockQueryCurrentUser,
+    getMyMenus: mockQueryMenus,
+    getMyMenuTree: mockQueryMenuTree,
+    getRequirements: mockQueryRequirements,
+    getKeyMatterAccess: mockQueryKeyMatterAccess,
+  },
 }));
 
 vi.mock('@/components', () => ({
@@ -37,7 +47,15 @@ vi.mock('@ant-design/pro-components', () => ({
 }));
 
 vi.mock('@ant-design/icons', () => ({
+  ApartmentOutlined: () => null,
+  BarChartOutlined: () => null,
+  BellOutlined: () => null,
+  HomeOutlined: () => null,
   LinkOutlined: () => null,
+  LogoutOutlined: () => null,
+  RiseOutlined: () => null,
+  RobotOutlined: () => null,
+  SettingOutlined: () => null,
 }));
 
 vi.mock('./requestErrorConfig', () => ({
@@ -61,21 +79,27 @@ describe('app getInitialState', () => {
   it('should fetch currentUser when not on login page', async () => {
     const { getInitialState } = await import('./app');
     mockQueryCurrentUser.mockResolvedValue({
-      data: {
-        name: 'Test User',
-        access: 'admin',
-      },
+      id: 1,
+      username: 'test',
+      realName: 'Test User',
+      role: 'DIRECTOR',
     });
 
     const state = await getInitialState();
 
     expect(mockQueryCurrentUser).toHaveBeenCalled();
     expect(state.currentUser).toEqual({
-      name: 'Test User',
-      access: 'admin',
+      id: 1,
+      username: 'test',
+      realName: 'Test User',
+      role: 'DIRECTOR',
     });
     expect(state.settingDrawerOpen).toBe(false);
     expect(state.fetchUserInfo).toBeDefined();
+    expect(mockQueryRequirements).toHaveBeenCalledWith({ page: 1, size: 1 });
+    expect(mockQueryKeyMatterAccess).toHaveBeenCalled();
+    expect(state.requirementTotal).toBe(0);
+    expect(state.keyMatterAccess).toEqual({ canAccess: true });
   });
 
   it('should redirect to login when currentUser fetch fails (401)', async () => {
@@ -124,7 +148,10 @@ describe('app getInitialState', () => {
   it('should include default settings in initial state', async () => {
     const { getInitialState } = await import('./app');
     mockQueryCurrentUser.mockResolvedValue({
-      data: { name: 'User' },
+      id: 1,
+      username: 'user',
+      realName: 'User',
+      role: 'DIRECTOR',
     });
 
     const state = await getInitialState();
@@ -135,12 +162,20 @@ describe('app getInitialState', () => {
   it('fetchUserInfo should return user data on success', async () => {
     const { getInitialState } = await import('./app');
     mockQueryCurrentUser.mockResolvedValue({
-      data: { name: 'Fetched User', access: 'user' },
+      id: 2,
+      username: 'fetched',
+      realName: 'Fetched User',
+      role: 'STAFF',
     });
 
     const state = await getInitialState();
 
     const user = await state.fetchUserInfo?.();
-    expect(user).toEqual({ name: 'Fetched User', access: 'user' });
+    expect(user).toEqual({
+      id: 2,
+      username: 'fetched',
+      realName: 'Fetched User',
+      role: 'STAFF',
+    });
   });
 });

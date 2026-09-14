@@ -39,6 +39,7 @@ functions/*
 
 # screenshot
 screenshot
+.playwright-cli/
 .firebase
 
 build
@@ -52,3 +53,6 @@ docs/superpowers
 # cloudflare wrangler
 .wrangler
 requestRecord.mock.js
+
+# migration workspace artifacts
+output/

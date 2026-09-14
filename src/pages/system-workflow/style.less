@@ -1,0 +1,16 @@
+.sw-workflow-types { margin-bottom: 16px; }
+.sw-workflow-board { min-height: 460px; }
+.sw-workflow-canvas-shell { overflow: auto; border: 1px solid #e7edf5; border-radius: 14px; background: #f8fafc; }
+.sw-workflow-canvas { position: relative; min-width: 980px; background-image: linear-gradient(rgba(148, 163, 184, .13) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, .13) 1px, transparent 1px); background-size: 28px 28px; }
+.sw-workflow-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.sw-workflow-edge { fill: none; stroke: #94a3b8; stroke-width: 2; }
+.sw-workflow-edge.is-pending { stroke: #2563eb; stroke-dasharray: 7 5; }
+.sw-workflow-node { position: absolute; width: 200px; height: 96px; border: 1px solid #dbe5f0; border-radius: 12px; background: #fff; box-shadow: 0 8px 22px rgba(15, 23, 42, .08); user-select: none; }
+.sw-workflow-node-head { position: relative; display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 16px; border-bottom: 1px solid #edf2f7; cursor: grab; }
+.sw-workflow-node-head:active { cursor: grabbing; }
+.sw-workflow-connect { width: 14px; height: 14px; padding: 0; border: 2px solid #2563eb; border-radius: 50%; background: #fff; cursor: crosshair; box-shadow: 0 0 0 3px #dbeafe; }
+.sw-workflow-node-body { display: flex; gap: 8px; align-items: center; padding: 12px 16px; }
+.sw-workflow-node-body .ant-tag { margin-inline-end: 0; }
+.sw-workflow-edge-label { position: absolute; z-index: 2; max-width: 130px; overflow: hidden; padding: 4px 10px; border: 1px solid #dbeafe; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.sw-workflow-edge-label:hover { border-color: #2563eb; background: #dbeafe; }
+@media (max-width: 768px) { .sw-workflow-canvas { min-width: 920px; } }

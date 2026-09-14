@@ -1,11 +1,15 @@
-/**
- * @see https://umijs.org/docs/max/access#access
- * */
-export default function access(
-  initialState: { currentUser?: API.CurrentUser } | undefined,
-) {
-  const { currentUser } = initialState ?? {};
+export default function access(initialState?: {
+  currentUser?: Record<string, unknown>;
+}) {
+  const role =
+    typeof initialState?.currentUser?.role === 'string'
+      ? initialState.currentUser.role
+      : typeof initialState?.currentUser?.access === 'string'
+        ? initialState.currentUser.access
+        : undefined;
   return {
-    canAdmin: currentUser && currentUser.access === 'admin',
+    canAccessSystem: Boolean(initialState?.currentUser),
+    canManage: role === 'admin' || role === '系统管理员',
+    canAdmin: role === 'admin',
   };
 }

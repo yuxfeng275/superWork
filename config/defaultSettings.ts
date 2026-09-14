@@ -1,25 +1,26 @@
 import type { ProLayoutProps } from '@ant-design/pro-components';
 
-/**
- * @name
- */
-const Settings: ProLayoutProps & {
-  logo?: string;
-} = {
+const settings: ProLayoutProps & { logo?: string } = {
   navTheme: 'light',
-  colorPrimary: '#1677ff',
+  colorPrimary: '#2563eb',
   layout: 'mix',
+  // mix 模式下开启菜单分割：顶部导航只保留一级，左侧只展示当前一级分组下的二/三级（三级用 group 平铺，不折叠）
+  splitMenus: true,
   contentWidth: 'Fluid',
-  fixedHeader: false,
+  fixedHeader: true,
   fixSiderbar: true,
+  siderWidth: 248,
   colorWeak: false,
-  title: 'Ant Design Pro',
-  logo: 'https://gw.alipayobjects.com/zos/rmsportal/KDpgvguMpGfqaHPjicRK.svg',
-  iconfontUrl: '',
+  title: '电商BU管理系统',
+  logo: undefined,
   token: {
-    // 参见ts声明，demo 见文档，通过token 修改样式
-    //https://procomponents.ant.design/components/layout#%E9%80%9A%E8%BF%87-token-%E4%BF%AE%E6%94%B9%E6%A0%B7%E5%BC%8F
+    sider: {
+      colorMenuBackground: '#111827',
+      colorTextMenu: '#a8b3c7',
+      colorTextMenuSelected: '#ffffff',
+      colorBgMenuItemSelected: '#2563eb',
+    },
   },
 };
 
-export default Settings;
+export default settings;
