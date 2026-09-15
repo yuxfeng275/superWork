@@ -45,6 +45,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-04 | 003e4f1 | 合同总额新增收款月口径（工时系统对齐 4,738,115.91） | master agent |
 
 | 2026-09-15 | 6b658ac | 系统菜单管理接口：全量菜单、创建/更新/删除、排序 | master agent |
+| 2026-09-15 | 34d0cc7 | 菜单更新保留原有 icon，避免编辑其他字段时图标丢失 | master agent |
 ## 回滚
 
 备份目录：`241:/home/openclaw/deploy-backups/<时间戳>/`（含上一版 jar/dist/DEPLOYED_COMMIT）。
