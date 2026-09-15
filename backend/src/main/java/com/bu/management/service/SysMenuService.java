@@ -98,7 +98,9 @@ public class SysMenuService extends ServiceImpl<SysMenuMapper, SysMenu> {
         assertValidParent(normalizedParentId, id);
         menu.setParentId(normalizedParentId);
         menu.setName(name.trim());
-        menu.setIcon(normalizeText(icon));
+        if (icon != null) {
+            menu.setIcon(normalizeText(icon));
+        }
         menu.setPath(normalizeText(path));
         menu.setComponent(normalizeText(component));
         menu.setSortOrder(sortOrder != null ? sortOrder : 0);
