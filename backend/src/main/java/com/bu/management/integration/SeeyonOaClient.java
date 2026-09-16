@@ -181,57 +181,79 @@ public class SeeyonOaClient {
     private volatile long sessionExpireTime;
 
     /**
-     * 调用 vReport 报表导出地址，返回 xlsx 字节流。
-     * exportUrl 支持绝对地址或以 / 开头的相对路径（相对当前 baseUrl），
-     * 从浏览器抓包「销售合同查询(全域)」导出按钮获得。
+     * 通用认证抓取：优先 REST token，失败/非 200 时回退 servlet 会话 Cookie。
+     * url 支持绝对地址或以 / 开头的相对路径（相对当前 baseUrl）。
+     * 返回原始字节，由调用方嗅探内容类型（xlsx=PK 头 / JSON / HTML）。
      */
-    public byte[] fetchVReportExport(String exportUrl) {
+    public byte[] fetchRaw(String url) {
         SeeyonOaRuntimeConfig config = configService.getRuntimeConfig();
         if (!config.isConfigured()) {
             throw new IllegalStateException("OA 集成尚未完成配置");
         }
-        String cookie = obtainSessionCookie(config);
-        String url = exportUrl.startsWith("http") ? exportUrl : config.effectiveBaseUrl() + exportUrl;
+        String fullUrl = url.startsWith("http") ? url : config.effectiveBaseUrl() + url;
+        // 1) REST token 方式（/seeyon/rest/** 接口适用）
+        if (url.startsWith("http") || url.startsWith(REST_PATH) || url.startsWith("/seeyon/rest")) {
+            byte[] body = tryFetchWithToken(config, fullUrl);
+            if (body != null) {
+                return body;
+            }
+        }
+        // 2) servlet 会话方式（vReport.do 等适用）
+        byte[] body = tryFetchWithSession(config, fullUrl);
+        if (body != null) {
+            return body;
+        }
+        throw new IllegalStateException("OA 数据抓取失败（token 与会话方式均未成功），请检查集成配置与地址: " + fullUrl);
+    }
+
+    private byte[] tryFetchWithToken(SeeyonOaRuntimeConfig config, String fullUrl) {
         try {
+            String token = obtainToken();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(URI.create(fullUrl))
                     .timeout(Duration.ofSeconds(120))
-                    .header("Cookie", cookie)
+                    .header("token", token)
                     .GET()
                     .build();
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            byte[] body = response.body() == null ? new byte[0] : response.body();
-            // xlsx 为 zip 包（PK 头）；返回 HTML 说明会话失效或地址错误
-            if (response.statusCode() == 200 && body.length > 2 && body[0] == 'P' && body[1] == 'K') {
-                return body;
+            if (response.statusCode() == 401) {
+                cachedToken = null;
+                return null;
             }
-            // 会话可能过期，清缓存后重试一次
-            if (cachedSessionCookie != null) {
-                cachedSessionCookie = null;
-                cookie = obtainSessionCookie(config);
-                request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
+            return response.statusCode() == 200 ? response.body() : null;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("OA 数据抓取被中断", ex);
+        } catch (Exception ex) {
+            log.warn("OA token 方式抓取失败: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+    private byte[] tryFetchWithSession(SeeyonOaRuntimeConfig config, String fullUrl) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                String cookie = obtainSessionCookie(config);
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(fullUrl))
                         .timeout(Duration.ofSeconds(120))
                         .header("Cookie", cookie)
                         .GET()
                         .build();
-                response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-                body = response.body() == null ? new byte[0] : response.body();
-                if (response.statusCode() == 200 && body.length > 2 && body[0] == 'P' && body[1] == 'K') {
-                    return body;
+                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                if (response.statusCode() == 200 && response.body() != null && response.body().length > 0) {
+                    return response.body();
                 }
+                cachedSessionCookie = null;
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("OA 数据抓取被中断", ex);
+            } catch (Exception ex) {
+                log.warn("OA 会话方式抓取失败: {}", ex.getMessage());
+                cachedSessionCookie = null;
             }
-            String snippet = new String(body, 0, Math.min(body.length, 300), StandardCharsets.UTF_8);
-            throw new IllegalStateException("vReport 导出未返回 Excel（HTTP " + response.statusCode()
-                    + "），请检查导出地址配置与会话登录。响应片段: " + snippet);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("vReport 导出被中断", ex);
-        } catch (IllegalStateException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new IllegalStateException("vReport 导出失败: " + ex.getMessage(), ex);
         }
+        return null;
     }
 
     /**

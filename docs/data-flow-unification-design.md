@@ -160,13 +160,13 @@ com.bu.management.sync/
 
 ## 7. 分期与验证
 
-| 阶段 | 内容 | 验证 |
-|---|---|---|
-| P0 | V75 迁移 + sync 包骨架 + SyncController + 迁移两个现有定时任务 | 原定时/手动行为不变；日志写入 data_sync_log |
-| P1 | OaOrgCollector 落库；OaContractCollector（联调抓包确认导出参数） | 组织人员每日落库；OA 合同与工时链路对账一致 |
-| P2 | Excel 导入走统一管道（记录 source_system=EXCEL + sync_log）；灰度切换合同源 | 双源对账一致后关闭 worktime-contract |
-| P3 | SyncCompletedEvent 联动 | 同步后待映射/销售项目/快照自动刷新 |
-| P4 | 前端集成中心与页面改造 | 页面上完成全部手动触发与状态查看 |
+| 阶段 | 内容 | 状态 | 验证 |
+|---|---|---|---|
+| P0 | V75 迁移 + sync 包骨架 + SyncController + 迁移两个现有定时任务 | ✅ 已完成（data-flow-be） | 377 测试通过；原手动/定时行为不变 |
+| P1 | OaOrgCollector 落库（V76）；OaContractCollector（vReport 导出→复用合同管道） | ✅ 代码完成，待联调 | 需抓包确认导出地址并填入系统配置 `oa-vreport.sales-contract-export-url` |
+| P2 | Excel 导入走统一管道（source_system=EXCEL + data_sync_log）；合同源经 sync_task.enabled 灰度切换 | ✅ 已完成（V77 血缘列） | 双源对账一致后关闭 worktime-contract |
+| P3 | SyncCompletedEvent → 待映射合同/工时/成本自动重扫归属 | ✅ 已完成 | 同步后待映射自动减少，人工锁定行不受影响 |
+| P4 | 前端集成中心与页面改造 | ⬜ 待开始 | 页面上完成全部手动触发与状态查看 |
 
 ## 8. 已确认决策
 
