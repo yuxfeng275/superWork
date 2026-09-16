@@ -178,6 +178,14 @@ export default function OpportunitiesPage() {
   const [latestFollowUpAt, setLatestFollowUpAt] = useState<
     Record<number, string>
   >({});
+  // 各商机累计售前支持工时：列表「累计工时」列与月度统计的数据源
+  const [worklogHours, setWorklogHours] = useState<Record<number, number>>({});
+  // 工时按月汇总：{ 'YYYY-MM': { hours, entries } }
+  const [worklogMonthly, setWorklogMonthly] = useState<
+    Record<string, { hours: number; entries: number }>
+  >({});
+  // 「本月支持工时」卡片点击查看按月明细
+  const [monthlyOpen, setMonthlyOpen] = useState(false);
   const hasFreshFollowUp = (id: number) => {
     const latest = latestFollowUpAt[id];
     return Boolean(latest && dayjs().diff(dayjs(latest), 'day', true) <= 3);
@@ -209,6 +217,45 @@ export default function OpportunitiesPage() {
       setLatestFollowUpAt(next);
     })();
   }, []);
+  const refreshWorklogSummary = useCallback((list: SalesOpportunity[]) => {
+    if (!list.length) {
+      setWorklogHours({});
+      setWorklogMonthly({});
+      return;
+    }
+    const chunks: SalesOpportunity[][] = [];
+    for (let i = 0; i < list.length; i += 6) chunks.push(list.slice(i, i + 6));
+    void (async () => {
+      const hoursByOpportunity: Record<number, number> = {};
+      const months: Record<string, { hours: number; entries: number }> = {};
+      for (const chunk of chunks) {
+        const results = await Promise.allSettled(
+          chunk.map((row) =>
+            superworkApi.getSalesOpportunitySupportWorklogs(row.id),
+          ),
+        );
+        results.forEach((result, index) => {
+          if (result.status !== 'fulfilled') return;
+          const opportunityId = chunk[index].id;
+          hoursByOpportunity[opportunityId] = result.value.reduce(
+            (sum, item) => sum + Number(item.hours || 0),
+            0,
+          );
+          result.value.forEach((item) => {
+            const month = item.supportDate?.slice(0, 7);
+            if (!month) return;
+            const current = months[month] || { hours: 0, entries: 0 };
+            months[month] = {
+              hours: current.hours + Number(item.hours || 0),
+              entries: current.entries + 1,
+            };
+          });
+        });
+      }
+      setWorklogHours(hoursByOpportunity);
+      setWorklogMonthly(months);
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,8 +269,10 @@ export default function OpportunitiesPage() {
         ]);
       if (opportunityResult.status === 'rejected')
         throw opportunityResult.reason;
-      setRows(opportunityResult.value || []);
-      refreshFollowUpFreshness(opportunityResult.value || []);
+      const opportunities = opportunityResult.value || [];
+      setRows(opportunities);
+      refreshFollowUpFreshness(opportunities);
+      refreshWorklogSummary(opportunities);
       setBusinessLines(
         lineResult.status === 'fulfilled'
           ? (lineResult.value.records || []).map((line) => line.name)
@@ -304,6 +353,21 @@ export default function OpportunitiesPage() {
     }),
     [rows],
   );
+  // 整体月度工时统计：当月 + 全部历史，按月明细降序
+  const worklogSummary = useMemo(() => {
+    const currentMonth = dayjs().format('YYYY-MM');
+    const months = Object.entries(worklogMonthly).sort((a, b) =>
+      b[0].localeCompare(a[0]),
+    );
+    return {
+      currentMonthHours: worklogMonthly[currentMonth]?.hours ?? 0,
+      totalHours: Object.values(worklogMonthly).reduce(
+        (sum, item) => sum + item.hours,
+        0,
+      ),
+      months,
+    };
+  }, [worklogMonthly]);
   const owners = useMemo(
     () =>
       Array.from(
@@ -444,6 +508,21 @@ export default function OpportunitiesPage() {
       });
       message.success('售前支持工时已登记');
       setWorklogOpen(false);
+      setWorklogHours((current) => ({
+        ...current,
+        [detail.id]: (current[detail.id] || 0) + Number(values.hours || 0),
+      }));
+      setWorklogMonthly((current) => {
+        const month = values.supportDate.format('YYYY-MM');
+        const currentMonth = current[month] || { hours: 0, entries: 0 };
+        return {
+          ...current,
+          [month]: {
+            hours: currentMonth.hours + Number(values.hours || 0),
+            entries: currentMonth.entries + 1,
+          },
+        };
+      });
       await loadHistory(detail.id);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '工时登记失败');
@@ -538,12 +617,25 @@ export default function OpportunitiesPage() {
       width: 130,
       render: (value) => value || '待安排',
     },
+    {
+      title: '累计工时',
+      key: 'worklogHours',
+      width: 100,
+      render: (_: unknown, row: SalesOpportunity) => {
+        const hours = worklogHours[row.id];
+        return hours ? (
+          <Typography.Text strong>{hours.toFixed(1)}h</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        );
+      },
+    },
     ...(canManage
       ? [
           {
             title: '操作',
             key: 'action',
-            width: 235,
+            width: 290,
             render: (_: unknown, row: SalesOpportunity) => (
               <Space size={0}>
                 <Button
@@ -559,6 +651,13 @@ export default function OpportunitiesPage() {
                   onClick={() => void openFollow(row)}
                 >
                   跟进
+                </Button>
+                <Button
+                  type="link"
+                  icon={<FieldTimeOutlined />}
+                  onClick={() => void openWorklog(row)}
+                >
+                  工时
                 </Button>
                 <Button
                   type="link"
@@ -697,6 +796,27 @@ export default function OpportunitiesPage() {
                   ? ((summary.lost / summary.total) * 100).toFixed(1)
                   : '0.0'}
                 %
+              </Typography.Text>
+            )}
+          </Card>
+        </Col>
+        <Col xs={12} md={8} xl={4}>
+          <Card
+            className="sw-stat-card sw-stat-card-clickable"
+            variant="borderless"
+            onClick={() => setMonthlyOpen(true)}
+          >
+            <Statistic
+              title="本月支持工时"
+              value={loading ? '-' : worklogSummary.currentMonthHours}
+              precision={1}
+              suffix="h"
+              styles={{ content: { color: '#7c3aed' } }}
+            />
+            {!loading && (
+              <Typography.Text type="secondary" className="sw-stat-note">
+                累计 {worklogSummary.totalHours.toFixed(1)}h ·{' '}
+                {worklogSummary.months.length} 个月 · 按月明细 ›
               </Typography.Text>
             )}
           </Card>
@@ -1212,6 +1332,37 @@ export default function OpportunitiesPage() {
             <Input.TextArea rows={4} />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title="按月支持工时"
+        open={monthlyOpen}
+        footer={null}
+        onCancel={() => setMonthlyOpen(false)}
+      >
+        <Table
+          size="small"
+          rowKey="month"
+          pagination={false}
+          locale={{ emptyText: '暂无工时记录' }}
+          dataSource={worklogSummary.months.map(([month, item]) => ({
+            month,
+            ...item,
+          }))}
+          columns={[
+            {
+              title: '月份',
+              dataIndex: 'month',
+              render: (value: string) =>
+                dayjs(`${value}-01`).format('YYYY年MM月'),
+            },
+            {
+              title: '支持工时',
+              dataIndex: 'hours',
+              render: (value: number) => `${value.toFixed(1)}h`,
+            },
+            { title: '记录条数', dataIndex: 'entries', width: 90 },
+          ]}
+        />
       </Modal>
     </div>
   );

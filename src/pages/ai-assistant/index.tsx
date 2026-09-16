@@ -92,6 +92,18 @@ export default function AiAssistantPage() {
     }
   }, []);
   useEffect(() => {
+    // 通知中心深链：?prefill=… 填入输入框并清理 query（对齐旧系统 applyPrefillFromRoute）
+    const prefill = new URLSearchParams(window.location.search).get('prefill');
+    if (prefill) {
+      setDraft(prefill);
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + window.location.hash,
+      );
+    }
+  }, []);
+  useEffect(() => {
     void Promise.all([
       loadSessions(),
       superworkApi

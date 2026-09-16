@@ -2,8 +2,39 @@
   .ant-card {
     border-radius: 18px;
   }
+  /* 汇总概览缩小后收进页头，与标题同一行展示 */
+  .sw-page-header {
+    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 16px;
+    row-gap: 12px;
+  }
   .sw-matter-stats {
-    margin: 0 0 16px;
+    flex: 1 1 420px;
+    min-width: 0;
+    margin: 0;
+    .ant-card .ant-card-body {
+      padding: 8px 14px;
+    }
+    /* 隐藏图标占位，标签与数值同行排列 */
+    .ant-card .ant-space-item:first-child {
+      display: none;
+    }
+    .ant-card .ant-space-item > div {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .sw-stat-note {
+      display: none;
+    }
+  }
+  /* 覆盖 antd 标题默认边距，保证紧凑排版生效 */
+  .sw-matter-stats h3.ant-typography {
+    margin: 0;
+    font-size: 16px;
+    line-height: 22px;
   }
   .sw-matter-tools {
     margin-bottom: 16px;

@@ -1164,6 +1164,48 @@ export const superworkApi = {
   getMenus() {
     return requestJson<MenuRecord[]>("/api/system/menus");
   },
+  createMenu(payload: {
+    parentId?: number | null;
+    name: string;
+    icon?: string;
+    path?: string;
+    component?: string;
+    sortOrder?: number;
+    visible?: number;
+    status?: number;
+  }) {
+    return requestJson<MenuRecord>("/api/system/menus", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateMenu(
+    id: number,
+    payload: {
+      parentId?: number | null;
+      name: string;
+      icon?: string;
+      path?: string;
+      component?: string;
+      sortOrder?: number;
+      visible?: number;
+      status?: number;
+    },
+  ) {
+    return requestJson<void>(`/api/system/menus/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteMenu(id: number) {
+    return requestJson<void>(`/api/system/menus/${id}`, { method: "DELETE" });
+  },
+  reorderMenus(parentId: number, menuIds: number[]) {
+    return requestJson<void>("/api/system/menus/reorder", {
+      method: "PUT",
+      body: JSON.stringify({ parentId, menuIds }),
+    });
+  },
   getPermissions() {
     return requestJson<PermissionRecord[]>("/api/system/permissions");
   },

@@ -55,6 +55,20 @@ const statusColors: Record<string, string> = {
   开发中: 'processing',
   设计中: 'processing',
 };
+/** 看板列按需求生命周期排列，仅渲染有内容的列（对齐旧系统 kanbanColumns）。 */
+const KANBAN_STATUSES = [
+  '待评估',
+  '评估中',
+  '待设计',
+  '设计中',
+  '待确认',
+  '开发中',
+  '测试中',
+  '待上线',
+  '已上线',
+  '已交付',
+  '已验收',
+];
 const stageActions: Record<string, Array<[string, string]>> = {
   待评估: [['start_eval', '开始评估']],
   评估中: [
@@ -202,7 +216,7 @@ export default function RequirementsPage() {
     title?: string;
     dataSource?: string;
     type?: string;
-    status?: string;
+    status?: string[];
     priority?: string;
     businessLineId?: number;
     projectId?: number;
@@ -246,7 +260,9 @@ export default function RequirementsPage() {
     Array<{ id: number; realName?: string; username?: string }>
   >([]);
   const [actionLoading, setActionLoading] = useState('');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [viewMode, setViewMode] = useState<'cards' | 'kanban' | 'table'>(
+    'table',
+  );
   const [mainView, setMainView] = useState<'detail' | 'analysis'>('detail');
   const [analysis, setAnalysis] = useState<Record<string, unknown>>({});
   const filterBusinessLineId = Form.useWatch('businessLineId', form) as
@@ -367,19 +383,30 @@ export default function RequirementsPage() {
           priority: values.priority,
           businessLineId: values.businessLineId,
           projectId: values.projectId,
-          normalizedStatus:
-            values.status &&
-            (['待评估', '已拒绝', '待设计', '待确认', '待上线'].includes(
-              values.status,
-            )
+          normalizedStatus: (() => {
+            const status = Array.isArray(values.status)
+              ? values.status[0]
+              : values.status;
+            return status &&
+              ['待评估', '已拒绝', '待设计', '待确认', '待上线'].includes(
+                status,
+              )
               ? 'PENDING'
-              : ['评估中', '设计中', '开发中', '测试中'].includes(values.status)
+              : status &&
+                  ['评估中', '设计中', '开发中', '测试中'].includes(status)
                 ? 'IN_PROGRESS'
-                : ['已上线', '已交付', '已验收'].includes(values.status)
+                : status && ['已上线', '已交付', '已验收'].includes(status)
                   ? 'COMPLETED'
-                  : undefined),
+                  : undefined;
+          })(),
         });
-        const records = (result.records || []).map((record) => {
+        const statusFilter: string[] = values.status || [];
+        const filtered = statusFilter.length
+          ? (result.records || []).filter((record) =>
+              statusFilter.includes(String((record as Requirement).status)),
+            )
+          : result.records || [];
+        const records = filtered.map((record) => {
           const source = record as Requirement;
           const id = requirementIdOf(source);
           return {
@@ -796,7 +823,7 @@ export default function RequirementsPage() {
     {
       title: '操作',
       key: 'action',
-      width: 76,
+      width: 96,
       render: (_, record) => (
         <Button
           type="link"
@@ -809,7 +836,7 @@ export default function RequirementsPage() {
     },
   ];
   return (
-    <div className="sw-page">
+    <div className="sw-page sw-requirements">
       <div className="sw-page-header">
         <div>
           <Typography.Text className="sw-eyebrow">
@@ -845,8 +872,10 @@ export default function RequirementsPage() {
           <Form.Item name="status" label="状态">
             <Select
               allowClear
+              mode="multiple"
               placeholder="全部状态"
-              style={{ width: 132 }}
+              style={{ minWidth: 220 }}
+              maxTagCount="responsive"
               options={[
                 '待评估',
                 '评估中',
@@ -945,10 +974,13 @@ export default function RequirementsPage() {
           <Form.Item>
             <Segmented
               value={viewMode}
-              onChange={(value) => setViewMode(value as 'cards' | 'table')}
+              onChange={(value) =>
+                setViewMode(value as 'cards' | 'kanban' | 'table')
+              }
               options={[
+                { label: '列表', value: 'table' },
                 { label: '卡片', value: 'cards' },
-                { label: '表格', value: 'table' },
+                { label: '看板', value: 'kanban' },
               ]}
             />
           </Form.Item>
@@ -1021,6 +1053,62 @@ export default function RequirementsPage() {
               }}
             />
           </Card>
+        ) : viewMode === 'kanban' ? (
+          loading ? (
+            <Card variant="borderless" loading />
+          ) : (
+            <div className="sw-requirement-kanban">
+              {(() => {
+                const onPage = Array.from(
+                  new Set(
+                    data.records
+                      .map((record) => String(record.status || '未设置'))
+                      .filter((status) => !KANBAN_STATUSES.includes(status)),
+                  ),
+                );
+                return [...KANBAN_STATUSES, ...onPage].map((status) => {
+                  const cards = data.records.filter(
+                    (record) => String(record.status || '未设置') === status,
+                  );
+                  if (!cards.length) return null;
+                  return (
+                    <div className="sw-kanban-column" key={status}>
+                      <div className="sw-kanban-column-head">
+                        <span className="sw-kanban-title">{status}</span>
+                        <span className="sw-kanban-count">{cards.length}</span>
+                      </div>
+                      <div className="sw-kanban-cards">
+                        {cards.map((card) => (
+                          <button
+                            type="button"
+                            key={requirementKeyOf(card)}
+                            className="sw-kanban-card"
+                            onClick={() => void openDetail(card)}
+                          >
+                            <span className="sw-kanban-card-no">
+                              {requirementNoOf(card)}
+                            </span>
+                            <span className="sw-kanban-card-title">
+                              {card.title}
+                            </span>
+                            <span className="sw-kanban-card-footer">
+                              <span>
+                                {card.projectName || card.project || '未关联'}
+                              </span>
+                              <span>{card.priority || '—'}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+              {!data.records.length && (
+                <Empty description="暂无符合条件的需求" />
+              )}
+            </div>
+          )
         ) : loading ? (
           <Card variant="borderless" loading />
         ) : data.records.length ? (

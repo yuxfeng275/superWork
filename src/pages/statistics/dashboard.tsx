@@ -32,7 +32,7 @@ import {
   Typography,
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type BusinessLine,
   type ProjectRecord,
@@ -92,6 +92,12 @@ type Worklog = {
   status?: string;
   finalResult?: boolean;
 };
+type WorklogGroup =
+  | 'all'
+  | 'completed'
+  | 'missing'
+  | 'insufficient'
+  | 'unresolved';
 type Dashboard = {
   periodStart?: string;
   periodEnd?: string;
@@ -162,8 +168,120 @@ export default function DashboardPage() {
     dayjs(),
   ]);
   const [planWindow, setPlanWindow] = useState(10);
+  const [worklogGroup, setWorklogGroup] = useState<WorklogGroup>('all');
   const [yunxiaoAnalysis, setYunxiaoAnalysis] = useState<YunxiaoAnalysis>({});
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const worklogGroupForStatus = (
+    status?: string,
+  ): Exclude<WorklogGroup, 'all'> => {
+    if (status === '已填写' || status === '已豁免') return 'completed';
+    if (status === '未填写' || status === '预警未填') return 'missing';
+    if (status === '填写不足' || status === '预警不足') return 'insufficient';
+    return 'unresolved';
+  };
+  const historicalWorklogs = useMemo(
+    () =>
+      (data.worklogs || []).filter(
+        (item) => item.workDate && item.workDate < dayjs().format('YYYY-MM-DD'),
+      ),
+    [data.worklogs],
+  );
+  const worklogCounts = useMemo(() => {
+    const counts: Record<WorklogGroup, number> = {
+      all: historicalWorklogs.length,
+      completed: 0,
+      missing: 0,
+      insufficient: 0,
+      unresolved: 0,
+    };
+    historicalWorklogs.forEach((item) => {
+      counts[worklogGroupForStatus(item.status)] += 1;
+    });
+    return counts;
+  }, [historicalWorklogs]);
+  const filteredWorklogs = useMemo(() => {
+    if (worklogGroup === 'all') return historicalWorklogs;
+    return historicalWorklogs.filter(
+      (item) => worklogGroupForStatus(item.status) === worklogGroup,
+    );
+  }, [historicalWorklogs, worklogGroup]);
+  const worklogReport = useMemo(() => {
+    const rows = historicalWorklogs;
+    const totalExpected = rows.reduce(
+      (sum, item) => sum + Number(item.expectedHours || 0),
+      0,
+    );
+    const totalActual = rows.reduce(
+      (sum, item) => sum + Number(item.actualHours || 0),
+      0,
+    );
+    const filledRows = rows.filter(
+      (item) => worklogGroupForStatus(item.status) === 'completed',
+    ).length;
+    const people = new Map<
+      number,
+      {
+        userId: number;
+        realName: string;
+        expectedHours: number;
+        actualHours: number;
+        filled: number;
+        total: number;
+      }
+    >();
+    rows.forEach((item) => {
+      const current = people.get(item.userId) || {
+        userId: item.userId,
+        realName: item.realName || `用户${item.userId}`,
+        expectedHours: 0,
+        actualHours: 0,
+        filled: 0,
+        total: 0,
+      };
+      current.expectedHours += Number(item.expectedHours || 0);
+      current.actualHours += Number(item.actualHours || 0);
+      current.filled +=
+        worklogGroupForStatus(item.status) === 'completed' ? 1 : 0;
+      current.total += 1;
+      people.set(item.userId, current);
+    });
+    const memberRows = Array.from(people.values())
+      .map((item) => ({
+        ...item,
+        rate: item.total ? Math.round((item.filled / item.total) * 100) : 0,
+      }))
+      .sort(
+        (left, right) =>
+          left.rate - right.rate || right.actualHours - left.actualHours,
+      );
+    const statusRows = (
+      [
+        ['all', '全部'],
+        ['completed', '已填写'],
+        ['missing', '未填写'],
+        ['insufficient', '填写不足'],
+        ['unresolved', '待确认'],
+      ] as Array<[WorklogGroup, string]>
+    ).map(([value, label]) => ({
+      value,
+      label,
+      count: worklogCounts[value],
+      rate: rows.length
+        ? Math.round((worklogCounts[value] / rows.length) * 100)
+        : 0,
+    }));
+    return {
+      totalExpected,
+      totalActual,
+      filledRows,
+      completionRate: rows.length
+        ? Math.round((filledRows / rows.length) * 100)
+        : 0,
+      memberCount: people.size,
+      memberRows,
+      statusRows,
+    };
+  }, [historicalWorklogs, worklogCounts]);
   const loadYunxiaoAnalysis = useCallback(async () => {
     setAnalysisLoading(true);
     try {
@@ -663,10 +781,136 @@ export default function DashboardPage() {
             label: '工时核对',
             children: (
               <Card variant="borderless">
+                <Space wrap className="sw-worklog-quick-filter">
+                  {worklogReport.statusRows.map((row) => (
+                    <Button
+                      key={row.value}
+                      size="small"
+                      type={worklogGroup === row.value ? 'primary' : 'default'}
+                      onClick={() => setWorklogGroup(row.value)}
+                    >
+                      {row.label}
+                      <Typography.Text
+                        type="secondary"
+                        style={{ marginLeft: 4 }}
+                      >
+                        {row.count}
+                      </Typography.Text>
+                    </Button>
+                  ))}
+                </Space>
+                <Row gutter={[12, 12]} style={{ marginBlock: 16 }}>
+                  {[
+                    [
+                      '填写完成率',
+                      `${worklogReport.completionRate}%`,
+                      `${worklogReport.filledRows}/${worklogCounts.all} 条记录已完成`,
+                    ],
+                    [
+                      '团队实际工时',
+                      `${worklogReport.totalActual.toFixed(1)}h`,
+                      `应填 ${worklogReport.totalExpected.toFixed(1)}h`,
+                    ],
+                    [
+                      '涉及成员',
+                      worklogReport.memberCount,
+                      '按成员查看填写分布',
+                    ],
+                    [
+                      '待跟进记录',
+                      worklogCounts.missing +
+                        worklogCounts.insufficient +
+                        worklogCounts.unresolved,
+                      '未填、不足或待确认',
+                    ],
+                  ].map(([title, value, note]) => (
+                    <Col xs={12} md={6} key={String(title)}>
+                      <Card size="small" variant="borderless">
+                        <Statistic title={title as string} value={value} />
+                        <Typography.Text type="secondary">
+                          {note as string}
+                        </Typography.Text>
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+                <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                  <Col xs={24} md={12}>
+                    <Card
+                      size="small"
+                      variant="borderless"
+                      title="填写状态分布"
+                    >
+                      <Space
+                        orientation="vertical"
+                        size={8}
+                        style={{ width: '100%' }}
+                      >
+                        {worklogReport.statusRows
+                          .filter((row) => row.value !== 'all')
+                          .map((row) => (
+                            <div
+                              key={row.value}
+                              className="sw-worklog-dist-row"
+                            >
+                              <div className="sw-worklog-dist-label">
+                                <span>{row.label}</span>
+                                <strong>{row.count}</strong>
+                              </div>
+                              <div className="sw-worklog-dist-track">
+                                <i style={{ width: `${row.rate}%` }} />
+                              </div>
+                              <small>{row.rate}%</small>
+                            </div>
+                          ))}
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Card
+                      size="small"
+                      variant="borderless"
+                      title="成员填写分布"
+                    >
+                      <Space
+                        orientation="vertical"
+                        size={6}
+                        style={{ width: '100%' }}
+                      >
+                        {worklogReport.memberRows.slice(0, 6).map((member) => (
+                          <div
+                            key={member.userId}
+                            className="sw-worklog-member-row"
+                          >
+                            <Typography.Text strong>
+                              {member.realName}
+                            </Typography.Text>
+                            <Typography.Text type="secondary">
+                              {member.actualHours.toFixed(1)}h /{' '}
+                              {member.expectedHours.toFixed(1)}h
+                            </Typography.Text>
+                            <Progress
+                              percent={member.rate}
+                              showInfo={false}
+                              size="small"
+                            />
+                            <strong>{member.rate}%</strong>
+                          </div>
+                        ))}
+                        {!worklogReport.memberRows.length && (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="暂无成员工时记录"
+                          />
+                        )}
+                      </Space>
+                    </Card>
+                  </Col>
+                </Row>
                 <Table
                   loading={loading}
                   rowKey={(row: Worklog) => `${row.userId}-${row.workDate}`}
-                  dataSource={data.worklogs || []}
+                  dataSource={filteredWorklogs}
                   columns={[
                     { title: '日期', dataIndex: 'workDate' },
                     { title: '人员', dataIndex: 'realName' },

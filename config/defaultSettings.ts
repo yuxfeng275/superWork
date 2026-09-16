@@ -2,23 +2,24 @@ import type { ProLayoutProps } from '@ant-design/pro-components';
 
 const settings: ProLayoutProps & { logo?: string } = {
   navTheme: 'light',
-  colorPrimary: '#2563eb',
+  colorPrimary: '#1966ff',
   layout: 'mix',
-  // mix 模式下开启菜单分割：顶部导航只保留一级，左侧只展示当前一级分组下的二/三级（三级用 group 平铺，不折叠）
-  splitMenus: true,
+  // 双栏菜单自行管理一级、二级和三级展示，不再依赖 mix 的顶部菜单分割。
+  splitMenus: false,
   contentWidth: 'Fluid',
   fixedHeader: true,
   fixSiderbar: true,
-  siderWidth: 248,
+  siderWidth: 281,
   colorWeak: false,
   title: '电商BU管理系统',
   logo: undefined,
   token: {
+    bgLayout: '#f1f5fe',
     sider: {
-      colorMenuBackground: '#111827',
-      colorTextMenu: '#a8b3c7',
-      colorTextMenuSelected: '#ffffff',
-      colorBgMenuItemSelected: '#2563eb',
+      colorMenuBackground: '#ffffff',
+      colorTextMenu: '#697586',
+      colorTextMenuSelected: '#1677ff',
+      colorBgMenuItemSelected: '#edf4ff',
     },
   },
 };

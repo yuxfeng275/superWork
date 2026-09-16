@@ -1,15 +1,63 @@
-.sw-page { max-width: 1440px; margin: 0 auto; padding: 0 24px 32px; }
-.sw-page-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 24px; }
-.sw-page-header h2 { margin: 4px 0 4px; font-size: 28px; letter-spacing: -.04em; }
+.sw-page {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+}
+.sw-page-header {
+  position: static;
+  z-index: auto;
+  display: flex;
+  margin-bottom: 20px;
+  padding: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  background: transparent;
+  border-bottom: 0;
+}
+/* 提高优先级以覆盖 antd 相邻标题规则（.ant-typography + h2.ant-typography 的 1.2em 上边距），
+   使内容区标题与左侧菜单首项顶部对齐。 */
+.sw-page-header h2,
+.sw-page .sw-page-header h2.ant-typography {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 .sw-page-header p { margin: 0; }
-.sw-eyebrow { color: #2563eb; font-size: 11px; letter-spacing: .16em; font-weight: 600; }
-.sw-stat-row { margin-bottom: 16px; }
-/* 概览卡片全局统一尺寸：同一行内等高、固定最小高度，不随内容多少而高低不一 */
+.sw-eyebrow {
+  display: none !important;
+}
+.sw-workbench-grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: 16px; }
+.sw-workbench-main, .sw-workbench-aside { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
+.sw-workbench .ant-card { border-radius: 16px; box-shadow: none; }
+.sw-workbench .ant-card-head { min-height: 60px; border-bottom: 0; }
+.sw-workbench .ant-card-body { padding-top: 8px; }
+.sw-workbench .sw-workbench-welcome .ant-card-body { padding-top: 24px; }
+.sw-workbench-welcome h2 { margin: 0 0 12px; font-size: 20px; font-weight: 600; }
+.sw-workbench .sw-attention-card { height: auto; }
+.sw-workbench-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 8px 0; }
+.sw-workbench-stat .ant-statistic-title { color: #69718c; }
+.sw-workbench-stat .ant-statistic-content { font-size: 30px; font-weight: 600; }
+.sw-workbench-stat .ant-typography { display: block; margin-top: 8px; font-size: 12px; }
+.sw-workbench > .ant-alert { margin-bottom: 16px; }
+@media (max-width: 1200px) {
+  .sw-workbench-grid { grid-template-columns: minmax(0, 1fr) 300px; }
+  .sw-workbench-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .sw-workbench-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .sw-workbench .ant-card-head, .sw-workbench .ant-card-body { padding-inline: 16px; }
+  .sw-workbench .sw-card-subtitle { display: none; }
+}
+.sw-stat-row { margin: 0; }
 .sw-stat-row .ant-col > .ant-card { height: 100%; }
 .sw-stat-row .ant-card-body { min-height: 112px; display: flex; flex-direction: column; justify-content: center; }
-/* 表格全局固定布局：列宽由列定义决定，不随单元格内容伸缩 */
-.sw-table-card .ant-table-container table { table-layout: fixed; }
-.sw-stat-card { height: 100%; min-height: 144px; border: 1px solid #e9edf4; box-shadow: 0 6px 24px rgba(16, 24, 40, .03); }
+.sw-stat-card { height: 100%; min-height: 128px; border: 0; box-shadow: none; border-radius: 12px; }
 .sw-stat-card .ant-statistic-title { color: #667085; }
 .sw-stat-card .ant-statistic-content { font-size: 32px; font-weight: 600; letter-spacing: -.04em; }
 .sw-stat-card .ant-typography { font-size: 12px; }

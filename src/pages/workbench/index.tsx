@@ -8,11 +8,8 @@ import {
   Alert,
   Button,
   Card,
-  Col,
   Empty,
-  Row,
   Skeleton,
-  Space,
   Statistic,
   Tag,
   Typography,
@@ -95,32 +92,11 @@ export default function WorkbenchPage() {
   }, [records]);
   return (
     <div className="sw-page sw-workbench">
-      <div className="sw-page-header">
-        <div>
-          <Typography.Text className="sw-eyebrow">
-            WORKSPACE / OVERVIEW
-          </Typography.Text>
-          <Typography.Title level={2}>工作台</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            用一眼可读的状态，决定今天先推进什么。
-          </Typography.Paragraph>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-            刷新数据
-          </Button>
-          <Link to="/requirements">
-            <Button type="primary" icon={<ArrowRightOutlined />}>
-              查看需求池
-            </Button>
-          </Link>
-        </Space>
-      </div>
       {error && (
         <Alert
           type="error"
           showIcon
-          message="无法读取生产数据"
+          title="无法读取生产数据"
           description={error}
           action={
             <Button size="small" onClick={() => void load()}>
@@ -129,22 +105,38 @@ export default function WorkbenchPage() {
           }
         />
       )}
-      <Row gutter={[16, 16]} className="sw-stat-row">
-        {stats.map((stat) => (
-          <Col xs={24} sm={12} xl={6} key={stat.label}>
-            <Card className="sw-stat-card" variant="borderless">
-              <Statistic
-                title={stat.label}
-                value={loading ? '-' : stat.value}
-                styles={{ content: { color: stat.color } }}
-              />
-              <Typography.Text type="secondary">{stat.note}</Typography.Text>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={15}>
+      <div className="sw-workbench-grid">
+        <section className="sw-workbench-main" aria-label="工作概览">
+          <Card
+            className="sw-overview-panel"
+            variant="borderless"
+            title="核心数据"
+            extra={
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                loading={loading}
+                onClick={() => void load()}
+              >
+                刷新数据
+              </Button>
+            }
+          >
+            <div className="sw-workbench-stats">
+              {stats.map((stat) => (
+                <div className="sw-workbench-stat" key={stat.label}>
+                  <Statistic
+                    title={stat.label}
+                    value={loading ? '-' : stat.value}
+                    styles={{ content: { color: stat.color } }}
+                  />
+                  <Typography.Text type="secondary">
+                    {stat.note}
+                  </Typography.Text>
+                </div>
+              ))}
+            </div>
+          </Card>
           <Card
             variant="borderless"
             title={
@@ -190,8 +182,17 @@ export default function WorkbenchPage() {
               <Empty description="暂无需求数据" />
             )}
           </Card>
-        </Col>
-        <Col xs={24} xl={9}>
+        </section>
+        <aside className="sw-workbench-aside" aria-label="工作提醒">
+          <Card variant="borderless" className="sw-workbench-welcome">
+            <Typography.Title level={2}>工作台</Typography.Title>
+            <Typography.Paragraph type="secondary">
+              用一眼可读的状态，决定今天先推进什么。
+            </Typography.Paragraph>
+            <Link to="/requirements">
+              查看需求池 <ArrowRightOutlined />
+            </Link>
+          </Card>
           <Card
             variant="borderless"
             title="今日关注"
@@ -223,8 +224,8 @@ export default function WorkbenchPage() {
               </div>
             </div>
           </Card>
-        </Col>
-      </Row>
+        </aside>
+      </div>
     </div>
   );
 }

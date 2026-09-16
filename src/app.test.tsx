@@ -46,7 +46,8 @@ vi.mock('@ant-design/pro-components', () => ({
   SettingDrawer: () => null,
 }));
 
-vi.mock('@ant-design/icons', () => ({
+vi.mock('@ant-design/icons', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@ant-design/icons')>()),
   ApartmentOutlined: () => null,
   BarChartOutlined: () => null,
   BellOutlined: () => null,
@@ -69,6 +70,7 @@ vi.mock('../config/defaultSettings', () => ({
 describe('app getInitialState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockHistory.location = {
       pathname: '/welcome',
       search: '',
@@ -96,10 +98,14 @@ describe('app getInitialState', () => {
     });
     expect(state.settingDrawerOpen).toBe(false);
     expect(state.fetchUserInfo).toBeDefined();
-    expect(mockQueryRequirements).toHaveBeenCalledWith({ page: 1, size: 1 });
-    expect(mockQueryKeyMatterAccess).toHaveBeenCalled();
-    expect(state.requirementTotal).toBe(0);
-    expect(state.keyMatterAccess).toEqual({ canAccess: true });
+    // 首屏只阻塞菜单必需的两个接口
+    expect(mockQueryMenus).toHaveBeenCalled();
+    expect(mockQueryMenuTree).toHaveBeenCalled();
+    // 需求徽标与重点事项权限延后加载,不阻塞首屏渲染
+    expect(mockQueryRequirements).not.toHaveBeenCalled();
+    expect(mockQueryKeyMatterAccess).not.toHaveBeenCalled();
+    expect(state.requirementTotal).toBeUndefined();
+    expect(state.keyMatterAccess).toBeUndefined();
   });
 
   it('should redirect to login when currentUser fetch fails (401)', async () => {
@@ -176,6 +182,64 @@ describe('app getInitialState', () => {
       username: 'fetched',
       realName: 'Fetched User',
       role: 'STAFF',
+    });
+  });
+
+  it('should return cached menu immediately without fetching when cache exists', async () => {
+    const { getInitialState } = await import('./app');
+    mockQueryCurrentUser.mockResolvedValue({
+      id: 1,
+      username: 'cached-user',
+      realName: 'Cached',
+      role: 'DIRECTOR',
+    });
+    const cachedTree = [{ id: 1, name: '工作台', path: '/workbench' }];
+    localStorage.setItem(
+      'sw-menu-cache:cached-user',
+      JSON.stringify({
+        menuTree: cachedTree,
+        menuAuth: { paths: ['/workbench'], managedPaths: ['/workbench'] },
+        keyMatterAccess: { canAccess: false },
+      }),
+    );
+
+    const state = await getInitialState();
+
+    expect(state.menuTree).toEqual(cachedTree);
+    expect(state.menuAuth).toEqual({
+      paths: ['/workbench'],
+      managedPaths: ['/workbench'],
+    });
+    expect(state.keyMatterAccess).toEqual({ canAccess: false });
+    expect(mockQueryMenuTree).not.toHaveBeenCalled();
+    expect(mockQueryMenus).not.toHaveBeenCalled();
+  });
+
+  it('should write menu cache after fetching menu tree', async () => {
+    const { getInitialState } = await import('./app');
+    mockQueryCurrentUser.mockResolvedValue({
+      id: 2,
+      username: 'fresh-user',
+      realName: 'Fresh',
+      role: 'STAFF',
+    });
+    const tree = [{ id: 2, name: '销售管理', path: '/sales' }];
+    mockQueryMenuTree.mockResolvedValueOnce(tree);
+    mockQueryMenus.mockResolvedValueOnce({
+      paths: ['/sales'],
+      managedPaths: ['/sales'],
+    });
+
+    const state = await getInitialState();
+
+    expect(state.menuTree).toEqual(tree);
+    const cached = JSON.parse(
+      localStorage.getItem('sw-menu-cache:fresh-user') || '{}',
+    );
+    expect(cached.menuTree).toEqual(tree);
+    expect(cached.menuAuth).toEqual({
+      paths: ['/sales'],
+      managedPaths: ['/sales'],
     });
   });
 });

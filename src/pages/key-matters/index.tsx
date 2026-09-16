@@ -1041,6 +1041,84 @@ export default function KeyMattersPage() {
             级重点事项；会议视图与事项登记共用同一真实数据源。
           </Typography.Paragraph>
         </div>
+        <Row gutter={12} className="sw-matter-stats">
+          <Col xs={24} sm={12} lg={6}>
+            <Card variant="borderless">
+              <Space>
+                <Avatar
+                  className="sw-stat-icon"
+                  icon={<FolderOpenOutlined />}
+                />
+                <div>
+                  <Typography.Text type="secondary">全部事项</Typography.Text>
+                  <Typography.Title level={3}>
+                    {matterStats.total}
+                  </Typography.Title>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card variant="borderless">
+              <Space>
+                <Avatar
+                  className="sw-stat-icon progressing"
+                  icon={<UserOutlined />}
+                />
+                <div>
+                  <Typography.Text type="secondary">推进中</Typography.Text>
+                  <Typography.Title level={3}>
+                    {matterStats.progressing}
+                  </Typography.Title>
+                  <Typography.Text type="secondary" className="sw-stat-note">
+                    占比 {matterStats.progressingRate}%
+                  </Typography.Text>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card variant="borderless">
+              <Space>
+                <Avatar
+                  className="sw-stat-icon risk"
+                  icon={<WarningOutlined />}
+                />
+                <div>
+                  <Typography.Text type="secondary">
+                    风险 / 阻塞
+                  </Typography.Text>
+                  <Typography.Title level={3}>
+                    {matterStats.risks}
+                  </Typography.Title>
+                  <Typography.Text type="secondary" className="sw-stat-note">
+                    占比 {matterStats.riskRate}%
+                  </Typography.Text>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <Card variant="borderless">
+              <Space>
+                <Avatar
+                  className="sw-stat-icon done"
+                  icon={<CalendarOutlined />}
+                />
+                <div>
+                  <Typography.Text type="secondary">待更新</Typography.Text>
+                  <Typography.Title level={3}>
+                    {matterStats.pending}
+                  </Typography.Title>
+                  <Typography.Text type="secondary" className="sw-stat-note">
+                    已更新 {matterStats.updatedCount}/
+                    {matterStats.updateRequiredCount}
+                  </Typography.Text>
+                </div>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
         <Space>
           <Button
             icon={<MonitorOutlined />}
@@ -1094,84 +1172,6 @@ export default function KeyMattersPage() {
       )}
       {!presentationOpen && (
         <>
-          <Row gutter={12} className="sw-stat-row sw-matter-stats">
-            <Col xs={24} sm={12} lg={6}>
-              <Card variant="borderless">
-                <Space>
-                  <Avatar
-                    className="sw-stat-icon"
-                    icon={<FolderOpenOutlined />}
-                  />
-                  <div>
-                    <Typography.Text type="secondary">全部事项</Typography.Text>
-                    <Typography.Title level={3}>
-                      {matterStats.total}
-                    </Typography.Title>
-                  </div>
-                </Space>
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card variant="borderless">
-                <Space>
-                  <Avatar
-                    className="sw-stat-icon progressing"
-                    icon={<UserOutlined />}
-                  />
-                  <div>
-                    <Typography.Text type="secondary">推进中</Typography.Text>
-                    <Typography.Title level={3}>
-                      {matterStats.progressing}
-                    </Typography.Title>
-                    <Typography.Text type="secondary" className="sw-stat-note">
-                      占比 {matterStats.progressingRate}%
-                    </Typography.Text>
-                  </div>
-                </Space>
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card variant="borderless">
-                <Space>
-                  <Avatar
-                    className="sw-stat-icon risk"
-                    icon={<WarningOutlined />}
-                  />
-                  <div>
-                    <Typography.Text type="secondary">
-                      风险 / 阻塞
-                    </Typography.Text>
-                    <Typography.Title level={3}>
-                      {matterStats.risks}
-                    </Typography.Title>
-                    <Typography.Text type="secondary" className="sw-stat-note">
-                      占比 {matterStats.riskRate}%
-                    </Typography.Text>
-                  </div>
-                </Space>
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card variant="borderless">
-                <Space>
-                  <Avatar
-                    className="sw-stat-icon done"
-                    icon={<CalendarOutlined />}
-                  />
-                  <div>
-                    <Typography.Text type="secondary">待更新</Typography.Text>
-                    <Typography.Title level={3}>
-                      {matterStats.pending}
-                    </Typography.Title>
-                    <Typography.Text type="secondary" className="sw-stat-note">
-                      已更新 {matterStats.updatedCount}/
-                      {matterStats.updateRequiredCount}
-                    </Typography.Text>
-                  </div>
-                </Space>
-              </Card>
-            </Col>
-          </Row>
           <Card variant="borderless" className="sw-milestone-card">
             <div className="sw-milestone-strip">
               <Space align="center">
