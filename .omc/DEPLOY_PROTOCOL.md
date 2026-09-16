@@ -47,6 +47,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-15 | 6b658ac | 系统菜单管理接口：全量菜单、创建/更新/删除、排序 | master agent |
 | 2026-09-15 | 34d0cc7 | 菜单更新保留原有 icon，避免编辑其他字段时图标丢失 | master agent |
 | 2026-09-16 | d0a1700 | 后端（V76-V78 数据同步中心/OA采集）+ 新前端 frontend-pro 并行上线（:18084，旧前端 :18080 保留共兜底，共用后端 :18081）；备份 deploy-backups/20260916-142813 | master agent |
+| 2026-09-16 | c478587 | frontend-pro：大事儿列表新增周进展入口；周报弹窗改为周会卡片样式+右侧历史进度（仅前端，backend 未变） | master agent |
 
 ## 回滚
 
