@@ -196,11 +196,6 @@ export interface SystemConfigGroup {
   description?: string;
   items: SystemConfigItem[];
 }
-export interface SystemConfigTestResult {
-  success: boolean;
-  message: string;
-  testedAt: string;
-}
 export interface RoleRecord {
   id: number;
   code: string;
@@ -248,7 +243,13 @@ export interface WorkflowConfig {
   isActive?: number;
   sortOrder?: number;
 }
-export type AiConnectorAuthType = "BASIC" | "TOKEN" | "MCP";
+export type AiConnectorAuthType =
+  | "BASIC"
+  | "TOKEN"
+  | "MCP"
+  | "SEEYON"
+  | "WECOM"
+  | "MAIL";
 export interface AiConnectorView {
   id: number;
   code: string;
@@ -259,10 +260,14 @@ export interface AiConnectorView {
   testPath?: string;
   queryPath?: string;
   readPath?: string;
+  /** 系统专属参数（JSON），键值缺省即删除 */
+  extraConfig: Record<string, unknown>;
   usernameConfigured: boolean;
   passwordConfigured: boolean;
   tokenConfigured: boolean;
   enabled: boolean;
+  ready: boolean;
+  hint: string;
   lastTestStatus?: "SUCCESS" | "FAILED" | null;
   lastTestMessage?: string;
   lastTestedAt?: string;
@@ -278,6 +283,7 @@ export interface AiConnectorSavePayload {
   testPath?: string;
   queryPath?: string;
   readPath?: string;
+  extraConfig?: Record<string, unknown>;
   username?: string;
   password?: string;
   token?: string;
@@ -1459,25 +1465,28 @@ export const superworkApi = {
     });
   },
   getAiConnectors() {
-    return requestJson<AiConnectorView[]>("/api/ai/connectors");
+    return requestJson<AiConnectorView[]>("/api/connectors");
+  },
+  getConnectorStatuses() {
+    return requestJson<AiConnectorStatus[]>("/api/connectors/status");
   },
   createAiConnector(payload: AiConnectorSavePayload) {
-    return requestJson<AiConnectorView>("/api/ai/connectors", {
+    return requestJson<AiConnectorView>("/api/connectors", {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
   updateAiConnector(id: number, payload: AiConnectorSavePayload) {
-    return requestJson<AiConnectorView>(`/api/ai/connectors/${id}`, {
+    return requestJson<AiConnectorView>(`/api/connectors/${id}`, {
       method: "PUT",
       body: JSON.stringify(payload),
     });
   },
   deleteAiConnector(id: number) {
-    return requestJson<void>(`/api/ai/connectors/${id}`, { method: "DELETE" });
+    return requestJson<void>(`/api/connectors/${id}`, { method: "DELETE" });
   },
   testAiConnector(id: number) {
-    return requestJson<AiConnectorView>(`/api/ai/connectors/${id}/test`, {
+    return requestJson<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: "POST",
     });
   },
@@ -1732,20 +1741,6 @@ export const superworkApi = {
   getYunxiaoAnalysis<T = Record<string, unknown>>() {
     return requestJson<T>("/api/yunxiao/analysis");
   },
-  updateYunxiaoConfig<T = Record<string, unknown>>(
-    payload: Record<string, unknown>
-  ) {
-    return requestJson<T>("/api/yunxiao/config", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-  testYunxiaoConnection() {
-    return requestJson<Record<string, unknown>>(
-      "/api/yunxiao/connection-test",
-      { method: "POST" }
-    );
-  },
   getYunxiaoProjectMappings() {
     return requestJson<Record<string, unknown>[]>(
       "/api/yunxiao/project-mappings"
@@ -1894,18 +1889,6 @@ export const superworkApi = {
   },
   getWorktimeStatus() {
     return requestJson<Record<string, unknown>>("/api/worktime/status");
-  },
-  saveWorktimeConfig(payload: Record<string, unknown>) {
-    return requestJson<Record<string, unknown>>("/api/worktime/config", {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-  testWorktimeConnection() {
-    return requestJson<Record<string, unknown>>(
-      "/api/worktime/connection-test",
-      { method: "POST" }
-    );
   },
   syncWorktimeContracts(year?: number) {
     return requestJson<Record<string, unknown>>(
@@ -2504,14 +2487,6 @@ export const superworkApi = {
     return requestJson<SystemConfigGroup>(
       `/api/system/configs/${encodeURIComponent(groupCode)}`,
       { method: "PUT", body: JSON.stringify({ values }) }
-    );
-  },
-  testSystemConfigIntegration(groupCode: string, integration: string) {
-    return requestJson<SystemConfigTestResult>(
-      `/api/system/configs/${encodeURIComponent(
-        groupCode
-      )}/${encodeURIComponent(integration)}/test`,
-      { method: "POST" }
     );
   },
   getWeeklyReport(weekStart?: string) {

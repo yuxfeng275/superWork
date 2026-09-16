@@ -1,6 +1,4 @@
 import {
-  CheckCircleOutlined,
-  CloudSyncOutlined,
   ReloadOutlined,
   SaveOutlined,
   SettingOutlined,
@@ -33,12 +31,6 @@ import {
 import '../workbench/style.less';
 import './style.less';
 
-const integrationMeta: Record<string, { label: string; key: string }> = {
-  deepseek: { label: '测试 DeepSeek', key: 'deepseek' },
-  wecom: { label: '测试企微', key: 'wecom' },
-  worktime: { label: '测试工时系统', key: 'worktime' },
-  yuque: { label: '测试语雀', key: 'yuque' },
-};
 const canManageRole = (role?: string) =>
   [
     'admin',
@@ -59,7 +51,6 @@ export default function SystemConfigsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState('');
   const [error, setError] = useState('');
 
   const applyGroup = (next: SystemConfigGroup) => {
@@ -117,23 +108,6 @@ export default function SystemConfigsPage() {
       setSaving(false);
     }
   };
-  const test = async (integration: string) => {
-    if (!group || !canManage) return;
-    setTesting(integration);
-    try {
-      const result = await superworkApi.testSystemConfigIntegration(
-        group.groupCode,
-        integration,
-      );
-      result.success
-        ? message.success(result.message)
-        : message.error(result.message);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '连接测试失败');
-    } finally {
-      setTesting('');
-    }
-  };
   const renderItem = (item: SystemConfigItem) => {
     const value = values[item.key] || '';
     if (item.valueType === 'BOOLEAN')
@@ -172,10 +146,6 @@ export default function SystemConfigsPage() {
       />
     );
   };
-  const activeIntegrations = Object.keys(integrationMeta).filter((key) =>
-    group?.items.some((item) => item.key.startsWith(`${key}.`)),
-  );
-
   const sortedItems = group
     ? [...group.items].sort((a, b) => a.sortOrder - b.sortOrder)
     : [];
@@ -289,30 +259,6 @@ export default function SystemConfigsPage() {
                     ))}
                   </Row>
                 </Form>
-                {activeIntegrations.length > 0 && (
-                  <>
-                    <Typography.Title level={5}>集成测试</Typography.Title>
-                    <Space wrap>
-                      {activeIntegrations.map((integration) => (
-                        <Button
-                          key={integration}
-                          icon={
-                            testing === integration ? (
-                              <CloudSyncOutlined spin />
-                            ) : (
-                              <CheckCircleOutlined />
-                            )
-                          }
-                          loading={testing === integration}
-                          disabled={!canManage}
-                          onClick={() => void test(integration)}
-                        >
-                          {integrationMeta[integration].label}
-                        </Button>
-                      ))}
-                    </Space>
-                  </>
-                )}
               </Card>
             ) : (
               <Card variant="borderless">

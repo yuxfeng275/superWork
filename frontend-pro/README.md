@@ -33,7 +33,7 @@
 | `/kpi-report` | KPI 年度报告、目标、周快照 | `/api/kpi/*` | 已验证 |
 | `/key-matters`、`/key-matters-meeting` | 大事儿登记与会议视图、运行时权限 | `/api/key-matters/*` | 已验证路由与权限态 |
 | `/system/users`、`/system/roles`、`/system/menus`、`/system/workflow`、`/system/configs` | 系统用户、角色、菜单、工作流、配置 | `/api/system/*`、`/api/workflow-configs/*` | 已验证 |
-| `/ai-connectors`、`/ai-assistant` | AI 连接器、会话、模型与流式对话 | `/api/ai/*`、`/api/ai-agent/*` | 已验证 |
+| `/system/connectors`、`/ai-assistant` | 连接器管理（内置 + 通用连接器配置/测试/跳转）、会话、模型与流式对话 | `/api/connectors/*`、`/api/ai-agent/*` | 已验证 |
 
 需求、任务、缺陷页面均保留旧页面已有的读写边界：本地需求/任务允许原有创建、状态推进和关联动作，云效记录保持只读，缺陷详情保持只读。周报保留旧页面已有的保存、生成、确认、语雀发布、汇总表回填标记和企微推送动作。邮件凭据不回显，正文采用纯文本安全阅读；大事儿权限由后端运行时能力接口决定。所有新入口都按业务域分组，不平铺。
 

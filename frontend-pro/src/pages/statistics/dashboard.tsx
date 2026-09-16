@@ -6,6 +6,7 @@ import {
   SettingOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
+import { history } from '@umijs/max';
 import {
   Alert,
   Button,
@@ -130,6 +131,13 @@ const healthColor: Record<string, string> = {
 };
 const display = (value: unknown) =>
   value === undefined || value === null || value === '' ? '—' : String(value);
+const dashboardTabs = [
+  'directions',
+  'capacity',
+  'worklogs',
+  'yunxiao-analysis',
+  'integration',
+];
 
 export default function DashboardPage() {
   const [directionForm] = Form.useForm<Record<string, unknown>>();
@@ -160,8 +168,12 @@ export default function DashboardPage() {
   const [mappingOpen, setMappingOpen] = useState<'project' | 'user'>();
   const [editingMapping, setEditingMapping] =
     useState<Record<string, unknown>>();
-  const [configOpen, setConfigOpen] = useState(false);
-  const [configForm] = Form.useForm<Record<string, unknown>>();
+  const [activeTab, setActiveTab] = useState(() => {
+    const requested = new URL(window.location.href).searchParams.get('tab');
+    return requested && dashboardTabs.includes(requested)
+      ? requested
+      : 'directions';
+  });
   const [saving, setSaving] = useState(false);
   const [period, setPeriod] = useState<[Dayjs, Dayjs]>([
     dayjs().subtract(14, 'day'),
@@ -327,33 +339,24 @@ export default function DashboardPage() {
       ?.name;
   };
   const loadMappings = useCallback(async () => {
-    const [pm, um, yp, ym, rawStatus] = await Promise.all([
+    const [pm, um, yp, ym] = await Promise.all([
       superworkApi.getYunxiaoProjectMappings().catch(() => []),
       superworkApi.getYunxiaoUserMappings().catch(() => []),
       superworkApi.getYunxiaoProjects().catch(() => []),
       superworkApi.getYunxiaoMembers().catch(() => []),
-      superworkApi.getYunxiaoStatus().catch(() => ({})),
     ]);
-    const status = rawStatus as Record<string, unknown>;
     setProjectMappings(pm);
     setUserMappings(um);
     setYunxiaoProjects(yp);
     setYunxiaoMembers(ym);
-    configForm.setFieldsValue({
-      enabled: Boolean(status.enabled ?? data.integration?.enabled),
-      edition: status.edition || data.integration?.edition || 'center',
-      baseUrl:
-        status.baseUrl ||
-        data.integration?.baseUrl ||
-        'https://openapi-rdc.aliyuncs.com',
-      organizationId:
-        status.organizationId || data.integration?.organizationId || '',
-      token: '',
-    });
-  }, [configForm, data.integration]);
+  }, []);
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (activeTab === 'integration') void loadMappings();
+    if (activeTab === 'yunxiao-analysis') void loadYunxiaoAnalysis();
+  }, [activeTab, loadMappings, loadYunxiaoAnalysis]);
   const openDirection = (record?: Direction) => {
     setEditingDirection(record);
     directionForm.setFieldsValue(
@@ -429,22 +432,6 @@ export default function DashboardPage() {
       await loadMappings();
     } catch (e) {
       message.error(e instanceof Error ? e.message : '映射保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-  const saveConfig = async (values: Record<string, unknown>) => {
-    setSaving(true);
-    try {
-      await superworkApi.updateYunxiaoConfig({
-        ...values,
-        enabled: values.enabled ? 1 : 0,
-      });
-      message.success('云效配置已保存');
-      setConfigOpen(false);
-      await Promise.all([load(), loadMappings()]);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '配置保存失败');
     } finally {
       setSaving(false);
     }
@@ -553,10 +540,8 @@ export default function DashboardPage() {
         </Col>
       </Row>
       <Tabs
-        onChange={(key) => {
-          if (key === 'integration') void loadMappings();
-          if (key === 'yunxiao-analysis') void loadYunxiaoAnalysis();
-        }}
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: 'directions',
@@ -1034,28 +1019,9 @@ export default function DashboardPage() {
                     <Space>
                       <Button
                         icon={<SettingOutlined />}
-                        onClick={() => {
-                          void loadMappings();
-                          setConfigOpen(true);
-                        }}
+                        onClick={() => history.push('/system/connectors')}
                       >
-                        编辑配置
-                      </Button>
-                      <Button
-                        onClick={() =>
-                          void superworkApi
-                            .testYunxiaoConnection()
-                            .then((r) =>
-                              message.success(display(r.message || '连接正常')),
-                            )
-                            .catch((e) =>
-                              message.error(
-                                e instanceof Error ? e.message : '测试失败',
-                              ),
-                            )
-                        }
-                      >
-                        测试连接
+                        连接器管理
                       </Button>
                       <Button
                         type="primary"
@@ -1547,42 +1513,6 @@ export default function DashboardPage() {
             initialValue
           >
             <Switch />
-          </Form.Item>
-        </Form>
-      </Modal>
-      <Modal
-        title="云效连接配置"
-        open={configOpen}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={saving}
-        onCancel={() => setConfigOpen(false)}
-        onOk={() => configForm.submit()}
-      >
-        <Form
-          form={configForm}
-          layout="vertical"
-          onFinish={(values) => void saveConfig(values)}
-        >
-          <Form.Item name="enabled" label="启用集成" valuePropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item name="edition" label="版本">
-            <Select
-              options={[
-                { value: 'center', label: '中心化版本' },
-                { value: 'region', label: '专有云版本' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="baseUrl" label="服务地址">
-            <Input placeholder="https://openapi-rdc.aliyuncs.com" />
-          </Form.Item>
-          <Form.Item name="organizationId" label="组织 ID">
-            <Input />
-          </Form.Item>
-          <Form.Item name="token" label="个人访问令牌">
-            <Input.Password placeholder="已配置则留空保持不变" />
           </Form.Item>
         </Form>
       </Modal>

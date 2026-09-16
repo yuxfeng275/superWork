@@ -5,6 +5,7 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { history } from '@umijs/max';
 import {
   Alert,
   Button,
@@ -23,6 +24,7 @@ import {
   Tabs,
   Typography,
 } from 'antd';
+import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
 import { superworkApi } from '@/services/superwork/api';
@@ -31,8 +33,12 @@ import './style.less';
 
 const money = (v: unknown) =>
   typeof v === 'number' ? `¥${(v / 10000).toFixed(1)}万` : '—';
+const kpiTabs = ['report', 'targets', 'worktime'];
 export default function KpiReportPage() {
   const currentYear = new Date().getFullYear();
+  const requestedTab = new URL(window.location.href).searchParams.get('tab');
+  const defaultTab =
+    requestedTab && kpiTabs.includes(requestedTab) ? requestedTab : undefined;
   const [year, setYear] = useState(currentYear);
   const [report, setReport] = useState<Record<string, unknown>>({});
   const [targets, setTargets] = useState<Record<string, unknown>[]>([]);
@@ -47,8 +53,6 @@ export default function KpiReportPage() {
   const [rules, setRules] = useState<Record<string, unknown>[]>([]);
   const [worktime, setWorktime] = useState<Record<string, unknown>>({});
   const [syncLogs, setSyncLogs] = useState<Record<string, unknown>[]>([]);
-  const [worktimeOpen, setWorktimeOpen] = useState(false);
-  const [worktimeForm] = Form.useForm<Record<string, unknown>>();
   const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,19 +226,6 @@ export default function KpiReportPage() {
       message.error(e instanceof Error ? e.message : '备注保存失败');
     }
   };
-  const saveWorktime = async (values: Record<string, unknown>) => {
-    setSaving(true);
-    try {
-      await superworkApi.saveWorktimeConfig(values);
-      message.success('工时系统配置已保存');
-      setWorktimeOpen(false);
-      await load();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '配置保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
   return (
     <div className="sw-page sw-kpi">
       <div className="sw-page-header">
@@ -312,6 +303,7 @@ export default function KpiReportPage() {
       </Row>
       <Tabs
         className="sw-kpi-tabs"
+        defaultActiveKey={defaultTab}
         items={[
           {
             key: 'report',
@@ -554,51 +546,10 @@ export default function KpiReportPage() {
                   extra={
                     <Space>
                       <Button
-                        onClick={() => {
-                          worktimeForm.setFieldsValue({
-                            enabled: Boolean(worktime.enabled),
-                            baseUrl: worktime.baseUrl || '',
-                            employeeNo: '',
-                            password: '',
-                          });
-                          setWorktimeOpen(true);
-                        }}
+                        icon={<SettingOutlined />}
+                        onClick={() => history.push('/system/connectors')}
                       >
-                        配置
-                      </Button>
-                      <Button
-                        onClick={() =>
-                          void superworkApi
-                            .testWorktimeConnection()
-                            .then((r) => {
-                              const visible = Array.isArray(
-                                r.visibleBusinessLines,
-                              )
-                                ? r.visibleBusinessLines.length
-                                : undefined;
-                              message.success(
-                                String(
-                                  r.message ||
-                                    `连接成功${
-                                      visible == null
-                                        ? ''
-                                        : `，可见业务线 ${visible} 条`
-                                    }${
-                                      r.dataCutoffDate
-                                        ? `，数据截止 ${r.dataCutoffDate}`
-                                        : ''
-                                    }`,
-                                ),
-                              );
-                            })
-                            .catch((e) =>
-                              message.error(
-                                e instanceof Error ? e.message : '测试失败',
-                              ),
-                            )
-                        }
-                      >
-                        测试连接
+                        查看 / 修改连接配置
                       </Button>
                       <Button
                         loading={saving}
@@ -616,11 +567,26 @@ export default function KpiReportPage() {
                     </Space>
                   }
                 >
-                  <Typography.Text>
-                    启用：{worktime.enabled ? '是' : '否'} · 配置完成：
-                    {worktime.configured ? '是' : '否'} · 最近同步：
-                    {String(worktime.lastSuccessfulSync || '—')}
-                  </Typography.Text>
+                  <Space orientation="vertical" size={4}>
+                    <Typography.Text>
+                      启用：{worktime.enabled ? '是' : '否'} · 凭据：
+                      {worktime.credentialConfigured ? '已配置' : '未配置'} ·
+                      最近测试：
+                      {worktime.lastTestStatus === 'SUCCESS'
+                        ? '通过'
+                        : worktime.lastTestStatus === 'FAILED'
+                          ? '失败'
+                          : '未测试'}
+                      {worktime.lastTestedAt
+                        ? `（${dayjs(String(worktime.lastTestedAt)).format(
+                            'YYYY-MM-DD HH:mm',
+                          )}）`
+                        : ''}
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
+                      测试信息：{String(worktime.lastTestMessage || '—')}
+                    </Typography.Text>
+                  </Space>
                 </Card>
                 <Card variant="borderless" title="同步日志">
                   <Table
@@ -721,44 +687,6 @@ export default function KpiReportPage() {
           </Form.Item>
           <Form.Item name="remark" label="备注">
             <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
-      <Modal
-        title="工时系统配置"
-        open={worktimeOpen}
-        onCancel={() => setWorktimeOpen(false)}
-        onOk={() => worktimeForm.submit()}
-        confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Form
-          form={worktimeForm}
-          layout="vertical"
-          onFinish={(values) => void saveWorktime(values)}
-        >
-          <Form.Item
-            name="enabled"
-            label="启用自动同步"
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item name="baseUrl" label="系统地址">
-            <Input placeholder="https://worktime.lucidata.cn" />
-          </Form.Item>
-          <Form.Item name="employeeNo" label="登录工号">
-            <Input
-              placeholder={
-                worktime.credentialConfigured
-                  ? '已配置，留空保持不变'
-                  : '如 00504'
-              }
-            />
-          </Form.Item>
-          <Form.Item name="password" label="登录密码">
-            <Input.Password placeholder="留空保持不变" />
           </Form.Item>
         </Form>
       </Modal>

@@ -128,10 +128,17 @@ export default [
     component: './system-configs',
   },
   {
-    path: '/ai-connectors',
-    name: 'AI 连接器',
+    path: '/system/connectors',
+    name: '连接器管理',
     icon: 'api',
-    component: './ai-connectors',
+    component: './connectors',
+  },
+  { path: '/ai-connectors', redirect: '/system/connectors' },
+  {
+    path: '/system/sync',
+    name: '数据集成中心',
+    icon: 'cloudSync',
+    component: './system-sync',
   },
   {
     path: '/ai-assistant',
