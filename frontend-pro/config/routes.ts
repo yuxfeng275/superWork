@@ -128,6 +128,12 @@ export default [
     component: './system-configs',
   },
   {
+    path: '/system/sync',
+    name: '数据集成中心',
+    icon: 'cloudSync',
+    component: './system-sync',
+  },
+  {
     path: '/ai-connectors',
     name: 'AI 连接器',
     icon: 'api',

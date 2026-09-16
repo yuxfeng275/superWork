@@ -70,7 +70,7 @@ export default function LoginPage() {
       <section className="sw-login-panel">
         <div className="sw-login-form-wrap">
           <div className="sw-login-brand">
-            <span className="sw-brand-mark">BU</span>
+            <img className="sw-login-logo" src="/logo.png" alt="合拍" />
             <span>
               <strong>电商BU</strong>
               <small>管理系统</small>
