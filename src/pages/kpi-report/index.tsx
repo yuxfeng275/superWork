@@ -24,6 +24,7 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import SyncCutoff from '@/components/SyncCutoff';
 import { superworkApi } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
@@ -245,6 +246,7 @@ export default function KpiReportPage() {
           <Typography.Paragraph type="secondary">
             按年度查看营收、利润快照与目标偏差，支持生成快照、导出与工时系统同步。
           </Typography.Paragraph>
+          <SyncCutoff domains={['contract', 'worklog', 'cost']} />
         </div>
         <Space>
           <Select

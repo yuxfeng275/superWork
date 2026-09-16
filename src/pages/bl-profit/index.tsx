@@ -12,6 +12,7 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import SyncCutoff from '@/components/SyncCutoff';
 import {
   type BizLineProfitReport,
   type BizLineProfitRow,
@@ -187,6 +188,7 @@ export default function BlProfitPage() {
             真实营收与利润，数据源自工时系统业务线利润报表；每业务线各月合计即
             YTD。
           </Typography.Paragraph>
+          <SyncCutoff domains={['contract', 'worklog', 'cost']} />
         </div>
         <Space>
           <Select
