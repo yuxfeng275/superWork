@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.config.WorktimeRuntimeConfig;
 import com.bu.management.dto.WorktimeConfigRequest;
+import com.bu.management.entity.DataSyncLog;
 import com.bu.management.entity.WorktimeSyncLog;
 import com.bu.management.integration.WorktimeApiClient;
 import com.bu.management.mapper.WorktimeSyncLogMapper;
 import com.bu.management.service.WorktimeConfigService;
-import com.bu.management.service.WorktimeContractSyncService;
-import com.bu.management.service.WorktimeMonthlySyncService;
+import com.bu.management.sync.SyncOrchestrator;
+import com.bu.management.sync.collector.WorktimeContractCollector;
+import com.bu.management.sync.collector.WorktimeMonthlyCollector;
 import com.bu.management.vo.Result;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,7 +19,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -32,8 +33,7 @@ public class WorktimeIntegrationController {
 
     private final WorktimeConfigService configService;
     private final WorktimeApiClient apiClient;
-    private final WorktimeContractSyncService contractSyncService;
-    private final WorktimeMonthlySyncService monthlySyncService;
+    private final SyncOrchestrator syncOrchestrator;
     private final WorktimeSyncLogMapper syncLogMapper;
 
     // ==================== 配置管理 ====================
@@ -92,16 +92,20 @@ public class WorktimeIntegrationController {
     // ==================== 手动同步 ====================
 
     @PostMapping("/sync/contracts")
-    @Operation(summary = "手动同步合同明细（默认当年）")
-    public Result<WorktimeSyncLog> syncContracts(@RequestParam(required = false) Integer year) {
-        int targetYear = year == null ? LocalDate.now().getYear() : year;
-        return Result.success("合同明细同步完成", contractSyncService.syncContracts(targetYear, "manual"));
+    @Operation(summary = "手动同步合同明细（默认当年），经统一同步编排器执行")
+    public Result<List<DataSyncLog>> syncContracts(@RequestParam(required = false) Integer year,
+                                                   @RequestAttribute("userId") Long userId) {
+        String scope = year == null ? null : String.valueOf(year);
+        return Result.success("合同明细同步完成",
+                syncOrchestrator.run(WorktimeContractCollector.TASK_CODE, scope, "manual", userId));
     }
 
     @PostMapping("/sync/monthly")
-    @Operation(summary = "手动同步工时/成本（forceMonth=YYYY-MM 时强制重拉该月）")
-    public Result<List<WorktimeSyncLog>> syncMonthly(@RequestParam(required = false) String forceMonth) {
-        return Result.success("月度数据同步完成", monthlySyncService.syncConfirmedMonths(forceMonth, "manual"));
+    @Operation(summary = "手动同步工时/成本（forceMonth=YYYY-MM 时强制重拉该月），经统一同步编排器执行")
+    public Result<List<DataSyncLog>> syncMonthly(@RequestParam(required = false) String forceMonth,
+                                                 @RequestAttribute("userId") Long userId) {
+        return Result.success("月度数据同步完成",
+                syncOrchestrator.run(WorktimeMonthlyCollector.TASK_CODE, forceMonth, "manual", userId));
     }
 
     // ==================== 同步日志 ====================
