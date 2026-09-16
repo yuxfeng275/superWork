@@ -16,6 +16,7 @@ import com.bu.management.mapper.SystemConfigItemMapper;
 import com.bu.management.mapper.WorktimeIntegrationConfigMapper;
 import com.bu.management.mapper.YunxiaoIntegrationConfigMapper;
 import com.bu.management.service.ConnectorRegistryService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -314,7 +315,23 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
     }
 
     private void save(Connector update) {
+        // 补丁为空（除 id 外全为 null）时不能下发 UPDATE（MyBatis Plus 会生成 `UPDATE ... WHERE id=?` 语法错误）
+        if (isEmptyPatch(update)) return;
         connectorMapper.updateById(update);
+    }
+
+    /** 除 id 外是否没有任何待写字段。 */
+    private boolean isEmptyPatch(Connector patch) {
+        try {
+            JsonNode node = objectMapper.valueToTree(patch);
+            for (java.util.Iterator<String> it = node.fieldNames(); it.hasNext(); ) {
+                String field = it.next();
+                if (!"id".equals(field) && !node.path(field).isNull()) return false;
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return true;
     }
 
     /** 只填空：目标为空（或等于种子默认值）时写入源值。 */

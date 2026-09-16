@@ -140,10 +140,9 @@ class ConnectorLegacyConfigMigratorTest {
 
         migrator.migrateYunxiao();
 
-        Connector patch = captureConnectorPatch();
-        assertThat(patch.getBaseUrl()).isNull();
-        assertThat(patch.getEncryptedToken()).isNull();
-        assertThat(patch.getEnabled()).isNull();
+        // 连接器上已有完整人工配置，且旧值与种子默认一致 → 不下发任何更新
+        verify(connectorMapper, never()).updateById(any(Connector.class));
+        assertThat(connectorRow.getBaseUrl()).isEqualTo("https://manual.example.com");
         assertThat(cipher.decrypt(connectorRow.getEncryptedToken())).isEqualTo("manual-token");
     }
 
@@ -213,6 +212,23 @@ class ConnectorLegacyConfigMigratorTest {
         Connector patch = captureConnectorPatch();
         assertThat(patch.getExtraConfig()).contains("\"contractExportUrl\":\"https://oa.example.com/report/export\"");
         verify(spy).hideGroup("oa-vreport");
+    }
+
+    @Test
+    @DisplayName("OA：无旧值可搬时不发起更新（空补丁会生成非法 UPDATE）")
+    void migrateOaWithNothingToCopySkipsUpdate() {
+        Connector connectorRow = new Connector();
+        connectorRow.setId(16L);
+        connectorRow.setCode("oa");
+        connectorRow.setBaseUrl("https://oa.lucidata.cn");
+        connectorRow.setEnabled(1);
+        when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
+        ConnectorLegacyConfigMigrator spy = Mockito.spy(migrator);
+        Mockito.lenient().doReturn(null).when(spy).item("oa-vreport", "sales-contract-export-url");
+
+        spy.migrateOa();
+
+        verify(connectorMapper, never()).updateById(any(Connector.class));
     }
 
     @Test
