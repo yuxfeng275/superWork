@@ -30,6 +30,7 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import SyncCutoff from '@/components/SyncCutoff';
 import type {
   RevenueCell,
   RevenueCellDetail,
@@ -1310,6 +1311,7 @@ export default function RevenuePage() {
           <Typography.Paragraph type="secondary">
             工时、成本、营收矩阵与待处理数据统一查看，保留导入批次、月份结账和交付数据状态。
           </Typography.Paragraph>
+          <SyncCutoff domains={['contract', 'worklog', 'cost']} />
         </div>
         <Space>
           <Select
@@ -1940,7 +1942,20 @@ export default function RevenuePage() {
             label: '数据导入',
             children: (
               <Card variant="borderless">
-                <Space orientation="vertical">
+                <Space orientation="vertical" style={{ width: '100%' }}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="Excel 导入仅作兜底补录"
+                    description={
+                      <span>
+                        合同 / 工时 / 成本已由系统每日自动从 OA
+                        与工时系统拉取，同步状态与手动触发见
+                        <a href="/system/sync">「系统管理 → 数据集成中心」</a>
+                        ；仅历史补录或自动同步异常时使用本页导入。
+                      </span>
+                    }
+                  />
                   <Space>
                     <Typography.Text>工时月份</Typography.Text>
                     <Input
@@ -2039,6 +2054,23 @@ export default function RevenuePage() {
                             key,
                             render: (value: unknown) => String(value ?? '—'),
                           })),
+                        {
+                          title: '来源',
+                          key: 'sourceSystem',
+                          render: (_: unknown, row: Record<string, any>) => {
+                            const source = row.sourceSystem as
+                              | string
+                              | undefined;
+                            if (!source) return '—';
+                            const color =
+                              source === 'OA'
+                                ? 'blue'
+                                : source === 'WORKTIME'
+                                  ? 'purple'
+                                  : 'orange';
+                            return <Tag color={color}>{source}</Tag>;
+                          },
+                        },
                         {
                           title: '业务线',
                           render: (_: unknown, row: Record<string, any>) => (
