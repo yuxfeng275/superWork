@@ -1,4 +1,4 @@
-import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigTestResult } from '@/types/system-config'
+import type { SystemConfigGroup, SystemConfigGroupSummary } from '@/types/system-config'
 import type { WorkItemOverviewItem, WorkItemOverviewParams, WorkItemOverviewResponse } from '@/types/work-item'
 import type {
   DeliveryContractBatch,
@@ -38,7 +38,7 @@ import type {
   EmailSyncStatus,
   EmailWeComMapping,
 } from '@/types/email'
-import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, WorktimeTestResult, MenuTreeNode } from '@/types/kpi'
+import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, MenuTreeNode } from '@/types/kpi'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 import type { BizLineProfitReport } from '@/types/businessLineProfit'
@@ -157,40 +157,7 @@ export interface YunxiaoUserMappingPayload {
   syncEnabled: number
 }
 
-export interface YunxiaoConfigPayload {
-  enabled: boolean
-  edition: 'center' | 'region'
-  baseUrl: string
-  organizationId?: string
-  token?: string
-}
-
-export interface YunxiaoConnectionTestResult {
-  success: boolean
-  userId?: string
-  userName?: string
-  email?: string
-  message: string
-  testedAt: string
-}
-
 // ==================== OA 集成 (Seeyon) 类型 ====================
-
-export interface SeeyonOaConfigPayload {
-  enabled: boolean
-  baseUrl: string
-  username?: string
-  password?: string
-  token?: string
-}
-
-export interface SeeyonOaConnectionTestResult {
-  success: boolean
-  userName?: string
-  memberName?: string
-  message: string
-  testedAt: string
-}
 
 export interface SeeyonOaMemberOption {
   id: string
@@ -1278,19 +1245,6 @@ class ApiService {
     return this.request<T>('/api/yunxiao/analysis')
   }
 
-  async updateYunxiaoConfig<T>(data: YunxiaoConfigPayload): Promise<T> {
-    return this.request<T>('/api/yunxiao/config', {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    })
-  }
-
-  async testYunxiaoConnection(): Promise<YunxiaoConnectionTestResult> {
-    return this.request<YunxiaoConnectionTestResult>('/api/yunxiao/connection-test', {
-      method: 'POST'
-    })
-  }
-
   async getYunxiaoProjectMappings(): Promise<YunxiaoProjectMapping[]> {
     return this.request<YunxiaoProjectMapping[]>('/api/yunxiao/project-mappings')
   }
@@ -1523,16 +1477,6 @@ class ApiService {
     return this.request<WorktimeStatus>('/api/worktime/status')
   }
 
-  async saveWorktimeConfig(payload: {
-    enabled: boolean; baseUrl: string; employeeNo?: string; password?: string
-  }): Promise<unknown> {
-    return this.request<unknown>('/api/worktime/config', { method: 'PUT', body: JSON.stringify(payload) })
-  }
-
-  async testWorktimeConnection(): Promise<WorktimeTestResult> {
-    return this.request<WorktimeTestResult>('/api/worktime/connection-test', { method: 'POST' })
-  }
-
   async syncWorktimeContracts(year?: number): Promise<WorktimeSyncLog> {
     const query = year ? `?year=${year}` : ''
     return this.request<WorktimeSyncLog>(`/api/worktime/sync/contracts${query}`, { method: 'POST' })
@@ -1580,30 +1524,10 @@ class ApiService {
     })
   }
 
-  async testSystemConfigIntegration(groupCode: string, integration: string): Promise<SystemConfigTestResult> {
-    return this.request<SystemConfigTestResult>(
-      `/api/system/configs/${encodeURIComponent(groupCode)}/${encodeURIComponent(integration)}/test`,
-      { method: 'POST' }
-    )
-  }
-
   // ==================== OA 集成 (Seeyon) ====================
 
   async getSeeyonOaStatus<T>(): Promise<T> {
     return this.request<T>('/api/seeyon-oa/status')
-  }
-
-  async updateSeeyonOaConfig<T>(data: SeeyonOaConfigPayload): Promise<T> {
-    return this.request<T>('/api/seeyon-oa/config', {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    })
-  }
-
-  async testSeeyonOaConnection(): Promise<SeeyonOaConnectionTestResult> {
-    return this.request<SeeyonOaConnectionTestResult>('/api/seeyon-oa/connection-test', {
-      method: 'POST'
-    })
   }
 
   async getSeeyonOaMembers(departmentId?: string): Promise<SeeyonOaMemberOption[]> {
@@ -1918,39 +1842,49 @@ class ApiService {
   async getAiAgentModels(): Promise<AiAgentModelOption[]> {
     return this.request<AiAgentModelOption[]>('/api/ai-agent/models')
   }
+
+  /** 仪表盘连接器状态（AI 助手面板专用：不要求 system:config:edit，普通用户可用） */
   async getAiAgentConnectors(): Promise<AiConnectorStatus[]> {
     return this.request<AiConnectorStatus[]>('/api/ai-agent/connectors')
   }
-  async getAiConnectors(): Promise<AiConnectorView[]> {
-    return this.request<AiConnectorView[]>('/api/ai/connectors')
+
+  // ==================== 连接器管理（唯一入口） ====================
+
+  async getConnectors(): Promise<AiConnectorView[]> {
+    return this.request<AiConnectorView[]>('/api/connectors')
   }
 
-  async getAiConnector(id: number): Promise<AiConnectorView> {
-    return this.request<AiConnectorView>(`/api/ai/connectors/${id}`)
+  /** 连接器状态列表（AI 助手面板与连接器管理页共用口径）。 */
+  async getConnectorStatuses(): Promise<AiConnectorStatus[]> {
+    return this.request<AiConnectorStatus[]>('/api/connectors/status')
   }
 
-  async createAiConnector(payload: AiConnectorSavePayload): Promise<AiConnectorView> {
-    return this.request<AiConnectorView>('/api/ai/connectors', {
+  async getConnector(id: number): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/connectors/${id}`)
+  }
+
+  async createConnector(payload: AiConnectorSavePayload): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>('/api/connectors', {
       method: 'POST',
       body: JSON.stringify(payload)
     })
   }
 
-  async updateAiConnector(id: number, payload: AiConnectorSavePayload): Promise<AiConnectorView> {
-    return this.request<AiConnectorView>(`/api/ai/connectors/${id}`, {
+  async updateConnector(id: number, payload: AiConnectorSavePayload): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/connectors/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload)
     })
   }
 
-  async deleteAiConnector(id: number): Promise<void> {
-    return this.request<void>(`/api/ai/connectors/${id}`, {
+  async deleteConnector(id: number): Promise<void> {
+    return this.request<void>(`/api/connectors/${id}`, {
       method: 'DELETE'
     })
   }
 
-  async testAiConnector(id: number): Promise<AiConnectorView> {
-    return this.request<AiConnectorView>(`/api/ai/connectors/${id}/test`, {
+  async testConnector(id: number): Promise<AiConnectorView> {
+    return this.request<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: 'POST'
     })
   }

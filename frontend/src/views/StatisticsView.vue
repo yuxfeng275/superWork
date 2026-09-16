@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Check,
   CircleCheckFilled,
   CircleCloseFilled,
   Clock,
-  Connection,
   Delete as DeleteIcon,
   Edit,
   List as ListIcon,
@@ -17,7 +16,6 @@ import {
 } from '@element-plus/icons-vue'
 import {
   api,
-  type YunxiaoConfigPayload,
   type YunxiaoMemberOption,
   type YunxiaoProjectMapping,
   type YunxiaoProjectOption,
@@ -181,10 +179,9 @@ const localDate = (value = new Date()) => {
 const today = new Date()
 const loading = ref(false)
 const syncing = ref(false)
-const configSaving = ref(false)
-const connectionTesting = ref(false)
 const loadError = ref('')
 const activeTab = ref('worklogs')
+const router = useRouter()
 const period = ref<[string, string]>([
   localDate(new Date(today.getFullYear(), today.getMonth(), 1)),
   localDate(today)
@@ -236,19 +233,6 @@ const userMappingForm = reactive({
   yunxiaoUserId: '',
   syncEnabled: 1
 })
-
-const configForm = reactive<YunxiaoConfigPayload>({
-  enabled: false,
-  edition: 'center',
-  baseUrl: 'https://openapi-rdc.aliyuncs.com',
-  organizationId: '',
-  token: ''
-})
-
-const editionOptions = [
-  { label: '中心化版本', value: 'center' },
-  { label: '专有云版本', value: 'region' }
-]
 
 const worklogGroupOptions = [
   { value: 'all' as const, label: '全部', icon: ListIcon },
@@ -398,11 +382,6 @@ const loadDashboard = async () => {
     })
     dashboard.value = data
     yunxiaoAnalysis.value = await api.getYunxiaoAnalysis().catch(() => yunxiaoAnalysis.value)
-    configForm.enabled = data.integration.enabled
-    configForm.edition = data.integration.edition === 'region' ? 'region' : 'center'
-    configForm.baseUrl = data.integration.baseUrl || 'https://openapi-rdc.aliyuncs.com'
-    configForm.organizationId = data.integration.organizationId || ''
-    configForm.token = ''
   } catch (error: unknown) {
     loadError.value = errorMessage(error, '驾驶舱数据加载失败')
   } finally {
@@ -644,66 +623,6 @@ const syncYunxiao = async () => {
     ElMessage.error(errorMessage(error, '云效同步失败'))
   } finally {
     syncing.value = false
-  }
-}
-
-const validateYunxiaoConfig = () => {
-  if (!configForm.baseUrl.trim()) {
-    ElMessage.warning('请填写云效服务地址')
-    return false
-  }
-  if (configForm.edition === 'center' && configForm.enabled && !configForm.organizationId?.trim()) {
-    ElMessage.warning('中心化版本启用前需要填写组织ID')
-    return false
-  }
-  if (configForm.enabled && !dashboard.value.integration.tokenConfigured && !configForm.token?.trim()) {
-    ElMessage.warning('启用云效集成前需要填写个人访问令牌')
-    return false
-  }
-  return true
-}
-
-const persistYunxiaoConfig = async (showSuccess: boolean) => {
-  if (!validateYunxiaoConfig()) return false
-  configSaving.value = true
-  try {
-    dashboard.value.integration = await api.updateYunxiaoConfig<Dashboard['integration']>({
-      enabled: configForm.enabled,
-      edition: configForm.edition,
-      baseUrl: configForm.baseUrl.trim(),
-      organizationId: configForm.organizationId?.trim(),
-      token: configForm.token?.trim() || undefined
-    })
-    configForm.token = ''
-    if (showSuccess) ElMessage.success('云效配置已保存')
-    return true
-  } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '云效配置保存失败'))
-    return false
-  } finally {
-    configSaving.value = false
-  }
-}
-
-const saveYunxiaoConfig = () => persistYunxiaoConfig(true)
-
-const testYunxiaoConnection = async () => {
-  if (!validateYunxiaoConfig()) return
-  connectionTesting.value = true
-  try {
-    const saved = await persistYunxiaoConfig(false)
-    if (!saved) return
-    const result = await api.testYunxiaoConnection()
-    dashboard.value.integration.lastTestedAt = result.testedAt
-    dashboard.value.integration.lastTestStatus = result.success ? 'SUCCESS' : 'FAILED'
-    dashboard.value.integration.lastTestMessage = result.message
-    result.success
-      ? ElMessage.success(`连接成功${result.userName ? `：${result.userName}` : ''}`)
-      : ElMessage.error(result.message || '云效连接测试失败')
-  } catch (error: unknown) {
-    ElMessage.error(errorMessage(error, '云效连接测试失败'))
-  } finally {
-    connectionTesting.value = false
   }
 }
 
@@ -1118,7 +1037,7 @@ onMounted(refresh)
             <p>
               {{ dashboard.integration.configured
                 ? `已映射 ${dashboard.integration.mappedProjects} 个项目、${dashboard.integration.mappedUsers} 名人员`
-                : '在下方维护连接参数，启用并测试成功后即可同步数据。' }}
+                : '连接参数请在「连接器管理」维护，配置就绪后即可同步数据。' }}
             </p>
           </div>
           <el-button
@@ -1135,8 +1054,8 @@ onMounted(refresh)
         <section class="connection-section" aria-labelledby="yunxiao-connection-title">
           <div class="section-toolbar compact connection-heading">
             <div>
-              <h2 id="yunxiao-connection-title">连接参数</h2>
-              <p>令牌加密保存，页面不会回显原文。</p>
+              <h2 id="yunxiao-connection-title">连接参数（只读）</h2>
+              <p>服务地址、版本、组织与令牌统一在「连接器管理」维护，页面不会回显令牌原文。</p>
             </div>
             <el-tag
               v-if="dashboard.integration.lastTestStatus"
@@ -1150,53 +1069,43 @@ onMounted(refresh)
           <el-alert
             v-if="dashboard.integration.tokenSource === 'UNREADABLE'"
             title="现有云效令牌无法解密"
-            description="服务器解密密钥已缺失。请在下方重新输入个人访问令牌并保存，后台同步会在恢复前安全暂停。"
+            description="服务器解密密钥已缺失。请在「连接器管理」重新填写个人访问令牌，后台同步会在恢复前安全暂停。"
             type="error"
             :closable="false"
             show-icon
             class="connection-recovery-alert"
           />
 
-          <el-form label-position="top" class="connection-form">
-            <div class="connection-grid">
-              <el-form-item label="集成状态">
-                <el-switch
-                  v-model="configForm.enabled"
-                  inline-prompt
-                  active-text="启用"
-                  inactive-text="停用"
-                />
-              </el-form-item>
-              <el-form-item label="云效版本">
-                <el-segmented v-model="configForm.edition" :options="editionOptions" />
-              </el-form-item>
-              <el-form-item label="服务地址" class="connection-wide" required>
-                <el-input
-                  v-model="configForm.baseUrl"
-                  placeholder="https://openapi-rdc.aliyuncs.com"
-                />
-              </el-form-item>
-              <el-form-item
-                v-if="configForm.edition === 'center'"
-                label="组织ID"
-                :required="configForm.enabled"
-              >
-                <el-input v-model="configForm.organizationId" placeholder="云效企业组织ID" />
-              </el-form-item>
-              <el-form-item label="个人访问令牌" :required="configForm.enabled && !dashboard.integration.tokenConfigured">
-                <el-input
-                  v-model="configForm.token"
-                  type="password"
-                  show-password
-                  autocomplete="new-password"
-                  :placeholder="dashboard.integration.tokenSource === 'UNREADABLE' ? '必须重新输入个人访问令牌' : dashboard.integration.tokenConfigured ? '已配置，留空保持不变' : '输入个人访问令牌'"
-                />
-                <span v-if="dashboard.integration.tokenConfigured" class="field-note">
-                  {{ dashboard.integration.tokenSource === 'PAGE' ? '已由页面安全保存' : '当前使用服务器环境变量' }}
-                </span>
-              </el-form-item>
+          <div class="connection-facts">
+            <div class="connection-fact">
+              <span>集成状态</span>
+              <strong>{{ dashboard.integration.enabled ? '已启用' : '已停用' }}</strong>
             </div>
-          </el-form>
+            <div class="connection-fact">
+              <span>云效版本</span>
+              <strong>{{ dashboard.integration.edition === 'region' ? '专有云版本' : '中心化版本' }}</strong>
+            </div>
+            <div class="connection-fact">
+              <span>服务地址</span>
+              <strong>{{ dashboard.integration.baseUrl || '—' }}</strong>
+            </div>
+            <div class="connection-fact">
+              <span>组织ID</span>
+              <strong>{{ dashboard.integration.organizationId || '—' }}</strong>
+            </div>
+            <div class="connection-fact">
+              <span>个人访问令牌</span>
+              <strong>
+                {{ dashboard.integration.tokenConfigured
+                  ? dashboard.integration.tokenSource === 'PAGE' ? '已由页面保存' : '当前使用服务器环境变量'
+                  : '未配置' }}
+              </strong>
+            </div>
+            <div class="connection-fact">
+              <span>配置完整性</span>
+              <strong>{{ dashboard.integration.configured ? '配置完整' : '待补充' }}</strong>
+            </div>
+          </div>
 
           <div
             v-if="dashboard.integration.lastTestedAt"
@@ -1208,23 +1117,7 @@ onMounted(refresh)
           </div>
 
           <div class="connection-actions">
-            <el-button
-              :icon="Connection"
-              :loading="connectionTesting"
-              :disabled="configSaving"
-              @click="testYunxiaoConnection"
-            >
-              测试连接
-            </el-button>
-            <el-button
-              type="primary"
-              :icon="Check"
-              :loading="configSaving"
-              :disabled="connectionTesting"
-              @click="saveYunxiaoConfig"
-            >
-              保存配置
-            </el-button>
+            <el-button type="primary" @click="router.push('/system/connectors')">去连接器管理维护</el-button>
           </div>
         </section>
 
@@ -2104,23 +1997,33 @@ onMounted(refresh)
   align-items: flex-end;
 }
 
-.connection-form {
+.connection-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 20px;
   max-width: 900px;
 }
 
-.connection-grid {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.7fr) minmax(300px, 1.3fr);
-  gap: 2px 20px;
+.connection-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
 }
 
-.connection-wide {
-  grid-column: 1 / -1;
+.connection-fact span {
+  color: var(--gray-500);
+  font-size: 12px;
 }
 
-.connection-form :deep(.el-input),
-.connection-form :deep(.el-segmented) {
-  width: 100%;
+.connection-fact strong {
+  color: var(--gray-800);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .field-note {
@@ -2323,13 +2226,8 @@ onMounted(refresh)
   }
 
   .form-grid,
-  .milestone-editor-row,
-  .connection-grid {
+  .milestone-editor-row {
     grid-template-columns: 1fr;
-  }
-
-  .connection-wide {
-    grid-column: auto;
   }
 
   .connection-actions,

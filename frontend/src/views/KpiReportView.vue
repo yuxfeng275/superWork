@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Download, Setting, Connection } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
@@ -21,6 +22,7 @@ const year = ref(currentYear)
 const loading = ref(false)
 const report = ref<KpiReport | null>(null)
 const activeTab = ref('report')
+const router = useRouter()
 
 // ==================== 数据加载 ====================
 
@@ -222,56 +224,18 @@ const saveRule = async (rule: KpiAlertRule) => {
   }
 }
 
-// ==================== 工时系统集成 ====================
+// ==================== 工时系统集成（连接配置在「连接器管理」维护） ====================
 
 const wtStatus = ref<WorktimeStatus | null>(null)
 const wtLogs = ref<WorktimeSyncLog[]>([])
-const wtForm = reactive({ enabled: false, baseUrl: 'https://worktime.lucidata.cn', employeeNo: '', password: '' })
-const wtTesting = ref(false)
 const wtSyncing = ref(false)
 
 const loadWorktime = async () => {
   try {
     wtStatus.value = await api.getWorktimeStatus()
     wtLogs.value = await api.getWorktimeSyncLogs()
-    wtForm.enabled = wtStatus.value.enabled
-    if (wtStatus.value.baseUrl) wtForm.baseUrl = wtStatus.value.baseUrl
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '加载工时系统集成状态失败')
-  }
-}
-
-const saveWorktimeConfig = async () => {
-  try {
-    await api.saveWorktimeConfig({
-      enabled: wtForm.enabled,
-      baseUrl: wtForm.baseUrl,
-      employeeNo: wtForm.employeeNo || undefined,
-      password: wtForm.password || undefined
-    })
-    ElMessage.success('配置已保存')
-    wtForm.employeeNo = ''
-    wtForm.password = ''
-    await loadWorktime()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '保存失败')
-  }
-}
-
-const testWorktime = async () => {
-  wtTesting.value = true
-  try {
-    const result = await api.testWorktimeConnection()
-    if (result.success) {
-      ElMessage.success(`连接成功，可见业务线 ${result.visibleBusinessLines?.length ?? 0} 条，数据截止 ${result.dataCutoffDate ?? '—'}`)
-    } else {
-      ElMessage.error(result.message ?? '连接失败')
-    }
-    await loadWorktime()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '连接测试失败')
-  } finally {
-    wtTesting.value = false
   }
 }
 
@@ -461,34 +425,29 @@ const syncTypeLabel: Record<string, string> = { contract: '合同明细', worklo
         </el-card>
       </el-tab-pane>
 
-      <!-- ==================== 工时系统集成 ==================== -->
+      <!-- ==================== 工时系统集成（只读状态 + 同步） ==================== -->
       <el-tab-pane label="数据同步" name="worktime">
         <el-card shadow="never">
           <template #header><span><el-icon><Connection /></el-icon> 工时系统集成</span></template>
-          <el-form label-width="120px" style="max-width: 560px">
-            <el-form-item label="启用自动同步">
-              <el-switch v-model="wtForm.enabled" />
-            </el-form-item>
-            <el-form-item label="系统地址">
-              <el-input v-model="wtForm.baseUrl" placeholder="https://worktime.lucidata.cn" />
-            </el-form-item>
-            <el-form-item label="登录工号">
-              <el-input v-model="wtForm.employeeNo" :placeholder="wtStatus?.credentialConfigured ? '已配置（留空保持不变）' : '如 00504'" />
-            </el-form-item>
-            <el-form-item label="登录密码">
-              <el-input v-model="wtForm.password" type="password" show-password placeholder="留空保持不变" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="saveWorktimeConfig">保存配置</el-button>
-              <el-button :loading="wtTesting" @click="testWorktime">测试连接</el-button>
-              <el-button :loading="wtSyncing" @click="syncContracts">同步合同明细</el-button>
-              <el-button :loading="wtSyncing" @click="syncMonthly">同步工时/成本</el-button>
-            </el-form-item>
-          </el-form>
-          <p v-if="wtStatus" class="hint">
-            最近测试：{{ wtStatus.lastTestStatus ?? '—' }} {{ wtStatus.lastTestedAt ?? '' }}
-            <template v-if="wtStatus.lastTestMessage">｜{{ wtStatus.lastTestMessage }}</template>
-          </p>
+          <div class="integration-status">
+            <div class="integration-status-text">
+              <strong>
+                {{ wtStatus?.enabled ? '已启用' : '未启用' }} ·
+                {{ wtStatus?.credentialConfigured ? '凭据已配置' : '凭据未配置' }}
+              </strong>
+              <p>服务地址：{{ wtStatus?.baseUrl || '—' }}</p>
+              <p>
+                最近测试：{{ wtStatus?.lastTestStatus ?? '—' }} {{ wtStatus?.lastTestedAt ?? '' }}
+                <template v-if="wtStatus?.lastTestMessage">｜{{ wtStatus.lastTestMessage }}</template>
+              </p>
+              <p class="hint">连接参数（服务地址 / 账号 / 密码 / 启用状态）统一在「连接器管理」维护，此处不再重复填写。</p>
+            </div>
+            <el-button type="primary" @click="router.push('/system/connectors')">去连接器管理</el-button>
+          </div>
+          <div class="sync-actions">
+            <el-button :loading="wtSyncing" @click="syncContracts">同步合同明细</el-button>
+            <el-button :loading="wtSyncing" @click="syncMonthly">同步工时/成本</el-button>
+          </div>
         </el-card>
 
         <el-card shadow="never" style="margin-top: 16px">
@@ -558,4 +517,9 @@ const syncTypeLabel: Record<string, string> = { contract: '合同明细', worklo
 .delta-normal { color: var(--el-text-color-regular); }
 .row-total td { font-weight: 600; background: var(--el-fill-color-lighter); }
 .hint { color: var(--el-text-color-secondary); font-size: 12px; margin-top: 8px; }
+.integration-status { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.integration-status-text strong { color: var(--el-text-color-primary); font-size: 14px; }
+.integration-status-text p { margin: 6px 0 0; color: var(--el-text-color-regular); font-size: 13px; }
+.sync-actions { display: flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--el-border-color-lighter); }
+@media (max-width: 720px) { .integration-status { flex-direction: column; } }
 </style>

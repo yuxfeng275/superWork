@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Connection, Refresh, Setting } from '@element-plus/icons-vue'
+import { Refresh, Setting } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
 import type { SystemConfigGroup, SystemConfigGroupSummary, SystemConfigItem } from '@/types/system-config'
 
@@ -11,7 +11,6 @@ const selectedGroupCode = ref('')
 const values = reactive<Record<string, string>>({})
 const loading = ref(true)
 const saving = ref(false)
-const testing = ref('')
 const error = ref('')
 
 const configuredText = computed(() => currentGroup.value
@@ -65,34 +64,8 @@ async function saveGroup() {
   }
 }
 
-async function testIntegration(integration: 'deepseek' | 'wecom' | 'worktime' | 'yuque') {
-  if (!currentGroup.value) return
-  testing.value = integration
-  try {
-    const result = await api.testSystemConfigIntegration(currentGroup.value.groupCode, integration)
-    result.success ? ElMessage.success(result.message) : ElMessage.error(result.message)
-  } catch (err: unknown) {
-    ElMessage.error(errorText(err, '连接测试失败'))
-  } finally {
-    testing.value = ''
-  }
-}
-
 async function refreshGroupSummary() {
   groups.value = await api.getSystemConfigGroups()
-}
-
-const CREDENTIAL_KEYS: Record<'deepseek' | 'wecom' | 'worktime' | 'yuque', string> = {
-  deepseek: 'api-key',
-  wecom: 'secret',
-  worktime: 'password',
-  yuque: 'token'
-}
-
-function integrationConfigured(prefix: 'deepseek' | 'wecom' | 'worktime' | 'yuque') {
-  const enabled = values[`${prefix}.enabled`] === 'true'
-  const credential = currentGroup.value?.items.find(item => item.key === `${prefix}.${CREDENTIAL_KEYS[prefix]}`)
-  return enabled && credential?.configured
 }
 
 function inputType(item: SystemConfigItem) {
@@ -140,22 +113,6 @@ onMounted(loadGroups)
           </el-form-item>
         </el-form>
 
-        <section v-if="currentGroup.groupCode === 'email-integration'" class="connection-tests">
-          <div><h4>连接测试</h4><p>请先保存配置，再验证外部服务是否可用。</p></div>
-          <div class="test-actions">
-            <el-button :icon="Connection" :loading="testing === 'deepseek'" :disabled="!integrationConfigured('deepseek')" @click="testIntegration('deepseek')">测试 DeepSeek</el-button>
-            <el-button :icon="Connection" :loading="testing === 'wecom'" :disabled="!integrationConfigured('wecom')" @click="testIntegration('wecom')">测试企业微信</el-button>
-          </div>
-        </section>
-
-        <section v-if="currentGroup.groupCode === 'ai-connector'" class="connection-tests">
-          <div><h4>连接测试</h4><p>请先保存配置，再验证外部服务是否可用。</p></div>
-          <div class="test-actions">
-            <el-button :icon="Connection" :loading="testing === 'worktime'" :disabled="!integrationConfigured('worktime')" @click="testIntegration('worktime')">测试工时系统</el-button>
-            <el-button :icon="Connection" :loading="testing === 'yuque'" :disabled="!integrationConfigured('yuque')" @click="testIntegration('yuque')">测试语雀</el-button>
-          </div>
-        </section>
-
         <footer class="editor-footer"><el-button type="primary" size="large" :loading="saving" @click="saveGroup">保存配置</el-button></footer>
       </main>
     </div>
@@ -172,8 +129,7 @@ onMounted(loadGroups)
 .group-button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px; border: 0; border-radius: 10px; background: transparent; color: var(--gray-600); text-align: left; cursor: pointer; }.group-button:hover { background: #fff; }.group-button.active { background: var(--primary-light); color: var(--primary); }.group-button span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.group-button strong { font-size: 14px; }.group-button small { color: var(--gray-500); font-size: 11px; }
 .config-editor { min-width: 0; padding: 26px; }.editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--gray-200); }.editor-head h3 { margin: 0 0 6px; color: var(--gray-900); font-size: 20px; }.editor-head p { margin: 0; color: var(--gray-500); }
 .config-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; padding-top: 22px; }.field-help { display: block; margin-top: 5px; color: var(--gray-500); font-size: 12px; line-height: 1.45; }
-.connection-tests { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 8px; padding: 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #f8fbff; }.connection-tests h4 { margin: 0 0 4px; color: var(--gray-800); }.connection-tests p { margin: 0; color: var(--gray-500); font-size: 12px; }.test-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .editor-footer { display: flex; justify-content: flex-end; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--gray-200); }
-@media (max-width: 820px) { .config-layout { grid-template-columns: 1fr; }.group-list { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--gray-200); }.group-button { min-width: 210px; }.config-form { grid-template-columns: 1fr; }.connection-tests { align-items: flex-start; flex-direction: column; }.test-actions { width: 100%; flex-direction: column; }.test-actions .el-button { width: 100%; margin-left: 0; } }
+@media (max-width: 820px) { .config-layout { grid-template-columns: 1fr; }.group-list { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--gray-200); }.group-button { min-width: 210px; }.config-form { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .page-head, .editor-head { align-items: flex-start; flex-direction: column; }.config-editor { padding: 18px; }.editor-footer .el-button { width: 100%; } }
 </style>

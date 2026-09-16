@@ -119,7 +119,7 @@ export type AiAgentStreamEvent =
   | AiAgentRunEndEvent
   | AiAgentErrorEvent
 
-/** AI 连接器状态项（GET /api/ai-agent/connectors） */
+/** 连接器状态项（管理页 GET /api/connectors/status；AI 助手面板走免权限别名 GET /api/ai-agent/connectors） */
 export interface AiConnectorStatus {
   code: string
   name: string
@@ -127,10 +127,10 @@ export interface AiConnectorStatus {
   hint: string
 }
 
-/** AI 连接器认证类型 */
-export type AiConnectorAuthType = 'BASIC' | 'TOKEN' | 'MCP'
+/** 连接器认证类型 */
+export type AiConnectorAuthType = 'BASIC' | 'TOKEN' | 'MCP' | 'SEEYON' | 'WECOM' | 'MAIL'
 
-/** AI 连接器管理视图（GET /api/ai/connectors） */
+/** 连接器管理视图（GET /api/connectors） */
 export interface AiConnectorView {
   id: number
   code: string
@@ -141,10 +141,16 @@ export interface AiConnectorView {
   testPath?: string
   queryPath?: string
   readPath?: string
+  /** 系统专属扩展参数（如云效 edition/organizationId、语雀 repo、邮件 searchDays） */
+  extraConfig: Record<string, unknown>
   usernameConfigured: boolean
   passwordConfigured: boolean
   tokenConfigured: boolean
   enabled: boolean
+  /** 启用且必填项齐全 */
+  ready: boolean
+  /** 状态说明：未就绪原因或就绪后的用途提示 */
+  hint: string
   lastTestStatus?: 'SUCCESS' | 'FAILED' | null
   lastTestMessage?: string
   lastTestedAt?: string
@@ -152,7 +158,7 @@ export interface AiConnectorView {
   sortOrder: number
 }
 
-/** AI 连接器创建/编辑请求体（凭据字段留空 = 保持不变） */
+/** 连接器创建/编辑请求体（凭据字段留空 = 保持不变；extraConfig 键缺省即删除） */
 export interface AiConnectorSavePayload {
   code?: string
   name?: string
@@ -162,6 +168,7 @@ export interface AiConnectorSavePayload {
   testPath?: string
   queryPath?: string
   readPath?: string
+  extraConfig?: Record<string, unknown>
   username?: string
   password?: string
   token?: string

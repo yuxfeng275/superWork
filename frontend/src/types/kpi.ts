@@ -96,13 +96,6 @@ export interface WorktimeStatus {
   lastCostSync: WorktimeSyncLog | null
 }
 
-export interface WorktimeTestResult {
-  success: boolean
-  message?: string
-  visibleBusinessLines?: Array<{ id: number; name: string }>
-  dataCutoffDate?: string
-}
-
 export interface MenuTreeNode {
   id: number
   name: string

@@ -26,9 +26,3 @@ export interface SystemConfigGroup {
   description?: string
   items: SystemConfigItem[]
 }
-
-export interface SystemConfigTestResult {
-  success: boolean
-  message: string
-  testedAt: string
-}

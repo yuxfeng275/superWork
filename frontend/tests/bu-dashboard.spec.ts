@@ -204,42 +204,6 @@ test.beforeEach(async ({ page }) => {
       ]
     })
   }))
-  await page.route('**/api/yunxiao/config', async route => {
-    const request = route.request().postDataJSON()
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        code: 200,
-        data: {
-          ...dashboard.integration,
-          enabled: request.enabled,
-          configured: true,
-          edition: request.edition,
-          baseUrl: request.baseUrl,
-          organizationId: request.organizationId,
-          tokenConfigured: true,
-          tokenSource: 'PAGE',
-          organizationConfigured: true
-        }
-      })
-    })
-  })
-  await page.route('**/api/yunxiao/connection-test', route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({
-      code: 200,
-      data: {
-        success: true,
-        userId: 'yunxiao-user-16',
-        userName: '于峰',
-        email: 'yufeng@example.com',
-        message: '连接成功',
-        testedAt: '2026-07-30T15:30:00'
-      }
-    })
-  }))
 })
 
 test('BU负责人可查看人员负荷、工时分布和云效状态', async ({ page }) => {
@@ -284,36 +248,6 @@ test('方向总览已从BU驾驶舱移除', async ({ page }) => {
   await page.goto('/statistics')
   await expect(page.getByRole('tab', { name: '方向总览' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '新增方向' })).toHaveCount(0)
-})
-
-test('云效连接参数可在页面保存并测试且令牌不回显', async ({ page }) => {
-  await page.goto('/statistics')
-  await page.getByRole('tab', { name: '云效配置' }).click()
-
-  const panel = page.getByRole('tabpanel', { name: '云效配置' })
-  await panel.locator('.el-switch').click()
-  await panel.getByPlaceholder('云效企业组织ID').fill('org-royal')
-  await panel.getByPlaceholder('输入个人访问令牌').fill('pat-secret')
-
-  const configRequest = page.waitForRequest(request =>
-    request.url().endsWith('/api/yunxiao/config') && request.method() === 'PUT'
-  )
-  const connectionRequest = page.waitForRequest(request =>
-    request.url().endsWith('/api/yunxiao/connection-test') && request.method() === 'POST'
-  )
-  await panel.getByRole('button', { name: '测试连接' }).click()
-
-  const savedRequest = await configRequest
-  expect(savedRequest.postDataJSON()).toMatchObject({
-    enabled: true,
-    edition: 'center',
-    organizationId: 'org-royal',
-    token: 'pat-secret'
-  })
-  await connectionRequest
-  await expect(page.getByText('连接成功：于峰')).toBeVisible()
-  await expect(panel.getByPlaceholder('已配置，留空保持不变')).toHaveValue('')
-  await expect(panel.getByText('pat-secret')).toHaveCount(0)
 })
 
 test('项目映射从云效项目列表选择并保存稳定ID', async ({ page }) => {
