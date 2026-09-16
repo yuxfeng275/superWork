@@ -1,7 +1,6 @@
 package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
-import com.bu.management.dto.SeeyonOaConfigRequest;
 import com.bu.management.service.SeeyonOaIntegrationService;
 import com.bu.management.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,20 +27,6 @@ public class SeeyonOaIntegrationController {
     @Operation(summary = "获取 OA 集成状态")
     public Result<Map<String, Object>> getStatus() {
         return Result.success(integrationService.getStatus());
-    }
-
-    @PutMapping("/config")
-    @Operation(summary = "保存 OA 集成配置")
-    public Result<Map<String, Object>> saveConfig(
-            @Valid @RequestBody SeeyonOaConfigRequest request,
-            @RequestAttribute("userId") Long userId) {
-        return Result.success("OA 配置已保存", integrationService.saveConfig(request, userId));
-    }
-
-    @PostMapping("/connection-test")
-    @Operation(summary = "测试 OA 连接")
-    public Result<SeeyonOaConnectionTestResponse> testConnection() {
-        return Result.success(integrationService.testConnection());
     }
 
     // ==================== 数据查询 ====================

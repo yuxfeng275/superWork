@@ -2,13 +2,7 @@ package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.SystemConfigGroupRequest;
-import com.bu.management.integration.DeepSeekDigestClient;
-import com.bu.management.integration.WeComClient;
-import com.bu.management.integration.WorktimeClient;
-import com.bu.management.integration.YuqueMcpClient;
-import com.bu.management.service.EmailIntegrationConfigService;
 import com.bu.management.service.SystemConfigService;
-import com.bu.management.vo.EmailIntegrationTestResponse;
 import com.bu.management.vo.Result;
 import com.bu.management.vo.SystemConfigGroupSummary;
 import com.bu.management.vo.SystemConfigGroupView;
@@ -16,26 +10,26 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 通用系统配置管理（非连接类配置：周报、同步、任务参数等）。
+ * 外部系统连接（云效/工时/OA/语雀/邮件/DeepSeek/GLM/企业微信）统一在「连接器管理」维护，
+ * 连接类配置组已退役，不再出现在这里。
+ */
 @RestController
 @RequestMapping("/api/system/configs")
 @RequiredArgsConstructor
 @RequirePermission({"system:config:list"})
 public class SystemConfigController {
+
     private final SystemConfigService configService;
-    private final DeepSeekDigestClient deepSeekClient;
-    private final WeComClient weComClient;
-    private final WorktimeClient worktimeClient;
-    private final YuqueMcpClient yuqueMcpClient;
 
     @GetMapping
     public Result<List<SystemConfigGroupSummary>> listGroups() {
@@ -54,42 +48,5 @@ public class SystemConfigController {
             @RequestAttribute("userId") Long userId,
             @Valid @RequestBody SystemConfigGroupRequest request) {
         return Result.success(configService.saveGroup(groupCode, request, userId));
-    }
-
-    @PostMapping("/email-integration/deepseek/test")
-    @RequirePermission({"system:config:edit"})
-    public Result<EmailIntegrationTestResponse> testDeepSeek() {
-        return test(deepSeekClient::testConnection, "DeepSeek");
-    }
-
-    @PostMapping("/email-integration/wecom/test")
-    @RequirePermission({"system:config:edit"})
-    public Result<EmailIntegrationTestResponse> testWeCom() {
-        return test(weComClient::testConnection, "企业微信");
-    }
-
-    @PostMapping("/ai-connector/worktime/test")
-    @RequirePermission({"system:config:edit"})
-    public Result<EmailIntegrationTestResponse> testAiConnectorWorktime() {
-        return test(worktimeClient::testConnection, "工时系统");
-    }
-
-    @PostMapping("/ai-connector/yuque/test")
-    @RequirePermission({"system:config:edit"})
-    public Result<EmailIntegrationTestResponse> testAiConnectorYuque() {
-        return test(yuqueMcpClient::testConnection, "语雀");
-    }
-
-    private Result<EmailIntegrationTestResponse> test(Runnable operation, String name) {
-        LocalDateTime testedAt = LocalDateTime.now();
-        try {
-            operation.run();
-            return Result.success(new EmailIntegrationTestResponse(true, "连接成功", testedAt));
-        } catch (RuntimeException exception) {
-            String message = exception.getMessage();
-            if (message == null || message.isBlank()) message = name + "连接失败";
-            message = message.substring(0, Math.min(500, message.length()));
-            return Result.success(new EmailIntegrationTestResponse(false, message, testedAt));
-        }
     }
 }

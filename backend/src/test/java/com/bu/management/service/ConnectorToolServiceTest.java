@@ -8,7 +8,6 @@ import static org.mockito.Mockito.when;
 import com.bu.management.entity.EmailAccount;
 import com.bu.management.entity.EmailMessage;
 import com.bu.management.integration.SeeyonOaClient;
-import com.bu.management.integration.WorktimeClient;
 import com.bu.management.integration.YuqueMcpClient;
 
 import com.bu.management.mapper.EmailAccountMapper;
@@ -16,7 +15,6 @@ import com.bu.management.mapper.EmailMessageMapper;
 import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.UserMapper;
 import com.bu.management.mapper.YunxiaoProjectMappingMapper;
-import com.bu.management.service.ConnectorToolService.ConnectorStatus;
 import com.bu.management.vo.AiAgentToolDefinition;
 import com.bu.management.vo.AiAgentToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,7 +35,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class ConnectorToolServiceTest {
 
     @Mock
-    private SystemConfigService configService;
+    private ConnectorRegistryService registryService;
     @Mock
     private AiConnectorIdentityService identityService;
     @Mock
@@ -55,13 +53,7 @@ class ConnectorToolServiceTest {
     @Mock
     private SeeyonOaClient seeyonOaClient;
     @Mock
-    private SeeyonOaConfigService seeyonOaConfigService;
-    @Mock
-    private YunxiaoConfigService yunxiaoConfigService;
-    @Mock
     private YuqueMcpClient yuqueMcpClient;
-    @Mock
-    private WorktimeClient worktimeClient;
     @Mock
     private com.bu.management.service.WorktimeAnalyticsService worktimeAnalyticsService;
     @Mock
@@ -74,12 +66,20 @@ class ConnectorToolServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ConnectorToolService(configService, identityService,
+        service = new ConnectorToolService(registryService, identityService,
                 emailMessageMapper, emailAccountMapper, yunxiaoQueryService,
                 yunxiaoProjectMappingMapper, projectMapper, userMapper,
-                seeyonOaClient, seeyonOaConfigService, yunxiaoConfigService,
-                yuqueMcpClient, worktimeClient, worktimeAnalyticsService,
+                seeyonOaClient, yuqueMcpClient, worktimeAnalyticsService,
                 sysRoleService, objectMapper, worktimeInsightToolService);
+    }
+
+    /** 让指定编码的连接器判定为 READY（就绪口径来自连接器注册表）。 */
+    private void stubReadyConnector(String code) {
+        com.bu.management.entity.Connector connector = new com.bu.management.entity.Connector();
+        connector.setCode(code);
+        connector.setEnabled(1);
+        lenient().when(registryService.findByCode(code)).thenReturn(java.util.Optional.of(connector));
+        lenient().when(registryService.status(connector)).thenReturn("READY");
     }
 
     private EmailMessage message(Long id, Long ownerId, String subject, String body) {
@@ -103,15 +103,11 @@ class ConnectorToolServiceTest {
     }
 
     @Test
-    @DisplayName("definitions：语雀与工时启用且配置完整时下发对应工具")
+    @DisplayName("definitions：语雀/工时/云效连接器就绪时下发对应工具")
     void definitionsIncludesEnabledConnectors() {
-        when(yuqueMcpClient.enabled()).thenReturn(true);
-        when(yuqueMcpClient.configured()).thenReturn(true);
-        lenient().when(worktimeClient.enabled()).thenReturn(true);
-        lenient().when(worktimeClient.configured()).thenReturn(true);
-        when(yunxiaoConfigService.getRuntimeConfig()).thenReturn(
-                new com.bu.management.config.YunxiaoRuntimeConfig(
-                        true, "center", "https://openapi.aliyun.com", "org", "tok", "PAGE", null, null, null));
+        stubReadyConnector("yuque");
+        stubReadyConnector("worktime");
+        stubReadyConnector("yunxiao");
         when(worktimeInsightToolService.definitions()).thenReturn(List.of(
                 new AiAgentToolDefinition("analyze_my_contracts", "合同应收回款分析", objectMapper.createObjectNode()),
                 new AiAgentToolDefinition("analyze_cost_structure", "成本结构分析", objectMapper.createObjectNode()),
@@ -201,36 +197,16 @@ class ConnectorToolServiceTest {
     }
 
     @Test
-    @DisplayName("statuses：工时系统恒就绪（读本地同步库）")
-    void statusesWorktimeAlwaysReady() {
-        ConnectorStatus wt = service.statuses().stream()
-                .filter(s -> "worktime".equals(s.code())).findFirst().orElseThrow();
+    @DisplayName("definitions：连接器未就绪时不下发对应工具")
+    void definitionsExcludesNotReadyConnectors() {
+        lenient().when(registryService.findByCode(org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(java.util.Optional.empty());
 
-        assertThat(wt.status()).isEqualTo("READY");
-    }
+        List<String> names = service.definitions().stream()
+                .map(AiAgentToolDefinition::name).toList();
 
-    @Test
-    @DisplayName("statuses：语雀启用但未配置时为 NOT_CONFIGURED")
-    void statusesYuqueEnabledNotConfigured() {
-        lenient().when(yuqueMcpClient.enabled()).thenReturn(true);
-        lenient().when(yuqueMcpClient.configured()).thenReturn(false);
-
-        ConnectorStatus yuque = service.statuses().stream()
-                .filter(s -> "yuque".equals(s.code())).findFirst().orElseThrow();
-
-        assertThat(yuque.status()).isEqualTo("NOT_CONFIGURED");
-    }
-
-    @Test
-    @DisplayName("statuses：语雀未启用时为 DISABLED")
-    void statusesYuqueDisabled() {
-        lenient().when(yuqueMcpClient.enabled()).thenReturn(false);
-        lenient().when(yuqueMcpClient.configured()).thenReturn(false);
-
-        ConnectorStatus yuque = service.statuses().stream()
-                .filter(s -> "yuque".equals(s.code())).findFirst().orElseThrow();
-
-        assertThat(yuque.status()).isEqualTo("DISABLED");
+        assertThat(names).contains("search_my_emails", "query_my_worktime")
+                .doesNotContain("search_yuque_docs", "query_yunxiao_workitems", "query_oa_pending");
     }
 
     // ==================== 工时系统（本地同步库分析） ====================
@@ -263,7 +239,6 @@ class ConnectorToolServiceTest {
 
         assertThat(result.isError()).isTrue();
         assertThat(result.content()).contains("未能识别你在工时系统的身份");
-        verifyNoInteractions(worktimeClient);
     }
 
     @Test

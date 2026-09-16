@@ -1,8 +1,8 @@
 package com.bu.management.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.bu.management.entity.AiConnector;
+import com.bu.management.entity.Connector;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
-public interface AiConnectorMapper extends BaseMapper<AiConnector> {}
+public interface ConnectorMapper extends BaseMapper<Connector> {}

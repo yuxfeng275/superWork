@@ -7,7 +7,6 @@ import com.bu.management.entity.Project;
 import com.bu.management.entity.User;
 import com.bu.management.entity.YunxiaoProjectMapping;
 import com.bu.management.integration.SeeyonOaClient;
-import com.bu.management.integration.WorktimeClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.EmailAccountMapper;
 import com.bu.management.mapper.EmailMessageMapper;
@@ -34,9 +33,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * AI 连接器只读工具：邮箱（本地库）、云效（工作项查询服务）、OA（致远）、
- * 语雀（MCP）、工时系统（HTTP）。仅当连接器启用且已配置时才下发工具定义
- * （邮箱工具恒下发，执行期检查用户是否绑定邮箱）。
+ * 连接器只读工具：邮箱（本地库）、云效（工作项查询服务）、OA（致远）、
+ * 语雀（MCP）、工时系统（HTTP）。仅当连接器就绪（连接器管理里启用且配置完整）
+ * 时才下发工具定义（邮箱工具恒下发，执行期检查用户是否绑定邮箱）。
  * 任何失败都转换为 isError 结果，绝不向侧车抛异常；输出/错误消息不含凭据。
  *
  * @author BU Team
@@ -47,13 +46,12 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class ConnectorToolService {
 
-    private static final String GROUP = "ai-connector";
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAIL_MAX_LIMIT = 50;
     private static final int MAIL_BODY_MAX_CHARS = 8_000;
     private static final int YUNXIAO_MAX_LIMIT = 50;
 
-    private final SystemConfigService configService;
+    private final ConnectorRegistryService registryService;
     private final AiConnectorIdentityService identityService;
     private final EmailMessageMapper emailMessageMapper;
     private final EmailAccountMapper emailAccountMapper;
@@ -62,10 +60,7 @@ public class ConnectorToolService {
     private final ProjectMapper projectMapper;
     private final UserMapper userMapper;
     private final SeeyonOaClient seeyonOaClient;
-    private final SeeyonOaConfigService seeyonOaConfigService;
-    private final YunxiaoConfigService yunxiaoConfigService;
     private final YuqueMcpClient yuqueMcpClient;
-    private final WorktimeClient worktimeClient;
     private final WorktimeAnalyticsService worktimeAnalyticsService;
     private final SysRoleService sysRoleService;
     private final ObjectMapper objectMapper;
@@ -152,62 +147,6 @@ public class ConnectorToolService {
 
         defs.addAll(worktimeInsightToolService.definitions());
         return defs;
-    }
-
-    /** 连接器状态项：code/名称/状态（READY、DISABLED、NOT_CONFIGURED）/提示文案。 */
-    public record ConnectorStatus(String code, String name, String status, String hint) {}
-
-    /**
-     * 连接器状态列表，供前端「AI 连接器」面板展示；就绪判定复用 definitions()
-     * 的裁剪口径，未就绪时进一步区分未启用与未配置。
-     */
-    public List<ConnectorStatus> statuses() {
-        List<ConnectorStatus> list = new ArrayList<>();
-        // 邮箱：恒就绪，执行期按用户检查 EmailAccount
-        list.add(new ConnectorStatus("mail", "邮箱", "READY",
-                "按用户隔离：在「邮箱管理」绑定邮箱后即可让 AI 查询已同步邮件"));
-        // 云效
-        if (yunxiaoReady()) {
-            list.add(new ConnectorStatus("yunxiao", "云效", "READY", "已就绪，AI 可查询工作项"));
-        } else {
-            try {
-                var cfg = yunxiaoConfigService.getRuntimeConfig();
-                list.add(cfg.enabled()
-                        ? new ConnectorStatus("yunxiao", "云效", "NOT_CONFIGURED", "云效连接参数不完整，请先完成云效配置")
-                        : new ConnectorStatus("yunxiao", "云效", "DISABLED", "请在「BU驾驶舱 → 云效配置」启用"));
-            } catch (Exception e) {
-                list.add(new ConnectorStatus("yunxiao", "云效", "DISABLED", "配置读取失败"));
-            }
-        }
-        // OA（致远）
-        if (seeyonReady()) {
-            list.add(new ConnectorStatus("oa", "OA（致远）", "READY", "已就绪，AI 可查询待办/已办/流程"));
-        } else {
-            try {
-                var cfg = seeyonOaConfigService.getRuntimeConfig();
-                list.add(cfg.enabled()
-                        ? new ConnectorStatus("oa", "OA（致远）", "NOT_CONFIGURED", "OA 连接参数不完整，请补全服务地址与账号")
-                        : new ConnectorStatus("oa", "OA（致远）", "DISABLED", "请在 OA 集成配置中启用"));
-            } catch (Exception e) {
-                list.add(new ConnectorStatus("oa", "OA（致远）", "DISABLED", "配置读取失败"));
-            }
-        }
-        // 语雀
-        if (yuqueReady()) {
-            list.add(new ConnectorStatus("yuque", "语雀", "READY", "已就绪，AI 可搜索/阅读语雀文档"));
-        } else {
-            try {
-                list.add(yuqueMcpClient.enabled()
-                        ? new ConnectorStatus("yuque", "语雀", "NOT_CONFIGURED", "请在 配置管理 → AI 连接器 补全 MCP 地址与 Token")
-                        : new ConnectorStatus("yuque", "语雀", "DISABLED", "请在 配置管理 → AI 连接器 启用"));
-            } catch (Exception e) {
-                list.add(new ConnectorStatus("yuque", "语雀", "DISABLED", "配置读取失败"));
-            }
-        }
-        // 工时系统：读本地同步库（revenue_worklog_entry），恒就绪；身份按 ai_connector_identity 或姓名匹配
-        list.add(new ConnectorStatus("worktime", "工时系统", "READY",
-                "已接入：AI 可查询你的月度工时、趋势分析；团队分析需营收权限"));
-        return list;
     }
 
     /** 内置连接器工具名集合。 */
@@ -697,32 +636,23 @@ public class ConnectorToolService {
     // ==================== 就绪判定（动态裁剪） ====================
 
     private boolean yunxiaoReady() {
-        try {
-            return yunxiaoConfigService.getRuntimeConfig().isConfigured();
-        } catch (Exception e) {
-            return false;
-        }
+        return connectorReady(ConnectorRegistryService.CODE_YUNXIAO);
     }
 
     private boolean seeyonReady() {
-        try {
-            return seeyonOaConfigService.getRuntimeConfig().isConfigured();
-        } catch (Exception e) {
-            return false;
-        }
+        return connectorReady(ConnectorRegistryService.CODE_OA);
     }
 
     private boolean yuqueReady() {
-        try {
-            return yuqueMcpClient.enabled() && yuqueMcpClient.configured();
-        } catch (Exception e) {
-            return false;
-        }
+        return connectorReady(ConnectorRegistryService.CODE_YUQUE);
     }
 
-    private boolean worktimeReady() {
+    /** 连接器就绪判定（唯一口径：连接器注册表）。 */
+    private boolean connectorReady(String code) {
         try {
-            return worktimeClient.enabled() && worktimeClient.configured();
+            return registryService.findByCode(code)
+                    .map(connector -> "READY".equals(registryService.status(connector)))
+                    .orElse(false);
         } catch (Exception e) {
             return false;
         }
@@ -784,8 +714,10 @@ public class ConnectorToolService {
 
     private int mailSearchDays() {
         try {
-            return Math.min(Math.max(
-                    Integer.parseInt(configService.getValue(GROUP, "mail.search-days", "90")), 1), 365);
+            String configured = registryService.findByCode(ConnectorRegistryService.CODE_MAIL)
+                    .map(connector -> registryService.extra(connector, "searchDays"))
+                    .orElse(null);
+            return Math.min(Math.max(Integer.parseInt(configured == null ? "90" : configured), 1), 365);
         } catch (NumberFormatException e) {
             return 90;
         }

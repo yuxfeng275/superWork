@@ -1,7 +1,6 @@
 package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
-import com.bu.management.dto.YunxiaoConfigRequest;
 import com.bu.management.dto.YunxiaoExemptionRequest;
 import com.bu.management.dto.YunxiaoProjectMappingRequest;
 import com.bu.management.dto.YunxiaoUserMappingRequest;
@@ -14,7 +13,6 @@ import com.bu.management.service.YunxiaoHandoffService;
 import com.bu.management.service.YunxiaoIntegrationService;
 import com.bu.management.vo.BuDashboardResponse;
 import com.bu.management.vo.Result;
-import com.bu.management.vo.YunxiaoConnectionTestResponse;
 import com.bu.management.vo.YunxiaoMemberOption;
 import com.bu.management.vo.YunxiaoProjectOption;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -52,18 +50,6 @@ public class YunxiaoIntegrationController {
     @GetMapping("/analysis")
     public Result<Map<String, Object>> analysis() {
         return Result.success(integrationService.analysis());
-    }
-
-    @PutMapping("/config")
-    public Result<BuDashboardResponse.IntegrationStatus> saveConfig(
-            @Valid @RequestBody YunxiaoConfigRequest request,
-            @RequestAttribute("userId") Long userId) {
-        return Result.success("云效配置已保存", integrationService.saveConfig(request, userId));
-    }
-
-    @PostMapping("/connection-test")
-    public Result<YunxiaoConnectionTestResponse> testConnection() {
-        return Result.success(integrationService.testConnection());
     }
 
     @GetMapping("/project-mappings")

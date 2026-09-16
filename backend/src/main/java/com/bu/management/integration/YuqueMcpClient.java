@@ -1,6 +1,7 @@
 package com.bu.management.integration;
 
-import com.bu.management.service.SystemConfigService;
+import com.bu.management.entity.Connector;
+import com.bu.management.service.ConnectorRegistryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,8 @@ import java.util.Map;
 /**
  * 语雀 MCP 客户端：最小 JSON-RPC 2.0 实现（initialize / tools/list / tools/call）。
  * 优先 streamable HTTP（POST mcp-url），失败回退 SSE 端点（mcp-url 同路径 /sse）。
- * token 为组织级凭据，来自系统配置 ai-connector 组；任何错误消息都不回显 token。
+ * token 为组织级凭据，唯一来源是连接器注册表（code=yuque，见「连接器管理」）；
+ * 任何错误消息都不回显 token。
  *
  * @author BU Team
  * @since 2026-09-04
@@ -31,10 +33,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class YuqueMcpClient {
 
-    private static final String GROUP = "ai-connector";
+    /** 请求超时（秒），与连接器默认口径一致。 */
+    private static final int TIMEOUT_SECONDS = 30;
     private static final int MAX_TEXT_CHARS = 12_000;
 
-    private final SystemConfigService configService;
+    private final ConnectorRegistryService registryService;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -51,7 +54,8 @@ public class YuqueMcpClient {
     public record McpToolResult(String text, boolean isError) {}
 
     public boolean enabled() {
-        return configService.getBoolean(GROUP, "yuque.enabled", false);
+        Connector connector = connector();
+        return connector != null && Integer.valueOf(1).equals(connector.getEnabled());
     }
 
     public boolean configured() {
@@ -503,22 +507,23 @@ public class YuqueMcpClient {
         return value.length() > 120 ? value.substring(0, 120) + "…" : value;
     }
 
+    private Connector connector() {
+        return registryService.findByCode(ConnectorRegistryService.CODE_YUQUE).orElse(null);
+    }
+
     private String token() {
-        return configService.getValue(GROUP, "yuque.token", null);
+        Connector connector = connector();
+        return connector == null ? null : registryService.credential(connector, "token");
     }
 
     private String mcpUrl() {
-        return configService.getValue(GROUP, "yuque.mcp-url", "https://mcp.yuque.com/mcp");
+        Connector connector = connector();
+        String url = connector == null ? null : connector.getMcpUrl();
+        return StringUtils.hasText(url) ? url : "https://mcp.yuque.com/mcp";
     }
 
     private int timeoutSeconds() {
-        int value;
-        try {
-            value = Integer.parseInt(configService.getValue(GROUP, "yuque.timeout-seconds", "30"));
-        } catch (NumberFormatException e) {
-            value = 30;
-        }
-        return Math.min(Math.max(value, 5), 60);
+        return TIMEOUT_SECONDS;
     }
 
     // ==================== REST v2 降级（MCP 网关 403 时） ====================

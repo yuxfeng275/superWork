@@ -7,15 +7,17 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 /**
- * AI 连接器注册表：一行 = 一个外部系统连接实例。
- * auth_type 决定凭据形态：BASIC（账号密码）/ TOKEN / MCP（Bearer over MCP 协议）。
+ * 连接器注册表（表名沿用 ai_connector）：一行 = 一个外部系统连接实例。
+ * auth_type 决定凭据形态：BASIC（账号密码）/ TOKEN / MCP（Bearer over MCP 协议）/
+ * SEEYON（致远 OA REST）/ MAIL（企业邮箱，按用户绑定账号）。
+ * extra_config 存放系统专属参数（JSON），如云效 edition/organizationId、语雀 repo。
  *
  * @author BU Team
  * @since 2026-09-04
  */
 @Data
 @TableName("ai_connector")
-public class AiConnector {
+public class Connector {
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -25,7 +27,7 @@ public class AiConnector {
     /** 显示名 */
     private String name;
 
-    /** BASIC | TOKEN | MCP */
+    /** BASIC | TOKEN | MCP | SEEYON | WECOM | MAIL */
     private String authType;
 
     /** 服务根地址 */
@@ -42,6 +44,9 @@ public class AiConnector {
 
     /** 读取接口路径（通用工具） */
     private String readPath;
+
+    /** 系统专属扩展参数（JSON 文本），如云效 edition/organizationId、语雀 repo、邮件 searchDays */
+    private String extraConfig;
 
     private String encryptedUsername;
     private String encryptedPassword;

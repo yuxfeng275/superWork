@@ -14,7 +14,7 @@ import com.bu.management.mapper.RevenueContractImportBatchMapper;
 import com.bu.management.service.RevenueContractAssignment;
 import com.bu.management.service.RevenueContractImportService;
 import com.bu.management.service.SeeyonOaConfigService;
-import com.bu.management.service.SystemConfigService;
+import com.bu.management.service.ConnectorRegistryService;
 import com.bu.management.sync.SyncOutcome;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,7 +43,7 @@ import java.util.stream.Collectors;
  * 2. 返回 JSON（/seeyon/rest/cap4/report/{id}/query/{id}/{page} 分页）→ 字段多候选键映射为合同明细，
  *    归属判定复用 {@link RevenueContractAssignment}，按 detail_no  upsert（mapping_locked 保护不变）。
  *
- * 地址在系统配置 oa-vreport.sales-contract-export-url 维护。JSON 字段名联调校准：
+ * 地址在「连接器管理 → OA（致远）」的合同导出地址维护。JSON 字段名联调校准：
  * 首次运行会把首行字段名写入同步日志与运行日志。
  */
 @Slf4j
@@ -53,15 +53,13 @@ public class OaContractCollector implements DataCollector {
 
     public static final String TASK_CODE = "oa-contract";
 
-    private static final String CONFIG_GROUP = "oa-vreport";
-    private static final String CONFIG_KEY = "sales-contract-export-url";
     private static final int MAX_PAGES = 200;
     private static final int UPSERT_CHUNK = 500;
     private static final Pattern TRAILING_PAGE = Pattern.compile("^(.*?)/(\\d+)$");
 
     private final SeeyonOaClient oaClient;
     private final SeeyonOaConfigService oaConfigService;
-    private final SystemConfigService systemConfigService;
+    private final ConnectorRegistryService registryService;
     private final RevenueContractImportService contractImportService;
     private final RevenueContractEntryMapper contractEntryMapper;
     private final RevenueContractImportBatchMapper batchMapper;
@@ -79,10 +77,12 @@ public class OaContractCollector implements DataCollector {
         if (!oaConfigService.getRuntimeConfig().isConfigured()) {
             return List.of();
         }
-        String url = systemConfigService.getValue(CONFIG_GROUP, CONFIG_KEY, null);
+        String url = registryService.findByCode(ConnectorRegistryService.CODE_OA)
+                .map(connector -> registryService.extra(connector, "contractExportUrl"))
+                .orElse(null);
         if (!StringUtils.hasText(url)) {
             throw new IllegalStateException(
-                    "未配置 OA 销售合同报表地址（系统配置 oa-vreport.sales-contract-export-url）");
+                    "未配置 OA 销售合同报表地址（连接器管理 → OA（致远）→ 合同导出地址）");
         }
         url = url.trim();
 

@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.bu.management.config.YunxiaoRuntimeConfig;
 import com.bu.management.constant.YunxiaoWorkItemConstants;
-import com.bu.management.dto.YunxiaoConfigRequest;
 import com.bu.management.dto.YunxiaoProjectMappingRequest;
 import com.bu.management.dto.YunxiaoUserMappingRequest;
 import com.bu.management.entity.Project;
@@ -23,7 +22,6 @@ import com.bu.management.mapper.YunxiaoProjectMappingMapper;
 import com.bu.management.mapper.YunxiaoUserMappingMapper;
 import com.bu.management.mapper.YunxiaoWorkitemCacheMapper;
 import com.bu.management.vo.BuDashboardResponse;
-import com.bu.management.vo.YunxiaoConnectionTestResponse;
 import com.bu.management.vo.YunxiaoMemberOption;
 import com.bu.management.vo.YunxiaoProjectOption;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -100,34 +98,6 @@ public class YunxiaoIntegrationService {
                 .findFirst()
                 .ifPresent(item -> status.setLastError(item.getLastSyncError()));
         return status;
-    }
-
-    public BuDashboardResponse.IntegrationStatus saveConfig(
-            YunxiaoConfigRequest request, Long userId) {
-        configService.save(request, userId);
-        return getStatus();
-    }
-
-    public YunxiaoConnectionTestResponse testConnection() {
-        LocalDateTime testedAt = LocalDateTime.now();
-        YunxiaoConnectionTestResponse result = new YunxiaoConnectionTestResponse();
-        result.setTestedAt(testedAt);
-        try {
-            JsonNode response = client.getCurrentUser();
-            JsonNode user = response.has("data") && response.path("data").isObject()
-                    ? response.path("data")
-                    : response;
-            result.setSuccess(true);
-            result.setUserId(text(user, "id"));
-            result.setUserName(defaultText(user, "name", "已认证用户"));
-            result.setEmail(text(user, "email"));
-            result.setMessage("连接成功");
-        } catch (RuntimeException ex) {
-            result.setSuccess(false);
-            result.setMessage(limitMessage(ex.getMessage()));
-        }
-        configService.recordConnectionTest(result.isSuccess(), result.getMessage(), testedAt);
-        return result;
     }
 
     public List<YunxiaoProjectMapping> listProjectMappings() {

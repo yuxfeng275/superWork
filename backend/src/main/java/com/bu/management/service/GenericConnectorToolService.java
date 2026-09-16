@@ -1,6 +1,6 @@
 package com.bu.management.service;
 
-import com.bu.management.entity.AiConnector;
+import com.bu.management.entity.Connector;
 import com.bu.management.vo.AiAgentToolDefinition;
 import com.bu.management.vo.AiAgentToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,7 +29,7 @@ public class GenericConnectorToolService {
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAX_LIMIT = 50;
 
-    private final AiConnectorRegistryService registryService;
+    private final ConnectorRegistryService registryService;
     private final GenericConnectorClient client;
 
     /** 生成的工具名前缀。 */
@@ -39,7 +39,7 @@ public class GenericConnectorToolService {
     /** 启用连接器的动态工具定义。 */
     public List<AiAgentToolDefinition> definitions() {
         List<AiAgentToolDefinition> defs = new ArrayList<>();
-        for (AiConnector connector : registryService.listEnabled()) {
+        for (Connector connector : registryService.listEnabled()) {
             if (!StringUtils.hasText(connector.getQueryPath()) && !StringUtils.hasText(connector.getReadPath())) {
                 continue;
             }
@@ -65,7 +65,7 @@ public class GenericConnectorToolService {
     /** 工具执行入口；仅接受本服务生成的工具名。 */
     public AiAgentToolResult execute(String toolName, JsonNode args) {
         try {
-            for (AiConnector connector : registryService.listEnabled()) {
+            for (Connector connector : registryService.listEnabled()) {
                 if ((QUERY_PREFIX + connector.getCode()).equals(toolName)) {
                     return query(connector, args);
                 }
@@ -80,7 +80,7 @@ public class GenericConnectorToolService {
         }
     }
 
-    private AiAgentToolResult query(AiConnector connector, JsonNode args) {
+    private AiAgentToolResult query(Connector connector, JsonNode args) {
         if (!StringUtils.hasText(connector.getQueryPath())) {
             return new AiAgentToolResult("「" + connector.getName() + "」未配置查询接口路径", true);
         }
@@ -112,7 +112,7 @@ public class GenericConnectorToolService {
         return new AiAgentToolResult(sb.toString(), false);
     }
 
-    private AiAgentToolResult read(AiConnector connector, JsonNode args) {
+    private AiAgentToolResult read(Connector connector, JsonNode args) {
         if (!StringUtils.hasText(connector.getReadPath())) {
             return new AiAgentToolResult("「" + connector.getName() + "」未配置读取接口路径", true);
         }

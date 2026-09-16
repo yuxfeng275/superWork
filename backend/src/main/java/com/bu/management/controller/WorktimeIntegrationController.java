@@ -3,7 +3,6 @@ package com.bu.management.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.config.WorktimeRuntimeConfig;
-import com.bu.management.dto.WorktimeConfigRequest;
 import com.bu.management.entity.DataSyncLog;
 import com.bu.management.entity.WorktimeSyncLog;
 import com.bu.management.integration.WorktimeApiClient;
@@ -59,34 +58,6 @@ public class WorktimeIntegrationController {
             status.put("last" + type.substring(0, 1).toUpperCase() + type.substring(1) + "Sync", latest);
         }
         return Result.success(status);
-    }
-
-    @PutMapping("/config")
-    @Operation(summary = "保存工时系统集成配置")
-    public Result<WorktimeRuntimeConfig> saveConfig(
-            @RequestBody WorktimeConfigRequest request,
-            @RequestAttribute("userId") Long userId) {
-        return Result.success("工时系统配置已保存", configService.save(request, userId));
-    }
-
-    @PostMapping("/connection-test")
-    @Operation(summary = "测试工时系统连接（返回账号可见业务线范围）")
-    public Result<Map<String, Object>> testConnection() {
-        try {
-            JsonNode filters = apiClient.testConnection();
-            configService.recordConnectionTest(true, "连接成功", LocalDateTime.now());
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("visibleBusinessLines", filters.path("business_lines"));
-            result.put("dataCutoffDate", filters.path("data_cutoff_date").asText(null));
-            return Result.success(result);
-        } catch (RuntimeException ex) {
-            configService.recordConnectionTest(false, ex.getMessage(), LocalDateTime.now());
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", false);
-            result.put("message", ex.getMessage());
-            return Result.success(result);
-        }
     }
 
     // ==================== 手动同步 ====================

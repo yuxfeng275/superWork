@@ -1,6 +1,6 @@
 package com.bu.management.service;
 
-import com.bu.management.entity.AiConnector;
+import com.bu.management.entity.Connector;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,19 +22,19 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class GenericConnectorClient {
 
-    private final AiConnectorRegistryService registryService;
+    private final ConnectorRegistryService registryService;
     private final Object tokenLock = new Object();
     private volatile Long cachedConnectorId;
     private volatile String cachedToken;
 
     /** GET 外部接口：自动携带认证（BASIC 登录缓存 / Bearer）。 */
-    public JsonNode getJson(AiConnector connector, String path) {
+    public JsonNode getJson(Connector connector, String path) {
         String token = resolveToken(connector);
         try {
             return registryService.getJson(connector, path, token);
         } catch (IllegalStateException e) {
             // 认证失败时 BASIC 重登一次
-            if (AiConnectorRegistryService.AUTH_BASIC.equals(connector.getAuthType())
+            if (ConnectorRegistryService.AUTH_BASIC.equals(connector.getAuthType())
                     && String.valueOf(e.getMessage()).contains("认证失败")) {
                 synchronized (tokenLock) {
                     cachedToken = null;
@@ -88,9 +88,9 @@ public class GenericConnectorClient {
     }
 
     /** BASIC 登录缓存；TOKEN/MCP 直接返回 Bearer。 */
-    private String resolveToken(AiConnector connector) {
+    private String resolveToken(Connector connector) {
         String kind = connector.getAuthType();
-        if (AiConnectorRegistryService.AUTH_BASIC.equals(kind)) {
+        if (ConnectorRegistryService.AUTH_BASIC.equals(kind)) {
             synchronized (tokenLock) {
                 if (cachedToken != null && connector.getId() != null
                         && connector.getId().equals(cachedConnectorId)) {
@@ -102,7 +102,7 @@ public class GenericConnectorClient {
         return registryService.credential(connector, "token");
     }
 
-    private String login(AiConnector connector) {
+    private String login(Connector connector) {
         synchronized (tokenLock) {
             if (connector.getId() != null && connector.getId().equals(cachedConnectorId)
                     && cachedToken != null) {

@@ -83,27 +83,7 @@ public class SystemConfigService {
             item.setUpdatedAt(LocalDateTime.now());
             mapper.updateById(item);
         }
-        validateGroup(groupCode, items);
         return getGroup(groupCode);
-    }
-
-    private void validateGroup(String groupCode, List<SystemConfigItem> items) {
-        if (!EmailIntegrationConfigService.GROUP.equals(groupCode)) return;
-        Map<String, SystemConfigItem> values = items.stream().collect(
-                java.util.stream.Collectors.toMap(SystemConfigItem::getConfigKey, item -> item));
-        if (booleanValue(values.get("deepseek.enabled")) && !isConfigured(values.get("deepseek.api-key"))) {
-            throw new IllegalStateException("启用 DeepSeek 前必须配置 API Key");
-        }
-        if (booleanValue(values.get("wecom.enabled"))
-                && (!isConfigured(values.get("wecom.corp-id"))
-                || !isConfigured(values.get("wecom.agent-id"))
-                || !isConfigured(values.get("wecom.secret")))) {
-            throw new IllegalStateException("启用企业微信前必须配置 CorpId、AgentId 和 Secret");
-        }
-    }
-
-    private boolean booleanValue(SystemConfigItem item) {
-        return item != null && Boolean.parseBoolean(item.getConfigValue());
     }
 
     private List<SystemConfigItem> loadItems(String groupCode) {

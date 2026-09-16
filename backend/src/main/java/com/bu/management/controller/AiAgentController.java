@@ -6,7 +6,7 @@ import com.bu.management.dto.CreateAiAgentSessionRequest;
 import com.bu.management.service.AiAgentModelConfigService;
 import com.bu.management.service.AiAgentSessionService;
 import com.bu.management.service.AiAgentToolService;
-import com.bu.management.service.ConnectorToolService;
+import com.bu.management.service.ConnectorRegistryService;
 import com.bu.management.vo.AiAgentSessionSummary;
 import com.bu.management.vo.AiAgentSessionView;
 import com.bu.management.vo.Result;
@@ -67,7 +67,7 @@ public class AiAgentController {
     private final AiAgentSessionService sessionService;
     private final AiAgentToolService toolService;
     private final AiAgentModelConfigService modelConfigService;
-    private final ConnectorToolService connectorToolService;
+    private final ConnectorRegistryService registryService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -81,16 +81,16 @@ public class AiAgentController {
         return Result.success(sessionService.list(userId));
     }
 
-    /** 可用模型列表（按系统配置 ai-agent 组解析）。 */
+    /** 可用模型列表（按连接器管理里的 GLM / DeepSeek 连接解析）。 */
     @GetMapping("/models")
     public Result<List<AiAgentModelConfigService.ModelOption>> models() {
         return Result.success(modelConfigService.listAvailableModels());
     }
 
-    /** AI 连接器状态列表（供前端状态面板展示）。 */
+    /** 连接器状态列表（口径唯一：连接器注册表）。 */
     @GetMapping("/connectors")
-    public Result<List<ConnectorToolService.ConnectorStatus>> connectors() {
-        return Result.success(connectorToolService.statuses());
+    public Result<List<ConnectorRegistryService.ConnectorStatus>> connectors() {
+        return Result.success(registryService.statuses());
     }
 
     @PostMapping("/sessions")

@@ -1,7 +1,6 @@
 package com.bu.management.service;
 
 import com.bu.management.config.SeeyonOaRuntimeConfig;
-import com.bu.management.dto.SeeyonOaConfigRequest;
 import com.bu.management.integration.SeeyonOaClient;
 import com.bu.management.vo.*;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -38,42 +37,6 @@ public class SeeyonOaIntegrationService {
         status.put("lastTestStatus", config.lastTestStatus());
         status.put("lastTestMessage", config.lastTestMessage());
         return status;
-    }
-
-    public Map<String, Object> saveConfig(SeeyonOaConfigRequest request, Long userId) {
-        configService.save(request, userId);
-        return getStatus();
-    }
-
-    public SeeyonOaConnectionTestResponse testConnection() {
-        try {
-            JsonNode user = oaClient.getCurrentUser();
-            String memberName = user.path("name").asText();
-            if (!memberName.isEmpty()) {
-                memberName = user.path("memberName").asText(memberName);
-            }
-            String userName = user.path("loginName").asText();
-            if (userName.isEmpty()) {
-                userName = user.path("userName").asText();
-            }
-            String testedAt = LocalDateTime.now().toString();
-            configService.recordConnectionTest(true, "连接成功", LocalDateTime.now());
-            return SeeyonOaConnectionTestResponse.builder()
-                    .success(true)
-                    .userName(userName)
-                    .memberName(memberName)
-                    .message("OA 连接测试成功")
-                    .testedAt(testedAt)
-                    .build();
-        } catch (Exception e) {
-            String msg = e.getMessage() != null ? e.getMessage() : "未知错误";
-            configService.recordConnectionTest(false, msg, LocalDateTime.now());
-            return SeeyonOaConnectionTestResponse.builder()
-                    .success(false)
-                    .message("连接失败: " + msg)
-                    .testedAt(LocalDateTime.now().toString())
-                    .build();
-        }
     }
 
     // ==================== 数据查询 ====================

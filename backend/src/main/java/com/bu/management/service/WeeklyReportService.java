@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.config.EmailIntegrationRuntimeConfig;
+import com.bu.management.entity.Connector;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DeepSeekDigestClient;
@@ -51,6 +52,7 @@ public class WeeklyReportService {
     private final RevenueContractEntryMapper contractEntryMapper;
     private final SystemConfigService configService;
     private final EmailIntegrationConfigService integrationConfigService;
+    private final ConnectorRegistryService registryService;
     private final ObjectMapper objectMapper;
 
     @Resource(name = "emailTaskExecutor")
@@ -341,9 +343,9 @@ public class WeeklyReportService {
         if ("VERIFIED".equals(report.getYuqueTocStatus()) && StringUtils.hasText(report.getYuqueDocUrl())) {
             return report;
         }
-        String repo = configService.getValue(CONFIG_GROUP, "yuque.repo", "vuntcs/cf_records");
-        String parentDir = configService.getValue(CONFIG_GROUP, "yuque.parent-dir", "部门会议");
-        String baseUrl = configService.getValue(CONFIG_GROUP, "yuque.base-url", "https://lucidata.yuque.com");
+        String repo = yuqueConfig("repo", "vuntcs/cf_records");
+        String parentDir = yuqueConfig("parentDir", "部门会议");
+        String baseUrl = yuqueBaseUrl();
         String year = String.valueOf(report.getWeekStartDate().getYear());
 
         // 1. 创建文档（若尚未创建）
@@ -492,7 +494,7 @@ public class WeeklyReportService {
         info.put("teamName", configService.getValue(CONFIG_GROUP, "sheet.team-name", "电商业务BU"));
         info.put("sheetName", configService.getValue(CONFIG_GROUP, "sheet.sheet-name", "电商业务"));
         String slug = configService.getValue(CONFIG_GROUP, "sheet.doc-slug", "staff-qvc012/mghdgg/tyavbayo9ir7tyrk");
-        String baseUrl = configService.getValue(CONFIG_GROUP, "yuque.base-url", "https://lucidata.yuque.com");
+        String baseUrl = yuqueBaseUrl();
         info.put("sheetUrl", baseUrl.replaceAll("/+$", "") + "/" + slug);
         info.put("minutesUrl", report.getYuqueDocUrl());
         return info;
@@ -560,5 +562,19 @@ public class WeeklyReportService {
         if (weekStart == null || weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new IllegalArgumentException("weekStart 必须是周一");
         }
+    }
+
+    /** 语雀参数取自连接器（code=yuque）的扩展参数，页面入口在「连接器管理」。 */
+    private String yuqueConfig(String key, String fallback) {
+        return registryService.findByCode(ConnectorRegistryService.CODE_YUQUE)
+                .map(connector -> registryService.extra(connector, key, fallback))
+                .orElse(fallback);
+    }
+
+    private String yuqueBaseUrl() {
+        return registryService.findByCode(ConnectorRegistryService.CODE_YUQUE)
+                .map(Connector::getBaseUrl)
+                .filter(StringUtils::hasText)
+                .orElse("https://lucidata.yuque.com");
     }
 }
