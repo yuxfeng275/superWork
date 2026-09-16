@@ -8,6 +8,7 @@ import com.bu.management.config.WorktimeTokenCipher;
 import com.bu.management.config.YunxiaoTokenCipher;
 import com.bu.management.entity.Connector;
 import com.bu.management.entity.SystemConfigItem;
+import com.bu.management.entity.WorktimeIntegrationConfig;
 import com.bu.management.entity.YunxiaoIntegrationConfig;
 import com.bu.management.mapper.ConnectorMapper;
 import com.bu.management.mapper.SeeyonOaIntegrationConfigMapper;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 历史连接配置搬迁：只填空、旧密文换新密文、标记完成后不再执行、异常不阻断启动。
+ * 历史连接配置搬迁：单行配置表优先、旧密文换新密文、标记带版本、异常不阻断启动。
  */
 @ExtendWith(MockitoExtension.class)
 class ConnectorLegacyConfigMigratorTest {
@@ -71,12 +72,17 @@ class ConnectorLegacyConfigMigratorTest {
                 yunxiaoConfigMapper, worktimeConfigMapper, seeyonConfigMapper);
     }
 
-    private Connector yunxiaoConnectorRow() {
+    private Connector connectorRow(String code) {
         Connector connector = new Connector();
         connector.setId(1L);
-        connector.setCode("yunxiao");
-        connector.setBaseUrl("https://openapi-rdc.aliyuncs.com");
+        connector.setCode(code);
         connector.setEnabled(0);
+        return connector;
+    }
+
+    private Connector yunxiaoConnectorRow() {
+        Connector connector = connectorRow("yunxiao");
+        connector.setBaseUrl("https://openapi-rdc.aliyuncs.com");
         connector.setExtraConfig("{\"edition\":\"center\"}");
         return connector;
     }
@@ -123,8 +129,8 @@ class ConnectorLegacyConfigMigratorTest {
     }
 
     @Test
-    @DisplayName("云效：连接器上已有的人工配置不被旧值覆盖")
-    void migrateYunxiaoKeepsManualConfiguration() {
+    @DisplayName("云效：单行配置表是同步链路的历史生效来源，冲突时覆盖连接器上的页面值")
+    void migrateYunxiaoLegacyTableWinsOverPageValues() {
         Connector connectorRow = yunxiaoConnectorRow();
         connectorRow.setBaseUrl("https://manual.example.com");
         connectorRow.setEncryptedToken(cipher.encrypt("manual-token"));
@@ -132,26 +138,50 @@ class ConnectorLegacyConfigMigratorTest {
         when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
         YunxiaoIntegrationConfig legacy = new YunxiaoIntegrationConfig();
         legacy.setId(1L);
-        legacy.setEnabled(0);
-        legacy.setEdition("center");
+        legacy.setEnabled(1);
+        legacy.setEdition("region");
         legacy.setBaseUrl("https://legacy.example.com");
         legacy.setEncryptedToken("old-cipher-token");
         when(yunxiaoConfigMapper.selectById(1L)).thenReturn(legacy);
+        when(yunxiaoCipher.decrypt("old-cipher-token")).thenReturn("legacy-token");
 
         migrator.migrateYunxiao();
 
-        // 连接器上已有完整人工配置，且旧值与种子默认一致 → 不下发任何更新
-        verify(connectorMapper, never()).updateById(any(Connector.class));
-        assertThat(connectorRow.getBaseUrl()).isEqualTo("https://manual.example.com");
-        assertThat(cipher.decrypt(connectorRow.getEncryptedToken())).isEqualTo("manual-token");
+        Connector patch = captureConnectorPatch();
+        assertThat(patch.getBaseUrl()).isEqualTo("https://legacy.example.com");
+        assertThat(cipher.decrypt(patch.getEncryptedToken())).isEqualTo("legacy-token");
+    }
+
+    @Test
+    @DisplayName("工时：旧表的服务账号覆盖连接器上失效的页面凭据")
+    void migrateWorktimeLegacyCredentialsWinOverRegistry() {
+        Connector connectorRow = connectorRow("worktime");
+        connectorRow.setBaseUrl("https://worktime.lucidata.cn");
+        connectorRow.setEncryptedUsername(cipher.encrypt("page-user"));
+        connectorRow.setEncryptedPassword(cipher.encrypt("page-pass"));
+        when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
+        WorktimeIntegrationConfig legacy = new WorktimeIntegrationConfig();
+        legacy.setId(1L);
+        legacy.setEnabled(1);
+        legacy.setBaseUrl("https://worktime.lucidata.cn");
+        legacy.setEncryptedEmployeeNo("legacy-emp-cipher");
+        legacy.setEncryptedPassword("legacy-pwd-cipher");
+        when(worktimeConfigMapper.selectById(1L)).thenReturn(legacy);
+        when(worktimeCipher.decrypt("legacy-emp-cipher")).thenReturn("00504");
+        when(worktimeCipher.decrypt("legacy-pwd-cipher")).thenReturn("real-password");
+
+        migrator.migrateWorktime();
+
+        Connector patch = captureConnectorPatch();
+        assertThat(cipher.decrypt(patch.getEncryptedUsername())).isEqualTo("00504");
+        assertThat(cipher.decrypt(patch.getEncryptedPassword())).isEqualTo("real-password");
+        assertThat(patch.getEnabled()).isEqualTo(1);
     }
 
     @Test
     @DisplayName("语雀：旧配置组的 MCP 地址与 Token 搬入连接器")
     void migrateYuqueCopiesGroupValues() {
-        Connector connectorRow = new Connector();
-        connectorRow.setId(2L);
-        connectorRow.setCode("yuque");
+        Connector connectorRow = connectorRow("yuque");
         connectorRow.setBaseUrl("https://lucidata.yuque.com");
         connectorRow.setMcpUrl("https://mcp.yuque.com/mcp");
         connectorRow.setExtraConfig("{\"repo\":\"vuntcs/cf_records\"}");
@@ -172,11 +202,8 @@ class ConnectorLegacyConfigMigratorTest {
     @Test
     @DisplayName("DeepSeek：摘要开关随旧配置搬迁，API Key 换新密文")
     void migrateDeepSeekCarriesDigestFlag() {
-        Connector connectorRow = new Connector();
-        connectorRow.setId(3L);
-        connectorRow.setCode("deepseek");
+        Connector connectorRow = connectorRow("deepseek");
         connectorRow.setBaseUrl("https://api.deepseek.com");
-        connectorRow.setEnabled(0);
         connectorRow.setExtraConfig("{\"model\":\"deepseek-v4-flash\"}");
         when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
         ConnectorLegacyConfigMigrator spy = Mockito.spy(migrator);
@@ -195,13 +222,10 @@ class ConnectorLegacyConfigMigratorTest {
     }
 
     @Test
-    @DisplayName("OA：合同导出地址并入连接器扩展参数，旧配置项被隐藏")
+    @DisplayName("OA：合同导出地址并入连接器扩展参数，旧配置组整体隐藏")
     void migrateOaMovesContractExportUrl() {
-        Connector connectorRow = new Connector();
-        connectorRow.setId(4L);
-        connectorRow.setCode("oa");
+        Connector connectorRow = connectorRow("oa");
         connectorRow.setBaseUrl("https://oa.lucidata.cn");
-        connectorRow.setEnabled(0);
         when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
         ConnectorLegacyConfigMigrator spy = Mockito.spy(migrator);
         Mockito.lenient().doReturn("https://oa.example.com/report/export").when(spy)
@@ -217,9 +241,7 @@ class ConnectorLegacyConfigMigratorTest {
     @Test
     @DisplayName("OA：无旧值可搬时不发起更新（空补丁会生成非法 UPDATE）")
     void migrateOaWithNothingToCopySkipsUpdate() {
-        Connector connectorRow = new Connector();
-        connectorRow.setId(16L);
-        connectorRow.setCode("oa");
+        Connector connectorRow = connectorRow("oa");
         connectorRow.setBaseUrl("https://oa.lucidata.cn");
         connectorRow.setEnabled(1);
         when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
@@ -232,15 +254,25 @@ class ConnectorLegacyConfigMigratorTest {
     }
 
     @Test
-    @DisplayName("标记为 done 的搬迁不再执行（幂等）")
+    @DisplayName("标记为当前规则版本的 done 时不再执行（幂等）")
     void migrationIsSkippedAfterMarkerWritten() {
-        when(configMapper.selectOne(any(Wrapper.class)))
-                .thenReturn(configItem("done"));
+        when(configMapper.selectOne(any(Wrapper.class))).thenReturn(configItem("done:v2"));
 
         migrator.run(new DefaultApplicationArguments());
 
         verify(connectorMapper, never()).updateById(any(Connector.class));
         verify(connectorMapper, never()).selectOne(any(Wrapper.class));
+    }
+
+    @Test
+    @DisplayName("旧规则版本的标记视为过期，重跑一次（规则升级可纠正历史取值）")
+    void migrationRerunsWhenMarkerFromOlderRuleVersion() {
+        when(configMapper.selectOne(any(Wrapper.class))).thenReturn(configItem("done"));
+        when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+
+        migrator.run(new DefaultApplicationArguments());
+
+        verify(connectorMapper, Mockito.atLeastOnce()).selectOne(any(Wrapper.class));
     }
 
     @Test
@@ -255,17 +287,16 @@ class ConnectorLegacyConfigMigratorTest {
     }
 
     @Test
-    @DisplayName("搬迁成功写入 done 标记")
-    void markerIsWrittenAfterSuccessfulMigration() {
+    @DisplayName("搬迁成功写入带版本标记；标记行缺失时自动补建（隐藏组）")
+    void markerIsWrittenWithRuleVersion() {
         Connector connectorRow = yunxiaoConnectorRow();
         when(connectorMapper.selectOne(any(Wrapper.class))).thenReturn(connectorRow);
-        when(configMapper.selectOne(any(Wrapper.class)))
-                .thenAnswer(invocation -> configItem(null));
+        when(configMapper.selectOne(any(Wrapper.class))).thenAnswer(invocation -> configItem(null));
 
         migrator.run(new DefaultApplicationArguments());
 
         ArgumentCaptor<SystemConfigItem> captor = ArgumentCaptor.forClass(SystemConfigItem.class);
         verify(configMapper, Mockito.atLeastOnce()).updateById(captor.capture());
-        assertThat(captor.getAllValues()).anySatisfy(item -> assertThat(item.getConfigValue()).isEqualTo("done"));
+        assertThat(captor.getAllValues()).anySatisfy(item -> assertThat(item.getConfigValue()).isEqualTo("done:v2"));
     }
 }

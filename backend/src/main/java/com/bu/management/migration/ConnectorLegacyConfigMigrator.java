@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -33,8 +34,11 @@ import org.springframework.util.StringUtils;
  * 里的连接参数搬入连接器注册表，随后隐藏源配置项。
  *
  * <p>幂等：每个连接器一个搬迁标记（system_config_item 组 connector-hub，status=0 隐藏），
- * 标记为 done 后不再执行；只填空值，不覆盖连接器里已有的人工配置。
+ * 标记值携带规则版本（{@code done:v2}），规则升级后旧标记视为过期、重跑一次（步骤本身幂等）。
  * 旧密文由各自 cipher 解密后用 EmailCredentialCipher 重新加密（Flyway 无法在 SQL 层解密）。
+ *
+ * <p>取值优先级：内置业务系统（云效/工时/OA）的**单行配置表是业务流的历史生效来源**，
+ * 冲突时以它覆盖连接器页面上的值；其余以连接器已有值为准（只填空）。
  *
  * @author BU Team
  * @since 2026-09-16
@@ -45,6 +49,10 @@ import org.springframework.util.StringUtils;
 public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
 
     private static final String MARKER_GROUP = "connector-hub";
+    private static final String MARKER_GROUP_NAME = "连接器收口";
+    private static final String MARKER_GROUP_DESCRIPTION = "历史连接配置搬迁标记（内部使用，不展示）";
+    /** 规则版本：标记值 = done:<版本>；升级规则后旧标记自动失效并重跑一次。 */
+    private static final String RULE_VERSION = "v2";
     private static final String LEGACY_AI_CONNECTOR_GROUP = "ai-connector";
     private static final String EMAIL_INTEGRATION_GROUP = "email-integration";
     private static final String AI_AGENT_GROUP = "ai-agent";
@@ -89,13 +97,12 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
         update.setId(connector.getId());
         Map<String, Object> extra = extraOf(connector);
         if (legacy != null) {
-            copyText(update::setBaseUrl, connector.getBaseUrl(), legacy.getBaseUrl(),
-                    "https://openapi-rdc.aliyuncs.com");
-            if (!has(connector.getEncryptedToken()) && has(legacy.getEncryptedToken())) {
+            copyOverride(update::setBaseUrl, legacy.getBaseUrl(), "https://openapi-rdc.aliyuncs.com");
+            if (has(legacy.getEncryptedToken())) {
                 update.setEncryptedToken(cipher.encrypt(yunxiaoCipher.decrypt(legacy.getEncryptedToken())));
             }
-            putIfAbsent(extra, "edition", normalizeEdition(legacy.getEdition()), "center");
-            putIfAbsent(extra, "organizationId", trim(legacy.getOrganizationId()));
+            putOverride(extra, "edition", normalizeEdition(legacy.getEdition()), "center");
+            putOverride(extra, "organizationId", trim(legacy.getOrganizationId()));
             if (isEnabled(legacy.getEnabled())) update.setEnabled(1);
         }
         applyExtra(update, connector, extra);
@@ -109,19 +116,25 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
         update.setId(connector.getId());
         String baseUrl = legacy == null ? null : legacy.getBaseUrl();
         if (!has(baseUrl)) baseUrl = item(LEGACY_AI_CONNECTOR_GROUP, "worktime.base-url");
-        copyText(update::setBaseUrl, connector.getBaseUrl(), baseUrl, "https://worktime.lucidata.cn");
-        if (!has(connector.getEncryptedUsername())) {
-            String username = legacy != null && has(legacy.getEncryptedEmployeeNo())
-                    ? worktimeCipher.decrypt(legacy.getEncryptedEmployeeNo())
-                    : item(LEGACY_AI_CONNECTOR_GROUP, "worktime.username");
-            if (has(username)) update.setEncryptedUsername(cipher.encrypt(username));
+        if (legacy != null) {
+            copyOverride(update::setBaseUrl, baseUrl, "https://worktime.lucidata.cn");
+        } else {
+            copyText(update::setBaseUrl, connector.getBaseUrl(), baseUrl, "https://worktime.lucidata.cn");
         }
-        if (!has(connector.getEncryptedPassword())) {
-            String password = legacy != null && has(legacy.getEncryptedPassword())
-                    ? worktimeCipher.decrypt(legacy.getEncryptedPassword())
-                    : item(LEGACY_AI_CONNECTOR_GROUP, "worktime.password");
-            if (has(password)) update.setEncryptedPassword(cipher.encrypt(password));
+        String username = legacy != null && has(legacy.getEncryptedEmployeeNo())
+                ? worktimeCipher.decrypt(legacy.getEncryptedEmployeeNo())
+                : item(LEGACY_AI_CONNECTOR_GROUP, "worktime.username");
+        if (legacy == null && has(connector.getEncryptedUsername())) {
+            username = null; // 无旧表时保留连接器已有账号
         }
+        if (has(username)) update.setEncryptedUsername(cipher.encrypt(username));
+        String password = legacy != null && has(legacy.getEncryptedPassword())
+                ? worktimeCipher.decrypt(legacy.getEncryptedPassword())
+                : item(LEGACY_AI_CONNECTOR_GROUP, "worktime.password");
+        if (legacy == null && has(connector.getEncryptedPassword())) {
+            password = null;
+        }
+        if (has(password)) update.setEncryptedPassword(cipher.encrypt(password));
         boolean legacyEnabled = (legacy != null && isEnabled(legacy.getEnabled()))
                 || "true".equalsIgnoreCase(item(LEGACY_AI_CONNECTOR_GROUP, "worktime.enabled"));
         if (legacyEnabled) update.setEnabled(1);
@@ -140,14 +153,14 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
         update.setId(connector.getId());
         Map<String, Object> extra = extraOf(connector);
         if (legacy != null) {
-            copyText(update::setBaseUrl, connector.getBaseUrl(), legacy.getBaseUrl(), "https://oa.lucidata.cn");
-            if (!has(connector.getEncryptedUsername()) && has(legacy.getEncryptedUsername())) {
+            copyOverride(update::setBaseUrl, legacy.getBaseUrl(), "https://oa.lucidata.cn");
+            if (has(legacy.getEncryptedUsername())) {
                 update.setEncryptedUsername(cipher.encrypt(seeyonCipher.decrypt(legacy.getEncryptedUsername())));
             }
-            if (!has(connector.getEncryptedPassword()) && has(legacy.getEncryptedPassword())) {
+            if (has(legacy.getEncryptedPassword())) {
                 update.setEncryptedPassword(cipher.encrypt(seeyonCipher.decrypt(legacy.getEncryptedPassword())));
             }
-            if (!has(connector.getEncryptedToken()) && has(legacy.getEncryptedToken())) {
+            if (has(legacy.getEncryptedToken())) {
                 update.setEncryptedToken(cipher.encrypt(seeyonCipher.decrypt(legacy.getEncryptedToken())));
             }
             if (isEnabled(legacy.getEnabled())) update.setEnabled(1);
@@ -289,17 +302,21 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
 
     private void migrate(String code, Runnable action) {
         try {
-            if ("done".equals(marker(code))) return;
+            if (isDone(code)) return;
             if (findConnector(code) == null) {
                 log.warn("连接器历史配置搬迁跳过（连接器行不存在）: code={}", code);
                 return;
             }
             action.run();
             saveMarker(code);
-            log.info("连接器历史配置已搬迁: code={}", code);
+            log.info("连接器历史配置已搬迁: code={}, rule={}", code, RULE_VERSION);
         } catch (Exception e) {
             log.error("连接器历史配置搬迁失败（下次启动重试）: code={}, error={}", code, e.getMessage(), e);
         }
+    }
+
+    private boolean isDone(String code) {
+        return ("done:" + RULE_VERSION).equals(marker(code));
     }
 
     private Connector requireConnector(String code) {
@@ -335,12 +352,17 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
     }
 
     /** 只填空：目标为空（或等于种子默认值）时写入源值。 */
-    private void copyText(java.util.function.Consumer<String> setter, String current, String candidate,
-                          String... seedDefaults) {
+    private void copyText(Consumer<String> setter, String current, String candidate, String... seedDefaults) {
         if (!has(candidate)) return;
         if (!has(current) || matchesAny(current, seedDefaults)) {
             setter.accept(trim(candidate));
         }
+    }
+
+    /** 强制覆盖（旧单行配置表为业务流历史生效来源时使用）。 */
+    private void copyOverride(Consumer<String> setter, String candidate, String... seedDefaults) {
+        if (!has(candidate)) return;
+        setter.accept(trim(candidate));
     }
 
     /** 只填空（种子默认值视为空）。 */
@@ -350,6 +372,12 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
         if (current == null || matchesAny(String.valueOf(current), seedDefaults)) {
             extra.put(key, trim(value));
         }
+    }
+
+    /** 强制覆盖扩展参数。 */
+    private void putOverride(Map<String, Object> extra, String key, String value, String... seedDefaults) {
+        if (!has(value)) return;
+        extra.put(key, trim(value));
     }
 
     private boolean matchesAny(String value, String... seeds) {
@@ -420,18 +448,31 @@ public class ConnectorLegacyConfigMigrator implements ApplicationRunner {
         return item(MARKER_GROUP, code + ".migrated");
     }
 
+    /** 写入搬迁标记；V79 预置行缺失时按需补建（隐藏组，status=0）。 */
     private void saveMarker(String code) {
+        String key = code + ".migrated";
         SystemConfigItem item = configMapper.selectOne(new LambdaQueryWrapper<SystemConfigItem>()
                 .eq(SystemConfigItem::getGroupCode, MARKER_GROUP)
-                .eq(SystemConfigItem::getConfigKey, code + ".migrated")
+                .eq(SystemConfigItem::getConfigKey, key)
                 .last("LIMIT 1"));
+        SystemConfigItem update = new SystemConfigItem();
+        update.setConfigValue("done:" + RULE_VERSION);
         if (item == null) {
-            log.warn("连接器搬迁标记缺失（迁移脚本未执行？）: key={}.migrated", code);
+            update.setGroupCode(MARKER_GROUP);
+            update.setGroupName(MARKER_GROUP_NAME);
+            update.setGroupDescription(MARKER_GROUP_DESCRIPTION);
+            update.setConfigKey(key);
+            update.setConfigName(code + " 配置搬迁");
+            update.setConfigDescription("done=已从旧配置搬迁到连接器");
+            update.setValueType("STRING");
+            update.setIsSensitive(0);
+            update.setIsRequired(0);
+            update.setSortOrder(90);
+            update.setStatus(0);
+            configMapper.insert(update);
             return;
         }
-        SystemConfigItem update = new SystemConfigItem();
         update.setId(item.getId());
-        update.setConfigValue("done");
         configMapper.updateById(update);
     }
 
