@@ -5,6 +5,7 @@ import {
   BellOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  CloudSyncOutlined,
   FieldTimeOutlined,
   FileTextOutlined,
   FlagOutlined,
@@ -98,6 +99,7 @@ const menuIconByServerName: Record<string, React.ReactNode> = {
   Flag: <FlagOutlined />,
   DataLine: <BarChartOutlined />,
   Connection: <ApiOutlined />,
+  CloudSync: <CloudSyncOutlined />,
   DataAnalysis: <BarChartOutlined />,
   Timer: <FieldTimeOutlined />,
   TrendCharts: <RiseOutlined />,
@@ -613,6 +615,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         '/system/menus',
         '/system/workflow',
         '/system/configs',
+        '/system/sync',
         '/ai-connectors',
       ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
     )
