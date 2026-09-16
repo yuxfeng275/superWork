@@ -48,6 +48,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-15 | 34d0cc7 | 菜单更新保留原有 icon，避免编辑其他字段时图标丢失 | master agent |
 | 2026-09-16 | d0a1700 | 后端（V76-V78 数据同步中心/OA采集）+ 新前端 frontend-pro 并行上线（:18084，旧前端 :18080 保留共兜底，共用后端 :18081）；备份 deploy-backups/20260916-142813 | master agent |
 | 2026-09-16 | c478587 | frontend-pro：大事儿列表新增周进展入口；周报弹窗改为周会卡片样式+右侧历史进度（仅前端，backend 未变） | master agent |
+| 2026-09-16 | b65db78 | frontend-pro：大事儿管理快速筛选栏 276→216px；列表操作列「详情/删除」并入「更多」下拉（四列改 196px，≤1420px 两行栅格），计划时间不再被操作按钮压盖；周进展弹窗按视口定高改 2×2 表单，单屏免滚动（仅前端，backend 未变）；备份 deploy-backups/20260916-233419 | normal-modify agent |
 
 ## 回滚
 
