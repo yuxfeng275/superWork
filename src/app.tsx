@@ -106,6 +106,7 @@ const migratedMenu: MenuDataItem[] = [
       { key: '/system/menus', path: '/system/menus', name: '菜单管理' },
       { key: '/system/workflow', path: '/system/workflow', name: '工作流配置' },
       { key: '/system/configs', path: '/system/configs', name: '配置管理' },
+      { key: '/system/sync', path: '/system/sync', name: '数据集成中心' },
     ],
   },
   {
