@@ -1,0 +1,60 @@
+.sw-opportunity-subtitle { display: block; margin-top: 3px; font-size: 12px; }
+.sw-opportunities .sw-filter-card { margin-bottom: 16px; }
+/* 概览汇总收窄：压缩卡片高度，7 张卡片保证一行内展示 */
+.sw-opportunities .sw-stat-row {
+  flex-wrap: nowrap;
+  margin-bottom: 16px;
+}
+.sw-opportunities .sw-stat-row .ant-col {
+  flex: 1 1 0;
+  max-width: none;
+  min-width: 0;
+}
+.sw-opportunities .sw-stat-row .ant-card-body {
+  min-height: 0;
+  padding: 12px 14px;
+}
+.sw-opportunities .sw-stat-row .ant-statistic-title {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sw-opportunities .sw-stat-row .ant-statistic-content {
+  font-size: 20px;
+}
+.sw-opportunities .sw-stat-row .sw-stat-note {
+  font-size: 11px;
+}
+.sw-opportunities .sw-stat-card-clickable {
+  cursor: pointer;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+.sw-opportunities .sw-stat-card-clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(33, 54, 86, 0.1);
+}
+@media (max-width: 1100px) {
+  .sw-opportunities .sw-stat-row {
+    flex-wrap: wrap;
+  }
+  .sw-opportunities .sw-stat-row .ant-col {
+    flex: 0 0 33.3333%;
+    max-width: 33.3333%;
+  }
+}
+@media (max-width: 640px) {
+  .sw-opportunities .sw-stat-row .ant-col {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+}
+.sw-followup-fresh-tag { margin-inline-end: 0; }
+.sw-follow-history-col { border-left: 1px solid #eef1f5; padding-left: 20px; max-height: 480px; overflow-y: auto; }
+@media (max-width: 768px) { .sw-follow-history-col { border-left: 0; padding-left: 12px; } }
+.sw-opportunities .ant-table-cell { vertical-align: middle; }
+.sw-opportunity-board { display: grid; grid-template-columns: repeat(6, minmax(190px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+.sw-opportunity-column { min-width: 190px; min-height: 300px; background: #f8fafc; }
+.sw-opportunity-column > .ant-card-body { display: flex; flex-direction: column; gap: 10px; min-height: 240px; }
+.sw-opportunity-board-card { display: flex; flex-direction: column; gap: 7px; cursor: grab; }
+.sw-stat-note { display: block; margin-top: 4px; font-size: 12px; white-space: nowrap; }
+@media (max-width: 1000px) { .sw-opportunity-board { grid-template-columns: repeat(6, 230px); } }
+@media (max-width: 768px) { .sw-opportunities .sw-filter-card .ant-form { display: block; } .sw-opportunities .sw-filter-card .ant-form-item { margin: 0 0 12px; } }
