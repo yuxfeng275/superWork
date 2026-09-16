@@ -25,6 +25,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -59,12 +60,22 @@ public class RevenueContractImportService {
 
     @Transactional
     public RevenueImportResultVO importContracts(MultipartFile file, Long userId) {
-        ParsedFile parsed = parse(file);
+        try {
+            return importContractsStream(file.getInputStream(), file.getOriginalFilename(), userId);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("无法读取合同 Excel: " + exception.getMessage(), exception);
+        }
+    }
+
+    /** 合同明细导入（流式入口，供 OA vReport 导出自动同步复用） */
+    @Transactional
+    public RevenueImportResultVO importContractsStream(InputStream inputStream, String fileName, Long userId) {
+        ParsedFile parsed = parse(inputStream);
         if (parsed.entries().isEmpty()) {
             throw new IllegalArgumentException("未解析到合同明细，请确认上传的是 本年销售/交付总额明细 Excel");
         }
         RevenueContractImportBatch batch = new RevenueContractImportBatch();
-        batch.setFileName(file.getOriginalFilename() == null ? "" : file.getOriginalFilename());
+        batch.setFileName(fileName == null ? "" : fileName);
         batch.setCreatedBy(userId);
         batch.setTotalCount(parsed.entries().size());
         int pendingCount = (int) parsed.entries().stream().filter(e -> e.getPending() == 1).count();
@@ -172,7 +183,7 @@ public class RevenueContractImportService {
 
     // ------------------------------------------------------------------ 解析
 
-    private ParsedFile parse(MultipartFile file) {
+    private ParsedFile parse(InputStream inputStream) {
         List<BusinessLine> lines = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
                 .eq(BusinessLine::getStatus, 1));
         Map<Long, String> lineMode = lines.stream().collect(Collectors.toMap(BusinessLine::getId,
@@ -181,7 +192,7 @@ public class RevenueContractImportService {
         List<Long> enabledLineIds = lines.stream().map(BusinessLine::getId).toList();
 
         List<RevenueContractEntry> entries = new ArrayList<>();
-        try (Workbook workbook = WorkbookFactory.create(file.getInputStream())) {
+        try (Workbook workbook = WorkbookFactory.create(inputStream)) {
             DataFormatter formatter = new DataFormatter(Locale.ROOT);
             FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
             Sheet sheet = workbook.getSheetAt(0);

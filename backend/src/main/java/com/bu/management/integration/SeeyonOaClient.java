@@ -10,9 +10,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -170,6 +172,113 @@ public class SeeyonOaClient {
     public JsonNode getFormData(String formId) {
         SeeyonOaRuntimeConfig config = configuredRuntime();
         return sendAuthenticatedGet(config, REST_PATH + "/api/form/" + formId);
+    }
+
+    // ==================== vReport 报表导出（servlet 会话） ====================
+
+    /** 缓存的 servlet 会话 Cookie（JSESSIONID 等），vReport.do 不走 REST token */
+    private volatile String cachedSessionCookie;
+    private volatile long sessionExpireTime;
+
+    /**
+     * 调用 vReport 报表导出地址，返回 xlsx 字节流。
+     * exportUrl 支持绝对地址或以 / 开头的相对路径（相对当前 baseUrl），
+     * 从浏览器抓包「销售合同查询(全域)」导出按钮获得。
+     */
+    public byte[] fetchVReportExport(String exportUrl) {
+        SeeyonOaRuntimeConfig config = configService.getRuntimeConfig();
+        if (!config.isConfigured()) {
+            throw new IllegalStateException("OA 集成尚未完成配置");
+        }
+        String cookie = obtainSessionCookie(config);
+        String url = exportUrl.startsWith("http") ? exportUrl : config.effectiveBaseUrl() + exportUrl;
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(120))
+                    .header("Cookie", cookie)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] body = response.body() == null ? new byte[0] : response.body();
+            // xlsx 为 zip 包（PK 头）；返回 HTML 说明会话失效或地址错误
+            if (response.statusCode() == 200 && body.length > 2 && body[0] == 'P' && body[1] == 'K') {
+                return body;
+            }
+            // 会话可能过期，清缓存后重试一次
+            if (cachedSessionCookie != null) {
+                cachedSessionCookie = null;
+                cookie = obtainSessionCookie(config);
+                request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofSeconds(120))
+                        .header("Cookie", cookie)
+                        .GET()
+                        .build();
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                body = response.body() == null ? new byte[0] : response.body();
+                if (response.statusCode() == 200 && body.length > 2 && body[0] == 'P' && body[1] == 'K') {
+                    return body;
+                }
+            }
+            String snippet = new String(body, 0, Math.min(body.length, 300), StandardCharsets.UTF_8);
+            throw new IllegalStateException("vReport 导出未返回 Excel（HTTP " + response.statusCode()
+                    + "），请检查导出地址配置与会话登录。响应片段: " + snippet);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("vReport 导出被中断", ex);
+        } catch (IllegalStateException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("vReport 导出失败: " + ex.getMessage(), ex);
+        }
+    }
+
+    /**
+     * servlet 会话登录：POST /seeyon/main.do?method=login（表单），缓存 Set-Cookie。
+     */
+    private String obtainSessionCookie(SeeyonOaRuntimeConfig config) {
+        if (StringUtils.hasText(cachedSessionCookie) && System.currentTimeMillis() < sessionExpireTime) {
+            return cachedSessionCookie;
+        }
+        if (!StringUtils.hasText(config.username()) || !StringUtils.hasText(config.password())) {
+            throw new IllegalStateException("vReport 导出需要 OA 用户名/密码登录（REST token 不适用）");
+        }
+        try {
+            String form = "login_username=" + URLEncoder.encode(config.username(), StandardCharsets.UTF_8)
+                    + "&login_password=" + URLEncoder.encode(config.password(), StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.effectiveBaseUrl() + "/seeyon/main.do?method=login"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(form))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            List<String> cookies = response.headers().allValues("Set-Cookie");
+            if (cookies.isEmpty()) {
+                String body = response.body() == null ? "" : response.body();
+                throw new IllegalStateException("OA 会话登录失败（未返回 Cookie），HTTP " + response.statusCode()
+                        + "，响应片段: " + body.substring(0, Math.min(body.length(), 300)));
+            }
+            StringBuilder cookieHeader = new StringBuilder();
+            for (String cookie : cookies) {
+                if (cookieHeader.length() > 0) {
+                    cookieHeader.append("; ");
+                }
+                cookieHeader.append(cookie, 0, cookie.indexOf(';') > 0 ? cookie.indexOf(';') : cookie.length());
+            }
+            cachedSessionCookie = cookieHeader.toString();
+            // 会话保守缓存 20 分钟
+            sessionExpireTime = System.currentTimeMillis() + 20 * 60 * 1000;
+            return cachedSessionCookie;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("OA 会话登录被中断", ex);
+        } catch (IllegalStateException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalStateException("OA 会话登录失败: " + ex.getMessage(), ex);
+        }
     }
 
     // ==================== 内部 HTTP 方法 ====================

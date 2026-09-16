@@ -23,6 +23,7 @@ public class SeeyonOaIntegrationService {
 
     private final SeeyonOaClient oaClient;
     private final SeeyonOaConfigService configService;
+    private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
 
     // ==================== 配置管理 ====================
 
@@ -111,22 +112,21 @@ public class SeeyonOaIntegrationService {
 
     /**
      * 同步 OA 数据到本地系统
-     * 将 OA 中的人员、部门信息同步到本地
+     * 组织/人员落库已迁入统一同步编排（oa-org 任务 → oa_org_department / oa_org_member 表），
+     * 本入口保留给旧前端，内部委托统一编排器执行并写入 data_sync_log。
      */
     public List<String> syncAll() {
         List<String> logs = new ArrayList<>();
         try {
-            // 同步部门
-            List<SeeyonOaDepartmentOption> departments = listDepartments();
-            logs.add("同步了 " + departments.size() + " 个部门");
-
-            // 同步人员
-            List<SeeyonOaMemberOption> members = listMembers();
-            logs.add("同步了 " + members.size() + " 个人员");
-
-            // TODO: 实际写入本地数据库（用户表、部门表等）
-            // 这里可以根据业务需要，将 OA 数据映射到本地系统的 user 表等
-
+            List<com.bu.management.entity.DataSyncLog> entries = syncOrchestrator.run(
+                    com.bu.management.sync.collector.OaOrgCollector.TASK_CODE, null, "manual", null);
+            for (com.bu.management.entity.DataSyncLog entry : entries) {
+                logs.add(entry.getDomain() + ": " + entry.getStatus()
+                        + (entry.getUpsertCount() != null ? "（写入 " + entry.getUpsertCount() + " 条）" : ""));
+            }
+            if (entries.isEmpty()) {
+                logs.add("OA 集成未配置，跳过同步");
+            }
             log.info("OA 数据同步完成: {}", logs);
         } catch (Exception e) {
             log.error("OA 数据同步失败", e);
