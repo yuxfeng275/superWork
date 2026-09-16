@@ -57,8 +57,8 @@
   }
   .sw-register-layout {
     display: grid;
-    grid-template-columns: 276px minmax(0, 1fr);
-    gap: 16px;
+    grid-template-columns: 216px minmax(0, 1fr);
+    gap: 14px;
     align-items: start;
     &.is-meeting {
       display: block;
@@ -93,6 +93,12 @@
     }
     .sw-quick-filter-card .ant-btn {
       text-align: left;
+      /* 侧栏收窄后长项目名截断，避免撑破 216px 列宽 */
+      > span:not(.ant-btn-icon) {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
     .sw-matter-tools > .ant-card-body > .ant-space {
       flex-direction: column;
@@ -120,9 +126,9 @@
   }
   .sw-matter-list-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 170px 180px 190px;
+    grid-template-columns: minmax(0, 1fr) 168px 176px 196px;
     align-items: center;
-    gap: 18px;
+    gap: 14px;
     width: 100%;
   }
   .sw-matter-list-primary,
@@ -185,9 +191,18 @@
     font-size: 12px;
   }
   .sw-matter-list-actions {
-    width: 190px;
+    width: 196px;
+    min-width: 0;
     justify-content: flex-end;
     white-space: nowrap;
+    /* 操作列收窄：按钮内边距压缩，保证「周进展 / 编辑 / 更多」单行放下且不越界 */
+    .ant-btn {
+      padding-inline: 4px;
+    }
+    .ant-btn + .ant-btn,
+    .ant-dropdown-trigger {
+      margin-inline-start: 0;
+    }
   }
   .sw-milestone-card {
     margin-bottom: 16px;
@@ -612,24 +627,27 @@ body.key-matters-standalone {
     display: none;
   }
 }
-@media (max-width: 1100px) {
-  .sw-key-matters .sw-matter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .sw-key-matters .sw-register-layout {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
+/* 中等宽度：四列同行会压缩标题列并让操作列越界，改为「内容+进度 / 元信息+操作」两行 */
+@media (max-width: 1420px) {
   .sw-key-matters .sw-matter-list-row {
-    grid-template-columns: minmax(0, 1fr) 150px;
-  }
-  .sw-key-matters .sw-matter-list-meta,
-  .sw-key-matters .sw-matter-list-actions {
-    grid-column: span 2;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 10px;
   }
   .sw-key-matters .sw-matter-list-meta {
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
+  }
+  .sw-key-matters .sw-matter-list-actions {
+    width: auto;
+  }
+}
+@media (max-width: 1100px) {
+  .sw-key-matters .sw-matter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sw-key-matters .sw-register-layout {
+    grid-template-columns: 196px minmax(0, 1fr);
   }
 }
 @media (max-width: 760px) {
@@ -671,17 +689,22 @@ body.key-matters-standalone {
 .sw-weekly-modal .ant-modal-body {
   padding-top: 8px;
 }
+/* 一屏放下：主体按视口高度定高，左右两栏各自内部滚动，弹窗本身不上下滚动 */
 .sw-weekly-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 16px;
-  align-items: start;
+  gap: 12px;
+  align-items: stretch;
+  height: calc(100vh - 196px);
+  max-height: 620px;
 }
 .sw-weekly-main {
   min-width: 0;
   display: grid;
-  gap: 14px;
-  padding: 16px 18px;
+  align-content: start;
+  gap: 10px;
+  padding: 12px 14px;
+  overflow-y: auto;
   background: #fbfcfe;
   border: 1px solid #eef1f6;
   border-radius: 12px;
@@ -727,8 +750,8 @@ body.key-matters-standalone {
 .sw-weekly-state-bar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 10px 12px;
   background: #fff;
   border: 1px solid #e5e9f2;
   border-radius: 10px;
@@ -737,8 +760,16 @@ body.key-matters-standalone {
   margin-bottom: 0;
 }
 .sw-weekly-progress-preview {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sw-weekly-progress-preview .sw-weekly-progress-track {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+.sw-weekly-progress-preview > .ant-space {
+  flex: 0 0 auto;
 }
 .sw-weekly-progress-track {
   height: 8px;
@@ -756,8 +787,9 @@ body.key-matters-standalone {
 .sw-weekly-section {
   min-width: 0;
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  align-content: start;
+  gap: 8px;
+  padding: 10px 12px;
   background: #fff;
   border: 1px solid #e5e9f2;
   border-radius: 10px;
@@ -815,15 +847,15 @@ body.key-matters-standalone {
   color: #0f766e;
   background: #f0fdfa;
 }
-.sw-weekly-signal-grid {
+.sw-weekly-section-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 .sw-weekly-history {
   display: grid;
+  align-content: start;
   gap: 10px;
-  max-height: 560px;
   padding: 14px;
   overflow-y: auto;
   background: #fff;
@@ -853,14 +885,16 @@ body.key-matters-standalone {
   font-size: 12px;
 }
 @media (max-width: 900px) {
+  /* 窄屏退回单列：高度交还内容自然撑开，允许弹窗整体滚动 */
   .sw-weekly-layout {
     grid-template-columns: 1fr;
+    height: auto;
   }
   .sw-weekly-history {
     max-height: 320px;
   }
   .sw-weekly-state-bar,
-  .sw-weekly-signal-grid {
+  .sw-weekly-section-grid {
     grid-template-columns: 1fr;
   }
 }
