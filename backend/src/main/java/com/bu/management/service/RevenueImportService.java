@@ -51,9 +51,16 @@ public class RevenueImportService {
         }
     }
 
-    /** 工时明细导入（流式入口，供工时系统自动同步复用） */
+    /** 工时明细导入（流式入口，Excel 兜底导入） */
     @Transactional
     public RevenueImportResultVO importWorklogStream(InputStream inputStream, String fileName, String yearMonth, Long userId) {
+        return importWorklogStream(inputStream, fileName, yearMonth, "EXCEL", userId);
+    }
+
+    /** 工时明细导入（流式入口，供工时系统自动同步复用） */
+    @Transactional
+    public RevenueImportResultVO importWorklogStream(InputStream inputStream, String fileName, String yearMonth,
+                                                     String sourceSystem, Long userId) {
         monthService.assertNotClosed(yearMonth);
         RevenueImportBatch batch = newBatch("worklog", yearMonth, fileName, userId);
 
@@ -107,6 +114,7 @@ public class RevenueImportService {
         if (parsed.isEmpty()) {
             throw new IllegalArgumentException("未解析到工时数据，请确认上传的是工时数据_业务线明细 Excel");
         }
+        parsed.forEach(item -> item.setSourceSystem(sourceSystem));
 
         // 整月覆盖：以导入文件为准（含手工补录行），导入后可在页面手工调整
         worklogEntryMapper.delete(new LambdaQueryWrapper<RevenueWorklogEntry>()
@@ -162,7 +170,15 @@ public class RevenueImportService {
         if (parsed.isEmpty()) {
             throw new IllegalArgumentException("未解析到成本数据，请确认上传的是成本分析_项目 Excel");
         }
-        return saveCostEntries(parsed, file.getOriginalFilename(), userId);
+        return saveCostEntries(parsed, file.getOriginalFilename(), "EXCEL", userId);
+    }
+
+    /**
+     * 成本明细落库（整月覆盖），Excel 兜底导入入口。
+     */
+    @Transactional
+    public RevenueImportResultVO saveCostEntries(List<RevenueCostEntry> parsed, String fileName, Long userId) {
+        return saveCostEntries(parsed, fileName, "EXCEL", userId);
     }
 
     /**
@@ -170,10 +186,12 @@ public class RevenueImportService {
      * 已完结月份拒绝；同月重复导入以新数据为准。
      */
     @Transactional
-    public RevenueImportResultVO saveCostEntries(List<RevenueCostEntry> parsed, String fileName, Long userId) {
+    public RevenueImportResultVO saveCostEntries(List<RevenueCostEntry> parsed, String fileName,
+                                                 String sourceSystem, Long userId) {
         if (parsed == null || parsed.isEmpty()) {
             throw new IllegalArgumentException("未解析到成本数据");
         }
+        parsed.forEach(item -> item.setSourceSystem(sourceSystem));
 
         List<String> months = parsed.stream().map(RevenueCostEntry::getYearMonth).distinct().sorted().toList();
         months.forEach(monthService::assertNotClosed);

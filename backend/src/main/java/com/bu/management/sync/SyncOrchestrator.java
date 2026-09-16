@@ -86,6 +86,33 @@ public class SyncOrchestrator {
         return logs;
     }
 
+    /**
+     * Excel 兜底导入的统一日志登记：导入成功后调用，source_system=EXCEL，
+     * 并发布 {@link SyncCompletedEvent} 让导入与自动拉取走同一套业务联动。
+     */
+    public DataSyncLog recordFallbackImport(String domain, String scope, int totalCount, int upsertCount,
+                                            int pendingCount, String message, Long operatorId) {
+        LocalDateTime now = LocalDateTime.now();
+        DataSyncLog entry = new DataSyncLog();
+        entry.setTaskCode("excel-import");
+        entry.setSourceSystem("EXCEL");
+        entry.setDomain(domain);
+        entry.setScope(scope == null ? "" : scope);
+        entry.setStatus("success");
+        entry.setTotalCount(totalCount);
+        entry.setUpsertCount(upsertCount);
+        entry.setPendingCount(pendingCount);
+        entry.setMessage(message);
+        entry.setTriggeredBy("fallback-import");
+        entry.setOperatorId(operatorId);
+        entry.setStartedAt(now);
+        entry.setFinishedAt(now);
+        syncLogMapper.insert(entry);
+        eventPublisher.publishEvent(new SyncCompletedEvent(this, entry.getTaskCode(),
+                domain, entry.getScope(), entry.getId(), entry.getTriggeredBy()));
+        return entry;
+    }
+
     private DataSyncLog persistLog(SyncTask task, SyncOutcome outcome, String triggeredBy,
                                    Long operatorId, LocalDateTime startedAt) {
         DataSyncLog entry = new DataSyncLog();

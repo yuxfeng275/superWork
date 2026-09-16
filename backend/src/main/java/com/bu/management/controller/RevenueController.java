@@ -44,6 +44,7 @@ public class RevenueController {
     private final RevenueImportService importService;
     private final RevenueAdminService adminService;
     private final RevenueMonthService monthService;
+    private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
 
     @GetMapping("/matrix")
     @RequirePermission({"revenue:view"})
@@ -63,19 +64,27 @@ public class RevenueController {
 
     @PostMapping("/import/worklog")
     @RequirePermission({"revenue:manage"})
-    @Operation(summary = "按月导入工时明细 Excel")
+    @Operation(summary = "按月导入工时明细 Excel（兜底补录，同步走 /api/sync）")
     public Result<RevenueImportResultVO> importWorklog(@RequestParam("file") MultipartFile file,
                                                        @RequestParam String yearMonth,
                                                        @RequestAttribute("userId") Long userId) {
-        return Result.success(importService.importWorklog(file, yearMonth, userId));
+        RevenueImportResultVO result = importService.importWorklog(file, yearMonth, userId);
+        syncOrchestrator.recordFallbackImport("worklog", yearMonth, result.getTotalCount(),
+                result.getSuccessCount(), result.getPendingCount(),
+                "Excel 兜底导入工时明细（批次 #" + result.getBatchId() + "）", userId);
+        return Result.success(result);
     }
 
     @PostMapping("/import/cost")
     @RequirePermission({"revenue:manage"})
-    @Operation(summary = "导入成本分析 Excel（月份取自文件）")
+    @Operation(summary = "导入成本分析 Excel（月份取自文件；兜底补录，同步走 /api/sync）")
     public Result<RevenueImportResultVO> importCost(@RequestParam("file") MultipartFile file,
                                                     @RequestAttribute("userId") Long userId) {
-        return Result.success(importService.importCost(file, userId));
+        RevenueImportResultVO result = importService.importCost(file, userId);
+        syncOrchestrator.recordFallbackImport("cost", "", result.getTotalCount(),
+                result.getSuccessCount(), result.getPendingCount(),
+                "Excel 兜底导入成本分析（批次 #" + result.getBatchId() + "）", userId);
+        return Result.success(result);
     }
 
     @GetMapping("/imports")

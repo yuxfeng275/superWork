@@ -58,6 +58,7 @@ public class RevenueDeliveryController {
     private final RevenueDeliveryPlanService planService;
     private final RevenueOtherCostService otherCostService;
     private final RevenueFinancialReportService financialReportService;
+    private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
 
     @GetMapping("/delivery/summary")
     @RequirePermission({"revenue:view"})
@@ -72,10 +73,14 @@ public class RevenueDeliveryController {
 
     @PostMapping("/contracts/import")
     @RequirePermission({"revenue:manage"})
-    @Operation(summary = "导入合同明细 Excel（本年销售/交付总额明细），明细表记录ID 去重可重复导入")
+    @Operation(summary = "导入合同明细 Excel（本年销售/交付总额明细，兜底补录；自动同步走 /api/sync）")
     public Result<RevenueImportResultVO> importContracts(@RequestParam("file") MultipartFile file,
                                                          @RequestAttribute("userId") Long userId) {
-        return Result.success(contractImportService.importContracts(file, userId));
+        RevenueImportResultVO result = contractImportService.importContracts(file, userId);
+        syncOrchestrator.recordFallbackImport("contract", String.valueOf(java.time.LocalDate.now().getYear()),
+                result.getTotalCount(), result.getSuccessCount(), result.getPendingCount(),
+                "Excel 兜底导入合同明细（批次 #" + result.getBatchId() + "）", userId);
+        return Result.success(result);
     }
 
     @GetMapping("/contracts/pending")

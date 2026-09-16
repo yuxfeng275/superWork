@@ -36,6 +36,10 @@ public class RevenueCostEntry {
     /** 人月成本（元/人月） */
     private BigDecimal personMonthCost;
     private Integer pending;
+    /** 来源：OA/WORKTIME/EXCEL */
+    private String sourceSystem;
+    /** 写入该行的 data_sync_log.id（预留） */
+    private Long syncLogId;
     private Long createdBy;
     private LocalDateTime createdAt;
 }

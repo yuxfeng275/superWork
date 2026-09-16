@@ -52,6 +52,10 @@ public class RevenueContractEntry {
     private Integer mappingLocked;
     /** 1=待人工映射项目 */
     private Integer pending;
+    /** 来源：OA/WORKTIME/EXCEL */
+    private String sourceSystem;
+    /** 写入该行的 data_sync_log.id（预留） */
+    private Long syncLogId;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

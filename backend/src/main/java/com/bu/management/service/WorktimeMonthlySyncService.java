@@ -124,7 +124,7 @@ public class WorktimeMonthlySyncService {
                 entries.add(entry);
             }
             var result = revenueImportService.saveCostEntries(entries,
-                    "worktime-cost-" + yearMonth + "(auto)", null);
+                    "worktime-cost-" + yearMonth + "(auto)", "WORKTIME", null);
             finishLog(syncLog, "success", result.getTotalCount(), result.getSuccessCount(),
                     result.getPendingCount(), "成本分析同步完成");
         } catch (RuntimeException ex) {

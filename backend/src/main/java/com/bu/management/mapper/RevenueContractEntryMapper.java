@@ -22,14 +22,14 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
                 (batch_id, contract_no, detail_no, contract_name, brand, customer, item_desc,
                  biz_line_raw, biz_line_id, project_id, receivable_amount, sale_month, delivery_date,
                  sms_cost, direct_cost, third_party_cost, received_amount, payment_status,
-                 pending, created_by)
+                 pending, source_system, created_by)
             VALUES
             <foreach collection="list" item="e" separator=",">
                 (#{e.batchId}, #{e.contractNo}, #{e.detailNo}, #{e.contractName}, #{e.brand}, #{e.customer},
                  #{e.itemDesc}, #{e.bizLineRaw}, #{e.bizLineId}, #{e.projectId}, #{e.receivableAmount},
                  #{e.saleMonth}, #{e.deliveryDate},
                  #{e.smsCost}, #{e.directCost}, #{e.thirdPartyCost}, #{e.receivedAmount}, #{e.paymentStatus},
-                 #{e.pending}, #{e.createdBy})
+                 #{e.pending}, #{e.sourceSystem}, #{e.createdBy})
             </foreach>
             ON DUPLICATE KEY UPDATE
                 batch_id = VALUES(batch_id),
@@ -50,6 +50,7 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
                 received_amount = VALUES(received_amount),
                 payment_status = VALUES(payment_status),
                 pending = IF(mapping_locked = 1, pending, VALUES(pending)),
+                source_system = VALUES(source_system),
                 created_by = IFNULL(VALUES(created_by), created_by)
             </script>
             """)

@@ -54,7 +54,7 @@ public class OaContractCollector implements DataCollector {
         byte[] xlsx = oaClient.fetchVReportExport(exportUrl.trim());
         String fileName = "oa-vreport-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + ".xlsx";
         RevenueImportResultVO result = contractImportService.importContractsStream(
-                new ByteArrayInputStream(xlsx), fileName, null);
+                new ByteArrayInputStream(xlsx), fileName, "OA", null);
         String year = String.valueOf(LocalDate.now().getYear());
         return List.of(SyncOutcome.success("contract", year,
                 result.getTotalCount(), result.getSuccessCount(), result.getPendingCount(),

@@ -67,9 +67,16 @@ public class RevenueContractImportService {
         }
     }
 
-    /** 合同明细导入（流式入口，供 OA vReport 导出自动同步复用） */
+    /** 合同明细导入（流式入口，Excel 兜底导入） */
     @Transactional
     public RevenueImportResultVO importContractsStream(InputStream inputStream, String fileName, Long userId) {
+        return importContractsStream(inputStream, fileName, "EXCEL", userId);
+    }
+
+    /** 合同明细导入（流式入口，供 OA vReport 导出自动同步复用） */
+    @Transactional
+    public RevenueImportResultVO importContractsStream(InputStream inputStream, String fileName,
+                                                       String sourceSystem, Long userId) {
         ParsedFile parsed = parse(inputStream);
         if (parsed.entries().isEmpty()) {
             throw new IllegalArgumentException("未解析到合同明细，请确认上传的是 本年销售/交付总额明细 Excel");
@@ -82,7 +89,10 @@ public class RevenueContractImportService {
         batch.setSuccessCount(parsed.entries().size() - pendingCount);
         batch.setPendingCount(pendingCount);
         batchMapper.insert(batch);
-        parsed.entries().forEach(e -> e.setBatchId(batch.getId()));
+        parsed.entries().forEach(e -> {
+            e.setBatchId(batch.getId());
+            e.setSourceSystem(sourceSystem);
+        });
         contractEntryMapper.upsertBatch(parsed.entries());
 
         RevenueImportResultVO result = new RevenueImportResultVO();

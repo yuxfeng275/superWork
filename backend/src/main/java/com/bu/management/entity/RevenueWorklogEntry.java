@@ -39,6 +39,10 @@ public class RevenueWorklogEntry {
     /** 商机集合自动标签，逗号分隔 */
     private String tags;
     private Integer pending;
+    /** 来源：OA/WORKTIME/EXCEL */
+    private String sourceSystem;
+    /** 写入该行的 data_sync_log.id（预留） */
+    private Long syncLogId;
     private Long createdBy;
     private LocalDateTime createdAt;
 }

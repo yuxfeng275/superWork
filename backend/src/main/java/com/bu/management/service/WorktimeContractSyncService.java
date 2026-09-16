@@ -108,6 +108,7 @@ public class WorktimeContractSyncService {
             return null;
         }
         RevenueContractEntry entry = new RevenueContractEntry();
+        entry.setSourceSystem("WORKTIME");
         entry.setDetailNo(detailNo.trim());
         entry.setContractNo(text(row, "contract_id"));
         entry.setContractName(text(row, "contract_name"));
