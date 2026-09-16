@@ -6,6 +6,7 @@ import {
   FilterOutlined,
   FolderOpenOutlined,
   MonitorOutlined,
+  MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   UserOutlined,
@@ -21,6 +22,7 @@ import {
   DatePicker,
   Descriptions,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -905,28 +907,36 @@ export default function KeyMattersPage() {
             )}
             <Button
               type="link"
-              icon={<EyeOutlined />}
-              onClick={() => void openDetail(r)}
-            >
-              详情
-            </Button>
-            <Button
-              type="link"
               icon={<EditOutlined />}
               disabled={!canEdit(r)}
               onClick={() => openEdit(r)}
             >
               编辑
             </Button>
-            <Button
-              danger
-              type="link"
-              icon={<DeleteOutlined />}
-              disabled={!canManageAll}
-              onClick={() => void remove(r)}
+            <Dropdown
+              trigger={['click']}
+              placement="bottomRight"
+              menu={{
+                items: [
+                  { key: 'detail', icon: <EyeOutlined />, label: '详情' },
+                  {
+                    key: 'delete',
+                    icon: <DeleteOutlined />,
+                    label: '删除',
+                    danger: true,
+                    disabled: !canManageAll,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'detail') void openDetail(r);
+                  if (key === 'delete') void remove(r);
+                },
+              }}
             >
-              删除
-            </Button>
+              <Button type="link" icon={<MoreOutlined />}>
+                更多
+              </Button>
+            </Dropdown>
           </Space>
         </div>
       </List.Item>
@@ -2337,6 +2347,7 @@ export default function KeyMattersPage() {
         okText="保存周进展"
         cancelText="取消"
         width={1080}
+        style={{ top: 64 }}
       >
         {detail && (
           <div className="sw-weekly-layout">
@@ -2445,25 +2456,25 @@ export default function KeyMattersPage() {
                     ))}
                   </Space>
                 </div>
-                <section className="sw-weekly-section is-outcomes">
-                  <header>
-                    <span>01</span>
-                    <div>
-                      <h3>本周成果</h3>
-                      <small>记录已完成的关键动作与可验证结果</small>
-                    </div>
-                  </header>
-                  <Form.Item
-                    name="progressSummary"
-                    rules={[{ required: true, message: '请输入本周进展' }]}
-                  >
-                    <Input.TextArea
-                      rows={4}
-                      placeholder="逐条说明本周完成了什么、形成了什么结果"
-                    />
-                  </Form.Item>
-                </section>
-                <div className="sw-weekly-signal-grid">
+                <div className="sw-weekly-section-grid">
+                  <section className="sw-weekly-section is-outcomes">
+                    <header>
+                      <span>01</span>
+                      <div>
+                        <h3>本周成果</h3>
+                        <small>记录已完成的关键动作与可验证结果</small>
+                      </div>
+                    </header>
+                    <Form.Item
+                      name="progressSummary"
+                      rules={[{ required: true, message: '请输入本周进展' }]}
+                    >
+                      <Input.TextArea
+                        rows={3}
+                        placeholder="逐条说明本周完成了什么、形成了什么结果"
+                      />
+                    </Form.Item>
+                  </section>
                   <section className="sw-weekly-section is-risk">
                     <header>
                       <span>02</span>
@@ -2488,22 +2499,22 @@ export default function KeyMattersPage() {
                       <Input.TextArea rows={3} placeholder="没有可留空" />
                     </Form.Item>
                   </section>
+                  <section className="sw-weekly-section is-next">
+                    <header>
+                      <span>04</span>
+                      <div>
+                        <h3>下一步行动</h3>
+                        <small>写清动作、目标和交付</small>
+                      </div>
+                    </header>
+                    <Form.Item name="nextWeekPlan">
+                      <Input.TextArea
+                        rows={3}
+                        placeholder="说明下一周期的关键动作"
+                      />
+                    </Form.Item>
+                  </section>
                 </div>
-                <section className="sw-weekly-section is-next">
-                  <header>
-                    <span>04</span>
-                    <div>
-                      <h3>下一步行动</h3>
-                      <small>写清动作、目标和交付</small>
-                    </div>
-                  </header>
-                  <Form.Item name="nextWeekPlan">
-                    <Input.TextArea
-                      rows={3}
-                      placeholder="说明下一周期的关键动作"
-                    />
-                  </Form.Item>
-                </section>
               </Form>
             </div>
             <aside className="sw-weekly-history" aria-label="历史周进展">
