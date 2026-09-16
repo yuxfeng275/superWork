@@ -135,6 +135,8 @@ export default function KeyMattersPage() {
     dayjs().startOf('week').add(1, 'day'),
   );
   const [weeklyForm] = Form.useForm();
+  const weeklyFormProgress = Form.useWatch('progress', weeklyForm);
+  const weeklyFormWeek = Form.useWatch('weekStartDate', weeklyForm);
   const [users, setUsers] = useState<
     Array<{ id: number; realName?: string; username?: string }>
   >([]);
@@ -315,6 +317,13 @@ export default function KeyMattersPage() {
         ? matter.currentWeekUpdate
         : undefined);
     setDetail(matter);
+    // 拉取完整详情，保证弹窗右侧历史周进展有数据（列表行不含完整周报）
+    void superworkApi
+      .getKeyMatter(matter.id)
+      .then((full) =>
+        setDetail((prev) => (prev?.id === matter.id ? (full as Matter) : prev)),
+      )
+      .catch(() => undefined);
     setWeeklyWeek(week);
     setWeeklyEditingExisting(Boolean(update));
     weeklyForm.resetFields();
@@ -885,6 +894,15 @@ export default function KeyMattersPage() {
             </Tag>
           </div>
           <Space className="sw-matter-list-actions" size={0}>
+            {canFeedback(r) && status !== '已完成' && (
+              <Button
+                type="link"
+                icon={<CalendarOutlined />}
+                onClick={() => openWeekly(r)}
+              >
+                周进展
+              </Button>
+            )}
             <Button
               type="link"
               icon={<EyeOutlined />}
@@ -2311,86 +2329,268 @@ export default function KeyMattersPage() {
         </div>
       )}
       <Modal
-        title={`${weeklyEditingExisting ? '编辑' : '填写'}周进展 · ${weeklyWeek.format('YYYY-MM-DD')}`}
+        className="sw-weekly-modal"
+        title={`${weeklyEditingExisting ? '编辑' : '填写'}周进展`}
         open={weeklyOpen}
         onCancel={() => setWeeklyOpen(false)}
         onOk={() => void weeklyForm.submit()}
-        okText="保存"
+        okText="保存周进展"
         cancelText="取消"
+        width={1080}
       >
-        <Form
-          form={weeklyForm}
-          layout="vertical"
-          onValuesChange={(changed) => {
-            if (changed.status === '已完成')
-              weeklyForm.setFieldValue('progress', 100);
-            if (changed.progress !== undefined) {
-              const progress = Number(changed.progress || 0);
-              if (progress >= 100) weeklyForm.setFieldValue('status', '已完成');
-              else if (weeklyForm.getFieldValue('status') === '已完成')
-                weeklyForm.setFieldValue('status', '推进中');
-            }
-          }}
-          onFinish={(values) => void saveWeekly(values)}
-        >
-          <Form.Item
-            name="weekStartDate"
-            label="周起始日"
-            rules={[{ required: true }]}
-          >
-            <DatePicker />
-          </Form.Item>
-          <Space style={{ display: 'flex' }}>
-            <Form.Item
-              name="status"
-              label="状态"
-              rules={[{ required: true, message: '请选择事项状态' }]}
-            >
-              <Select
-                style={{ width: 180 }}
-                options={statusOptions.map((v) => ({ label: v, value: v }))}
-              />
-            </Form.Item>
-            <Form.Item name="progress" label="进度">
-              <InputNumber min={0} max={100} suffix="%" />
-            </Form.Item>
-          </Space>
-          <Form.Item label="快速选择进度">
-            <Space size={4} wrap>
-              {progressPresets.map((preset) => (
-                <Button
-                  key={preset}
-                  size="small"
-                  onClick={() => {
-                    weeklyForm.setFieldValue('progress', preset);
-                    if (preset === 100)
+        {detail && (
+          <div className="sw-weekly-layout">
+            <div className="sw-weekly-main">
+              <header className="sw-weekly-workspace-header">
+                <div>
+                  <span className="sw-weekly-kicker">WEEKLY UPDATE</span>
+                  <strong>结构化周进展</strong>
+                </div>
+                <time>
+                  <CalendarOutlined />
+                  {dayjs(weeklyFormWeek || weeklyWeek).format('YYYY-MM-DD')}{' '}
+                  当周
+                </time>
+              </header>
+              <div className="sw-weekly-matter">
+                <Typography.Text strong className="sw-weekly-matter-title">
+                  {detail.title}
+                </Typography.Text>
+                <Typography.Text type="secondary">
+                  {detail.projectName || 'BU 内部事项'} ·{' '}
+                  {detail.ownerName || '未指定负责人'}
+                </Typography.Text>
+              </div>
+              <Form
+                form={weeklyForm}
+                layout="vertical"
+                onValuesChange={(changed) => {
+                  if (changed.status === '已完成')
+                    weeklyForm.setFieldValue('progress', 100);
+                  if (changed.progress !== undefined) {
+                    const progress = Number(changed.progress || 0);
+                    if (progress >= 100)
                       weeklyForm.setFieldValue('status', '已完成');
                     else if (weeklyForm.getFieldValue('status') === '已完成')
                       weeklyForm.setFieldValue('status', '推进中');
+                  }
+                }}
+                onFinish={(values) => void saveWeekly(values)}
+              >
+                <section className="sw-weekly-state-bar">
+                  <Form.Item
+                    name="weekStartDate"
+                    label="周起始日"
+                    rules={[{ required: true, message: '请选择周起始日' }]}
+                  >
+                    <DatePicker style={{ width: '100%' }} />
+                  </Form.Item>
+                  <Form.Item
+                    name="status"
+                    label="事项状态"
+                    rules={[{ required: true, message: '请选择事项状态' }]}
+                  >
+                    <Select
+                      options={statusOptions.map((v) => ({
+                        label: v,
+                        value: v,
+                      }))}
+                    />
+                  </Form.Item>
+                  <Form.Item name="progress" label="完成进度">
+                    <InputNumber
+                      min={0}
+                      max={100}
+                      suffix="%"
+                      style={{ width: '100%' }}
+                    />
+                  </Form.Item>
+                </section>
+                <div className="sw-weekly-progress-preview">
+                  <div
+                    className="sw-weekly-progress-track"
+                    role="progressbar"
+                    aria-valuenow={Number(weeklyFormProgress || 0)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <i
+                      style={{
+                        width: `${Math.max(0, Math.min(100, Number(weeklyFormProgress || 0)))}%`,
+                      }}
+                    />
+                  </div>
+                  <Space size={4} wrap>
+                    {progressPresets.map((preset) => (
+                      <Button
+                        key={preset}
+                        size="small"
+                        type={
+                          Number(weeklyFormProgress) === preset
+                            ? 'primary'
+                            : 'default'
+                        }
+                        onClick={() => {
+                          weeklyForm.setFieldValue('progress', preset);
+                          if (preset === 100)
+                            weeklyForm.setFieldValue('status', '已完成');
+                          else if (
+                            weeklyForm.getFieldValue('status') === '已完成'
+                          )
+                            weeklyForm.setFieldValue('status', '推进中');
+                        }}
+                      >
+                        {preset}%
+                      </Button>
+                    ))}
+                  </Space>
+                </div>
+                <section className="sw-weekly-section is-outcomes">
+                  <header>
+                    <span>01</span>
+                    <div>
+                      <h3>本周成果</h3>
+                      <small>记录已完成的关键动作与可验证结果</small>
+                    </div>
+                  </header>
+                  <Form.Item
+                    name="progressSummary"
+                    rules={[{ required: true, message: '请输入本周进展' }]}
+                  >
+                    <Input.TextArea
+                      rows={4}
+                      placeholder="逐条说明本周完成了什么、形成了什么结果"
+                    />
+                  </Form.Item>
+                </section>
+                <div className="sw-weekly-signal-grid">
+                  <section className="sw-weekly-section is-risk">
+                    <header>
+                      <span>02</span>
+                      <div>
+                        <h3>问题 / 风险</h3>
+                        <small>说明阻碍、偏差和影响</small>
+                      </div>
+                    </header>
+                    <Form.Item name="issues">
+                      <Input.TextArea rows={3} placeholder="没有可留空" />
+                    </Form.Item>
+                  </section>
+                  <section className="sw-weekly-section is-support">
+                    <header>
+                      <span>03</span>
+                      <div>
+                        <h3>需协调 / 决策</h3>
+                        <small>明确需要谁推动什么</small>
+                      </div>
+                    </header>
+                    <Form.Item name="supportNeeded">
+                      <Input.TextArea rows={3} placeholder="没有可留空" />
+                    </Form.Item>
+                  </section>
+                </div>
+                <section className="sw-weekly-section is-next">
+                  <header>
+                    <span>04</span>
+                    <div>
+                      <h3>下一步行动</h3>
+                      <small>写清动作、目标和交付</small>
+                    </div>
+                  </header>
+                  <Form.Item name="nextWeekPlan">
+                    <Input.TextArea
+                      rows={3}
+                      placeholder="说明下一周期的关键动作"
+                    />
+                  </Form.Item>
+                </section>
+              </Form>
+            </div>
+            <aside className="sw-weekly-history" aria-label="历史周进展">
+              <div className="sw-weekly-history-head">
+                <div>
+                  <span className="sw-weekly-kicker">历史记录</span>
+                  <strong>周进展记录</strong>
+                </div>
+                <Typography.Text type="secondary">
+                  {detail.weeklyUpdates?.length || 0} 次更新
+                </Typography.Text>
+              </div>
+              {detail.weeklyUpdates?.length ? (
+                <List
+                  size="small"
+                  className="sw-weekly-history-list"
+                  dataSource={detail.weeklyUpdates}
+                  renderItem={(item: Matter, index: number) => {
+                    const delta = historyDelta(
+                      detail.weeklyUpdates || [],
+                      index,
+                    );
+                    return (
+                      <List.Item
+                        actions={
+                          canFeedback(detail) && item.weekStartDate
+                            ? [
+                                <Button
+                                  key="edit"
+                                  type="link"
+                                  size="small"
+                                  onClick={() =>
+                                    openWeekly(
+                                      detail,
+                                      dayjs(item.weekStartDate),
+                                    )
+                                  }
+                                >
+                                  编辑
+                                </Button>,
+                              ]
+                            : undefined
+                        }
+                      >
+                        <div className="sw-weekly-history-item">
+                          <Space size={6} wrap>
+                            <Typography.Text strong>
+                              {item.weekStartDate}
+                            </Typography.Text>
+                            <Tag>{item.status || '未设置'}</Tag>
+                            <Typography.Text>
+                              {item.progress ?? 0}%
+                            </Typography.Text>
+                            <Tag
+                              color={
+                                delta.tone === 'up'
+                                  ? 'success'
+                                  : delta.tone === 'down'
+                                    ? 'error'
+                                    : 'default'
+                              }
+                            >
+                              {delta.label}
+                            </Tag>
+                            {index === 0 && <Tag color="blue">最新</Tag>}
+                          </Space>
+                          <Typography.Paragraph
+                            type="secondary"
+                            ellipsis={{ rows: 2 }}
+                            className="sw-weekly-history-summary"
+                          >
+                            {item.progressSummary || '暂无进展说明'}
+                          </Typography.Paragraph>
+                        </div>
+                      </List.Item>
+                    );
                   }}
-                >
-                  {preset}%
-                </Button>
-              ))}
-            </Space>
-          </Form.Item>
-          <Form.Item
-            name="progressSummary"
-            label="本周进展"
-            rules={[{ required: true, message: '请输入本周进展' }]}
-          >
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item name="issues" label="问题风险">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="nextWeekPlan" label="下周计划">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item name="supportNeeded" label="需要支持">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </Form>
+                />
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="暂无周进展记录"
+                />
+              )}
+            </aside>
+          </div>
+        )}
       </Modal>
     </div>
   );
