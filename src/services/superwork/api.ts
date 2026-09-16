@@ -902,6 +902,175 @@ const query = (params: Record<string, string | number | undefined>) => {
   return result ? `?${result}` : "";
 };
 
+export interface SyncTask {
+  id: number;
+  taskCode: string;
+  taskName: string;
+  /** OA / WORKTIME / EXCEL */
+  sourceSystem: string;
+  /** contract / worklog / cost / org / member */
+  domain: string;
+  cron: string | null;
+  enabled: number;
+  lastStatus: "running" | "success" | "failed" | null;
+  lastRunAt: string | null;
+}
+
+export interface DataSyncLog {
+  id: number;
+  taskCode: string;
+  sourceSystem: string;
+  domain: string;
+  scope: string;
+  status: string;
+  totalCount: number | null;
+  upsertCount: number | null;
+  pendingCount: number | null;
+  message: string | null;
+  triggeredBy: string;
+  operatorId: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface SyncOverviewItem {
+  domain: string;
+  lastSuccess: DataSyncLog | null;
+}
+
+export interface RevenueCell {
+  /** 人月 */
+  hours: number;
+  /** 元 */
+  cost: number;
+  /** actual=完结实际 / estimate=预估 / mixed=混合 / null=无数据 */
+  source: "actual" | "estimate" | "mixed" | null;
+  estimateCount?: number | null;
+}
+
+export interface RevenueMonthInfo {
+  yearMonth: string;
+  closed: boolean;
+}
+
+export type RevenueRowKind =
+  | "project"
+  | "line_pool"
+  | "sales_specific"
+  | "pool"
+  | "other"
+  | "agg_project"
+  | "agg_sales"
+  | "simple";
+
+export interface RevenueRow {
+  rowKey: string;
+  name: string;
+  kind: RevenueRowKind;
+  projectId?: number | null;
+  salesProjectId?: number | null;
+  opportunityId?: number | null;
+  opportunityName?: string | null;
+  /** 累计完结人均成本（元/人月），无完结历史为 null */
+  unitPrice?: number | null;
+  months: RevenueCell[];
+  totals: RevenueCell;
+}
+
+export interface RevenueSection {
+  type: "project" | "sales";
+  rows: RevenueRow[];
+}
+
+export interface RevenueLineBlock {
+  businessLineId: number;
+  businessLineName: string;
+  /** full=项目+销售明细行 / aggregate=项目销售两行聚合 / simple=单行汇总 */
+  mode: "full" | "aggregate" | "simple";
+  sections: RevenueSection[];
+  monthTotals: RevenueCell[];
+  totals: RevenueCell;
+}
+
+export interface RevenueOverview {
+  totalHours: number;
+  projectHours: number;
+  salesHours: number;
+  totalCost: number;
+  /** 综合单价（元/人月） */
+  avgUnitPrice?: number | null;
+  closedMonthCount: number;
+}
+
+export interface RevenueMatrix {
+  year: number;
+  months: RevenueMonthInfo[];
+  lines: RevenueLineBlock[];
+  monthTotals: RevenueCell[];
+  grandTotal: RevenueCell;
+  overview: RevenueOverview;
+}
+
+export interface RevenueEstimateEntry {
+  id: number;
+  yearMonth: string;
+  businessLineId: number;
+  projectId?: number | null;
+  workType: string;
+  salesKind?: string | null;
+  salesProjectId?: number | null;
+  description: string;
+  personMonths: number;
+  unitPrice?: number | null;
+  amount?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RevenueWorklogEntry {
+  id: number;
+  yearMonth: string;
+  businessLineName: string;
+  businessLineId?: number | null;
+  projectNameRaw: string;
+  projectId?: number | null;
+  workType: string;
+  salesKind?: string | null;
+  salesProjectId?: number | null;
+  employeeNo?: string;
+  employeeName?: string;
+  department?: string;
+  hours: number;
+  workNote?: string;
+  specialNote?: string;
+  tags?: string;
+  pending: number;
+}
+
+export interface RevenueCostEntry {
+  id: number;
+  yearMonth: string;
+  businessLineName: string;
+  businessLineId?: number | null;
+  projectNameRaw: string;
+  projectId?: number | null;
+  workType: string;
+  salesKind?: string | null;
+  employeeCount?: number | null;
+  hours: number;
+  costAmount: number;
+  personMonthCost?: number | null;
+  pending: number;
+}
+
+export interface RevenueCellDetail {
+  /** 该单元格所属月份是否已完结：完结返回实际明细，未完结返回预估明细 */
+  closed: boolean;
+  worklogEntries?: RevenueWorklogEntry[];
+  costEntries?: RevenueCostEntry[];
+  estimates?: RevenueEstimateEntry[];
+}
+
 export const superworkApi = {
   login(username: string, password: string) {
     return requestJson<LoginResponse>("/api/auth/login", {
@@ -1759,6 +1928,37 @@ export const superworkApi = {
       }`
     );
   },
+  // ==================== 数据集成中心（统一同步 /api/sync） ====================
+  listSyncTasks() {
+    return requestJson<SyncTask[]>("/api/sync/tasks");
+  },
+  updateSyncTask(
+    taskCode: string,
+    payload: { cron?: string | null; enabled?: boolean }
+  ) {
+    return requestJson<SyncTask>(`/api/sync/tasks/${taskCode}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  runSyncTask(taskCode: string, scope?: string) {
+    return requestJson<DataSyncLog[]>(`/api/sync/tasks/${taskCode}/run`, {
+      method: "POST",
+      body: JSON.stringify(scope ? { scope } : {}),
+    });
+  },
+  getSyncLogs(params?: { domain?: string; status?: string; taskCode?: string }) {
+    return requestJson<DataSyncLog[]>(
+      `/api/sync/logs${query({
+        domain: params?.domain,
+        status: params?.status,
+        taskCode: params?.taskCode,
+      })}`
+    );
+  },
+  getSyncOverview() {
+    return requestJson<SyncOverviewItem[]>("/api/sync/overview");
+  },
   async downloadKpiReport(year: number) {
     const response = await fetch(`/api/kpi/report/export?year=${year}`, {
       headers: localStorage.getItem("token")
@@ -1779,9 +1979,7 @@ export const superworkApi = {
     URL.revokeObjectURL(url);
   },
   getRevenueMatrix(year: number) {
-    return requestJson<Record<string, unknown>>(
-      `/api/revenue/matrix?year=${year}`
-    );
+    return requestJson<RevenueMatrix>(`/api/revenue/matrix?year=${year}`);
   },
   getRevenueImportBatches(importType?: string) {
     return requestJson<Record<string, unknown>[]>(
@@ -1845,7 +2043,7 @@ export const superworkApi = {
     businessLineId: number,
     rowKey: string
   ) {
-    return requestJson<Record<string, unknown>>(
+    return requestJson<RevenueCellDetail>(
       `/api/revenue/cell-detail?yearMonth=${encodeURIComponent(
         yearMonth
       )}&businessLineId=${businessLineId}&rowKey=${encodeURIComponent(rowKey)}`

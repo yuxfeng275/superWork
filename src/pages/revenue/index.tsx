@@ -1,11 +1,11 @@
 import {
   DeleteOutlined,
   EditOutlined,
-  EyeOutlined,
   ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { history, useLocation } from '@umijs/max';
+import type { TableColumnsType } from 'antd';
 import {
   Alert,
   Button,
@@ -30,11 +30,50 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type {
+  RevenueCell,
+  RevenueCellDetail,
+  RevenueCostEntry,
+  RevenueEstimateEntry,
+  RevenueLineBlock,
+  RevenueMatrix,
+  RevenueMonthInfo,
+  RevenueRow,
+  RevenueWorklogEntry,
+} from '@/services/superwork/api';
 import { superworkApi } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
+
+/** 矩阵行上下文：明细行 + 所属业务线（下钻与录入定位用） */
+type MatrixRowContext = RevenueRow & {
+  businessLineId: number;
+  businessLineName: string;
+};
+
+/** 矩阵表格数据源：明细行 / 业务线小计 / 合计 */
+type MatrixDisplayRow = {
+  kind: 'data' | 'line_total' | 'grand_total';
+  key: string;
+  lineSpan: number;
+  sectionLabel: string;
+  sectionSpan: number;
+  lineId: number;
+  lineName: string;
+  row: MatrixRowContext | null;
+  monthTotals: RevenueCell[];
+  totals: RevenueCell;
+};
+
+const PROJECT_KINDS: RevenueRow['kind'][] = [
+  'project',
+  'agg_project',
+  'line_pool',
+  'simple',
+];
+
 export default function RevenuePage() {
-  const year = new Date().getFullYear();
+  const [year, setYear] = useState(() => new Date().getFullYear());
   const location = useLocation();
   const revenueTabByPath: Record<string, string> = {
     '/revenue/worktime': 'matrix',
@@ -43,7 +82,7 @@ export default function RevenuePage() {
     '/revenue/pending': 'pending',
   };
   const [activeTab, setActiveTab] = useState('matrix');
-  const [matrix, setMatrix] = useState<Record<string, any>>({});
+  const [matrix, setMatrix] = useState<RevenueMatrix | null>(null);
   const [pending, setPending] = useState<{
     worklog: Record<string, any>[];
     cost: Record<string, any>[];
@@ -86,20 +125,24 @@ export default function RevenuePage() {
   const [contractDrafts, setContractDrafts] = useState<
     Record<string, { businessLineId?: number; projectId?: number | null }>
   >({});
-  const [monthBusy, setMonthBusy] = useState(false);
   const [displayMode, setDisplayMode] = useState<'merge' | 'hours' | 'cost'>(
     'merge',
   );
+  // 数据口径：true=含预估，false=只看实际
+  const [showEstimates, setShowEstimates] = useState(true);
+  const [filterLineIds, setFilterLineIds] = useState<number[]>([]);
+  const [filterProjectIds, setFilterProjectIds] = useState<number[]>([]);
+  const [closeToggling, setCloseToggling] = useState('');
   const [cellOpen, setCellOpen] = useState(false);
   const [cellLoading, setCellLoading] = useState(false);
-  const [cellRow, setCellRow] = useState<Record<string, any>>({});
+  const [cellRow, setCellRow] = useState<MatrixRowContext | null>(null);
   const [cellContext, setCellContext] = useState({
     yearMonth: '',
     businessLineId: 0,
     rowKey: '',
     title: '',
   });
-  const [cellDetail, setCellDetail] = useState<Record<string, any>>({});
+  const [cellDetail, setCellDetail] = useState<RevenueCellDetail | null>(null);
   const [businessLines, setBusinessLines] = useState<Record<string, any>[]>([]);
   const [projects, setProjects] = useState<Record<string, any>[]>([]);
   const [salesProjects, setSalesProjects] = useState<Record<string, any>[]>([]);
@@ -141,12 +184,12 @@ export default function RevenuePage() {
   );
   const [estimateState, setEstimateState] = useState<{
     open: boolean;
-    row?: Record<string, any>;
+    row?: RevenueEstimateEntry;
   }>({ open: false });
   const [entryState, setEntryState] = useState<{
     open: boolean;
     kind: 'worklog' | 'cost';
-    row?: Record<string, any>;
+    row?: RevenueWorklogEntry | RevenueCostEntry;
   }>({ open: false, kind: 'worklog' });
   const load = useCallback(async () => {
     setLoading(true);
@@ -218,6 +261,12 @@ export default function RevenuePage() {
       ? amount.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
       : '—';
   };
+  const formatHours = (value: unknown) => {
+    if (value == null || value === '') return '—';
+    const num = Number(value);
+    if (!Number.isFinite(num) || num === 0) return '—';
+    return String(Math.round(num * 100) / 100);
+  };
   const deliveryLines = Array.isArray(deliverySummary.lines)
     ? deliverySummary.lines
     : [];
@@ -251,35 +300,270 @@ export default function RevenuePage() {
   );
   const openDeliveryDetail = (row: Record<string, any>, label: string) =>
     setDeliveryDetail({ open: true, row, label });
-  const rows = Array.isArray(matrix.rows)
-    ? matrix.rows
-    : Array.isArray(matrix.records)
-      ? matrix.records
-      : Array.isArray(matrix.lines)
-        ? (matrix.lines as any[]).flatMap((line: any) =>
-            (line.sections || []).flatMap((section: any) =>
-              (section.rows || []).map((row: any) => ({
-                ...row,
-                businessLineId: line.businessLineId,
-                businessLineName: line.businessLineName,
-              })),
-            ),
-          )
-        : [];
-  const cols = rows.length
-    ? [
-        'businessLineName',
-        'name',
-        ...((matrix.months || []) as any[])
-          .slice(0, 10)
-          .map((m: any) => m.yearMonth),
-      ]
-    : [];
-  const openCell = async (row: any, yearMonth: string) => {
-    const businessLineId = Number(
-      row.businessLineId || row.lineId || row.businessLine?.id || 0,
+  // ---------- 营收矩阵（工时 & 成本）----------
+  const matrixLines: RevenueLineBlock[] = matrix?.lines ?? [];
+  const matrixMonths: RevenueMonthInfo[] = matrix?.months ?? [];
+  const mergeCellSource = (
+    current: RevenueCell['source'],
+    next: RevenueCell['source'],
+  ): RevenueCell['source'] => {
+    if (next == null) return current ?? null;
+    if (current == null) return next;
+    return current === next ? current : 'mixed';
+  };
+  const sumCells = (targetRows: RevenueRow[]) => {
+    const months: RevenueCell[] = Array.from({ length: 12 }, () => ({
+      hours: 0,
+      cost: 0,
+      source: null,
+    }));
+    targetRows.forEach((row) => {
+      (row.months ?? []).forEach((cell, i) => {
+        const month = months[i];
+        if (!month) return;
+        month.hours += Number(cell?.hours || 0);
+        month.cost += Number(cell?.cost || 0);
+        month.source = mergeCellSource(month.source, cell?.source ?? null);
+      });
+    });
+    const totals = months.reduce<RevenueCell>(
+      (acc, cell) => ({
+        hours: acc.hours + cell.hours,
+        cost: acc.cost + cell.cost,
+        source: mergeCellSource(acc.source, cell.source),
+      }),
+      { hours: 0, cost: 0, source: null },
     );
-    const rowKey = String(row.rowKey || row.key || row.name || '');
+    return { months, totals };
+  };
+  // 「只看实际」口径：预估格按空值参与汇总
+  const rowWithVisibleMonths = (row: RevenueRow): RevenueRow => {
+    if (showEstimates) return row;
+    const months = (row.months ?? []).map<RevenueCell>((cell) =>
+      cell?.source === 'estimate' ? { hours: 0, cost: 0, source: null } : cell,
+    );
+    const totals = months.reduce<RevenueCell>(
+      (acc, cell) => ({
+        hours: acc.hours + Number(cell?.hours || 0),
+        cost: acc.cost + Number(cell?.cost || 0),
+        source: mergeCellSource(acc.source, cell?.source ?? null),
+      }),
+      { hours: 0, cost: 0, source: null },
+    );
+    return { ...row, months, totals };
+  };
+  const filteredMatrixLines = useMemo<RevenueLineBlock[]>(() => {
+    const projectFilterActive = filterProjectIds.length > 0;
+    return matrixLines
+      .filter(
+        (line) =>
+          !filterLineIds.length || filterLineIds.includes(line.businessLineId),
+      )
+      .map((line) => {
+        const sections = (line.sections ?? [])
+          .map((section) => ({
+            ...section,
+            rows: (section.rows ?? [])
+              .filter((row) =>
+                projectFilterActive
+                  ? row.kind === 'project' &&
+                    row.projectId != null &&
+                    filterProjectIds.includes(row.projectId)
+                  : true,
+              )
+              .map(rowWithVisibleMonths),
+          }))
+          .filter((section) => section.rows.length > 0);
+        const { months, totals } = sumCells(
+          sections.flatMap((section) => section.rows),
+        );
+        return { ...line, sections, monthTotals: months, totals };
+      })
+      .filter((line) => line.sections.length > 0);
+  }, [matrixLines, filterLineIds, filterProjectIds, showEstimates]);
+  const filteredMonthTotals = useMemo<RevenueCell[]>(() => {
+    const totals: RevenueCell[] = Array.from({ length: 12 }, () => ({
+      hours: 0,
+      cost: 0,
+      source: null,
+    }));
+    filteredMatrixLines.forEach((line) => {
+      (line.monthTotals ?? []).forEach((cell, i) => {
+        const month = totals[i];
+        if (!month) return;
+        month.hours += Number(cell?.hours || 0);
+        month.cost += Number(cell?.cost || 0);
+        month.source = mergeCellSource(month.source, cell?.source ?? null);
+      });
+    });
+    return totals;
+  }, [filteredMatrixLines]);
+  const filteredGrandTotal = useMemo<RevenueCell>(() => {
+    const total: RevenueCell = { hours: 0, cost: 0, source: null };
+    filteredMatrixLines.forEach((line) => {
+      total.hours += Number(line.totals?.hours || 0);
+      total.cost += Number(line.totals?.cost || 0);
+      total.source = mergeCellSource(total.source, line.totals?.source ?? null);
+    });
+    return total;
+  }, [filteredMatrixLines]);
+  const filteredMatrixOverview = useMemo(() => {
+    const allRows = filteredMatrixLines.flatMap((line) =>
+      line.sections.flatMap((section) => section.rows),
+    );
+    const sumHours = (rows: RevenueRow[]) =>
+      rows.reduce((sum, row) => sum + Number(row.totals?.hours || 0), 0);
+    const projectHours = sumHours(
+      allRows.filter((row) => PROJECT_KINDS.includes(row.kind)),
+    );
+    const salesHours = sumHours(
+      allRows.filter((row) => !PROJECT_KINDS.includes(row.kind)),
+    );
+    const totalHours = projectHours + salesHours;
+    const totalCost = Number(filteredGrandTotal.cost || 0);
+    return {
+      totalHours,
+      projectHours,
+      salesHours,
+      totalCost,
+      avgUnitPrice: totalHours > 0 ? totalCost / totalHours : null,
+      closedMonthCount: Number(
+        matrix?.overview.closedMonthCount ??
+          matrixMonths.filter((month) => month.closed).length,
+      ),
+    };
+  }, [filteredMatrixLines, filteredGrandTotal, matrix, matrixMonths]);
+  const flatMatrixRows = useMemo<MatrixDisplayRow[]>(() => {
+    const result: MatrixDisplayRow[] = [];
+    filteredMatrixLines.forEach((line) => {
+      const lineRows: MatrixDisplayRow[] = [];
+      (line.sections ?? []).forEach((section) => {
+        (section.rows ?? []).forEach((row, index) => {
+          lineRows.push({
+            kind: 'data',
+            key: `data-${line.businessLineId}-${row.rowKey}`,
+            lineSpan: 0,
+            sectionLabel: section.type === 'project' ? '项目' : '销售',
+            sectionSpan: index === 0 ? section.rows.length : 0,
+            lineId: line.businessLineId,
+            lineName: line.businessLineName,
+            row: {
+              ...row,
+              businessLineId: line.businessLineId,
+              businessLineName: line.businessLineName,
+            },
+            monthTotals: row.months ?? [],
+            totals: row.totals,
+          });
+        });
+      });
+      lineRows.forEach((item, index) => {
+        item.lineSpan = index === 0 ? lineRows.length : 0;
+      });
+      result.push(...lineRows);
+      // 单行汇总的业务线（海外/全渠道产品/全域精准）不需要小计
+      if (line.mode !== 'simple') {
+        result.push({
+          kind: 'line_total',
+          key: `line-total-${line.businessLineId}`,
+          lineSpan: 1,
+          sectionLabel: '小计',
+          sectionSpan: 1,
+          lineId: line.businessLineId,
+          lineName: line.businessLineName,
+          row: null,
+          monthTotals: line.monthTotals ?? [],
+          totals: line.totals,
+        });
+      }
+    });
+    if (result.length) {
+      result.push({
+        kind: 'grand_total',
+        key: 'grand-total',
+        lineSpan: 1,
+        sectionLabel: '',
+        sectionSpan: 1,
+        lineId: 0,
+        lineName: '合计',
+        row: null,
+        monthTotals: filteredMonthTotals,
+        totals: filteredGrandTotal,
+      });
+    }
+    return result;
+  }, [filteredMatrixLines, filteredMonthTotals, filteredGrandTotal]);
+  const projectOptionsOf = (lineIds: number[]) =>
+    matrixLines
+      .filter(
+        (line) => !lineIds.length || lineIds.includes(line.businessLineId),
+      )
+      .flatMap((line) =>
+        (line.sections ?? []).flatMap((section) => section.rows ?? []),
+      )
+      .filter((row) => row.kind === 'project' && row.projectId != null)
+      .map((row) => ({
+        id: Number(row.projectId),
+        name: String(row.name ?? ''),
+      }));
+  const projectFilterOptions = useMemo(
+    () => projectOptionsOf(filterLineIds),
+    [matrixLines, filterLineIds],
+  );
+  const toggleInList = (list: number[], id: number) =>
+    list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
+  const toggleLineFilter = (id: number) => {
+    const next = toggleInList(filterLineIds, id);
+    const valid: Record<number, true> = {};
+    projectOptionsOf(next).forEach((option) => {
+      valid[option.id] = true;
+    });
+    setFilterLineIds(next);
+    setFilterProjectIds((prev) => prev.filter((pid) => valid[pid]));
+  };
+  const resetMatrixFilters = () => {
+    setFilterLineIds([]);
+    setFilterProjectIds([]);
+  };
+  const matrixOverviewCells = [
+    {
+      label: '年度总工时',
+      value: formatHours(filteredMatrixOverview.totalHours),
+      unit: '人月',
+    },
+    {
+      label: '项目工时',
+      value: formatHours(filteredMatrixOverview.projectHours),
+      unit: '人月',
+    },
+    {
+      label: '销售工时',
+      value: formatHours(filteredMatrixOverview.salesHours),
+      unit: '人月',
+    },
+    {
+      label: '年度总成本',
+      value: formatWan(filteredMatrixOverview.totalCost),
+      unit: '万元',
+    },
+    {
+      label: '综合单价',
+      value:
+        filteredMatrixOverview.avgUnitPrice == null
+          ? '—'
+          : formatWan(filteredMatrixOverview.avgUnitPrice),
+      unit: '万/人月',
+    },
+    {
+      label: '已完结月份',
+      value: String(filteredMatrixOverview.closedMonthCount),
+      unit: '/ 12',
+    },
+  ];
+
+  const openCell = async (row: MatrixRowContext, yearMonth: string) => {
+    const businessLineId = Number(row.businessLineId || 0);
+    const rowKey = String(row.rowKey || '');
     if (!businessLineId || !rowKey || !yearMonth) {
       message.info('该矩阵行缺少单元格明细定位信息');
       return;
@@ -288,9 +572,7 @@ export default function RevenuePage() {
       businessLineId,
       rowKey,
       yearMonth,
-      title: `${row.businessLineName || '业务线'} / ${
-        row.name || rowKey
-      } / ${yearMonth}`,
+      title: `${row.businessLineName || '业务线'} / ${row.name || rowKey} / ${yearMonth}`,
     });
     setCellRow(row);
     setCellOpen(true);
@@ -346,9 +628,9 @@ export default function RevenuePage() {
       other: { workType: 'sales', salesKind: 'other' },
       simple: { workType: 'project' },
     };
-    return kindMap[cellRow.kind || 'project'] || kindMap.project;
+    return kindMap[cellRow?.kind ?? 'project'] || kindMap.project;
   };
-  const openEstimate = (row?: Record<string, any>) => {
+  const openEstimate = (row?: RevenueEstimateEntry) => {
     setEstimateState({ open: true, row });
     estimateForm.setFieldsValue({
       description: row?.description || '',
@@ -362,8 +644,8 @@ export default function RevenuePage() {
       const payload = {
         yearMonth: cellContext.yearMonth,
         businessLineId: cellContext.businessLineId,
-        projectId: cellRow.projectId ?? null,
-        salesProjectId: cellRow.salesProjectId ?? null,
+        projectId: cellRow?.projectId ?? null,
+        salesProjectId: cellRow?.salesProjectId ?? null,
         workType: kind.workType,
         salesKind: kind.salesKind ?? null,
         description: String(values.description || '').trim(),
@@ -386,8 +668,7 @@ export default function RevenuePage() {
       message.error(e instanceof Error ? e.message : '预估保存失败');
     }
   };
-  const removeEstimate = (row: Record<string, any>) => {
-    if (!row.id) return;
+  const removeEstimate = (row: RevenueEstimateEntry) => {
     Modal.confirm({
       title: '删除营收估算？',
       content: row.description || '删除后不可恢复',
@@ -399,28 +680,32 @@ export default function RevenuePage() {
       },
     });
   };
-  const openEntry = (kind: 'worklog' | 'cost', row?: Record<string, any>) => {
+  const openEntry = (
+    kind: 'worklog' | 'cost',
+    row?: RevenueWorklogEntry | RevenueCostEntry,
+  ) => {
     setEntryState({ open: true, kind, row });
-    entryForm.setFieldsValue(
-      kind === 'worklog'
-        ? {
-            employeeName: row?.employeeName || '',
-            department: row?.department || '',
-            hours: row?.hours ?? 0.1,
-            workNote: row?.workNote || '',
-            specialNote: row?.specialNote || '',
-            projectNameRaw:
-              row?.projectNameRaw || `${cellRow.name || '项目'}（手工补录）`,
-          }
-        : {
-            employeeCount: row?.employeeCount ?? undefined,
-            hours: row?.hours ?? 0,
-            costAmount: row?.costAmount ?? 0,
-            personMonthCost: row?.personMonthCost ?? undefined,
-            projectNameRaw:
-              row?.projectNameRaw || `${cellRow.name || '项目'}（手工补录）`,
-          },
-    );
+    const fallbackProject = `${cellRow?.name || '项目'}（手工补录）`;
+    if (kind === 'worklog') {
+      const entry = row as RevenueWorklogEntry | undefined;
+      entryForm.setFieldsValue({
+        employeeName: entry?.employeeName || '',
+        department: entry?.department || '',
+        hours: entry?.hours ?? 0.1,
+        workNote: entry?.workNote || '',
+        specialNote: entry?.specialNote || '',
+        projectNameRaw: entry?.projectNameRaw || fallbackProject,
+      });
+      return;
+    }
+    const entry = row as RevenueCostEntry | undefined;
+    entryForm.setFieldsValue({
+      employeeCount: entry?.employeeCount ?? undefined,
+      hours: entry?.hours ?? 0,
+      costAmount: entry?.costAmount ?? 0,
+      personMonthCost: entry?.personMonthCost ?? undefined,
+      projectNameRaw: entry?.projectNameRaw || fallbackProject,
+    });
   };
   const saveEntry = async () => {
     try {
@@ -429,8 +714,8 @@ export default function RevenuePage() {
       const base = {
         yearMonth: cellContext.yearMonth,
         businessLineId: cellContext.businessLineId,
-        projectId: cellRow.projectId ?? null,
-        salesProjectId: cellRow.salesProjectId ?? null,
+        projectId: cellRow?.projectId ?? null,
+        salesProjectId: cellRow?.salesProjectId ?? null,
         workType: kind.workType,
         salesKind: kind.salesKind ?? null,
       };
@@ -482,11 +767,16 @@ export default function RevenuePage() {
       message.error(e instanceof Error ? e.message : '明细保存失败');
     }
   };
-  const removeEntry = (kind: 'worklog' | 'cost', row: Record<string, any>) => {
-    if (!row.id) return;
+  const removeEntry = (
+    kind: 'worklog' | 'cost',
+    row: RevenueWorklogEntry | RevenueCostEntry,
+  ) => {
     Modal.confirm({
       title: '删除这条明细？',
-      content: row.projectNameRaw || row.employeeName || '删除后不可恢复',
+      content:
+        row.projectNameRaw ||
+        ('employeeName' in row ? row.employeeName : '') ||
+        '删除后不可恢复',
       okType: 'danger',
       onOk: async () => {
         if (kind === 'worklog') {
@@ -671,63 +961,168 @@ export default function RevenuePage() {
           ]);
       },
     });
-  const tableCols = cols.map((k) => ({
-    title:
-      k === 'businessLineName' ? '业务线' : k === 'name' ? '项目 / 销售项' : k,
-    dataIndex: k,
-    key: k,
-    render: (v: unknown, row: any) =>
-      k.includes('-')
-        ? (() => {
-            const cell = row.months?.find(
-              (_m: any, i: number) => (matrix.months || [])[i]?.yearMonth === k,
-            );
-            const value =
-              displayMode === 'hours'
-                ? cell?.hours
-                : displayMode === 'cost'
-                  ? cell?.cost
-                  : (cell?.hours ?? cell?.cost);
-            return (
-              <Button
-                type="link"
-                icon={<EyeOutlined />}
-                onClick={() => void openCell(row, k)}
-              >
-                {value === undefined || value === null
-                  ? '—'
-                  : Number(value).toLocaleString()}
-              </Button>
-            );
-          })()
-        : typeof v === 'number'
-          ? v.toLocaleString()
-          : String(v ?? '—'),
-  }));
-  tableCols.push({
-    title: '操作',
-    dataIndex: '__actions',
-    key: '__actions',
-    render: (_value: unknown, row: Record<string, any>) =>
-      row.kind === 'project' || row.kind === 'line' || row.projectId != null ? (
-        <Space size={0}>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => void openDelivery(row, 'plans')}
-          >
-            预估交付
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => void openDelivery(row, 'costs')}
-          >
-            其他成本
-          </Button>
-        </Space>
-      ) : null,
-  } as any);
+  const toggleMonthClose = async (month: RevenueMonthInfo) => {
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: month.closed ? '取消完结' : '标记完结',
+        content: month.closed
+          ? `取消完结后，${month.yearMonth} 将改回展示预估数据，且允许重新导入。确定继续吗？`
+          : `完结后 ${month.yearMonth} 展示导入的实际数据并锁定（不可导入、不可改预估）。确定完结吗？`,
+        okText: '确定',
+        cancelText: '取消',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
+    setCloseToggling(month.yearMonth);
+    try {
+      if (month.closed) {
+        await superworkApi.reopenRevenueMonth(month.yearMonth);
+        message.success(`${month.yearMonth} 已取消完结`);
+      } else {
+        await superworkApi.closeRevenueMonth(month.yearMonth);
+        message.success(`${month.yearMonth} 已完结`);
+      }
+      await load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '月结操作失败');
+    } finally {
+      setCloseToggling('');
+    }
+  };
+  const renderMatrixValues = (cell: RevenueCell | undefined) => (
+    <>
+      {displayMode === 'hours' ? null : (
+        <span className="sw-matrix-cost">{formatWan(cell?.cost)}</span>
+      )}
+      {displayMode === 'cost' ? null : (
+        <span className="sw-matrix-hours">{formatHours(cell?.hours)}</span>
+      )}
+    </>
+  );
+  const matrixCols: TableColumnsType<MatrixDisplayRow> = [
+    {
+      title: '业务线',
+      key: 'line',
+      fixed: 'left',
+      width: 132,
+      className: 'sw-matrix-col-line',
+      onCell: (record) => ({
+        rowSpan: record.kind === 'data' ? record.lineSpan : 1,
+      }),
+      render: (_value, record) => record.lineName,
+    },
+    {
+      title: '类型',
+      key: 'type',
+      fixed: 'left',
+      width: 62,
+      className: 'sw-matrix-col-type',
+      onCell: (record) =>
+        record.kind === 'data'
+          ? { rowSpan: record.sectionSpan }
+          : { colSpan: 2 },
+      render: (_value, record) =>
+        record.kind === 'data'
+          ? record.row?.kind === 'simple'
+            ? '—'
+            : record.sectionLabel
+          : record.sectionLabel,
+    },
+    {
+      title: '项目',
+      key: 'project',
+      fixed: 'left',
+      width: 190,
+      className: 'sw-matrix-col-project',
+      onCell: (record) => (record.kind === 'data' ? {} : { colSpan: 0 }),
+      render: (_value, record) =>
+        record.row ? (
+          <>
+            {record.row.name}
+            {record.row.opportunityName ? (
+              <span className="sw-matrix-opp">
+                商机:{record.row.opportunityName}
+              </span>
+            ) : null}
+          </>
+        ) : null,
+    },
+    {
+      title: (
+        <>
+          单价
+          <small>万/人月</small>
+        </>
+      ),
+      key: 'unitPrice',
+      width: 84,
+      className: 'sw-matrix-col-price',
+      render: (_value, record) =>
+        record.row?.unitPrice == null ? '—' : formatWan(record.row.unitPrice),
+    },
+    ...matrixMonths.map((month, index) => ({
+      title: (
+        <button
+          type="button"
+          className={`sw-matrix-month${month.closed ? ' closed' : ''}`}
+          disabled={closeToggling === month.yearMonth}
+          title={month.closed ? '已完结，点击取消完结' : '未完结，点击标记完结'}
+          onClick={() => void toggleMonthClose(month)}
+        >
+          {index + 1}月{month.closed ? <em>完</em> : null}
+        </button>
+      ),
+      key: month.yearMonth,
+      width: 84,
+      className: 'sw-matrix-col-month',
+      onCell: (record: MatrixDisplayRow) => {
+        const row = record.row;
+        if (record.kind !== 'data' || !row) {
+          return { className: 'sw-matrix-cell sw-matrix-sum' };
+        }
+        const cell = row.months?.[index];
+        const clickable = row.kind !== 'simple' || !month.closed;
+        return {
+          className: [
+            'sw-matrix-cell',
+            cell?.source ?? 'empty',
+            clickable ? 'clickable' : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+          onClick: clickable
+            ? () => void openCell(row, month.yearMonth)
+            : undefined,
+        };
+      },
+      render: (_value: unknown, record: MatrixDisplayRow) => {
+        const cell =
+          record.kind === 'data'
+            ? record.row?.months?.[index]
+            : record.monthTotals[index];
+        if (record.kind === 'data' && !cell?.source) {
+          return <span className="sw-matrix-empty">—</span>;
+        }
+        return (
+          <>
+            {renderMatrixValues(cell)}
+            {record.kind === 'data' && cell?.source === 'estimate' ? (
+              <i className="sw-matrix-estimate">预</i>
+            ) : null}
+          </>
+        );
+      },
+    })),
+    {
+      title: '合计',
+      key: 'total',
+      width: 92,
+      className: 'sw-matrix-col-total',
+      render: (_value, record) => renderMatrixValues(record.totals),
+    },
+  ];
   const pendingTable = (
     type: 'worklog' | 'cost',
     data: Record<string, any>[],
@@ -789,35 +1184,6 @@ export default function RevenuePage() {
       message.error(e instanceof Error ? e.message : '导入失败');
     } finally {
       setImporting(false);
-    }
-  };
-  const closeMonth = async (reopen: boolean) => {
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title: reopen
-          ? `确认重开 ${importMonth}？`
-          : `确认结账 ${importMonth}？`,
-        content: reopen
-          ? '重开后该月份恢复为可维护状态，矩阵可能重新显示预估数据。'
-          : '结账后该月份将锁定实际数据，后续导入和预估修改可能受到限制。',
-        okText: reopen ? '确认重开' : '确认结账',
-        cancelText: '取消',
-        okType: reopen ? 'default' : 'primary',
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      });
-    });
-    if (!confirmed) return;
-    setMonthBusy(true);
-    try {
-      if (reopen) await superworkApi.reopenRevenueMonth(importMonth);
-      else await superworkApi.closeRevenueMonth(importMonth);
-      message.success(reopen ? '月份已重开' : '月份已结账');
-      await load();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '月份操作失败');
-    } finally {
-      setMonthBusy(false);
     }
   };
   const importContracts = async () => {
@@ -894,6 +1260,45 @@ export default function RevenuePage() {
       setContractBusy(false);
     }
   };
+  const drawerWorklogs: RevenueWorklogEntry[] =
+    cellDetail?.worklogEntries ?? [];
+  const drawerCosts: RevenueCostEntry[] = cellDetail?.costEntries ?? [];
+  const drawerEstimates: RevenueEstimateEntry[] = cellDetail?.estimates ?? [];
+  const deviationText = (actual: number, estimate: number) => {
+    const diff = actual - estimate;
+    const pct = estimate !== 0 ? (diff / estimate) * 100 : null;
+    return {
+      label: `${diff >= 0 ? '+' : ''}${(Math.round(diff * 100) / 100).toLocaleString('zh-CN')}`,
+      pct: pct == null ? '—' : `${diff >= 0 ? '+' : ''}${pct.toFixed(1)}%`,
+      tone: diff > 0 ? 'over' : diff < 0 ? 'under' : 'flat',
+    };
+  };
+  const cellDeviation = useMemo(() => {
+    if (!cellDetail?.closed || !drawerEstimates.length) return null;
+    const estHours = drawerEstimates.reduce(
+      (sum, item) => sum + Number(item.personMonths || 0),
+      0,
+    );
+    const estCost = drawerEstimates.reduce(
+      (sum, item) => sum + Number(item.amount || 0),
+      0,
+    );
+    const actualHours = drawerWorklogs.length
+      ? drawerWorklogs.reduce((sum, item) => sum + Number(item.hours || 0), 0)
+      : drawerCosts.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+    const actualCost = drawerCosts.reduce(
+      (sum, item) => sum + Number(item.costAmount || 0),
+      0,
+    );
+    return {
+      estHours,
+      estCost,
+      actualHours,
+      actualCost,
+      hoursText: deviationText(actualHours, estHours),
+      costText: deviationText(actualCost / 10000, estCost / 10000),
+    };
+  }, [cellDetail, drawerEstimates, drawerWorklogs, drawerCosts]);
   return (
     <div className="sw-page sw-revenue">
       <div className="sw-page-header">
@@ -907,19 +1312,16 @@ export default function RevenuePage() {
           </Typography.Paragraph>
         </div>
         <Space>
-          <Tag color="blue">{year} 年</Tag>
-          <Input
-            value={importMonth}
-            onChange={(e) => setImportMonth(e.target.value)}
-            placeholder="YYYY-MM"
-            style={{ width: 110 }}
+          <Select
+            value={year}
+            style={{ width: 118 }}
+            aria-label="选择年份"
+            options={[year - 1, year, year + 1].map((value) => ({
+              label: `${value} 年`,
+              value,
+            }))}
+            onChange={setYear}
           />
-          <Button loading={monthBusy} onClick={() => void closeMonth(false)}>
-            结账
-          </Button>
-          <Button loading={monthBusy} onClick={() => void closeMonth(true)}>
-            重开
-          </Button>
           <button
             type="button"
             className="ant-btn ant-btn-default"
@@ -981,33 +1383,152 @@ export default function RevenuePage() {
             label: '工时 & 成本',
             children: (
               <Card variant="borderless" loading={loading}>
-                <Space style={{ marginBottom: 14 }} wrap>
-                  <Typography.Text type="secondary">矩阵显示</Typography.Text>
-                  <Select
-                    value={displayMode}
-                    options={[
-                      { label: '工时 + 成本', value: 'merge' },
-                      { label: '仅工时', value: 'hours' },
-                      { label: '仅成本', value: 'cost' },
-                    ]}
-                    onChange={setDisplayMode}
-                  />
-                  <Typography.Text type="secondary">
-                    点击月份数值查看明细并维护估算、工时、成本。
-                  </Typography.Text>
-                </Space>
-                {rows.length ? (
-                  <Table
-                    rowKey={(r) =>
-                      String(r.id || r.key || r.yearMonth || r.name || 'row')
-                    }
-                    dataSource={rows}
-                    columns={tableCols}
-                    scroll={{ x: 1100 }}
-                    pagination={false}
-                  />
+                {matrixLines.length ? (
+                  <>
+                    <div className="sw-matrix-filter">
+                      <fieldset
+                        className="sw-matrix-pills"
+                        aria-label="业务线筛选"
+                      >
+                        <button
+                          type="button"
+                          className={filterLineIds.length ? '' : 'active'}
+                          onClick={() => setFilterLineIds([])}
+                        >
+                          全部业务线
+                        </button>
+                        {matrixLines.map((line) => (
+                          <button
+                            type="button"
+                            key={line.businessLineId}
+                            className={
+                              filterLineIds.includes(line.businessLineId)
+                                ? 'active'
+                                : ''
+                            }
+                            onClick={() =>
+                              toggleLineFilter(line.businessLineId)
+                            }
+                          >
+                            {line.businessLineName}
+                          </button>
+                        ))}
+                      </fieldset>
+                      <fieldset
+                        className="sw-matrix-pills"
+                        aria-label="项目筛选"
+                      >
+                        <button
+                          type="button"
+                          className={filterProjectIds.length ? '' : 'active'}
+                          onClick={() => setFilterProjectIds([])}
+                        >
+                          全部项目
+                        </button>
+                        {projectFilterOptions.map((project) => (
+                          <button
+                            type="button"
+                            key={project.id}
+                            className={
+                              filterProjectIds.includes(project.id)
+                                ? 'active'
+                                : ''
+                            }
+                            onClick={() =>
+                              setFilterProjectIds((prev) =>
+                                toggleInList(prev, project.id),
+                              )
+                            }
+                          >
+                            {project.name}
+                          </button>
+                        ))}
+                        {filterLineIds.length || filterProjectIds.length ? (
+                          <button
+                            type="button"
+                            className="reset"
+                            onClick={resetMatrixFilters}
+                          >
+                            重置
+                          </button>
+                        ) : null}
+                      </fieldset>
+                      <Space wrap className="sw-matrix-switch">
+                        <Segmented
+                          value={showEstimates ? 'estimate' : 'actual'}
+                          onChange={(value) =>
+                            setShowEstimates(value === 'estimate')
+                          }
+                          options={[
+                            { label: '含预估', value: 'estimate' },
+                            { label: '只看实际', value: 'actual' },
+                          ]}
+                        />
+                        <Segmented
+                          value={displayMode}
+                          onChange={(value) =>
+                            setDisplayMode(value as 'merge' | 'hours' | 'cost')
+                          }
+                          options={[
+                            { label: '工时 + 成本', value: 'merge' },
+                            { label: '仅工时', value: 'hours' },
+                            { label: '仅成本', value: 'cost' },
+                          ]}
+                        />
+                      </Space>
+                    </div>
+                    <section
+                      className="sw-matrix-overview"
+                      aria-label="年度概览"
+                    >
+                      {matrixOverviewCells.map((item) => (
+                        <div
+                          className="sw-matrix-overview-cell"
+                          key={item.label}
+                        >
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <small>{item.unit}</small>
+                        </div>
+                      ))}
+                    </section>
+                    <div className="sw-matrix-toolbar">
+                      <Typography.Text type="secondary">
+                        点击月份表头切换完结状态，点击单元格查看明细并维护估算、工时、成本。
+                      </Typography.Text>
+                      <span className="sw-matrix-legend">
+                        <i className="sw-matrix-swatch actual" />
+                        实际（已完结）
+                        <i className="sw-matrix-swatch estimate" />
+                        预估
+                      </span>
+                    </div>
+                    {flatMatrixRows.length ? (
+                      <Table
+                        size="small"
+                        bordered
+                        rowKey="key"
+                        columns={matrixCols}
+                        dataSource={flatMatrixRows}
+                        pagination={false}
+                        scroll={{ x: 1720 }}
+                        rowClassName={(record) =>
+                          record.kind === 'line_total'
+                            ? 'sw-matrix-line-total'
+                            : record.kind === 'grand_total'
+                              ? 'sw-matrix-grand-total'
+                              : ''
+                        }
+                      />
+                    ) : (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="无匹配数据，请调整筛选条件"
+                      />
+                    )}
+                  </>
                 ) : (
-                  <Empty description="暂无矩阵数据" />
+                  <Empty description="暂无营收数据，请先在「数据导入」中导入工时与成本明细" />
                 )}
               </Card>
             ),
@@ -1860,159 +2381,118 @@ export default function RevenuePage() {
       >
         {cellLoading ? (
           <Typography.Text>加载中…</Typography.Text>
-        ) : (
+        ) : cellDetail?.closed ? (
           <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-            <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="月份">
-                {cellContext.yearMonth}
-              </Descriptions.Item>
-              <Descriptions.Item label="工时">
-                {cellDetail.totalHours ?? cellDetail.hours ?? '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="成本">
-                {cellDetail.totalCost ?? cellDetail.cost ?? '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="来源">
-                {cellDetail.source ?? '—'}
-              </Descriptions.Item>
-            </Descriptions>
+            {cellDeviation ? (
+              <section
+                className="sw-matrix-deviation"
+                aria-label="预估与实际偏差"
+              >
+                <h4>预估 vs 实际</h4>
+                <div className="sw-matrix-deviation-grid">
+                  <div className="sw-matrix-deviation-item">
+                    <span>工时（人月）</span>
+                    <p>
+                      预估 {formatHours(cellDeviation.estHours)} · 实际{' '}
+                      {formatHours(cellDeviation.actualHours)}
+                    </p>
+                    <strong className={`tone-${cellDeviation.hoursText.tone}`}>
+                      {cellDeviation.hoursText.label}（
+                      {cellDeviation.hoursText.pct}）
+                    </strong>
+                  </div>
+                  <div className="sw-matrix-deviation-item">
+                    <span>成本（万元）</span>
+                    <p>
+                      预估 {formatWan(cellDeviation.estCost)} · 实际{' '}
+                      {formatWan(cellDeviation.actualCost)}
+                    </p>
+                    <strong className={`tone-${cellDeviation.costText.tone}`}>
+                      {cellDeviation.costText.label}（
+                      {cellDeviation.costText.pct}）
+                    </strong>
+                  </div>
+                </div>
+              </section>
+            ) : null}
             <Card
               size="small"
-              title="营收估算"
-              extra={
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={() => openEstimate()}
-                >
-                  新增预估
-                </Button>
-              }
-            >
-              {Array.isArray(cellDetail.estimates) &&
-              cellDetail.estimates.length ? (
-                <Table
-                  size="small"
-                  rowKey={(row) =>
-                    String(
-                      row.id || row.key || row.yearMonth || row.name || 'row',
-                    )
-                  }
-                  dataSource={cellDetail.estimates}
-                  columns={[
-                    ...Object.keys(cellDetail.estimates[0])
-                      .filter((key) =>
-                        [
-                          'description',
-                          'personMonths',
-                          'amount',
-                          'unitPrice',
-                        ].includes(key),
-                      )
-                      .map((key) => ({
-                        title:
-                          key === 'personMonths'
-                            ? '人月'
-                            : key === 'unitPrice'
-                              ? '单价'
-                              : key === 'amount'
-                                ? '金额'
-                                : '说明',
-                        dataIndex: key,
-                        key,
-                        render: (value: unknown) => String(value ?? '—'),
-                      })),
-                    {
-                      title: '操作',
-                      key: 'action',
-                      render: (_: unknown, row: Record<string, any>) => (
-                        <Space size="small">
-                          <Button
-                            type="link"
-                            size="small"
-                            onClick={() => openEstimate(row)}
-                          >
-                            编辑
-                          </Button>
-                          <Button
-                            danger
-                            type="link"
-                            size="small"
-                            onClick={() => removeEstimate(row)}
-                          >
-                            删除
-                          </Button>
-                        </Space>
-                      ),
-                    },
-                  ]}
-                  pagination={{ pageSize: 5 }}
-                />
-              ) : (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="暂无估算"
-                />
-              )}
-            </Card>
-            <Card
-              size="small"
-              title="工时明细"
+              title={`工时明细（${drawerWorklogs.length}）`}
               extra={
                 <Button
                   size="small"
                   type="primary"
                   onClick={() => openEntry('worklog')}
                 >
-                  补录工时
+                  新增工时
                 </Button>
               }
             >
-              {Array.isArray(cellDetail.worklogEntries) &&
-              cellDetail.worklogEntries.length ? (
-                <Table
+              {drawerWorklogs.length ? (
+                <Table<RevenueWorklogEntry>
                   size="small"
-                  rowKey={(row) =>
-                    String(
-                      row.id || row.key || row.yearMonth || row.name || 'row',
-                    )
-                  }
-                  dataSource={cellDetail.worklogEntries}
+                  rowKey="id"
+                  dataSource={drawerWorklogs}
+                  pagination={false}
+                  scroll={{ x: 660 }}
                   columns={[
-                    ...Object.keys(cellDetail.worklogEntries[0])
-                      .filter((key) =>
-                        [
-                          'employeeName',
-                          'department',
-                          'hours',
-                          'workNote',
-                          'specialNote',
-                        ].includes(key),
-                      )
-                      .map((key) => ({
-                        title:
-                          key === 'employeeName'
-                            ? '人员'
-                            : key === 'department'
-                              ? '部门'
-                              : key === 'hours'
-                                ? '工时'
-                                : key === 'workNote'
-                                  ? '工作说明'
-                                  : '备注',
-                        dataIndex: key,
-                        key,
-                        render: (value: unknown) => String(value ?? '—'),
-                      })),
+                    {
+                      title: '姓名',
+                      dataIndex: 'employeeName',
+                      key: 'employeeName',
+                      width: 90,
+                      render: (value: string | undefined) => value || '—',
+                    },
+                    {
+                      title: '部门',
+                      dataIndex: 'department',
+                      key: 'department',
+                      width: 130,
+                      ellipsis: true,
+                      render: (value: string | undefined) => value || '—',
+                    },
+                    {
+                      title: '人月',
+                      dataIndex: 'hours',
+                      key: 'hours',
+                      width: 80,
+                      render: (value: number) => formatHours(value),
+                    },
+                    {
+                      title: '工作说明',
+                      dataIndex: 'workNote',
+                      key: 'workNote',
+                      ellipsis: true,
+                      render: (value: string | undefined) => value || '—',
+                    },
+                    {
+                      title: '标签',
+                      dataIndex: 'tags',
+                      key: 'tags',
+                      width: 130,
+                      render: (tags: string | undefined) =>
+                        (tags || '')
+                          .split(',')
+                          .filter(Boolean)
+                          .map((tag) => (
+                            <Tag key={tag} style={{ marginRight: 4 }}>
+                              {tag}
+                            </Tag>
+                          )),
+                    },
                     {
                       title: '操作',
                       key: 'action',
-                      render: (_: unknown, row: Record<string, any>) => (
-                        <Space size="small">
+                      width: 108,
+                      render: (
+                        _value: unknown,
+                        record: RevenueWorklogEntry,
+                      ) => (
+                        <Space size={0}>
                           <Button
                             type="link"
                             size="small"
-                            onClick={() => openEntry('worklog', row)}
+                            onClick={() => openEntry('worklog', record)}
                           >
                             编辑
                           </Button>
@@ -2020,7 +2500,7 @@ export default function RevenuePage() {
                             danger
                             type="link"
                             size="small"
-                            onClick={() => removeEntry('worklog', row)}
+                            onClick={() => removeEntry('worklog', record)}
                           >
                             删除
                           </Button>
@@ -2028,74 +2508,81 @@ export default function RevenuePage() {
                       ),
                     },
                   ]}
-                  pagination={{ pageSize: 5 }}
-                  scroll={{ x: 620 }}
                 />
               ) : (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="暂无工时明细"
+                  description="该月无工时明细，可点击右上角补录"
                 />
               )}
             </Card>
             <Card
               size="small"
-              title="成本明细"
+              title={`成本明细（${drawerCosts.length}）`}
               extra={
                 <Button
                   size="small"
                   type="primary"
                   onClick={() => openEntry('cost')}
                 >
-                  补录成本
+                  新增成本
                 </Button>
               }
             >
-              {Array.isArray(cellDetail.costEntries) &&
-              cellDetail.costEntries.length ? (
-                <Table
+              {drawerCosts.length ? (
+                <Table<RevenueCostEntry>
                   size="small"
-                  rowKey={(row) =>
-                    String(
-                      row.id || row.key || row.yearMonth || row.name || 'row',
-                    )
-                  }
-                  dataSource={cellDetail.costEntries}
+                  rowKey="id"
+                  dataSource={drawerCosts}
+                  pagination={false}
+                  scroll={{ x: 660 }}
                   columns={[
-                    ...Object.keys(cellDetail.costEntries[0])
-                      .filter((key) =>
-                        [
-                          'employeeCount',
-                          'hours',
-                          'costAmount',
-                          'personMonthCost',
-                          'projectNameRaw',
-                        ].includes(key),
-                      )
-                      .map((key) => ({
-                        title:
-                          key === 'employeeCount'
-                            ? '人数'
-                            : key === 'hours'
-                              ? '工时'
-                              : key === 'costAmount'
-                                ? '成本金额'
-                                : key === 'personMonthCost'
-                                  ? '人月成本'
-                                  : '项目原名',
-                        dataIndex: key,
-                        key,
-                        render: (value: unknown) => String(value ?? '—'),
-                      })),
+                    {
+                      title: '项目',
+                      dataIndex: 'projectNameRaw',
+                      key: 'projectNameRaw',
+                      width: 160,
+                      ellipsis: true,
+                    },
+                    {
+                      title: '人数',
+                      dataIndex: 'employeeCount',
+                      key: 'employeeCount',
+                      width: 70,
+                      render: (value: number | null | undefined) =>
+                        value ?? '—',
+                    },
+                    {
+                      title: '人月',
+                      dataIndex: 'hours',
+                      key: 'hours',
+                      width: 80,
+                      render: (value: number) => formatHours(value),
+                    },
+                    {
+                      title: '成本（元）',
+                      dataIndex: 'costAmount',
+                      key: 'costAmount',
+                      width: 108,
+                    },
+                    {
+                      title: '人月成本（元）',
+                      dataIndex: 'personMonthCost',
+                      key: 'personMonthCost',
+                      width: 118,
+                      render: (value: number | null | undefined) =>
+                        value ?? '—',
+                    },
                     {
                       title: '操作',
                       key: 'action',
-                      render: (_: unknown, row: Record<string, any>) => (
-                        <Space size="small">
+                      width: 108,
+                      render: (_value: unknown, record: RevenueCostEntry) => (
+                        <Space size={0}>
                           <Button
                             type="link"
                             size="small"
-                            onClick={() => openEntry('cost', row)}
+                            onClick={() => openEntry('cost', record)}
                           >
                             编辑
                           </Button>
@@ -2103,7 +2590,7 @@ export default function RevenuePage() {
                             danger
                             type="link"
                             size="small"
-                            onClick={() => removeEntry('cost', row)}
+                            onClick={() => removeEntry('cost', record)}
                           >
                             删除
                           </Button>
@@ -2111,17 +2598,98 @@ export default function RevenuePage() {
                       ),
                     },
                   ]}
-                  pagination={{ pageSize: 5 }}
-                  scroll={{ x: 620 }}
                 />
               ) : (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="暂无成本明细"
+                  description="该月无成本明细，可点击右上角补录"
                 />
               )}
             </Card>
           </Space>
+        ) : (
+          <Card
+            size="small"
+            title={`预估明细（${drawerEstimates.length}）`}
+            extra={
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => openEstimate()}
+              >
+                新增预估
+              </Button>
+            }
+          >
+            <Typography.Paragraph
+              type="secondary"
+              className="sw-matrix-estimate-note"
+            >
+              {cellRow?.unitPrice == null
+                ? '该行暂无完结历史，预估金额暂不计算。'
+                : `当前行历史完结单价：${formatWan(cellRow.unitPrice)} 万/人月，金额按此自动计算。`}
+            </Typography.Paragraph>
+            {drawerEstimates.length ? (
+              <Table<RevenueEstimateEntry>
+                size="small"
+                rowKey="id"
+                dataSource={drawerEstimates}
+                pagination={false}
+                scroll={{ x: 620 }}
+                columns={[
+                  {
+                    title: '说明',
+                    dataIndex: 'description',
+                    key: 'description',
+                    ellipsis: true,
+                  },
+                  {
+                    title: '人月',
+                    dataIndex: 'personMonths',
+                    key: 'personMonths',
+                    width: 90,
+                  },
+                  {
+                    title: '预估金额（元）',
+                    dataIndex: 'amount',
+                    key: 'amount',
+                    width: 118,
+                    render: (value: number | null | undefined) =>
+                      value == null ? '—' : value,
+                  },
+                  {
+                    title: '操作',
+                    key: 'action',
+                    width: 122,
+                    render: (_value: unknown, record: RevenueEstimateEntry) => (
+                      <Space size={0}>
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={() => openEstimate(record)}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          danger
+                          type="link"
+                          size="small"
+                          onClick={() => removeEstimate(record)}
+                        >
+                          删除
+                        </Button>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="暂无预估明细，点击右上角新增"
+              />
+            )}
+          </Card>
         )}
       </Drawer>
       <Modal
@@ -2193,7 +2761,8 @@ export default function RevenuePage() {
             <InputNumber min={0.01} precision={4} style={{ width: '100%' }} />
           </Form.Item>
           <Typography.Text type="secondary">
-            归属：{cellContext.yearMonth} · {cellRow.name || cellContext.rowKey}
+            归属：{cellContext.yearMonth} ·{' '}
+            {cellRow?.name || cellContext.rowKey}
           </Typography.Text>
         </Form>
       </Modal>
