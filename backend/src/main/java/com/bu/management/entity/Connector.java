@@ -52,6 +52,9 @@ public class Connector {
     private String encryptedPassword;
     private String encryptedToken;
 
+    /** 企微机器人 Bot Secret（机器人通道，与自建应用 Secret 分列） */
+    private String encryptedBotSecret;
+
     private Integer enabled;
     private String lastTestStatus;
     private String lastTestMessage;

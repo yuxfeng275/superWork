@@ -4,11 +4,13 @@ import com.bu.management.config.EmailProperties;
 import com.bu.management.entity.Connector;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.integration.WeComClient;
+import com.bu.management.integration.WeComCliClient;
 import com.bu.management.integration.WorktimeApiClient;
 import com.bu.management.integration.YunxiaoClient;
 import com.bu.management.mapper.EmailAccountMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class ConnectorTestDispatcher {
     private final WorktimeApiClient worktimeApiClient;
     private final DeepSeekDigestClient deepSeekClient;
     private final WeComClient weComClient;
+    private final WeComCliClient weComCliClient;
     private final EmailAccountMapper emailAccountMapper;
     private final EmailProperties emailProperties;
 
@@ -119,10 +122,37 @@ public class ConnectorTestDispatcher {
         return "连接成功（模型 " + model + "）";
     }
 
-    /** 企业微信：gettoken 探活。 */
+    /** 企业微信：应用通道 gettoken 探活 + 机器人通道（wecom-cli）授权探活。 */
     private String probeWeCom() {
-        weComClient.testConnection();
-        return "连接成功";
+        Connector connector = registryService.findByCode(ConnectorRegistryService.CODE_WECOM).orElse(null);
+        if (connector == null) {
+            throw new IllegalStateException("未找到企业微信连接器");
+        }
+        List<String> parts = new ArrayList<>();
+        boolean appConfigured = StringUtils.hasText(connector.getEncryptedToken())
+                && StringUtils.hasText(registryService.extra(connector, "corpId"))
+                && StringUtils.hasText(registryService.extra(connector, "agentId"));
+        if (appConfigured) {
+            weComClient.testConnection();
+            parts.add("应用通道连接成功（可推送通知）");
+        }
+        boolean botConfigured = StringUtils.hasText(registryService.extra(connector, "botId"))
+                && StringUtils.hasText(connector.getEncryptedBotSecret());
+        if (botConfigured) {
+            WeComCliClient.CliStatus status = weComCliClient.status();
+            if (!status.authorized()) {
+                // 探活顺带完成授权：Bot 凭证已在连接器里，无需人工介入
+                status = weComCliClient.authorizeWithBotCredentials(
+                        registryService.extra(connector, "botId"),
+                        registryService.credential(connector, "botSecret"));
+                weComCliClient.invalidateCapabilities();
+            }
+            parts.add("机器人通道已授权（Bot " + (status.botId() == null ? "-" : status.botId()) + "）");
+        }
+        if (parts.isEmpty()) {
+            throw new IllegalStateException("未配置任何通道：请填写应用通道（Secret/CorpId/AgentId）或机器人通道（Bot ID/Bot Secret）");
+        }
+        return String.join("；", parts);
     }
 
     /**

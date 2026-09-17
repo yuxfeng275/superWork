@@ -93,8 +93,11 @@ services:
       EMAIL_SYNC_CRON: ${EMAIL_SYNC_CRON:-0 0 * * * *}
       EMAIL_DIGEST_CRON: ${EMAIL_DIGEST_CRON:-0 0 8 * * *}
       MEETING_STORAGE_DIR: /data/meetings
+      WECOM_CLI_BIN: /app/wecom-cli/wecom-cli
+      WECOM_CLI_CONFIG_DIR: /data/wecom-cli
     volumes:
       - ./data/meetings:/data/meetings
+      - ./data/wecom-cli:/data/wecom-cli
     ports:
       - "18081:8081"
     depends_on:

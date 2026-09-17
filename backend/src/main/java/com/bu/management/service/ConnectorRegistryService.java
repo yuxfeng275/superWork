@@ -78,6 +78,7 @@ public class ConnectorRegistryService {
             String mcpUrl, String testPath, String queryPath, String readPath,
             Map<String, Object> extraConfig,
             boolean usernameConfigured, boolean passwordConfigured, boolean tokenConfigured,
+            boolean botSecretConfigured,
             boolean enabled, boolean ready, String hint,
             String lastTestStatus, String lastTestMessage,
             LocalDateTime lastTestedAt, boolean builtIn, int sortOrder) {}
@@ -85,7 +86,8 @@ public class ConnectorRegistryService {
     public record ConnectorSaveRequest(String code, String name, String authType, String baseUrl,
             String mcpUrl, String testPath, String queryPath, String readPath,
             Map<String, Object> extraConfig,
-            String username, String password, String token, Boolean enabled, Integer sortOrder) {}
+            String username, String password, String token, String botSecret,
+            Boolean enabled, Integer sortOrder) {}
 
     /** 连接器状态项（AI 助手连接器面板 / 连接器管理页共用）。 */
     public record ConnectorStatus(String code, String name, String status, String hint) {}
@@ -136,6 +138,7 @@ public class ConnectorRegistryService {
         if (StringUtils.hasText(request.username())) updated.setEncryptedUsername(cipher.encrypt(request.username()));
         if (StringUtils.hasText(request.password())) updated.setEncryptedPassword(cipher.encrypt(request.password()));
         if (StringUtils.hasText(request.token())) updated.setEncryptedToken(cipher.encrypt(request.token()));
+        if (StringUtils.hasText(request.botSecret())) updated.setEncryptedBotSecret(cipher.encrypt(request.botSecret()));
         if (request.extraConfig() != null) {
             updated.setExtraConfig(mergeExtra(entity, request.extraConfig()));
         }
@@ -242,6 +245,8 @@ public class ConnectorRegistryService {
                     ? cipher.decrypt(entity.getEncryptedPassword()) : null;
             case "token" -> StringUtils.hasText(entity.getEncryptedToken())
                     ? cipher.decrypt(entity.getEncryptedToken()) : null;
+            case "botSecret" -> StringUtils.hasText(entity.getEncryptedBotSecret())
+                    ? cipher.decrypt(entity.getEncryptedBotSecret()) : null;
             default -> null;
         };
     }
@@ -392,10 +397,18 @@ public class ConnectorRegistryService {
             case CODE_MAIL -> null;
             case CODE_DEEPSEEK, CODE_GLM -> !hasBaseUrl ? "缺少服务地址"
                     : !hasToken ? "缺少 API Key" : null;
-            case CODE_WECOM -> !hasBaseUrl ? "缺少服务地址"
-                    : !hasToken ? "缺少 Secret"
-                    : !StringUtils.hasText(extra(entity, "corpId")) ? "缺少 CorpId"
-                    : !StringUtils.hasText(extra(entity, "agentId")) ? "缺少 AgentId" : null;
+            case CODE_WECOM -> {
+                boolean hasBotSecret = StringUtils.hasText(entity.getEncryptedBotSecret());
+                boolean appReady = hasBaseUrl && hasToken
+                        && StringUtils.hasText(extra(entity, "corpId"))
+                        && StringUtils.hasText(extra(entity, "agentId"));
+                boolean botReady = StringUtils.hasText(extra(entity, "botId")) && hasBotSecret;
+                if (appReady || botReady) yield null;
+                if (StringUtils.hasText(extra(entity, "botId")) || hasBotSecret) {
+                    yield "机器人通道缺少 Bot ID 或 Bot Secret（两者需同时填写）";
+                }
+                yield "缺少应用通道凭据（服务地址/Secret/CorpId/AgentId）或机器人通道凭据（Bot ID/Bot Secret）";
+            }
             default -> switch (entity.getAuthType()) {
                 case AUTH_MAIL -> null;
                 case AUTH_BASIC -> (!hasUsername || !hasPassword) ? "缺少账号密码" : null;
@@ -407,7 +420,8 @@ public class ConnectorRegistryService {
         };
     }
 
-    private String hint(Connector entity) {
+    /** å°±ç»ªæç¤ºï¼è¿æ¥å¨é¡µä¸ AI è¿æ¥å¨é¢æ¿å±ç¨ï¼ã */
+    public String hint(Connector entity) {
         String code = entity.getCode() == null ? "" : entity.getCode();
         if (!Integer.valueOf(1).equals(entity.getEnabled())) {
             return "已停用，可在「连接器管理」启用";
@@ -423,7 +437,16 @@ public class ConnectorRegistryService {
             case CODE_OA -> "已就绪，可查询待办/已办并同步组织与合同";
             case CODE_YUQUE -> "已就绪，可检索语雀文档";
             case CODE_DEEPSEEK, CODE_GLM -> "已就绪，AI 助手与邮件摘要可用";
-            case CODE_WECOM -> "已就绪，可推送企业微信通知";
+            case CODE_WECOM -> {
+                boolean appReady = StringUtils.hasText(entity.getEncryptedToken())
+                        && StringUtils.hasText(extra(entity, "corpId"))
+                        && StringUtils.hasText(extra(entity, "agentId"));
+                boolean botConfigured = StringUtils.hasText(extra(entity, "botId"));
+                if (appReady && botConfigured) yield "应用通道已就绪（可推送通知）；机器人通道已配置 Bot，可在「OA 待办」同级入口查看品类授权";
+                if (appReady) yield "应用通道已就绪，可推送企业微信通知；机器人通道未配置（填 Bot ID + Secret 可启用待办/会议/文档等能力）";
+                if (botConfigured) yield "机器人通道已配置；应用通道缺 CorpId/AgentId/Secret（补齐后可推送通知）";
+                yield "已就绪，可推送企业微信通知";
+            }
             default -> "已就绪";
         };
     }
@@ -450,6 +473,8 @@ public class ConnectorRegistryService {
                 ? updated.getEncryptedPassword() : stored.getEncryptedPassword());
         merged.setEncryptedToken(StringUtils.hasText(updated.getEncryptedToken())
                 ? updated.getEncryptedToken() : stored.getEncryptedToken());
+        merged.setEncryptedBotSecret(StringUtils.hasText(updated.getEncryptedBotSecret())
+                ? updated.getEncryptedBotSecret() : stored.getEncryptedBotSecret());
         merged.setExtraConfig(updated.getExtraConfig() != null ? updated.getExtraConfig() : stored.getExtraConfig());
         merged.setEnabled(updated.getEnabled() != null ? updated.getEnabled() : stored.getEnabled());
         return merged;
@@ -755,6 +780,7 @@ public class ConnectorRegistryService {
         if (StringUtils.hasText(request.username())) entity.setEncryptedUsername(cipher.encrypt(request.username()));
         if (StringUtils.hasText(request.password())) entity.setEncryptedPassword(cipher.encrypt(request.password()));
         if (StringUtils.hasText(request.token())) entity.setEncryptedToken(cipher.encrypt(request.token()));
+        if (StringUtils.hasText(request.botSecret())) entity.setEncryptedBotSecret(cipher.encrypt(request.botSecret()));
         entity.setSortOrder(request.sortOrder() == null ? 100 : request.sortOrder());
     }
 
@@ -765,6 +791,7 @@ public class ConnectorRegistryService {
                 StringUtils.hasText(entity.getEncryptedUsername()),
                 StringUtils.hasText(entity.getEncryptedPassword()),
                 StringUtils.hasText(entity.getEncryptedToken()),
+                StringUtils.hasText(entity.getEncryptedBotSecret()),
                 Integer.valueOf(1).equals(entity.getEnabled()),
                 "READY".equals(status(entity)), hint(entity),
                 entity.getLastTestStatus(), entity.getLastTestMessage(), entity.getLastTestedAt(),

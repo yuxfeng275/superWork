@@ -1,0 +1,369 @@
+package com.bu.management.service;
+
+import com.bu.management.integration.WeComCliClient;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+/**
+ * 企业微信机器人通道（wecom-cli）业务层：授权管理 + 待办/通讯录/会议/文档/消息/邮件的真实取数与写入。
+ *
+ * <p>配置全部来自「连接器管理 → 企业微信」卡片（Bot ID 在 extra_config，Bot Secret 在加密列），
+ * 本层不引入任何新的配置入口。CLI 二进制与凭据目录由部署环境提供（镜像内置 + 数据卷）。
+ *
+ * @author BU Team
+ * @since 2026-09-17
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class WeComCliService {
+
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int DEFAULT_LIMIT = 10;
+    private static final int MAX_LIMIT = 50;
+
+    private final WeComCliClient cli;
+    private final ObjectMapper objectMapper;
+
+    // ==================== 状态与授权 ====================
+
+    /** 机器人通道状态（连接器页展示）。 */
+    public Map<String, Object> status() {
+        WeComCliClient.CliStatus status = cli.status();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cliInstalled", !status.hint().startsWith("wecom-cli 未安装"));
+        result.put("authorized", status.authorized());
+        result.put("botId", status.botId());
+        result.put("hint", status.hint());
+        result.put("botIdConfigured", StringUtils.hasText(cli.botId()));
+        result.put("botSecretConfigured", StringUtils.hasText(cli.botSecret()));
+        return result;
+    }
+
+    /** 用连接器里保存的 Bot 凭证执行授权（无人值守）。 */
+    public Map<String, Object> authorizeWithStoredCredentials() {
+        String botId = cli.botId();
+        String botSecret = cli.botSecret();
+        if (!StringUtils.hasText(botId) || !StringUtils.hasText(botSecret)) {
+            throw new IllegalStateException("请先在连接器里填写并保存 Bot ID 与 Bot Secret");
+        }
+        WeComCliClient.CliStatus status = cli.authorizeWithBotCredentials(botId, botSecret);
+        cli.invalidateCapabilities();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("authorized", status.authorized());
+        result.put("botId", status.botId());
+        result.put("hint", status.hint());
+        return result;
+    }
+
+    /** 发起扫码授权。 */
+    public Map<String, Object> startQrAuthorization() {
+        WeComCliClient.QrSession session = cli.startQrAuthorization();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("sessionId", session.sessionId());
+        result.put("imageBase64", session.imageBase64());
+        result.put("expireAt", session.expireAt());
+        return result;
+    }
+
+    /** 扫码进度。 */
+    public Map<String, Object> pollQrAuthorization(String sessionId) {
+        Map<String, Object> result = cli.qrPoll(sessionId);
+        if ("authorized".equals(result.get("status"))) {
+            cli.invalidateCapabilities();
+        }
+        return result;
+    }
+
+    /** 品类授权体检。 */
+    public List<WeComCliClient.Capability> capabilities(boolean refresh) {
+        return cli.capabilities(refresh);
+    }
+
+    // ==================== 待办 ====================
+
+    /** 待办列表（机器人视角：机器人为创建人、对话人为参与人）。 */
+    public List<Map<String, Object>> listTodos(int limit, List<String> statusFilter) {
+        List<String> args = new ArrayList<>(List.of("list", "--limit", String.valueOf(clamp(limit))));
+        if (statusFilter != null && !statusFilter.isEmpty()) {
+            args.add("--status-filter");
+            args.addAll(statusFilter);
+        }
+        JsonNode payload = cli.execOrThrow("todo", args);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (JsonNode item : payload.path("items")) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("todoId", item.path("todo_id").asText(null));
+            row.put("title", item.path("title").asText(""));
+            row.put("description", item.path("description").asText(""));
+            row.put("creator", item.path("creator").asText(""));
+            row.put("deadline", item.path("deadline").asText(null));
+            row.put("status", item.path("status").asText(""));
+            row.put("updateTime", item.path("update_time").asText(null));
+            List<String> followers = new ArrayList<>();
+            List<String> followerIds = new ArrayList<>();
+            for (JsonNode follower : item.path("followers")) {
+                String name = follower.path("user_name").asText("");
+                if (StringUtils.hasText(name)) followers.add(name);
+                String userid = follower.path("userid").asText("");
+                if (StringUtils.hasText(userid)) followerIds.add(userid);
+            }
+            row.put("followers", followers);
+            row.put("followerIds", followerIds);
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 创建待办（单条便捷入口）。 */
+    public JsonNode createTodo(String title, String description, String deadline, List<String> followerIds) {
+        if (!StringUtils.hasText(title)) {
+            throw new IllegalArgumentException("待办标题不能为空");
+        }
+        ObjectNode item = objectMapper.createObjectNode();
+        item.put("title", title.trim());
+        if (StringUtils.hasText(description)) item.put("description", description.trim());
+        if (StringUtils.hasText(deadline)) item.put("deadline", deadline.trim());
+        if (followerIds != null && !followerIds.isEmpty()) {
+            ArrayNode ids = item.putArray("follower_ids");
+            followerIds.stream().filter(StringUtils::hasText).forEach(ids::add);
+        }
+        ArrayNode items = objectMapper.createArrayNode();
+        items.add(item);
+        return cli.execOrThrow("todo", List.of("create", "--items", items.toString()));
+    }
+
+    /** 完成待办（批量）。 */
+    public JsonNode finishTodos(List<String> todoIds) {
+        if (todoIds == null || todoIds.isEmpty()) {
+            throw new IllegalArgumentException("待办 ID 不能为空");
+        }
+        ArrayNode items = objectMapper.createArrayNode();
+        for (String id : todoIds) {
+            if (!StringUtils.hasText(id)) continue;
+            ObjectNode node = objectMapper.createObjectNode();
+            node.put("todo_id", id.trim());
+            items.add(node);
+        }
+        return cli.execOrThrow("todo", List.of("finish", "--items", items.toString()));
+    }
+
+    // ==================== 通讯录 ====================
+
+    /** 成员搜索（姓名/拼音/别名）。 */
+    public List<Map<String, Object>> searchContacts(String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            throw new IllegalArgumentException("搜索关键词不能为空");
+        }
+        JsonNode payload = cli.execOrThrow("contact", List.of("users", "search", "--keywords", keyword.trim()));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (JsonNode user : payload.path("users")) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("name", user.path("name").asText(""));
+            row.put("alias", user.path("alias").asText(""));
+            row.put("position", user.path("position").asText(""));
+            row.put("email", user.path("email").asText(""));
+            List<String> departments = new ArrayList<>();
+            for (JsonNode dept : user.path("departments")) {
+                String name = dept.path("name").asText(dept.asText(""));
+                if (StringUtils.hasText(name)) departments.add(name);
+            }
+            row.put("departments", departments);
+            row.put("userid", user.path("userid").asText(""));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    // ==================== 会议 ====================
+
+    /** 会议列表（默认近 30 天）。 */
+    public List<Map<String, Object>> listMeetings(String beginTime, String endTime, int limit) {
+        LocalDateTime now = LocalDateTime.now();
+        String begin = StringUtils.hasText(beginTime) ? beginTime : now.minusDays(30).format(TIME);
+        String end = StringUtils.hasText(endTime) ? endTime : now.plusDays(1).format(TIME);
+        JsonNode payload = cli.execOrThrow("meeting", List.of(
+                "list", "--begin-time", begin, "--end-time", end, "--limit", String.valueOf(clamp(limit))));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (String field : List.of("attended_meetings", "created_meetings")) {
+            for (JsonNode item : payload.path(field)) {
+                rows.add(meetingRow(item));
+            }
+        }
+        return rows;
+    }
+
+    /** 会议详情：含智能纪要内容、待办内容、智能纪要地址、录制文件地址。 */
+    public Map<String, Object> meetingDetail(String meetingId) {
+        if (!StringUtils.hasText(meetingId)) {
+            throw new IllegalArgumentException("会议 ID 不能为空");
+        }
+        JsonNode payload = cli.execOrThrow("meeting", List.of("get", "--meeting-ids", jsonArray(meetingId)));
+        JsonNode item = payload.path("meetings").path(0);
+        if (item.isMissingNode() || item.isNull()) {
+            item = payload;
+        }
+        Map<String, Object> row = meetingRow(item);
+        row.put("noteUrl", item.path("note_url").asText(null));
+        row.put("recordUrl", item.path("record_url").asText(null));
+        row.put("description", item.path("description").asText(""));
+        row.put("status", item.path("meeting_status").asText(""));
+        List<String> attendees = new ArrayList<>();
+        for (JsonNode attendee : item.path("attendees")) {
+            String name = attendee.path("user_name").asText(attendee.path("name").asText(""));
+            if (StringUtils.hasText(name)) attendees.add(name);
+        }
+        row.put("attendees", attendees);
+        StringBuilder notes = new StringBuilder();
+        StringBuilder todos = new StringBuilder();
+        for (JsonNode note : item.path("notes")) {
+            String content = note.path("note_content").asText("");
+            String todoContent = note.path("todo_content").asText("");
+            if (StringUtils.hasText(content)) notes.append(content).append("\n");
+            if (StringUtils.hasText(todoContent)) todos.append(todoContent).append("\n");
+        }
+        row.put("minutes", notes.toString().trim());
+        row.put("minutesTodos", todos.toString().trim());
+        return row;
+    }
+
+    /** 会议转写原文（分段拉取后拼接）。 */
+    public String meetingTranscript(String meetingId, int limit) {
+        if (!StringUtils.hasText(meetingId)) {
+            throw new IllegalArgumentException("会议 ID 不能为空");
+        }
+        StringBuilder text = new StringBuilder();
+        String cursor = null;
+        int pages = 0;
+        do {
+            List<String> args = new ArrayList<>(List.of("original", "get", "--meeting-id", meetingId,
+                    "--limit", String.valueOf(Math.min(Math.max(limit, 1), 500))));
+            if (StringUtils.hasText(cursor)) {
+                args.add("--cursor");
+                args.add(cursor);
+            }
+            JsonNode payload = cli.execOrThrow("meeting", args);
+            text.append(payload.path("original_data").asText(""));
+            cursor = payload.path("next_cursor").asText(null);
+            pages++;
+        } while (StringUtils.hasText(cursor) && pages < 5);
+        return text.toString();
+    }
+
+    private Map<String, Object> meetingRow(JsonNode item) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("meetingId", item.path("meeting_id").asText(""));
+        row.put("subMeetingId", item.path("sub_meeting_id").asText(null));
+        row.put("subject", item.path("subject").asText(""));
+        row.put("beginTime", item.path("begin_time").asText(""));
+        row.put("endTime", item.path("end_time").asText(""));
+        row.put("creator", item.path("creator_name").asText(""));
+        row.put("attendeeCount", item.path("attendee_count").asInt(0));
+        row.put("location", item.path("location").asText(""));
+        row.put("meetingRoom", item.path("meeting_room").asText(""));
+        return row;
+    }
+
+    // ==================== 文档 ====================
+
+    /** 文档搜索。 */
+    public List<Map<String, Object>> searchDocs(String keyword, int limit) {
+        if (!StringUtils.hasText(keyword)) {
+            throw new IllegalArgumentException("搜索关键词不能为空");
+        }
+        JsonNode payload = cli.execOrThrow("doc", List.of("search", "--keywords", keyword.trim(),
+                "--limit", String.valueOf(clamp(limit))));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (JsonNode doc : payload.path("docs")) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("docId", doc.path("docid").asText(""));
+            row.put("name", doc.path("doc_name").asText(""));
+            row.put("type", doc.path("doc_type").asText(""));
+            row.put("creator", doc.path("creator_name").asText(""));
+            row.put("modifyTime", doc.path("modify_time").asText(null));
+            row.put("url", doc.path("url").asText(""));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 读取文档内容（markdown；内容超长时 CLI 落盘为文件，需从工作目录读回）。 */
+    public String readDoc(String docId) {
+        if (!StringUtils.hasText(docId)) {
+            throw new IllegalArgumentException("文档 ID 不能为空");
+        }
+        JsonNode payload = cli.execOrThrow("doc", List.of("contents", "get", "--docid", docId.trim()));
+        String content = payload.path("content").asText("");
+        String filePath = payload.path("file_path").asText("");
+        if (StringUtils.hasText(filePath)) {
+            try {
+                return java.nio.file.Files.readString(java.nio.file.Path.of(filePath));
+            } catch (Exception e) {
+                log.warn("读取文档落盘内容失败: {}", e.getMessage());
+            }
+        }
+        if (StringUtils.hasText(content)) {
+            return content;
+        }
+        return payload.toString();
+    }
+
+    // ==================== 消息 / 邮件 ====================
+
+    /** 向单聊或群聊发送文本消息（chatId 为成员 userid 或群会话 ID）。 */
+    public JsonNode sendMessage(String chatId, String text) {
+        if (!StringUtils.hasText(chatId) || !StringUtils.hasText(text)) {
+            throw new IllegalArgumentException("会话 ID 与消息内容均不能为空");
+        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("text", text);
+        return cli.execOrThrow("message", List.of("send", "--chat-id", chatId.trim(),
+                "--msg-type", "text", "--json", payload.toString()));
+    }
+
+    /** 邮件检索（只读）。 */
+    public List<Map<String, Object>> searchMail(String keyword, int limit) {
+        List<String> args = new ArrayList<>(List.of("search", "--limit", String.valueOf(clamp(limit))));
+        if (StringUtils.hasText(keyword)) {
+            args.add("--keywords");
+            args.add(keyword.trim());
+        }
+        JsonNode payload = cli.execOrThrow("mail", args);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (JsonNode mail : payload.path("mails")) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("mailId", mail.path("mail_id").asText(""));
+            row.put("subject", mail.path("subject").asText(""));
+            row.put("sender", mail.path("sender").asText(""));
+            row.put("sendTime", mail.path("send_time").asText(null));
+            row.put("isRead", mail.path("is_read").asBoolean(false));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    // ==================== 辅助 ====================
+
+    private int clamp(int limit) {
+        if (limit <= 0) return DEFAULT_LIMIT;
+        return Math.min(limit, MAX_LIMIT);
+    }
+
+    private String jsonArray(String value) {
+        ArrayNode array = objectMapper.createArrayNode();
+        array.add(value);
+        return array.toString();
+    }
+}

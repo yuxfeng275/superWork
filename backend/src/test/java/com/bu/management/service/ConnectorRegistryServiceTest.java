@@ -89,7 +89,7 @@ class ConnectorRegistryServiceTest {
         when(mapper.selectById(1L)).thenReturn(stored);
 
         ConnectorRegistryService.ConnectorSaveRequest request = new ConnectorRegistryService.ConnectorSaveRequest(
-                null, null, null, null, null, null, null, null, null, null, null, null, Boolean.TRUE, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, Boolean.TRUE, null);
 
         assertThatThrownBy(() -> service.update(1L, request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -111,7 +111,7 @@ class ConnectorRegistryServiceTest {
         });
 
         ConnectorRegistryService.ConnectorSaveRequest request = new ConnectorRegistryService.ConnectorSaveRequest(
-                null, null, null, null, null, null, null, null, null, null, null, null, Boolean.TRUE, null);
+                null, null, null, null, null, null, null, null, null, null, null, null, null, Boolean.TRUE, null);
 
         ConnectorRegistryService.ConnectorView view = service.update(1L, request);
 
@@ -132,7 +132,7 @@ class ConnectorRegistryServiceTest {
 
         ConnectorRegistryService.ConnectorSaveRequest request = new ConnectorRegistryService.ConnectorSaveRequest(
                 null, null, null, null, null, null, null, null,
-                Map.of("model", "deepseek-v4-flash2", "digestModel", ""), null, null, null, null, null);
+                Map.of("model", "deepseek-v4-flash2", "digestModel", ""), null, null, null, null, null, null);
 
         service.update(1L, request);
 
@@ -148,7 +148,7 @@ class ConnectorRegistryServiceTest {
 
         ConnectorRegistryService.ConnectorSaveRequest request = new ConnectorRegistryService.ConnectorSaveRequest(
                 null, null, null, null, null, null, null, null,
-                Map.of("bad key!", "x"), null, null, null, null, null);
+                Map.of("bad key!", "x"), null, null, null, null, null, null);
 
         assertThatThrownBy(() -> service.update(1L, request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -176,5 +176,59 @@ class ConnectorRegistryServiceTest {
         connector.setEncryptedUsername("u");
         connector.setEncryptedPassword("p");
         return connector;
+    }
+
+    @Test
+    @DisplayName("企业微信：仅机器人通道（Bot ID + Bot Secret）配置完整即可就绪")
+    void wecomReadyWithBotChannelOnly() {
+        Connector botOnly = connector("wecom", ConnectorRegistryService.AUTH_WECOM, 1);
+        botOnly.setExtraConfig("{\"botId\":\"aibXXX\"}");
+        botOnly.setEncryptedBotSecret("encrypted");
+
+        assertThat(service.status(botOnly)).isEqualTo("READY");
+        assertThat(service.hint(botOnly)).contains("机器人通道");
+    }
+
+    @Test
+    @DisplayName("企业微信：只有 Bot ID 没 Secret 时提示两者需同时填写")
+    void wecomRequiresBotSecretWithBotId() {
+        Connector halfConfigured = connector("wecom", ConnectorRegistryService.AUTH_WECOM, 1);
+        halfConfigured.setExtraConfig("{\"botId\":\"aibXXX\"}");
+
+        assertThat(service.status(halfConfigured)).isEqualTo("NOT_CONFIGURED");
+        assertThat(service.hint(halfConfigured)).contains("Bot Secret");
+    }
+
+    @Test
+    @DisplayName("企业微信：应用通道完整（Secret/CorpId/AgentId）也可就绪，提示引导配置机器人通道")
+    void wecomReadyWithAppChannel() {
+        Connector appOnly = connector("wecom", ConnectorRegistryService.AUTH_WECOM, 1);
+        appOnly.setEncryptedToken("encrypted-secret");
+        appOnly.setExtraConfig("{\"corpId\":\"corp\",\"agentId\":\"1000002\"}");
+
+        assertThat(service.status(appOnly)).isEqualTo("READY");
+        assertThat(service.hint(appOnly)).contains("应用通道已就绪").contains("机器人通道未配置");
+    }
+
+    @Test
+    @DisplayName("企业微信：两个通道都没配置时给出双通道缺失提示")
+    void wecomRequiresAtLeastOneChannel() {
+        Connector empty = connector("wecom", ConnectorRegistryService.AUTH_WECOM, 1);
+
+        assertThat(service.status(empty)).isEqualTo("NOT_CONFIGURED");
+        assertThat(service.hint(empty)).contains("应用通道").contains("机器人通道");
+    }
+
+    @Test
+    @DisplayName("企业微信：Bot Secret 走独立加密列，不与应用 Secret 混用")
+    void wecomBotSecretStoredSeparately() {
+        Connector connector = connector("wecom", ConnectorRegistryService.AUTH_WECOM, 1);
+        connector.setEncryptedToken("app-secret-cipher");
+        connector.setEncryptedBotSecret("bot-secret-cipher");
+        when(cipher.decrypt("app-secret-cipher")).thenReturn("app-secret");
+        when(cipher.decrypt("bot-secret-cipher")).thenReturn("bot-secret");
+
+        assertThat(service.credential(connector, "token")).isEqualTo("app-secret");
+        assertThat(service.credential(connector, "botSecret")).isEqualTo("bot-secret");
     }
 }

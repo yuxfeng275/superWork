@@ -47,6 +47,7 @@ public class AiAgentToolService {
     private final ConnectorToolService connectorToolService;
     private final GenericConnectorToolService genericConnectorToolService;
     private final EmailActionToolService emailActionToolService;
+    private final WeComCliToolService weComCliToolService;
     private final WeeklyReportService weeklyReportService;
 
     /**
@@ -104,6 +105,7 @@ public class AiAgentToolService {
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
+        defs.addAll(weComCliToolService.definitions());
         return defs;
     }
 
@@ -132,6 +134,8 @@ public class AiAgentToolService {
                         ? connectorToolService.execute(userId, toolName, args)
                         : emailActionToolService.handles(toolName)
                         ? emailActionToolService.execute(userId, toolName, args)
+                        : weComCliToolService.handles(toolName)
+                        ? weComCliToolService.execute(userId, toolName, args)
                         : genericConnectorToolService.execute(toolName, args);
             };
         } catch (Exception e) {
