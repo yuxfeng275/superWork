@@ -66,10 +66,12 @@ public class TaskService {
         if (actorId == null) {
             throw new RuntimeException("当前登录用户不存在");
         }
-        // 验证需求存在
-        Requirement requirement = requirementMapper.selectById(dto.getRequirementId());
-        if (requirement == null) {
-            throw new RuntimeException("需求不存在");
+        // 验证需求存在（requirementId 为空 = 独立任务，如会议待办转化）
+        if (dto.getRequirementId() != null) {
+            Requirement requirement = requirementMapper.selectById(dto.getRequirementId());
+            if (requirement == null) {
+                throw new RuntimeException("需求不存在");
+            }
         }
 
         // 创建任务
