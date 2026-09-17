@@ -172,7 +172,7 @@ const splitHomeMenu = (items: MenuDataItem[]): MenuDataItem[] => {
   return home ? [home, ...rest] : rest;
 };
 
-export const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
+const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
   if (!nodes?.length) return [];
   const mapNode = (node: MenuTreeNode, depth = 0): MenuDataItem | undefined => {
     const normalizedPath =
