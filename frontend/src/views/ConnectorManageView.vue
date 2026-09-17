@@ -112,6 +112,7 @@ const CAPABILITY_STATE_LABEL: Record<WecomCliCapabilityState, string> = {
   AVAILABLE: '可用',
   EXPIRED: '已过期',
   UNAUTHORIZED: '未授权',
+  UNAVAILABLE: '未对企开放',
   ERROR: '异常'
 }
 
@@ -119,6 +120,7 @@ const CAPABILITY_STATE_TAG: Record<WecomCliCapabilityState, 'success' | 'warning
   AVAILABLE: 'success',
   EXPIRED: 'warning',
   UNAUTHORIZED: 'info',
+  UNAVAILABLE: 'warning',
   ERROR: 'danger'
 }
 
@@ -405,7 +407,7 @@ const wecomCliHint = computed(() => {
 const botIdDisplay = computed(() => wecomCliStatus.value?.botId || botId.value)
 
 const capabilitySummary = computed(() => {
-  const counts: Record<WecomCliCapabilityState, number> = { AVAILABLE: 0, EXPIRED: 0, UNAUTHORIZED: 0, ERROR: 0 }
+  const counts: Record<WecomCliCapabilityState, number> = { AVAILABLE: 0, EXPIRED: 0, UNAUTHORIZED: 0, UNAVAILABLE: 0, ERROR: 0 }
   for (const item of capabilities.value) counts[item.state] += 1
   return counts
 })
@@ -780,7 +782,8 @@ onMounted(async () => {
                 <span class="bot-matrix-title">品类授权矩阵</span>
                 <span class="bot-matrix-summary">
                   可用 {{ capabilitySummary.AVAILABLE }} · 过期 {{ capabilitySummary.EXPIRED }} · 未授权
-                  {{ capabilitySummary.UNAUTHORIZED }} · 异常 {{ capabilitySummary.ERROR }}
+                  {{ capabilitySummary.UNAUTHORIZED }} · 未开放 {{ capabilitySummary.UNAVAILABLE }} · 异常
+                  {{ capabilitySummary.ERROR }}
                 </span>
               </div>
               <div v-for="row in capabilityRows" :key="row.service" class="bot-matrix-row">
