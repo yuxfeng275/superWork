@@ -102,7 +102,8 @@ const defaultNavItems: NavSection[] = [
         icon: 'Flag',
         label: '大事儿管理',
         requiresKeyMatterAccess: true
-      }
+      },
+      { path: '/oa-affairs', icon: 'Finished', label: 'OA 待办', access: 'management' }
     ]
   },
   {
