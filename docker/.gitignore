@@ -2,6 +2,8 @@
 mysql/data/
 redis/data/
 minio/data/
+data/meetings/
+asr-models/
 
 # 日志文件
 nginx/logs/
