@@ -148,18 +148,31 @@ public class SeeyonOaWebChannel {
     }
 
     private String fetchLoginPageSession() {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl() + "/seeyon/main.do?method=index"))
-                    .timeout(REQUEST_TIMEOUT)
-                    .header("User-Agent", "Java-http-client/17.0.7")
-                    .GET()
-                    .build();
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            return cookiesFrom(response);
-        } catch (Exception e) {
-            throw new IllegalStateException("OA 登录页不可达，请检查服务地址");
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl() + "/seeyon/main.do?method=index"))
+                        .timeout(REQUEST_TIMEOUT)
+                        .header("User-Agent", "Java-http-client/17.0.7")
+                        .GET()
+                        .build();
+                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                return cookiesFrom(response);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                last = new IllegalStateException("OA 登录页请求被中断");
+            } catch (Exception e) {
+                last = new IllegalStateException("OA 登录页不可达，请检查服务地址");
+            }
+            try {
+                Thread.sleep(300L * attempt);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
+        throw last == null ? new IllegalStateException("OA 登录页不可达，请检查服务地址") : last;
     }
 
     /** 会话保活（由定时任务每 10 分钟调用）：有会话就 ping 一下，失效则清除并等待人工重新授权。 */
