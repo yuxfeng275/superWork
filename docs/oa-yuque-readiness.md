@@ -55,17 +55,20 @@ GET  /seeyon/rest/api/form/{formId}        表单详情
 GET  <vReport 导出地址>                     销售合同明细（抓包取得，连接器里配置）
 ```
 
-### RPA（网页通道）三级方案——REST 不开通时的替代路线
+### RPA（网页通道）——已落地（2026-09-17 上线）
 
-> 网页通道与 REST 是两套访问控制：REST 被拦时，网页会话仍然可达（已实测）。
-> 当前卡点：**连接器里存的 OA 账号连网页表单登录都失败（loginerror:1，账号密码错或已停用）**——
-> 换有效账号后下列方案立即可用（连接器测试按钮现在会分别标注「REST」与「网页会话通道」的结果）。
+致远登录带图片验证码（`LoginError: 9`，全自动破码不可靠），因此采用**一次人工授权 + 会话复用**：
 
-| 级 | 方案 | 状态 | 覆盖 |
-|---|---|---|---|
-| T0 | 网页会话重放：form login + JSESSIONID + servlet 抓取 | **已实现**（vReport 合同采集，链路实测可达） | 销售合同 |
-| T1 | 网页/移动端 JSON 接口重放：移动端 `/seeyon/mobile.do` 实测可达（200，不走 REST 白名单），抓包待办/组织接口后接入 SeeyonOaClient | 待抓包后实现（~1 天） | 待办/已办、组织人员 |
-| T2 | 真浏览器 RPA（Playwright 登录 + 抓 DOM） | 兜底，仅 T0/T1 不通时做；实现藏在 DataCollector 后，REST 放行后一键换回 | 全部 |
+1. **授权**：浏览器登录 OA → F12 → Application → Cookies → 复制 `JSESSIONID` →
+   在「连接器管理 → OA（致远）→ 授权」粘贴（隐藏敏感配置项 AES 加密持久化，会话复用）。
+2. **取数**：`ajax.do / sectionManager.doProjection`（与门户「全部待办」面板同一数据源，JSON 行结构已验证），
+   待办/已办 REST 不可用时自动回退到该通道。
+3. **审批**：详情页自发现动作地址（`collaboration.do`），支持逐项/批量同意、驳回；结果逐项返回。
+4. **页面**：工作台 → 「OA 待办」（`/oa-affairs`，V82 菜单），批量勾选 → 同意/驳回。
+5. **会话失效**（`__LOGOUT` / 登录页）→ 页面提示并自动弹授权窗，重新粘贴即可。
+
+> REST 放行后零改动自动切回 REST（REST 优先、网页通道兜底）。
+> 待验证项（首次真实授权后）：已办分区 sectionBeanId、审批动作正则、vReport 导出地址。
 ## 二、语雀——**已经通了**（REST v2 与官方 server 同一条链路）；MCP 网关不需要放开
 
 ### 官方参考：[yuque/yuque-mcp-server](https://github.com/yuque/yuque-mcp-server)（2026-09-17 核实）
