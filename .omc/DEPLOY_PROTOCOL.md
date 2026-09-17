@@ -56,6 +56,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | 9c69e84 | frontend-pro：周会演示标题行右侧展示项目归属与负责人、进度条增加上下间距（仅前端） | master agent |
 | 2026-09-17 | fdd0f22 | frontend-pro（报价策略/报价单）：查询区与列表补齐 16px 间距（筛选卡片 `margin-bottom: 16px`，与客户/商机/项目页一致）；仅前端。备份 deploy-backups/20260917-141432，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
+| 2026-09-17 | 1cd5ad6 | frontend-pro（大事儿管理·周会演示）：①状态与进度改为「本周进展」标题行内编辑（Select 116px + 进度条 + InputNumber 96px），非编辑态该行仍为 状态标签+进度条+百分比；②删除底部状态/进度选择器与快捷百分比按钮，底部仅留 暂存草稿/保存并下一项/取消（查看态 查看详情/更新周报）；③缩略图 sw-presentation-thumbs 移出舞台卡片，放入新增 .sw-presentation-main（舞台+缩略图）列，单行横向滚动 28px 圆点；卡片区 1440×900/1366×768/1280×720 实测 hidden=0；④圆形分组头像恢复正圆（仅圆角方形分组加 8px 圆角）。本次为 10cd441（模型管理抽离）之后的 master 合并重建；备份 deploy-backups/20260917-143743，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
 | 2026-09-17 | 10cd441 | **模型管理抽离**：AI 模型独立成「系统管理→系统配置→模型管理」（`/system/models`，`ai_model` 表 V80：模型名/助手可用/摘要使用/默认/启停），连接器只管连接（地址/凭据/启停/测试）；模型 API `/api/ai/models`，助手下拉改由模型注册表驱动（同名模型自动补提供方名）；摘要按排序取「摘要使用」模型不被助手默认模型抢占；两套前端新增模型页，连接器页移除模型字段；新增 OA/语雀连通性确认文档 docs/oa-yuque-readiness.md；备份 deploy-backups/20260917-061125 | system-config agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
