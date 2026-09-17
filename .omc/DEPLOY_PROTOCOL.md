@@ -54,6 +54,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | a62aed2 | frontend-pro（大事儿管理）：周进展弹窗标题改为具体事项名、去掉 WEEKLY UPDATE 头部与内容区重复事项名；进度展示加宽（弹窗进度条铺满主栏、列表「当前进度」条整列铺满 66→168px 且去重百分比）、弹窗主体高度上限 520px（1440×700 也免滚动）；列表操作列改「周进展 / 详情 / 更多（编辑、删除）」；周进展不再连带打开详情抽屉（独立 weeklyMatter 状态）。本次为 8890027 之后的 master 重建，含连接器收口前端（/system/connectors）；备份 deploy-backups/20260917-095423，已按提醒重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
 | 2026-09-17 | 2a7e8a8 | frontend-pro（大事儿管理·周会与列表）：①周会演示状态标签+进度条平铺到「本周进展」卡标题后（去掉顶部独立状态标签与独立进度条）；②周会演示改整屏布局：deck 按视口定高 calc(100vh-84px)，卡片区内部滚动、标题/进度/操作/缩略图常驻可见，收回演示页内容区与页面留白（16+24→8+0），编辑态文本框 4 行→3/2/2/2 行，≤1420/≤1180 分级收紧卡片与字号（1440×900、1366×768 实测卡片区 hidden=0）；③列表进度条上下留白 4→11/12px 且对称、条高 6→8px、标签弱化数值强化、未更新用琥珀色；④周会快速筛选「项目/负责人」改为系统一致的默认尺寸 block Segmented（24→32px 全宽）；⑤周会分组头像由 antd 默认灰改为按分组键散列的品牌渐变（负责人圆形/项目圆角方形）。备份 deploy-backups/20260917-115837，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
 | 2026-09-17 | 9c69e84 | frontend-pro：周会演示标题行右侧展示项目归属与负责人、进度条增加上下间距（仅前端） | master agent |
+| 2026-09-17 | fdd0f22 | frontend-pro（报价策略/报价单）：查询区与列表补齐 16px 间距（筛选卡片 `margin-bottom: 16px`，与客户/商机/项目页一致）；仅前端。备份 deploy-backups/20260917-141432，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
