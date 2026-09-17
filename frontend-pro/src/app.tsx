@@ -613,6 +613,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         '/system/users',
         '/system/roles',
         '/system/menus',
+        '/system/permissions',
         '/system/workflow',
         '/system/configs',
         '/system/connectors',

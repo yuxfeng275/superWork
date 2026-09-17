@@ -116,6 +116,12 @@ export default [
     component: './system-menus',
   },
   {
+    path: '/system/permissions',
+    name: '权限管理',
+    icon: 'lock',
+    component: './system-permissions',
+  },
+  {
     path: '/system/workflow',
     name: '工作流配置',
     icon: 'branches',
