@@ -60,6 +60,8 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | 10cd441 | **模型管理抽离**：AI 模型独立成「系统管理→系统配置→模型管理」（`/system/models`，`ai_model` 表 V80：模型名/助手可用/摘要使用/默认/启停），连接器只管连接（地址/凭据/启停/测试）；模型 API `/api/ai/models`，助手下拉改由模型注册表驱动（同名模型自动补提供方名）；摘要按排序取「摘要使用」模型不被助手默认模型抢占；两套前端新增模型页，连接器页移除模型字段；新增 OA/语雀连通性确认文档 docs/oa-yuque-readiness.md；备份 deploy-backups/20260917-061125 | system-config agent |
 | 2026-09-17 | 1e42038 | frontend-pro：统一列表页统计区/查询区/列表 16px 间距（共享 `.sw-stat-row` / `.sw-filter-card` / 页面级 Alert）；覆盖业务线、项目、客户、用户、数据集成、驾驶舱、KPI 等同类页；仅前端。备份 deploy-backups/20260917-150200，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
+| 2026-09-17 | 8a7cb4c | 语雀连接器测试修正：官方 yuque-mcp-server 证实 MCP 官方形态为本地 stdio + REST v2 同链路，MCP 网关 403 时按 REST v2 判定通过（prod 已验证 last_test=SUCCESS，REST v2 通道） | system-config agent |
+
 ### ⚠️ 部署操作提醒（2026-09-17）
 
 重建 `frontend` / `frontend-pro` 容器后**必须同时 `docker restart superwork-bu-nginx`**：
