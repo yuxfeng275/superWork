@@ -95,6 +95,7 @@ const menuIconByServerName: Record<string, React.ReactNode> = {
   HomeOutlined: <HomeOutlined />,
   Document: <FileTextOutlined />,
   Finished: <CheckCircleOutlined />,
+  checkCircle: <CheckCircleOutlined />,
   CircleCloseFilled: <CloseCircleOutlined />,
   Message: <MessageOutlined />,
   ChatDotRound: <RobotOutlined />,
@@ -627,6 +628,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         "/system/connectors",
         "/system/models",
         "/system/sync",
+        "/oa-affairs",
       ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
     )
       return "management";

@@ -42,6 +42,12 @@ import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, Workt
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiModelSavePayload, AiModelView, AiNotice } from '@/types/ai-agent'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 import type { BizLineProfitReport } from '@/types/businessLineProfit'
+import type {
+  SeeyonOaAffair,
+  SeeyonOaApproveAction,
+  SeeyonOaBatchApproveItem,
+  SeeyonOaSessionStatus
+} from '@/types/oa-affairs'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
@@ -1539,12 +1545,48 @@ class ApiService {
     return this.request<SeeyonOaDepartmentOption[]>('/api/seeyon-oa/departments')
   }
 
-  async getSeeyonOaPendingAffairs(): Promise<any[]> {
-    return this.request<any[]>('/api/seeyon-oa/affairs/pending')
+  // ==================== OA 网页会话授权（REST 被网关拦截时的取数通道） ====================
+
+  async getOaSessionStatus(): Promise<SeeyonOaSessionStatus> {
+    return this.request<SeeyonOaSessionStatus>('/api/seeyon-oa/session')
   }
 
-  async getSeeyonOaDoneAffairs(): Promise<any[]> {
-    return this.request<any[]>('/api/seeyon-oa/affairs/done')
+  /** 粘贴浏览器 JSESSIONID 完成一次授权；无效会话返回 400 且消息可操作。 */
+  async authorizeOaSession(cookie: string): Promise<SeeyonOaSessionStatus> {
+    return this.request<SeeyonOaSessionStatus>('/api/seeyon-oa/session', {
+      method: 'POST',
+      body: JSON.stringify({ cookie })
+    })
+  }
+
+  async clearOaSession(): Promise<void> {
+    await this.request<void>('/api/seeyon-oa/session', { method: 'DELETE' })
+  }
+
+  async getOaPendingAffairs(): Promise<SeeyonOaAffair[]> {
+    return this.request<SeeyonOaAffair[]>('/api/seeyon-oa/affairs/pending')
+  }
+
+  async getOaDoneAffairs(): Promise<SeeyonOaAffair[]> {
+    return this.request<SeeyonOaAffair[]>('/api/seeyon-oa/affairs/done')
+  }
+
+  async approveOaAffair(affairId: string, action: SeeyonOaApproveAction): Promise<string> {
+    return this.request<string>(`/api/seeyon-oa/affairs/${encodeURIComponent(affairId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ action })
+    })
+  }
+
+  /** 批量审批：逐项执行，返回每项结果（成功与否都在结果里，不再抛异常）。 */
+  async batchApproveOaAffairs(
+    affairIds: string[],
+    action: SeeyonOaApproveAction
+  ): Promise<SeeyonOaBatchApproveItem[]> {
+    return this.request<SeeyonOaBatchApproveItem[]>('/api/seeyon-oa/affairs/batch-approve', {
+      method: 'POST',
+      body: JSON.stringify({ affairIds, action })
+    })
   }
 
   async syncSeeyonOa(): Promise<string[]> {

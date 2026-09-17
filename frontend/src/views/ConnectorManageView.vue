@@ -69,7 +69,7 @@ const EXTRA_FIELDS: Record<string, ExtraField[]> = {
 const RELATED_PAGES: Record<string, { path: string; label: string }> = {
   yunxiao: { path: '/statistics', label: 'BU驾驶舱' },
   worktime: { path: '/kpi-report', label: 'KPI周报 · 数据同步' },
-  oa: { path: '/system/sync', label: '数据集成中心' },
+  oa: { path: '/oa-affairs', label: 'OA 待办审批台' },
   mail: { path: '/emails', label: '邮件管理' }
 }
 

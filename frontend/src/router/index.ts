@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '大事儿管理', requiresKeyMatterAccess: true }
       },
       {
+        path: 'oa-affairs',
+        name: 'OaAffairs',
+        component: () => import('@/views/OaAffairsView.vue'),
+        meta: { title: 'OA 待办', roleAccess: 'management' }
+      },
+      {
         path: 'weekly-report',
         name: 'WeeklyReport',
         component: () => import('@/views/WeeklyReportView.vue'),
