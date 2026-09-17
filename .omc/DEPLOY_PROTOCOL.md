@@ -61,6 +61,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | 1e42038 | frontend-pro：统一列表页统计区/查询区/列表 16px 间距（共享 `.sw-stat-row` / `.sw-filter-card` / 页面级 Alert）；覆盖业务线、项目、客户、用户、数据集成、驾驶舱、KPI 等同类页；仅前端。备份 deploy-backups/20260917-150200，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
 | 2026-09-17 | 8a7cb4c | 语雀连接器测试修正：官方 yuque-mcp-server 证实 MCP 官方形态为本地 stdio + REST v2 同链路，MCP 网关 403 时按 REST v2 判定通过（prod 已验证 last_test=SUCCESS，REST v2 通道） | system-config agent |
+| 2026-09-17 | 204ca31 | frontend-pro：补齐「系统→权限管理」`/system/permissions` 路由与只读权限列表页，避免菜单入口被 catch-all 打回首页；仅前端。备份 deploy-backups/20260917-151224，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
