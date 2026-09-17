@@ -121,11 +121,17 @@ public class AiModelConfigService {
      * AI 助手可选模型：启用 + 勾选「助手可用」+ 提供方连接器就绪。
      */
     public List<ModelOption> listAvailableModels() {
+        List<AiModel> available = ordered().stream().filter(entity -> available(entity, true)).toList();
+        Map<String, Long> labelCounts = available.stream().collect(java.util.stream.Collectors.groupingBy(
+                this::labelOf, java.util.stream.Collectors.counting()));
         List<ModelOption> options = new ArrayList<>();
-        for (AiModel entity : ordered()) {
-            if (!available(entity, true)) continue;
-            options.add(new ModelOption(entity.getProviderCode(), entity.getModel(),
-                    StringUtils.hasText(entity.getDisplayName()) ? entity.getDisplayName() : entity.getModel()));
+        for (AiModel entity : available) {
+            String label = labelOf(entity);
+            // 不同提供方出现同名模型时补提供方名，避免下拉出现两个一模一样的选项
+            if (labelCounts.getOrDefault(label, 0L) > 1L) {
+                label = label + "（" + providerName(entity.getProviderCode()) + "）";
+            }
+            options.add(new ModelOption(entity.getProviderCode(), entity.getModel(), label));
         }
         return options;
     }
@@ -150,9 +156,9 @@ public class AiModelConfigService {
                 registryService.credential(connector, "token"));
     }
 
-    /** 摘要 / 周报纪要使用的模型（第一条启用且提供方就绪的行）。 */
+    /** 摘要 / 周报纪要使用的模型（启用 + 勾选摘要 + 提供方就绪，按排序取第一条；不受"默认模型"影响）。 */
     public Optional<DigestModel> digestModel() {
-        for (AiModel entity : ordered()) {
+        for (AiModel entity : orderedBySort()) {
             if (!available(entity, false)) continue;
             Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
             if (connector == null) continue;
@@ -195,6 +201,17 @@ public class AiModelConfigService {
         return connector != null && "READY".equals(registryService.status(connector));
     }
 
+    private String labelOf(AiModel entity) {
+        return StringUtils.hasText(entity.getDisplayName()) ? entity.getDisplayName() : entity.getModel();
+    }
+
+    private String providerName(String providerCode) {
+        return registryService.findByCode(providerCode)
+                .map(Connector::getName)
+                .filter(StringUtils::hasText)
+                .orElse(providerCode);
+    }
+
     private Optional<AiModel> findForAssistant(String providerCode, String model) {
         List<AiModel> candidates = ordered().stream()
                 .filter(entity -> providerCode.equals(entity.getProviderCode()))
@@ -215,6 +232,13 @@ public class AiModelConfigService {
     private List<AiModel> ordered() {
         return mapper.selectList(new LambdaQueryWrapper<AiModel>()
                 .orderByDesc(AiModel::getIsDefault)
+                .orderByAsc(AiModel::getSortOrder)
+                .orderByAsc(AiModel::getId));
+    }
+
+    /** 仅按排序（用于摘要模型选择，避免被"助手默认模型"抢占）。 */
+    private List<AiModel> orderedBySort() {
+        return mapper.selectList(new LambdaQueryWrapper<AiModel>()
                 .orderByAsc(AiModel::getSortOrder)
                 .orderByAsc(AiModel::getId));
     }

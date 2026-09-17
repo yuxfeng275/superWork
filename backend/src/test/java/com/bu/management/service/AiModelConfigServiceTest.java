@@ -98,6 +98,27 @@ class AiModelConfigServiceTest {
     }
 
     @Test
+    @DisplayName("助手可选模型：不同提供方同名模型时，标签补提供方名以区分")
+    void listAvailableModelsDisambiguatesSameModelName() {
+        Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
+        Connector glm = readyConnector("glm", "https://open.bigmodel.cn/api/paas/v4");
+        glm.setName("智谱 GLM");
+        stubConnector(deepseek, "READY");
+        stubConnector(glm, "READY");
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                model(1L, "deepseek", "deepseek-v4-flash", 1, 0, 0, 1, 10),
+                model(2L, "glm", "deepseek-v4-flash", 1, 0, 1, 1, 20)));
+
+        List<AiModelConfigService.ModelOption> options = service.listAvailableModels();
+
+        assertThat(options).hasSize(2);
+        assertThat(options).extracting(AiModelConfigService.ModelOption::label)
+                .containsExactlyInAnyOrder("deepseek-v4-flash（智谱 GLM）", "deepseek-v4-flash（deepseek）");
+        assertThat(options).extracting(AiModelConfigService.ModelOption::provider)
+                .containsExactlyInAnyOrder("deepseek", "glm");
+    }
+
+    @Test
     @DisplayName("助手运行参数：会话指定模型优先，其次默认模型；地址与凭据来自连接器")
     void resolveModelConfigPrefersSessionModelThenDefault() {
         Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
@@ -141,15 +162,15 @@ class AiModelConfigServiceTest {
     }
 
     @Test
-    @DisplayName("摘要模型：取第一条勾选摘要且提供方就绪的模型")
+    @DisplayName("摘要模型：按排序取第一条勾选摘要且提供方就绪的模型（不被助手默认模型抢占）")
     void digestModelPicksFirstReadyDigestCandidate() {
         Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
         Connector glm = readyConnector("glm", "https://open.bigmodel.cn/api/paas/v4");
         stubConnector(deepseek, "READY");
         stubConnector(glm, "DISABLED");
         when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
-                model(2L, "glm", "glm-5.3", 1, 1, 0, 1, 10),
-                model(1L, "deepseek", "deepseek-v4-flash", 1, 1, 1, 1, 20)));
+                model(1L, "deepseek", "deepseek-v4-flash", 1, 1, 0, 1, 10),
+                model(2L, "glm", "glm-5.3", 1, 1, 1, 1, 20)));
 
         AiModelConfigService.DigestModel digest = service.digestModel().orElseThrow();
 
