@@ -11,8 +11,8 @@ import {
   ReloadOutlined,
   UserOutlined,
   WarningOutlined,
-} from '@ant-design/icons';
-import { useModel } from '@umijs/max';
+} from "@ant-design/icons";
+import { useModel } from "@umijs/max";
 import {
   Alert,
   Avatar,
@@ -39,12 +39,12 @@ import {
   Space,
   Tag,
   Typography,
-} from 'antd';
-import dayjs from 'dayjs';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { superworkApi } from '@/services/superwork/api';
-import '../workbench/style.less';
-import './style.less';
+} from "antd";
+import dayjs from "dayjs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { superworkApi } from "@/services/superwork/api";
+import "../workbench/style.less";
+import "./style.less";
 
 type Matter = Record<string, any>;
 type PresentationDraft = {
@@ -56,21 +56,26 @@ type PresentationDraft = {
   supportNeeded?: string;
 };
 const statusOptions = [
-  '未开始',
-  '推进中',
-  '有风险',
-  '已阻塞',
-  '已完成',
-  '已暂停',
+  "未开始",
+  "推进中",
+  "有风险",
+  "已阻塞",
+  "已完成",
+  "已暂停",
 ];
+const mondayOf = (value?: dayjs.ConfigType) => {
+  const date = dayjs(value);
+  const weekday = date.day() || 7;
+  return date.startOf("day").subtract(weekday - 1, "day");
+};
 // 周会导航分组头像配色：按分组键散列取色，避免 antd 默认灰色让人误以为禁用
 const GROUP_AVATAR_TONES = [
-  'linear-gradient(135deg, #1677ff 0%, #5b5ce2 100%)',
-  'linear-gradient(135deg, #0f9b8e 0%, #16a3d6 100%)',
-  'linear-gradient(135deg, #7c5cff 0%, #b04df0 100%)',
-  'linear-gradient(135deg, #d97706 0%, #f0a92e 100%)',
-  'linear-gradient(135deg, #1f8a4c 0%, #4fb069 100%)',
-  'linear-gradient(135deg, #c2456b 0%, #e0728f 100%)',
+  "linear-gradient(135deg, #1677ff 0%, #5b5ce2 100%)",
+  "linear-gradient(135deg, #0f9b8e 0%, #16a3d6 100%)",
+  "linear-gradient(135deg, #7c5cff 0%, #b04df0 100%)",
+  "linear-gradient(135deg, #d97706 0%, #f0a92e 100%)",
+  "linear-gradient(135deg, #1f8a4c 0%, #4fb069 100%)",
+  "linear-gradient(135deg, #c2456b 0%, #e0728f 100%)",
 ];
 // 状态配色：周会演示的状态标签、平铺选项与进度条共用同一套表达
 const STATUS_TONES: Record<string, { hex: string; tag: string }> = {
@@ -82,13 +87,13 @@ const STATUS_TONES: Record<string, { hex: string; tag: string }> = {
   已暂停: { hex: '#722ed1', tag: 'purple' },
 };
 export default function KeyMattersPage() {
-  const { initialState } = useModel('@@initialState');
+  const { initialState } = useModel("@@initialState");
   const [access, setAccess] = useState<Record<string, unknown>>({});
   const [rows, setRows] = useState<Matter[]>([]);
   const [meeting, setMeeting] = useState<Matter[]>([]);
   const [presentationGroupBy, setPresentationGroupBy] = useState<
-    'owner' | 'project'
-  >('project');
+    "owner" | "project"
+  >("project");
   const [presentationOpen, setPresentationOpen] = useState(false);
   const [presentationIndex, setPresentationIndex] = useState(0);
   const [presentationEditing, setPresentationEditing] = useState(false);
@@ -97,23 +102,23 @@ export default function KeyMattersPage() {
     useState<PresentationDraft>();
   const presentationDrafts = useRef(new Map<number, PresentationDraft>());
   const [filters, setFilters] = useState({
-    keyword: '',
-    status: '',
-    priority: '',
+    keyword: "",
+    status: "",
+    priority: "",
     businessLineId: undefined as number | undefined,
     ownerId: undefined as number | undefined,
     projectId: undefined as number | undefined,
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [quickFilterTab, setQuickFilterTab] = useState<'project' | 'owner'>(
-    'project',
+  const [quickFilterTab, setQuickFilterTab] = useState<"project" | "owner">(
+    "project"
   );
   const [personalScope, setPersonalScope] = useState<
-    'all' | 'owned' | 'participating'
-  >('all');
+    "all" | "owned" | "participating"
+  >("all");
   const [milestoneMonth, setMilestoneMonth] = useState(
-    dayjs().format('YYYY-MM'),
+    dayjs().format("YYYY-MM")
   );
   const [milestoneExpanded, setMilestoneExpanded] = useState(false);
   const milestoneScrollerRef = useRef<HTMLDivElement>(null);
@@ -128,7 +133,7 @@ export default function KeyMattersPage() {
     }
     const maxScrollLeft = Math.max(
       scroller.scrollWidth - scroller.clientWidth,
-      0,
+      0
     );
     setMilestoneCanScrollLeft(scroller.scrollLeft > 2);
     setMilestoneCanScrollRight(scroller.scrollLeft < maxScrollLeft - 2);
@@ -138,12 +143,12 @@ export default function KeyMattersPage() {
     if (!scroller) return;
     scroller.scrollBy({
       left: direction * Math.max(scroller.clientWidth * 0.72, 320),
-      behavior: 'smooth',
+      behavior: "smooth",
     });
     window.setTimeout(updateMilestoneScrollState, 260);
   };
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Matter>();
   const [form] = Form.useForm();
@@ -153,7 +158,8 @@ export default function KeyMattersPage() {
   // 周进展弹窗独立持有事项，避免复用 detail 时连带打开详情抽屉
   const [weeklyMatter, setWeeklyMatter] = useState<Matter>();
   const [weeklyForm] = Form.useForm();
-  const weeklyFormProgress = Form.useWatch('progress', weeklyForm);
+  const weeklyFormProgress = Form.useWatch("progress", weeklyForm);
+  const weeklyFormStatus = Form.useWatch("status", weeklyForm);
   const [users, setUsers] = useState<
     Array<{ id: number; realName?: string; username?: string }>
   >([]);
@@ -178,7 +184,7 @@ export default function KeyMattersPage() {
       canFeedbackOwn &&
       Number(matter.ownerId) === Number(initialState?.currentUser?.id));
   const isStandaloneMeeting = window.location.pathname.endsWith(
-    '/key-matters-meeting',
+    "/key-matters-meeting"
   );
   const currentUserId = Number(initialState?.currentUser?.id);
   // 周进展反馈权限：管理员或本人（且具备 feedbackOwn 权限），与编辑权限分开判断
@@ -190,76 +196,76 @@ export default function KeyMattersPage() {
   const progressPresets = [0, 25, 50, 75, 90, 100];
   // 交付窗口：与旧版 milestoneTiming 对齐
   const milestoneTiming = (matter: Matter) => {
-    if (matter.status === '已完成')
-      return { label: '已完成', tone: 'complete' };
+    if (matter.status === "已完成")
+      return { label: "已完成", tone: "complete" };
     if (!matter.plannedCompletionDate)
-      return { label: '未设置', tone: 'upcoming' };
-    const today = dayjs().startOf('day');
+      return { label: "未设置", tone: "upcoming" };
+    const today = dayjs().startOf("day");
     const days = dayjs(matter.plannedCompletionDate)
-      .startOf('day')
-      .diff(today, 'day');
+      .startOf("day")
+      .diff(today, "day");
     if (days < 0)
-      return { label: `逾期 ${Math.abs(days)} 天`, tone: 'overdue' };
-    if (days === 0) return { label: '今日到期', tone: 'today' };
-    return { label: `${days} 天后`, tone: 'upcoming' };
+      return { label: `逾期 ${Math.abs(days)} 天`, tone: "overdue" };
+    if (days === 0) return { label: "今日到期", tone: "today" };
+    return { label: `${days} 天后`, tone: "upcoming" };
   };
   const milestoneGroupTone = (items: Matter[]) => {
     const hasRisk = items.some((matter) => {
       const timing = milestoneTiming(matter);
       return (
-        timing.tone === 'overdue' ||
-        ['有风险', '已阻塞'].includes(matter.status)
+        timing.tone === "overdue" ||
+        ["有风险", "已阻塞"].includes(matter.status)
       );
     });
-    if (hasRisk) return 'risk';
-    if (items.every((matter) => matter.status === '已完成')) return 'complete';
-    if (items.some((matter) => milestoneTiming(matter).tone === 'today'))
-      return 'today';
-    return 'upcoming';
+    if (hasRisk) return "risk";
+    if (items.every((matter) => matter.status === "已完成")) return "complete";
+    if (items.some((matter) => milestoneTiming(matter).tone === "today"))
+      return "today";
+    return "upcoming";
   };
   const milestoneGroupSymbol = (items: Matter[]) => {
     const tone = milestoneGroupTone(items);
-    if (tone === 'complete') return '✓';
-    if (tone === 'today') return '◷';
-    if (tone === 'risk') return '!';
-    return '?';
+    if (tone === "complete") return "✓";
+    if (tone === "today") return "◷";
+    if (tone === "risk") return "!";
+    return "?";
   };
   const progressComparison = (
     current: number,
     previous: number | undefined,
-    missingLabel = '暂无对比数据',
+    missingLabel = "暂无对比数据"
   ) => {
-    if (previous === undefined) return { label: missingLabel, tone: 'muted' };
+    if (previous === undefined) return { label: missingLabel, tone: "muted" };
     const delta = current - previous;
-    if (delta > 0) return { label: `较上周 +${delta}%`, tone: 'up' };
-    if (delta < 0) return { label: `较上周 ${delta}%`, tone: 'down' };
-    return { label: '较上周持平', tone: 'flat' };
+    if (delta > 0) return { label: `较上周 +${delta}%`, tone: "up" };
+    if (delta < 0) return { label: `较上周 ${delta}%`, tone: "down" };
+    return { label: "较上周持平", tone: "flat" };
   };
   // 历史周进展对比：与后一条（更早一周）比较，最早一条为基线
   const historyDelta = (updates: Matter[], index: number) => {
     const update = updates[index];
     const previous = updates[index + 1];
-    if (!update || !previous) return { label: '基线', tone: 'muted' };
+    if (!update || !previous) return { label: "基线", tone: "muted" };
     const delta = Number(update.progress || 0) - Number(previous.progress || 0);
-    if (delta > 0) return { label: `+${delta}%`, tone: 'up' };
-    if (delta < 0) return { label: `${delta}%`, tone: 'down' };
-    return { label: '持平', tone: 'flat' };
+    if (delta > 0) return { label: `+${delta}%`, tone: "up" };
+    if (delta < 0) return { label: `${delta}%`, tone: "down" };
+    return { label: "持平", tone: "flat" };
   };
   const detailDelta = (matter: Matter) => {
     const updates: Matter[] = matter.weeklyUpdates || [];
     const latest = matter.latestUpdate || updates[0];
-    if (!latest) return { label: '尚无周进展', tone: 'missing' };
+    if (!latest) return { label: "尚无周进展", tone: "missing" };
     const previous = updates.find(
-      (item) => item.weekStartDate < latest.weekStartDate,
+      (item) => item.weekStartDate < latest.weekStartDate
     );
     return progressComparison(
       Number(latest.progress || 0),
-      previous ? Number(previous.progress || 0) : undefined,
+      previous ? Number(previous.progress || 0) : undefined
     );
   };
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
+    setError("");
     try {
       const a = await superworkApi.getKeyMatterAccess();
       setAccess(a);
@@ -270,26 +276,23 @@ export default function KeyMattersPage() {
           superworkApi.getUsers({ page: 1, size: 300 }),
           superworkApi.getProjects({ page: 1, size: 300 }),
           superworkApi.getBusinessLines({ page: 1, size: 200 }),
-        ],
+        ]
       );
       setRows(list);
       setUsers(userPage.records || []);
       setProjects(projectPage.records || []);
       setBusinessLines(businessLinePage.records || []);
-      const monday = new Date();
-      const day = monday.getDay() || 7;
-      monday.setDate(monday.getDate() - day + 1);
       try {
         setMeeting(
           await superworkApi.getKeyMatterMeeting(
-            monday.toISOString().slice(0, 10),
-          ),
+            mondayOf().format("YYYY-MM-DD")
+          )
         );
       } catch {
         setMeeting([]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '大事儿加载失败');
+      setError(e instanceof Error ? e.message : "大事儿加载失败");
     } finally {
       setLoading(false);
     }
@@ -299,8 +302,8 @@ export default function KeyMattersPage() {
   }, [load]);
   useEffect(() => {
     if (!isStandaloneMeeting) return undefined;
-    document.body.classList.add('key-matters-standalone');
-    return () => document.body.classList.remove('key-matters-standalone');
+    document.body.classList.add("key-matters-standalone");
+    return () => document.body.classList.remove("key-matters-standalone");
   }, [isStandaloneMeeting]);
   const openDetail = async (matter: Matter) => {
     setDetail(matter);
@@ -308,27 +311,24 @@ export default function KeyMattersPage() {
     try {
       setDetail(await superworkApi.getKeyMatter(matter.id));
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '详情加载失败');
+      message.error(e instanceof Error ? e.message : "详情加载失败");
     } finally {
       setDetailLoading(false);
     }
   };
-  const openWeekly = (
-    matter: Matter,
-    week = dayjs().startOf('week').add(1, 'day'),
-  ) => {
+  const openWeekly = (matter: Matter, week = mondayOf()) => {
     if (!canFeedback(matter)) {
-      message.warning('仅事项负责人可反馈周进度');
+      message.warning("仅事项负责人可反馈周进度");
       return;
     }
-    if (matter.status === '已完成' && !matter.currentWeekUpdate) {
-      message.info('本周已完成，无需更新');
+    if (matter.status === "已完成" && !matter.currentWeekUpdate) {
+      message.info("本周已完成，无需更新");
       return;
     }
-    const weekText = week.format('YYYY-MM-DD');
+    const weekText = week.format("YYYY-MM-DD");
     const update =
       (matter.weeklyUpdates || []).find(
-        (item: Matter) => item.weekStartDate === weekText,
+        (item: Matter) => item.weekStartDate === weekText
       ) ||
       (matter.currentWeekUpdate?.weekStartDate === weekText
         ? matter.currentWeekUpdate
@@ -339,32 +339,32 @@ export default function KeyMattersPage() {
       .getKeyMatter(matter.id)
       .then((full) =>
         setWeeklyMatter((prev) =>
-          prev?.id === matter.id ? (full as Matter) : prev,
-        ),
+          prev?.id === matter.id ? (full as Matter) : prev
+        )
       )
       .catch(() => undefined);
     weeklyForm.resetFields();
     weeklyForm.setFieldsValue({
       weekStartDate: week,
-      status: update?.status || matter.status || '推进中',
+      status: update?.status || matter.status || "推进中",
       progress: update?.progress ?? matter.progress ?? 0,
-      progressSummary: update?.progressSummary || '',
-      issues: update?.issues || '',
-      nextWeekPlan: update?.nextWeekPlan || '',
-      supportNeeded: update?.supportNeeded || '',
+      progressSummary: update?.progressSummary || "",
+      issues: update?.issues || "",
+      nextWeekPlan: update?.nextWeekPlan || "",
+      supportNeeded: update?.supportNeeded || "",
     });
     setWeeklyOpen(true);
   };
   const openEdit = (matter: Matter) => {
     if (!canEdit(matter)) {
-      message.warning('仅事项负责人或管理员可编辑大事儿');
+      message.warning("仅事项负责人或管理员可编辑大事儿");
       return;
     }
     setEditing(matter);
     form.resetFields();
     form.setFieldsValue({
       title: matter.title,
-      description: matter.description || '',
+      description: matter.description || "",
       ownerId: matter.ownerId,
       projectId: matter.projectId,
       participantIds: Array.from(
@@ -372,11 +372,11 @@ export default function KeyMattersPage() {
           (matter.participants || [])
             .map((item: Matter) => item.userId)
             .concat(matter.ownerId)
-            .filter(Boolean),
-        ),
+            .filter(Boolean)
+        )
       ),
-      priority: matter.priority || 'P1',
-      status: matter.status || '未开始',
+      priority: matter.priority || "P1",
+      status: matter.status || "未开始",
       progress: matter.progress ?? 0,
       startDate: matter.startDate ? dayjs(matter.startDate) : undefined,
       plannedCompletionDate: matter.plannedCompletionDate
@@ -389,52 +389,52 @@ export default function KeyMattersPage() {
   const startPresentationEdit = () => {
     if (!presentationMatter) return;
     if (!canFeedback(presentationMatter)) {
-      message.warning('仅事项负责人可反馈周进度');
+      message.warning("仅事项负责人可反馈周进度");
       return;
     }
     setPresentationEditing(true);
   };
   const savePresentationAndNext = async () => {
     if (!presentationMatter || !presentationDraft) return;
-    const summary = String(presentationDraft.progressSummary || '').trim();
+    const summary = String(presentationDraft.progressSummary || "").trim();
     if (!summary) {
-      message.warning('请至少填写一项本周进展');
+      message.warning("请至少填写一项本周进展");
       return;
     }
     setPresentationSaving(true);
     try {
       await superworkApi.upsertKeyMatterWeeklyUpdate(
         presentationMatter.id,
-        dayjs().startOf('week').add(1, 'day').format('YYYY-MM-DD'),
+        mondayOf().format("YYYY-MM-DD"),
         {
           status: presentationDraft.status || presentationMatter.status,
           progress:
-            presentationDraft.status === '已完成'
+            presentationDraft.status === "已完成"
               ? 100
               : presentationDraft.progress,
           progressSummary: summary,
-          issues: String(presentationDraft.issues || '').trim() || undefined,
+          issues: String(presentationDraft.issues || "").trim() || undefined,
           nextWeekPlan:
-            String(presentationDraft.nextWeekPlan || '').trim() || undefined,
+            String(presentationDraft.nextWeekPlan || "").trim() || undefined,
           supportNeeded:
-            String(presentationDraft.supportNeeded || '').trim() || undefined,
-        },
+            String(presentationDraft.supportNeeded || "").trim() || undefined,
+        }
       );
       message.success(
         presentationIndex + 1 >= presentationItems.length
-          ? '周报已保存'
-          : '周报已保存，已切换到下一项',
+          ? "周报已保存"
+          : "周报已保存，已切换到下一项"
       );
       presentationDrafts.current.delete(presentationMatter.id);
       await load();
       const nextIndex = Math.min(
         presentationIndex + 1,
-        presentationItems.length - 1,
+        presentationItems.length - 1
       );
       setPresentationIndex(nextIndex);
       setPresentationEditing(false);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '周报保存失败');
+      message.error(e instanceof Error ? e.message : "周报保存失败");
     } finally {
       setPresentationSaving(false);
     }
@@ -442,24 +442,24 @@ export default function KeyMattersPage() {
   const saveWeekly = async (values: Record<string, unknown>) => {
     if (!weeklyMatter) return;
     try {
-      const week =
-        (values.weekStartDate as dayjs.Dayjs)?.format('YYYY-MM-DD') ||
-        dayjs().startOf('week').add(1, 'day').format('YYYY-MM-DD');
+      const week = mondayOf(values.weekStartDate as dayjs.ConfigType).format(
+        "YYYY-MM-DD"
+      );
       await superworkApi.upsertKeyMatterWeeklyUpdate(weeklyMatter.id, week, {
         status: values.status,
-        progress: values.status === '已完成' ? 100 : values.progress,
-        progressSummary: String(values.progressSummary || '').trim(),
+        progress: values.status === "已完成" ? 100 : values.progress,
+        progressSummary: String(values.progressSummary || "").trim(),
         issues: values.issues,
         nextWeekPlan: values.nextWeekPlan,
         supportNeeded: values.supportNeeded,
       });
-      message.success('周进展已保存');
+      message.success("周进展已保存");
       setWeeklyOpen(false);
       // 详情抽屉本就打开时刷新其数据；未打开则不主动弹出（周进展只更新周报）
       if (detail) await openDetail(detail);
       await load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '周进展保存失败');
+      message.error(e instanceof Error ? e.message : "周进展保存失败");
     }
   };
   const save = async () => {
@@ -472,43 +472,43 @@ export default function KeyMattersPage() {
         ...v,
         ownerId,
         startDate: v.startDate
-          ? dayjs(v.startDate).format('YYYY-MM-DD')
+          ? dayjs(v.startDate).format("YYYY-MM-DD")
           : undefined,
         plannedCompletionDate: v.plannedCompletionDate
-          ? dayjs(v.plannedCompletionDate).format('YYYY-MM-DD')
+          ? dayjs(v.plannedCompletionDate).format("YYYY-MM-DD")
           : undefined,
         participantIds: Array.from(
           new Set(
             [
               ...(Array.isArray(v.participantIds) ? v.participantIds : []),
               ownerId,
-            ].filter(Boolean),
-          ),
+            ].filter(Boolean)
+          )
         ),
       };
       if (editing) await superworkApi.updateKeyMatter(editing.id, payload);
       else await superworkApi.createKeyMatter(payload);
-      message.success('事项已保存');
+      message.success("事项已保存");
       setOpen(false);
       await load();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '保存失败');
+      message.error(e instanceof Error ? e.message : "保存失败");
     }
   };
   const remove = async (r: Matter) => {
     Modal.confirm({
-      title: '删除大事儿',
+      title: "删除大事儿",
       content: `确定删除「${r.title}」吗？其全部周进展也会删除。`,
-      okText: '删除',
-      cancelText: '取消',
+      okText: "删除",
+      cancelText: "取消",
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await superworkApi.deleteKeyMatter(r.id);
-          message.success('事项已删除');
+          message.success("事项已删除");
           await load();
         } catch (e) {
-          message.error(e instanceof Error ? e.message : '删除失败');
+          message.error(e instanceof Error ? e.message : "删除失败");
         }
       },
     });
@@ -529,70 +529,70 @@ export default function KeyMattersPage() {
     const root = projects.find((item) => item.id === rootId);
     return {
       rootId,
-      rootName: root?.name || matter.projectName || 'BU 内部事项',
+      rootName: root?.name || matter.projectName || "BU 内部事项",
       displayName:
         root && project && root.id !== project.id
           ? `${root.name}-${project.name}`
-          : matter.projectName || root?.name || 'BU 内部事项',
+          : matter.projectName || root?.name || "BU 内部事项",
     };
   };
   const currentUpdate = (matter: Matter) => matter.currentWeekUpdate;
   const effectiveStatus = (matter: Matter) =>
-    currentUpdate(matter)?.status || matter.status || '未开始';
+    currentUpdate(matter)?.status || matter.status || "未开始";
   const effectiveProgress = (matter: Matter) =>
     Number(currentUpdate(matter)?.progress ?? matter.progress ?? 0);
   const presentationGroups = useMemo(() => {
     const groups = new Map<string, Matter[]>();
     meeting.forEach((item) => {
       const key =
-        presentationGroupBy === 'owner'
-          ? String(item.ownerId || 'unassigned')
-          : String(projectPresentation(item).rootId || 'internal');
+        presentationGroupBy === "owner"
+          ? String(item.ownerId || "unassigned")
+          : String(projectPresentation(item).rootId || "internal");
       groups.set(key, [...(groups.get(key) || []), item]);
     });
     return Array.from(groups.entries()).map(([key, items]) => {
       const updateRequired = items.filter(
-        (item) => effectiveStatus(item) !== '已完成',
+        (item) => effectiveStatus(item) !== "已完成"
       );
       return {
         key,
         label:
-          presentationGroupBy === 'owner'
-            ? items[0]?.ownerName || '未指定负责人'
+          presentationGroupBy === "owner"
+            ? items[0]?.ownerName || "未指定负责人"
             : projectPresentation(items[0]).rootName,
         items,
         updatedCount: updateRequired.filter((item) => item.currentWeekUpdate)
           .length,
         updateRequiredCount: updateRequired.length,
         riskCount: items.filter((item) =>
-          ['有风险', '已阻塞'].includes(effectiveStatus(item)),
+          ["有风险", "已阻塞"].includes(effectiveStatus(item))
         ).length,
         averageProgress: Math.round(
           items.reduce((sum, item) => sum + effectiveProgress(item), 0) /
-            items.length,
+            items.length
         ),
       };
     });
   }, [meeting, presentationGroupBy, projects]);
   const presentationItems = useMemo(
     () => presentationGroups.flatMap((group) => group.items),
-    [presentationGroups],
+    [presentationGroups]
   );
   const presentationMatter = presentationItems[presentationIndex];
   // 演示卡片头部平铺展示：状态与进度跟随草稿（编辑态）或本周周报
   const presentationStatus = presentationMatter
     ? (presentationEditing ? presentationDraft?.status : undefined) ||
       effectiveStatus(presentationMatter)
-    : '';
+    : "";
   const presentationProgress = presentationEditing
-    ? (presentationDraft?.progress ?? 0)
+    ? presentationDraft?.progress ?? 0
     : presentationMatter
-      ? effectiveProgress(presentationMatter)
-      : 0;
+    ? effectiveProgress(presentationMatter)
+    : 0;
   const presentationStatusTone =
-    STATUS_TONES[presentationStatus]?.tag ?? 'default';
+    STATUS_TONES[presentationStatus]?.tag ?? "default";
   const presentationStatusHex =
-    STATUS_TONES[presentationStatus]?.hex ?? '#8c8c8c';
+    STATUS_TONES[presentationStatus]?.hex ?? "#8c8c8c";
   const presentationAvatarTone = (key: string) => {
     let hash = 0;
     for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
@@ -604,10 +604,10 @@ export default function KeyMattersPage() {
       presentationDrafts.current.get(matter.id) || {
         status: matter.currentWeekUpdate?.status || matter.status,
         progress: matter.currentWeekUpdate?.progress ?? matter.progress ?? 0,
-        progressSummary: matter.currentWeekUpdate?.progressSummary || '',
-        issues: matter.currentWeekUpdate?.issues || '',
-        nextWeekPlan: matter.currentWeekUpdate?.nextWeekPlan || '',
-        supportNeeded: matter.currentWeekUpdate?.supportNeeded || '',
+        progressSummary: matter.currentWeekUpdate?.progressSummary || "",
+        issues: matter.currentWeekUpdate?.issues || "",
+        nextWeekPlan: matter.currentWeekUpdate?.nextWeekPlan || "",
+        supportNeeded: matter.currentWeekUpdate?.supportNeeded || "",
       }
     );
   };
@@ -620,26 +620,26 @@ export default function KeyMattersPage() {
   };
   const stashPresentationDraft = () => {
     cachePresentationDraft();
-    message.success('草稿已暂存，本次周会期间可继续编辑');
+    message.success("草稿已暂存，本次周会期间可继续编辑");
   };
   const matterStats = useMemo(() => {
     const total = rows.length;
-    const progressing = rows.filter((r) => r.status === '推进中').length;
+    const progressing = rows.filter((r) => r.status === "推进中").length;
     const risks = rows.filter((r) =>
-      ['有风险', '已阻塞'].includes(r.status),
+      ["有风险", "已阻塞"].includes(r.status)
     ).length;
-    const updateRequired = rows.filter((r) => r.status !== '已完成');
+    const updateRequired = rows.filter((r) => r.status !== "已完成");
     return {
       total,
       progressing,
       risks,
-      completed: rows.filter((r) => r.status === '已完成').length,
+      completed: rows.filter((r) => r.status === "已完成").length,
       pending: updateRequired.filter(
-        (r) => !r.currentWeekUpdate && r.currentWeekUpdated !== true,
+        (r) => !r.currentWeekUpdate && r.currentWeekUpdated !== true
       ).length,
       updateRequiredCount: updateRequired.length,
       updatedCount: updateRequired.filter(
-        (r) => r.currentWeekUpdate || r.currentWeekUpdated === true,
+        (r) => r.currentWeekUpdate || r.currentWeekUpdated === true
       ).length,
       progressingRate: total ? Math.round((progressing / total) * 100) : 0,
       riskRate: total ? Math.round((risks / total) * 100) : 0,
@@ -688,11 +688,11 @@ export default function KeyMattersPage() {
         !isOwned &&
         Array.isArray(item.participants) &&
         item.participants.some(
-          (participant: Matter) => Number(participant.userId) === currentUserId,
+          (participant: Matter) => Number(participant.userId) === currentUserId
         );
       const matchesPersonal =
-        personalScope === 'all' ||
-        (personalScope === 'owned' ? isOwned : isParticipating);
+        personalScope === "all" ||
+        (personalScope === "owned" ? isOwned : isParticipating);
       return (
         matchesKeyword &&
         matchesOwner &&
@@ -718,7 +718,7 @@ export default function KeyMattersPage() {
   const pagedRows = useMemo(
     () =>
       filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [currentPage, filteredRows, pageSize],
+    [currentPage, filteredRows, pageSize]
   );
   const projectGroups = useMemo(() => {
     const groups = new Map<
@@ -734,21 +734,21 @@ export default function KeyMattersPage() {
         if (!project?.parentId) break;
         id = project.parentId;
       }
-      const key = id === undefined ? 'none' : String(id);
+      const key = id === undefined ? "none" : String(id);
       const current = groups.get(key) || {
         id: id ?? 0,
         label: id
           ? projects.find((project) => project.id === id)?.name ||
             item.projectName ||
-            '未关联项目'
-          : '未关联项目',
+            "未关联项目"
+          : "未关联项目",
         count: 0,
       };
       current.count += 1;
       groups.set(key, current);
     });
     return Array.from(groups.values()).sort(
-      (a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-CN'),
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label, "zh-CN")
     );
   }, [projects, rows]);
   const ownerGroups = useMemo(() => {
@@ -758,25 +758,25 @@ export default function KeyMattersPage() {
     >();
     rows.forEach((item) => {
       const id = item.ownerId ? Number(item.ownerId) : undefined;
-      const key = id === undefined ? 'none' : String(id);
+      const key = id === undefined ? "none" : String(id);
       const current = groups.get(key) || {
         id: id ?? 0,
-        label: item.ownerName || '未指定负责人',
+        label: item.ownerName || "未指定负责人",
         count: 0,
       };
       current.count += 1;
       groups.set(key, current);
     });
     return Array.from(groups.values()).sort(
-      (a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-CN'),
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label, "zh-CN")
     );
   }, [rows]);
   const ownedCount = useMemo(
     () =>
       rows.filter(
-        (item) => currentUserId > 0 && Number(item.ownerId) === currentUserId,
+        (item) => currentUserId > 0 && Number(item.ownerId) === currentUserId
       ).length,
-    [rows, currentUserId],
+    [rows, currentUserId]
   );
   const participatingCount = useMemo(
     () =>
@@ -787,21 +787,21 @@ export default function KeyMattersPage() {
           Array.isArray(item.participants) &&
           item.participants.some(
             (participant: Matter) =>
-              Number(participant.userId) === currentUserId,
-          ),
+              Number(participant.userId) === currentUserId
+          )
       ).length,
-    [rows, currentUserId],
+    [rows, currentUserId]
   );
   const milestoneItems = useMemo(() => {
     const groups = new Map<string, Matter[]>();
     rows
       .filter((item) =>
-        String(item.plannedCompletionDate || '').startsWith(milestoneMonth),
+        String(item.plannedCompletionDate || "").startsWith(milestoneMonth)
       )
       .sort((a, b) =>
         String(a.plannedCompletionDate).localeCompare(
-          String(b.plannedCompletionDate),
-        ),
+          String(b.plannedCompletionDate)
+        )
       )
       .forEach((item) => {
         groups.set(item.plannedCompletionDate, [
@@ -821,7 +821,7 @@ export default function KeyMattersPage() {
     updateMilestoneScrollState();
   }, [milestoneExpanded, milestoneItems, updateMilestoneScrollState]);
   const renderMatterListItem = (r: Matter) => {
-    const status = r.status || '未开始';
+    const status = r.status || "未开始";
     const progress = Number(r.progress || 0);
     return (
       <List.Item className="sw-matter-list-item">
@@ -830,14 +830,14 @@ export default function KeyMattersPage() {
             <div className="sw-matter-list-title-row">
               <Tag
                 color={
-                  r.priority === 'P0'
-                    ? 'red'
-                    : r.priority === 'P1'
-                      ? 'gold'
-                      : 'blue'
+                  r.priority === "P0"
+                    ? "red"
+                    : r.priority === "P1"
+                    ? "gold"
+                    : "blue"
                 }
               >
-                {r.priority || 'P2'}
+                {r.priority || "P2"}
               </Tag>
               <Typography.Link
                 className="sw-matter-list-title"
@@ -847,11 +847,11 @@ export default function KeyMattersPage() {
               </Typography.Link>
               <Tag
                 color={
-                  status === '已完成'
-                    ? 'success'
-                    : ['有风险', '已阻塞'].includes(status)
-                      ? 'error'
-                      : 'processing'
+                  status === "已完成"
+                    ? "success"
+                    : ["有风险", "已阻塞"].includes(status)
+                    ? "error"
+                    : "processing"
                 }
               >
                 {status}
@@ -861,14 +861,14 @@ export default function KeyMattersPage() {
               type="secondary"
               className="sw-matter-list-project"
             >
-              <FolderOpenOutlined /> {r.projectName || 'BU 内部事项'}
+              <FolderOpenOutlined /> {r.projectName || "BU 内部事项"}
             </Typography.Text>
             <Typography.Paragraph
               ellipsis={{ rows: 1 }}
               type="secondary"
               className="sw-matter-list-description"
             >
-              {r.description || '暂无事项说明'}
+              {r.description || "暂无事项说明"}
             </Typography.Paragraph>
           </div>
           <div className="sw-matter-list-progress">
@@ -879,64 +879,64 @@ export default function KeyMattersPage() {
                 size={{ height: 8 }}
                 showInfo={false}
                 status={
-                  status === '已阻塞'
-                    ? 'exception'
-                    : status === '已完成'
-                      ? 'success'
-                      : 'active'
+                  status === "已阻塞"
+                    ? "exception"
+                    : status === "已完成"
+                    ? "success"
+                    : "active"
                 }
               />
               <Typography.Text strong>{progress}%</Typography.Text>
             </div>
-            {status === '推进中' && (
+            {status === "推进中" && (
               <div
                 className={`sw-progress-line is-weekly ${
-                  r.currentWeekUpdate ? '' : 'is-idle'
+                  r.currentWeekUpdate ? "" : "is-idle"
                 }`}
               >
                 <Typography.Text type="secondary">本周进展</Typography.Text>
                 <Typography.Text strong>
                   {r.currentWeekUpdate
                     ? `${Number(r.currentWeekUpdate.progress ?? 0)}%`
-                    : '待更新'}
+                    : "待更新"}
                 </Typography.Text>
               </div>
             )}
           </div>
           <div className="sw-matter-list-meta">
             <Typography.Text type="secondary">
-              <UserOutlined />{' '}
-              {r.ownerName || r.owner?.realName || '未指定负责人'}
+              <UserOutlined />{" "}
+              {r.ownerName || r.owner?.realName || "未指定负责人"}
             </Typography.Text>
             <Typography.Text
               type={
-                r.overdue || milestoneTiming(r).tone === 'overdue'
-                  ? 'danger'
-                  : 'secondary'
+                r.overdue || milestoneTiming(r).tone === "overdue"
+                  ? "danger"
+                  : "secondary"
               }
             >
-              计划 {r.plannedCompletionDate || '—'}
+              计划 {r.plannedCompletionDate || "—"}
             </Typography.Text>
             <Tag
               color={
                 r.currentWeekUpdate
-                  ? 'success'
-                  : status === '已完成'
-                    ? 'default'
-                    : 'warning'
+                  ? "success"
+                  : status === "已完成"
+                  ? "default"
+                  : "warning"
               }
             >
               {r.currentWeekUpdate
-                ? '本周已更新'
-                : status === '已完成'
-                  ? '无需更新'
-                  : canEdit(r)
-                    ? '本周待更新'
-                    : '待负责人反馈'}
+                ? "本周已更新"
+                : status === "已完成"
+                ? "无需更新"
+                : canEdit(r)
+                ? "本周待更新"
+                : "待负责人反馈"}
             </Tag>
           </div>
           <Space className="sw-matter-list-actions" size={0}>
-            {canFeedback(r) && status !== '已完成' && (
+            {canFeedback(r) && status !== "已完成" && (
               <Button
                 type="link"
                 icon={<CalendarOutlined />}
@@ -953,27 +953,27 @@ export default function KeyMattersPage() {
               详情
             </Button>
             <Dropdown
-              trigger={['click']}
+              trigger={["click"]}
               placement="bottomRight"
               menu={{
                 items: [
                   {
-                    key: 'edit',
+                    key: "edit",
                     icon: <EditOutlined />,
-                    label: '编辑',
+                    label: "编辑",
                     disabled: !canEdit(r),
                   },
                   {
-                    key: 'delete',
+                    key: "delete",
                     icon: <DeleteOutlined />,
-                    label: '删除',
+                    label: "删除",
                     danger: true,
                     disabled: !canManageAll,
                   },
                 ],
                 onClick: ({ key }) => {
-                  if (key === 'edit') openEdit(r);
-                  if (key === 'delete') void remove(r);
+                  if (key === "edit") openEdit(r);
+                  if (key === "delete") void remove(r);
                 },
               }}
             >
@@ -991,12 +991,12 @@ export default function KeyMattersPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, [contenteditable="true"]')) return;
-      if (event.key === 'ArrowLeft')
+      if (event.key === "ArrowLeft")
         navigatePresentation(presentationIndex - 1);
-      if (event.key === 'ArrowRight')
+      if (event.key === "ArrowRight")
         navigatePresentation(presentationIndex + 1);
-      if (event.key === 'Escape') setPresentationOpen(false);
-      if (event.key === 'f' || event.key === 'F') {
+      if (event.key === "Escape") setPresentationOpen(false);
+      if (event.key === "f" || event.key === "F") {
         if (document.fullscreenElement) {
           const exit = document.exitFullscreen?.();
           if (exit) void exit.catch(() => undefined);
@@ -1006,21 +1006,20 @@ export default function KeyMattersPage() {
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [presentationItems.length, presentationIndex, presentationOpen]);
   // 进入演示时自动进入编辑态：本周尚无进展或已有暂存草稿（对齐旧版 hydratePresentationForm）
   const shouldAutoEditPresentation = (matter?: Matter) =>
     Boolean(
       matter &&
         canFeedback(matter) &&
-        matter.status !== '已完成' &&
-        (!matter.currentWeekUpdate ||
-          presentationDrafts.current.has(matter.id)),
+        matter.status !== "已完成" &&
+        (!matter.currentWeekUpdate || presentationDrafts.current.has(matter.id))
     );
   const openPresentation = (index = 0, requestFullscreen = true) => {
     if (!meeting.length) {
-      message.info('本周暂无可演示事项');
+      message.info("本周暂无可演示事项");
       return;
     }
     const targetId = meeting[index]?.id;
@@ -1045,22 +1044,22 @@ export default function KeyMattersPage() {
     if (exit) void exit.catch(() => undefined);
   };
   // 切换分组方式时保持当前事项定位（对齐旧版 setPresentationGroupBy）
-  const changePresentationGroupBy = (value: 'project' | 'owner') => {
+  const changePresentationGroupBy = (value: "project" | "owner") => {
     const currentId = presentationMatter?.id;
     cachePresentationDraft();
     setPresentationGroupBy(value);
     const groups = new Map<string, Matter[]>();
     meeting.forEach((item) => {
       const key =
-        value === 'owner'
-          ? String(item.ownerId || 'unassigned')
-          : String(projectPresentation(item).rootId || 'internal');
+        value === "owner"
+          ? String(item.ownerId || "unassigned")
+          : String(projectPresentation(item).rootId || "internal");
       groups.set(key, [...(groups.get(key) || []), item]);
     });
     const items = Array.from(groups.values()).flat();
     const nextIndex = Math.max(
       items.findIndex((item) => item.id === currentId),
-      0,
+      0
     );
     const matter = items[nextIndex];
     setPresentationIndex(nextIndex);
@@ -1068,7 +1067,7 @@ export default function KeyMattersPage() {
     setPresentationEditing(shouldAutoEditPresentation(matter));
   };
   const currentPresentationGroupKey = presentationGroups.find((group) =>
-    group.items.some((item) => item.id === presentationMatter?.id),
+    group.items.some((item) => item.id === presentationMatter?.id)
   )?.key;
   const navigatePresentation = (index: number) => {
     if (!presentationItems.length) return;
@@ -1099,8 +1098,8 @@ export default function KeyMattersPage() {
   return (
     <div
       className={`sw-page sw-key-matters ${
-        isStandaloneMeeting ? 'is-standalone-meeting' : ''
-      } ${presentationOpen ? 'is-presenting' : ''}`}
+        isStandaloneMeeting ? "is-standalone-meeting" : ""
+      } ${presentationOpen ? "is-presenting" : ""}`}
     >
       <div className="sw-page-header">
         <div>
@@ -1197,9 +1196,9 @@ export default function KeyMattersPage() {
             title="进入周会全屏"
             onClick={() =>
               window.open(
-                '/key-matters-meeting',
-                '_blank',
-                'noopener,noreferrer',
+                "/key-matters-meeting",
+                "_blank",
+                "noopener,noreferrer"
               )
             }
           >
@@ -1216,9 +1215,9 @@ export default function KeyMattersPage() {
               setEditing(undefined);
               form.resetFields();
               form.setFieldsValue({
-                status: '未开始',
+                status: "未开始",
                 progress: 0,
-                priority: 'P1',
+                priority: "P1",
                 ownerId: canManageAll
                   ? undefined
                   : Number(initialState?.currentUser?.id) || undefined,
@@ -1255,7 +1254,7 @@ export default function KeyMattersPage() {
                   value={milestoneMonth}
                   onChange={(event) =>
                     setMilestoneMonth(
-                      event.target.value || dayjs().format('YYYY-MM'),
+                      event.target.value || dayjs().format("YYYY-MM")
                     )
                   }
                 />
@@ -1264,7 +1263,7 @@ export default function KeyMattersPage() {
                   onClick={() => setMilestoneExpanded((value) => !value)}
                 >
                   {milestoneExpanded
-                    ? '收起'
+                    ? "收起"
                     : `展开（${milestoneItems.length} 个节点）`}
                 </Button>
               </Space>
@@ -1299,7 +1298,7 @@ export default function KeyMattersPage() {
                                 style={{ minWidth: 240 }}
                               >
                                 <Typography.Text strong>
-                                  {dayjs(item.date).format('YYYY年MM月DD日')} ·{' '}
+                                  {dayjs(item.date).format("YYYY年MM月DD日")} ·{" "}
                                   {item.items.length} 个事项
                                 </Typography.Text>
                                 {item.items.map((matter) => (
@@ -1308,14 +1307,14 @@ export default function KeyMattersPage() {
                                     type="link"
                                     style={{
                                       padding: 0,
-                                      textAlign: 'left',
-                                      height: 'auto',
+                                      textAlign: "left",
+                                      height: "auto",
                                     }}
                                     onClick={() => void openDetail(matter)}
                                   >
-                                    {matter.title} ·{' '}
-                                    {matter.ownerName || '未指定负责人'} ·{' '}
-                                    {matter.status || '未开始'} ·{' '}
+                                    {matter.title} ·{" "}
+                                    {matter.ownerName || "未指定负责人"} ·{" "}
+                                    {matter.status || "未开始"} ·{" "}
                                     {matter.progress ?? 0}%
                                   </Button>
                                 ))}
@@ -1335,7 +1334,7 @@ export default function KeyMattersPage() {
                                 {milestoneGroupSymbol(item.items)}
                               </span>
                               <strong>
-                                {dayjs(item.date).format('MM/DD')}
+                                {dayjs(item.date).format("MM/DD")}
                               </strong>
                               <small>
                                 {item.items.length} 项 · {item.items[0].status}
@@ -1372,14 +1371,14 @@ export default function KeyMattersPage() {
                   </Typography.Text>
                   <Button
                     type={
-                      personalScope === 'all' &&
+                      personalScope === "all" &&
                       !filters.ownerId &&
                       !filters.projectId
-                        ? 'primary'
-                        : 'default'
+                        ? "primary"
+                        : "default"
                     }
                     onClick={() => {
-                      setPersonalScope('all');
+                      setPersonalScope("all");
                       setFilters((current) => ({
                         ...current,
                         ownerId: undefined,
@@ -1390,9 +1389,9 @@ export default function KeyMattersPage() {
                     全部事项 {rows.length}
                   </Button>
                   <Button
-                    type={personalScope === 'owned' ? 'primary' : 'default'}
+                    type={personalScope === "owned" ? "primary" : "default"}
                     onClick={() => {
-                      setPersonalScope('owned');
+                      setPersonalScope("owned");
                       setFilters((current) => ({
                         ...current,
                         ownerId: undefined,
@@ -1404,10 +1403,10 @@ export default function KeyMattersPage() {
                   </Button>
                   <Button
                     type={
-                      personalScope === 'participating' ? 'primary' : 'default'
+                      personalScope === "participating" ? "primary" : "default"
                     }
                     onClick={() => {
-                      setPersonalScope('participating');
+                      setPersonalScope("participating");
                       setFilters((current) => ({
                         ...current,
                         ownerId: undefined,
@@ -1421,36 +1420,36 @@ export default function KeyMattersPage() {
                   <Segmented
                     value={quickFilterTab}
                     onChange={(value) =>
-                      setQuickFilterTab(value as 'project' | 'owner')
+                      setQuickFilterTab(value as "project" | "owner")
                     }
                     options={[
-                      { label: '项目', value: 'project' },
-                      { label: '负责人', value: 'owner' },
+                      { label: "项目", value: "project" },
+                      { label: "负责人", value: "owner" },
                     ]}
                   />
-                  {(quickFilterTab === 'project'
+                  {(quickFilterTab === "project"
                     ? projectGroups
                     : ownerGroups
                   ).map((group) => (
                     <Button
-                      key={`${quickFilterTab}-${group.id ?? 'none'}`}
+                      key={`${quickFilterTab}-${group.id ?? "none"}`}
                       type={
                         (
-                          quickFilterTab === 'project'
+                          quickFilterTab === "project"
                             ? filters.projectId === group.id
                             : filters.ownerId === group.id
                         )
-                          ? 'primary'
-                          : 'default'
+                          ? "primary"
+                          : "default"
                       }
                       onClick={() => {
-                        setPersonalScope('all');
+                        setPersonalScope("all");
                         setFilters((current) => ({
                           ...current,
                           ownerId:
-                            quickFilterTab === 'owner' ? group.id : undefined,
+                            quickFilterTab === "owner" ? group.id : undefined,
                           projectId:
-                            quickFilterTab === 'project' ? group.id : undefined,
+                            quickFilterTab === "project" ? group.id : undefined,
                         }));
                       }}
                     >
@@ -1490,7 +1489,7 @@ export default function KeyMattersPage() {
                     onChange={(value) =>
                       setFilters((current) => ({
                         ...current,
-                        status: value || '',
+                        status: value || "",
                       }))
                     }
                   />
@@ -1499,14 +1498,14 @@ export default function KeyMattersPage() {
                     placeholder="优先级"
                     style={{ width: 110 }}
                     value={filters.priority || undefined}
-                    options={['P0', 'P1', 'P2'].map((priority) => ({
+                    options={["P0", "P1", "P2"].map((priority) => ({
                       label: priority,
                       value: priority,
                     }))}
                     onChange={(value) =>
                       setFilters((current) => ({
                         ...current,
-                        priority: value || '',
+                        priority: value || "",
                       }))
                     }
                   />
@@ -1530,14 +1529,14 @@ export default function KeyMattersPage() {
                     type="link"
                     onClick={() => {
                       setFilters({
-                        keyword: '',
-                        status: '',
-                        priority: '',
+                        keyword: "",
+                        status: "",
+                        priority: "",
                         businessLineId: undefined,
                         ownerId: undefined,
                         projectId: undefined,
                       });
-                      setPersonalScope('all');
+                      setPersonalScope("all");
                     }}
                   >
                     重置
@@ -1559,7 +1558,7 @@ export default function KeyMattersPage() {
                 ) : (
                   <Empty
                     description={
-                      rows.length ? '没有符合条件的事项' : '暂无大事儿'
+                      rows.length ? "没有符合条件的事项" : "暂无大事儿"
                     }
                   />
                 )}
@@ -1586,7 +1585,7 @@ export default function KeyMattersPage() {
         </>
       )}
       <Modal
-        title={editing ? '编辑大事儿' : '新建大事儿'}
+        title={editing ? "编辑大事儿" : "新建大事儿"}
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
@@ -1597,13 +1596,13 @@ export default function KeyMattersPage() {
           form={form}
           layout="vertical"
           onValuesChange={(changed) => {
-            if (changed.status === '已完成')
-              form.setFieldValue('progress', 100);
+            if (changed.status === "已完成")
+              form.setFieldValue("progress", 100);
             if (changed.progress !== undefined) {
               const progress = Number(changed.progress || 0);
-              if (progress >= 100) form.setFieldValue('status', '已完成');
-              else if (form.getFieldValue('status') === '已完成')
-                form.setFieldValue('status', '推进中');
+              if (progress >= 100) form.setFieldValue("status", "已完成");
+              else if (form.getFieldValue("status") === "已完成")
+                form.setFieldValue("status", "推进中");
             }
           }}
         >
@@ -1613,7 +1612,7 @@ export default function KeyMattersPage() {
           <Form.Item name="description" label="事项说明">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Space style={{ display: 'flex' }}>
+          <Space style={{ display: "flex" }}>
             <Form.Item
               name="ownerId"
               label="负责人"
@@ -1633,7 +1632,7 @@ export default function KeyMattersPage() {
             <Form.Item
               name="projectId"
               label="关联项目"
-              rules={[{ required: true, message: '请选择项目' }]}
+              rules={[{ required: true, message: "请选择项目" }]}
             >
               <Select
                 showSearch
@@ -1667,7 +1666,7 @@ export default function KeyMattersPage() {
             <Form.Item name="priority" label="优先级">
               <Select
                 style={{ width: 120 }}
-                options={['P0', 'P1', 'P2'].map((v) => ({
+                options={["P0", "P1", "P2"].map((v) => ({
                   label: v,
                   value: v,
                 }))}
@@ -1687,10 +1686,10 @@ export default function KeyMattersPage() {
                   key={preset}
                   size="small"
                   onClick={() => {
-                    form.setFieldValue('progress', preset);
-                    if (preset === 100) form.setFieldValue('status', '已完成');
-                    else if (form.getFieldValue('status') === '已完成')
-                      form.setFieldValue('status', '推进中');
+                    form.setFieldValue("progress", preset);
+                    if (preset === 100) form.setFieldValue("status", "已完成");
+                    else if (form.getFieldValue("status") === "已完成")
+                      form.setFieldValue("status", "推进中");
                   }}
                 >
                   {preset}%
@@ -1698,7 +1697,7 @@ export default function KeyMattersPage() {
               ))}
             </Space>
           </Form.Item>
-          <Space style={{ display: 'flex' }}>
+          <Space style={{ display: "flex" }}>
             <Form.Item name="startDate" label="开始日期">
               <DatePicker format="YYYY-MM-DD" />
             </Form.Item>
@@ -1709,7 +1708,7 @@ export default function KeyMattersPage() {
         </Form>
       </Modal>
       <Drawer
-        title={detail?.title || '大事儿详情'}
+        title={detail?.title || "大事儿详情"}
         size={680}
         open={Boolean(detail)}
         onClose={() => setDetail(undefined)}
@@ -1721,19 +1720,19 @@ export default function KeyMattersPage() {
             <>
               <Descriptions bordered column={2} size="small">
                 <Descriptions.Item label="负责人">
-                  {detail.ownerName || detail.ownerId || '—'}
+                  {detail.ownerName || detail.ownerId || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="状态">
                   <Space size={4}>
-                    <Tag>{detail.status || '—'}</Tag>
+                    <Tag>{detail.status || "—"}</Tag>
                     {(detail.overdue ||
-                      milestoneTiming(detail).tone === 'overdue') && (
+                      milestoneTiming(detail).tone === "overdue") && (
                       <Tag color="red">已逾期</Tag>
                     )}
                   </Space>
                 </Descriptions.Item>
                 <Descriptions.Item label="优先级">
-                  {detail.priority || '—'}
+                  {detail.priority || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="进度">
                   <Space size={6}>
@@ -1744,24 +1743,24 @@ export default function KeyMattersPage() {
                   </Space>
                 </Descriptions.Item>
                 <Descriptions.Item label="项目" span={2}>
-                  {detail.projectName || '—'}
+                  {detail.projectName || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="开始日期">
-                  {detail.startDate || '—'}
+                  {detail.startDate || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="计划完成">
-                  {detail.plannedCompletionDate || '—'}
+                  {detail.plannedCompletionDate || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="交付窗口">
                   {milestoneTiming(detail).label}
                 </Descriptions.Item>
                 <Descriptions.Item label="事项说明" span={2}>
-                  {detail.description || '—'}
+                  {detail.description || "—"}
                 </Descriptions.Item>
                 <Descriptions.Item label="参与人" span={2}>
                   {detail.participants
                     ?.map((p: Matter) => p.realName || p.username || p.userId)
-                    .join('、') || '—'}
+                    .join("、") || "—"}
                 </Descriptions.Item>
               </Descriptions>
               <Space style={{ marginTop: 18 }}>
@@ -1776,7 +1775,7 @@ export default function KeyMattersPage() {
                   type="primary"
                   disabled={
                     !canFeedback(detail) ||
-                    (detail.status === '已完成' && !detail.currentWeekUpdate)
+                    (detail.status === "已完成" && !detail.currentWeekUpdate)
                   }
                   onClick={() => openWeekly(detail)}
                 >
@@ -1787,7 +1786,7 @@ export default function KeyMattersPage() {
                 {detail.latestUpdate || detail.currentWeekUpdate ? (
                   <Space
                     orientation="vertical"
-                    style={{ width: '100%' }}
+                    style={{ width: "100%" }}
                     size={6}
                   >
                     <Space wrap>
@@ -1811,7 +1810,7 @@ export default function KeyMattersPage() {
                     </Space>
                     <Typography.Paragraph style={{ margin: 0 }}>
                       {(detail.latestUpdate || detail.currentWeekUpdate)
-                        .progressSummary || '暂无进展说明'}
+                        .progressSummary || "暂无进展说明"}
                     </Typography.Paragraph>
                     {(detail.latestUpdate || detail.currentWeekUpdate)
                       .issues && (
@@ -1873,16 +1872,16 @@ export default function KeyMattersPage() {
                         title={
                           <Space size={6} wrap>
                             <span>
-                              {item.weekStartDate || '未知周'} ·{' '}
-                              {item.status || '未设置'} · {item.progress ?? 0}%
+                              {item.weekStartDate || "未知周"} ·{" "}
+                              {item.status || "未设置"} · {item.progress ?? 0}%
                             </span>
                             <Tag
                               color={
-                                delta.tone === 'up'
-                                  ? 'success'
-                                  : delta.tone === 'down'
-                                    ? 'error'
-                                    : 'default'
+                                delta.tone === "up"
+                                  ? "success"
+                                  : delta.tone === "down"
+                                  ? "error"
+                                  : "default"
                               }
                             >
                               {delta.label}
@@ -1893,7 +1892,7 @@ export default function KeyMattersPage() {
                         description={
                           <Space orientation="vertical" size={2}>
                             <Typography.Text>
-                              {item.progressSummary || '暂无进展说明'}
+                              {item.progressSummary || "暂无进展说明"}
                             </Typography.Text>
                             {item.issues && (
                               <Typography.Text type="danger">
@@ -1912,9 +1911,9 @@ export default function KeyMattersPage() {
                             )}
                             {item.updatedAt && (
                               <Typography.Text type="secondary">
-                                更新于{' '}
+                                更新于{" "}
                                 {dayjs(item.updatedAt).format(
-                                  'YYYY-MM-DD HH:mm',
+                                  "YYYY-MM-DD HH:mm"
                                 )}
                               </Typography.Text>
                             )}
@@ -1938,16 +1937,16 @@ export default function KeyMattersPage() {
                               try {
                                 await superworkApi.deleteKeyMatterWeeklyUpdate(
                                   detail.id,
-                                  item.weekStartDate,
+                                  item.weekStartDate
                                 );
-                                message.success('周进展已删除');
+                                message.success("周进展已删除");
                                 await openDetail(detail);
                                 await load();
                               } catch (e) {
                                 message.error(
                                   e instanceof Error
                                     ? e.message
-                                    : '周进展删除失败',
+                                    : "周进展删除失败"
                                 );
                               }
                             }}
@@ -1973,11 +1972,11 @@ export default function KeyMattersPage() {
                 block
                 value={presentationGroupBy}
                 options={[
-                  { value: 'project', label: '项目' },
-                  { value: 'owner', label: '负责人' },
+                  { value: "project", label: "项目" },
+                  { value: "owner", label: "负责人" },
                 ]}
                 onChange={(value) =>
-                  changePresentationGroupBy(value as 'project' | 'owner')
+                  changePresentationGroupBy(value as "project" | "owner")
                 }
               />
             </div>
@@ -1986,14 +1985,16 @@ export default function KeyMattersPage() {
               return (
                 <div
                   key={group.key}
-                  className={`sw-presentation-group ${isActiveGroup ? 'active' : ''}`}
+                  className={`sw-presentation-group ${
+                    isActiveGroup ? "active" : ""
+                  }`}
                 >
                   <button
                     type="button"
                     className="sw-presentation-group-main"
                     onClick={() => {
                       const firstIndex = presentationItems.findIndex(
-                        (item) => item.id === group.items[0]?.id,
+                        (item) => item.id === group.items[0]?.id
                       );
                       if (!isActiveGroup && firstIndex >= 0)
                         navigatePresentation(firstIndex);
@@ -2002,12 +2003,12 @@ export default function KeyMattersPage() {
                     <Avatar
                       size={28}
                       shape={
-                        presentationGroupBy === 'owner' ? 'circle' : 'square'
+                        presentationGroupBy === "owner" ? "circle" : "square"
                       }
                       className="sw-presentation-group-avatar"
                       style={{
                         backgroundImage: presentationAvatarTone(
-                          String(group.key),
+                          String(group.key)
                         ),
                       }}
                     >
@@ -2036,23 +2037,23 @@ export default function KeyMattersPage() {
                   <div className="sw-presentation-group-matters">
                     {group.items.map((matter) => {
                       const matterIndex = presentationItems.findIndex(
-                        (item) => item.id === matter.id,
+                        (item) => item.id === matter.id
                       );
                       const needsUpdate =
-                        effectiveStatus(matter) !== '已完成' &&
+                        effectiveStatus(matter) !== "已完成" &&
                         !matter.currentWeekUpdate;
                       return (
                         <button
                           key={matter.id}
                           type="button"
                           className={`${
-                            matter.id === presentationMatter?.id ? 'active' : ''
+                            matter.id === presentationMatter?.id ? "active" : ""
                           } ${
                             needsUpdate
                               ? canFeedback(matter)
-                                ? 'pending'
-                                : 'waiting'
-                              : ''
+                                ? "pending"
+                                : "waiting"
+                              : ""
                           }`}
                           onClick={() => navigatePresentation(matterIndex)}
                         >
@@ -2075,7 +2076,7 @@ export default function KeyMattersPage() {
               {presentationMatter ? (
                 <>
                   <Space
-                    style={{ width: '100%', justifyContent: 'space-between' }}
+                    style={{ width: "100%", justifyContent: "space-between" }}
                   >
                     <Tag color="blue">
                       {presentationIndex + 1} / {presentationItems.length}
@@ -2108,11 +2109,11 @@ export default function KeyMattersPage() {
                       type="secondary"
                       className="sw-presentation-owner"
                     >
-                      <FolderOpenOutlined />{' '}
-                      {presentationMatter.projectName || 'BU 内部事项'}
+                      <FolderOpenOutlined />{" "}
+                      {presentationMatter.projectName || "BU 内部事项"}
                       <span className="sw-presentation-owner-divider" />
-                      <UserOutlined />{' '}
-                      {presentationMatter.ownerName || '未指定负责人'}
+                      <UserOutlined />{" "}
+                      {presentationMatter.ownerName || "未指定负责人"}
                     </Typography.Text>
                   </div>
                   <Row gutter={[12, 12]} className="sw-presentation-cards">
@@ -2142,13 +2143,13 @@ export default function KeyMattersPage() {
                                   ...draft,
                                   status: String(value),
                                   progress:
-                                    value === '已完成' ? 100 : draft?.progress,
+                                    value === "已完成" ? 100 : draft?.progress,
                                 }))
                               }
                             />
                           ) : (
                             <Tag color={presentationStatusTone}>
-                              {presentationStatus || '未设置'}
+                              {presentationStatus || "未设置"}
                             </Tag>
                           )}
                           <div className="sw-presentation-brief-progress">
@@ -2158,11 +2159,11 @@ export default function KeyMattersPage() {
                               showInfo={false}
                               strokeColor={presentationStatusHex}
                               status={
-                                presentationStatus === '已阻塞'
-                                  ? 'exception'
-                                  : presentationStatus === '已完成'
-                                    ? 'success'
-                                    : 'active'
+                                presentationStatus === "已阻塞"
+                                  ? "exception"
+                                  : presentationStatus === "已完成"
+                                  ? "success"
+                                  : "active"
                               }
                             />
                             {presentationEditing ? (
@@ -2178,18 +2179,18 @@ export default function KeyMattersPage() {
                                       0,
                                       Math.min(
                                         100,
-                                        Math.round(Number(value) || 0),
-                                      ),
+                                        Math.round(Number(value) || 0)
+                                      )
                                     );
                                     return {
                                       ...draft,
                                       progress,
                                       status:
                                         progress === 100
-                                          ? '已完成'
-                                          : draft?.status === '已完成'
-                                            ? '推进中'
-                                            : draft?.status,
+                                          ? "已完成"
+                                          : draft?.status === "已完成"
+                                          ? "推进中"
+                                          : draft?.status,
                                     };
                                   })
                                 }
@@ -2215,8 +2216,8 @@ export default function KeyMattersPage() {
                                   size="small"
                                   type={
                                     presentationDraft?.progress === preset
-                                      ? 'primary'
-                                      : 'default'
+                                      ? "primary"
+                                      : "default"
                                   }
                                   onClick={() =>
                                     setPresentationDraft((draft) => ({
@@ -2224,10 +2225,10 @@ export default function KeyMattersPage() {
                                       progress: preset,
                                       status:
                                         preset === 100
-                                          ? '已完成'
-                                          : draft?.status === '已完成'
-                                            ? '推进中'
-                                            : draft?.status,
+                                          ? "已完成"
+                                          : draft?.status === "已完成"
+                                          ? "推进中"
+                                          : draft?.status,
                                     }))
                                   }
                                 >
@@ -2251,7 +2252,7 @@ export default function KeyMattersPage() {
                           />
                         ) : (
                           presentationMatter.currentWeekUpdate
-                            ?.progressSummary || '尚未填写'
+                            ?.progressSummary || "尚未填写"
                         )}
                       </Card>
                     </Col>
@@ -2271,7 +2272,7 @@ export default function KeyMattersPage() {
                           />
                         ) : (
                           presentationMatter.currentWeekUpdate?.issues ||
-                          '本周暂无风险'
+                          "本周暂无风险"
                         )}
                       </Card>
                     </Col>
@@ -2291,7 +2292,7 @@ export default function KeyMattersPage() {
                           />
                         ) : (
                           presentationMatter.currentWeekUpdate?.supportNeeded ||
-                          '暂无待协调事项'
+                          "暂无待协调事项"
                         )}
                       </Card>
                     </Col>
@@ -2311,7 +2312,7 @@ export default function KeyMattersPage() {
                           />
                         ) : (
                           presentationMatter.currentWeekUpdate?.nextWeekPlan ||
-                          '待补充'
+                          "待补充"
                         )}
                       </Card>
                     </Col>
@@ -2362,17 +2363,17 @@ export default function KeyMattersPage() {
                 aria-label="演示事项快速导航"
               >
                 {presentationItems.map((matter, index) => {
-                  const requiresUpdate = effectiveStatus(matter) !== '已完成';
+                  const requiresUpdate = effectiveStatus(matter) !== "已完成";
                   const complete =
                     !requiresUpdate || Boolean(matter.currentWeekUpdate);
                   const stateClass =
                     index === presentationIndex
-                      ? 'active'
+                      ? "active"
                       : complete
-                        ? 'complete'
-                        : canFeedback(matter)
-                          ? 'pending'
-                          : 'waiting';
+                      ? "complete"
+                      : canFeedback(matter)
+                      ? "pending"
+                      : "waiting";
                   return (
                     <button
                       key={matter.id}
@@ -2406,7 +2407,7 @@ export default function KeyMattersPage() {
                   renderItem={(item: Matter, index: number) => {
                     const delta = historyDelta(
                       presentationMatter.weeklyUpdates || [],
-                      index,
+                      index
                     );
                     return (
                       <List.Item>
@@ -2414,24 +2415,24 @@ export default function KeyMattersPage() {
                           <Typography.Text strong>
                             {item.weekStartDate}
                           </Typography.Text>
-                          <Tag>{item.status || '未设置'}</Tag>
+                          <Tag>{item.status || "未设置"}</Tag>
                           <Typography.Text>
                             {item.progress ?? 0}%
                           </Typography.Text>
                           <Tag
                             color={
-                              delta.tone === 'up'
-                                ? 'success'
-                                : delta.tone === 'down'
-                                  ? 'error'
-                                  : 'default'
+                              delta.tone === "up"
+                                ? "success"
+                                : delta.tone === "down"
+                                ? "error"
+                                : "default"
                             }
                           >
                             {delta.label}
                           </Tag>
                           {index === 0 && <Tag color="blue">最新</Tag>}
                           <Typography.Text type="secondary">
-                            {item.progressSummary || '暂无进展说明'}
+                            {item.progressSummary || "暂无进展说明"}
                           </Typography.Text>
                         </Space>
                       </List.Item>
@@ -2450,7 +2451,7 @@ export default function KeyMattersPage() {
       )}
       <Modal
         className="sw-weekly-modal"
-        title={weeklyMatter?.title || '填写周进展'}
+        title={weeklyMatter?.title || "填写周进展"}
         open={weeklyOpen}
         onCancel={() => setWeeklyOpen(false)}
         onOk={() => void weeklyForm.submit()}
@@ -2461,156 +2462,150 @@ export default function KeyMattersPage() {
       >
         {weeklyMatter && (
           <div className="sw-weekly-layout">
-            <div className="sw-weekly-main">
-              <div className="sw-weekly-matter">
-                <Typography.Text type="secondary">
-                  {weeklyMatter.projectName || 'BU 内部事项'} ·{' '}
-                  {weeklyMatter.ownerName || '未指定负责人'}
+            <div className="sw-weekly-main sw-presentation-stage">
+              <div className="sw-presentation-title-row">
+                <Typography.Title level={1}>
+                  {weeklyMatter.title}
+                </Typography.Title>
+                <Typography.Text
+                  type="secondary"
+                  className="sw-presentation-owner"
+                >
+                  <FolderOpenOutlined />{" "}
+                  {weeklyMatter.projectName || "BU 内部事项"}
+                  <span className="sw-presentation-owner-divider" />
+                  <UserOutlined /> {weeklyMatter.ownerName || "未指定负责人"}
                 </Typography.Text>
               </div>
               <Form
                 form={weeklyForm}
                 layout="vertical"
+                className="sw-weekly-form"
                 onValuesChange={(changed) => {
-                  if (changed.status === '已完成')
-                    weeklyForm.setFieldValue('progress', 100);
+                  if (changed.status === "已完成")
+                    weeklyForm.setFieldValue("progress", 100);
                   if (changed.progress !== undefined) {
                     const progress = Number(changed.progress || 0);
                     if (progress >= 100)
-                      weeklyForm.setFieldValue('status', '已完成');
-                    else if (weeklyForm.getFieldValue('status') === '已完成')
-                      weeklyForm.setFieldValue('status', '推进中');
+                      weeklyForm.setFieldValue("status", "已完成");
+                    else if (weeklyForm.getFieldValue("status") === "已完成")
+                      weeklyForm.setFieldValue("status", "推进中");
                   }
                 }}
                 onFinish={(values) => void saveWeekly(values)}
               >
-                <section className="sw-weekly-state-bar">
-                  <Form.Item
-                    name="weekStartDate"
-                    label="周起始日"
-                    rules={[{ required: true, message: '请选择周起始日' }]}
-                  >
-                    <DatePicker style={{ width: '100%' }} />
-                  </Form.Item>
-                  <Form.Item
-                    name="status"
-                    label="事项状态"
-                    rules={[{ required: true, message: '请选择事项状态' }]}
-                  >
-                    <Select
-                      options={statusOptions.map((v) => ({
-                        label: v,
-                        value: v,
-                      }))}
-                    />
-                  </Form.Item>
-                  <Form.Item name="progress" label="完成进度">
-                    <InputNumber
-                      min={0}
-                      max={100}
-                      suffix="%"
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </section>
-                <div className="sw-weekly-progress-preview">
-                  <div
-                    className="sw-weekly-progress-track"
-                    role="progressbar"
-                    aria-valuenow={Number(weeklyFormProgress || 0)}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <i
-                      style={{
-                        width: `${Math.max(0, Math.min(100, Number(weeklyFormProgress || 0)))}%`,
-                      }}
-                    />
-                  </div>
-                  <Space size={4} wrap>
-                    {progressPresets.map((preset) => (
-                      <Button
-                        key={preset}
-                        size="small"
-                        type={
-                          Number(weeklyFormProgress) === preset
-                            ? 'primary'
-                            : 'default'
-                        }
-                        onClick={() => {
-                          weeklyForm.setFieldValue('progress', preset);
-                          if (preset === 100)
-                            weeklyForm.setFieldValue('status', '已完成');
-                          else if (
-                            weeklyForm.getFieldValue('status') === '已完成'
-                          )
-                            weeklyForm.setFieldValue('status', '推进中');
-                        }}
+                <Form.Item
+                  name="weekStartDate"
+                  hidden
+                  rules={[{ required: true, message: "请选择周起始日" }]}
+                >
+                  <DatePicker />
+                </Form.Item>
+                <Row gutter={[12, 12]} className="sw-presentation-cards">
+                  <Col xs={24}>
+                    <Card size="small" className="sw-presentation-brief">
+                      <header className="sw-presentation-brief-head">
+                        <strong>本周进展</strong>
+                        <Form.Item name="status" noStyle>
+                          <Segmented
+                            className="sw-presentation-brief-status"
+                            options={statusOptions.map((value) => ({
+                              value,
+                              label: value,
+                            }))}
+                          />
+                        </Form.Item>
+                        <div className="sw-presentation-brief-progress">
+                          <Progress
+                            percent={Number(weeklyFormProgress || 0)}
+                            size={{ height: 8 }}
+                            showInfo={false}
+                            status={
+                              weeklyFormStatus === "已阻塞"
+                                ? "exception"
+                                : weeklyFormStatus === "已完成"
+                                ? "success"
+                                : "active"
+                            }
+                          />
+                          <Form.Item name="progress" noStyle>
+                            <InputNumber
+                              className="sw-presentation-brief-input"
+                              min={0}
+                              max={100}
+                              suffix="%"
+                            />
+                          </Form.Item>
+                        </div>
+                        <Space
+                          size={4}
+                          wrap
+                          className="sw-presentation-brief-presets"
+                        >
+                          {progressPresets.map((preset) => (
+                            <Button
+                              key={preset}
+                              size="small"
+                              type={
+                                Number(weeklyFormProgress) === preset
+                                  ? "primary"
+                                  : "default"
+                              }
+                              onClick={() => {
+                                weeklyForm.setFieldValue("progress", preset);
+                                if (preset === 100)
+                                  weeklyForm.setFieldValue("status", "已完成");
+                                else if (
+                                  weeklyForm.getFieldValue("status") ===
+                                  "已完成"
+                                )
+                                  weeklyForm.setFieldValue("status", "推进中");
+                              }}
+                            >
+                              {preset}%
+                            </Button>
+                          ))}
+                        </Space>
+                      </header>
+                      <Form.Item
+                        name="progressSummary"
+                        rules={[{ required: true, message: "请输入本周进展" }]}
                       >
-                        {preset}%
-                      </Button>
-                    ))}
-                  </Space>
-                </div>
-                <div className="sw-weekly-section-grid">
-                  <section className="sw-weekly-section is-outcomes">
-                    <header>
-                      <span>01</span>
-                      <div>
-                        <h3>本周成果</h3>
-                        <small>记录已完成的关键动作与可验证结果</small>
-                      </div>
-                    </header>
-                    <Form.Item
-                      name="progressSummary"
-                      rules={[{ required: true, message: '请输入本周进展' }]}
-                    >
-                      <Input.TextArea
-                        rows={3}
-                        placeholder="逐条说明本周完成了什么、形成了什么结果"
-                      />
-                    </Form.Item>
-                  </section>
-                  <section className="sw-weekly-section is-risk">
-                    <header>
-                      <span>02</span>
-                      <div>
-                        <h3>问题 / 风险</h3>
-                        <small>说明阻碍、偏差和影响</small>
-                      </div>
-                    </header>
-                    <Form.Item name="issues">
-                      <Input.TextArea rows={3} placeholder="没有可留空" />
-                    </Form.Item>
-                  </section>
-                  <section className="sw-weekly-section is-support">
-                    <header>
-                      <span>03</span>
-                      <div>
-                        <h3>需协调 / 决策</h3>
-                        <small>明确需要谁推动什么</small>
-                      </div>
-                    </header>
-                    <Form.Item name="supportNeeded">
-                      <Input.TextArea rows={3} placeholder="没有可留空" />
-                    </Form.Item>
-                  </section>
-                  <section className="sw-weekly-section is-next">
-                    <header>
-                      <span>04</span>
-                      <div>
-                        <h3>下一步行动</h3>
-                        <small>写清动作、目标和交付</small>
-                      </div>
-                    </header>
-                    <Form.Item name="nextWeekPlan">
-                      <Input.TextArea
-                        rows={3}
-                        placeholder="说明下一周期的关键动作"
-                      />
-                    </Form.Item>
-                  </section>
-                </div>
+                        <Input.TextArea
+                          rows={3}
+                          placeholder="逐条说明本周完成了什么、形成了什么结果"
+                        />
+                      </Form.Item>
+                    </Card>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Card size="small" title="问题 / 风险">
+                      <Form.Item name="issues">
+                        <Input.TextArea rows={2} placeholder="没有可留空" />
+                      </Form.Item>
+                    </Card>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Card size="small" title="需协调 / 决策">
+                      <Form.Item name="supportNeeded">
+                        <Input.TextArea
+                          rows={2}
+                          placeholder="明确需要谁推动什么"
+                        />
+                      </Form.Item>
+                    </Card>
+                  </Col>
+                  <Col xs={24}>
+                    <Card size="small" title="下一步行动">
+                      <Form.Item name="nextWeekPlan">
+                        <Input.TextArea
+                          rows={2}
+                          placeholder="说明下一周期的关键动作"
+                        />
+                      </Form.Item>
+                    </Card>
+                  </Col>
+                </Row>
               </Form>
             </div>
             <aside className="sw-weekly-history" aria-label="历史周进展">
@@ -2631,7 +2626,7 @@ export default function KeyMattersPage() {
                   renderItem={(item: Matter, index: number) => {
                     const delta = historyDelta(
                       weeklyMatter.weeklyUpdates || [],
-                      index,
+                      index
                     );
                     return (
                       <List.Item
@@ -2645,7 +2640,7 @@ export default function KeyMattersPage() {
                                   onClick={() =>
                                     openWeekly(
                                       weeklyMatter,
-                                      dayjs(item.weekStartDate),
+                                      dayjs(item.weekStartDate)
                                     )
                                   }
                                 >
@@ -2660,17 +2655,17 @@ export default function KeyMattersPage() {
                             <Typography.Text strong>
                               {item.weekStartDate}
                             </Typography.Text>
-                            <Tag>{item.status || '未设置'}</Tag>
+                            <Tag>{item.status || "未设置"}</Tag>
                             <Typography.Text>
                               {item.progress ?? 0}%
                             </Typography.Text>
                             <Tag
                               color={
-                                delta.tone === 'up'
-                                  ? 'success'
-                                  : delta.tone === 'down'
-                                    ? 'error'
-                                    : 'default'
+                                delta.tone === "up"
+                                  ? "success"
+                                  : delta.tone === "down"
+                                  ? "error"
+                                  : "default"
                               }
                             >
                               {delta.label}
@@ -2682,7 +2677,7 @@ export default function KeyMattersPage() {
                             ellipsis={{ rows: 2 }}
                             className="sw-weekly-history-summary"
                           >
-                            {item.progressSummary || '暂无进展说明'}
+                            {item.progressSummary || "暂无进展说明"}
                           </Typography.Paragraph>
                         </div>
                       </List.Item>

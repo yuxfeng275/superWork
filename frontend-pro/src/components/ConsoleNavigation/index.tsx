@@ -1,21 +1,27 @@
-import { UpOutlined } from '@ant-design/icons';
-import type { MenuDataItem } from '@ant-design/pro-components';
-import { Link, useLocation } from '@umijs/max';
-import { Badge } from 'antd';
-import React, { useId, useState } from 'react';
+import { AppstoreOutlined, HomeOutlined, UpOutlined } from "@ant-design/icons";
+import type { MenuDataItem } from "@ant-design/pro-components";
+import { Link, useLocation } from "@umijs/max";
+import { Badge } from "antd";
+import React, { useId, useState } from "react";
 
 export const pathMatches = (path: string | undefined, pathname: string) =>
   Boolean(
     path &&
-      (pathname === path || (path !== '/' && pathname.startsWith(`${path}/`))),
+      (pathname === path || (path !== "/" && pathname.startsWith(`${path}/`)))
   );
 
 export const itemHasActivePath = (
   item: MenuDataItem,
-  pathname: string,
+  pathname: string
 ): boolean =>
   pathMatches(item.path, pathname) ||
   Boolean(item.children?.some((child) => itemHasActivePath(child, pathname)));
+
+export const primaryMenuIcon = (item: MenuDataItem) => {
+  if (item.name === "工作台") return <AppstoreOutlined />;
+  if (item.name === "首页") return <HomeOutlined />;
+  return item.icon;
+};
 
 export const firstPagePath = (item: MenuDataItem): string | undefined => {
   for (const child of item.children || []) {
@@ -52,7 +58,7 @@ const MenuEntry = ({
         >
           <span className="sw-nav-item-label">{item.name}</span>
           <UpOutlined
-            className={expanded ? '' : 'is-collapsed'}
+            className={expanded ? "" : "is-collapsed"}
             aria-hidden="true"
           />
         </button>
@@ -75,11 +81,13 @@ const MenuEntry = ({
   return (
     <Link
       to={item.path}
-      className={`sw-nav-item sw-nav-level-${depth + 2}${active ? ' is-active' : ''}`}
-      aria-current={active ? 'page' : undefined}
+      className={`sw-nav-item sw-nav-level-${depth + 2}${
+        active ? " is-active" : ""
+      }`}
+      aria-current={active ? "page" : undefined}
     >
       <span className="sw-nav-item-label">{item.name}</span>
-      {item.path === '/requirements' && Boolean(requirementTotal) && (
+      {item.path === "/requirements" && Boolean(requirementTotal) && (
         <Badge count={requirementTotal} size="small" overflowCount={99} />
       )}
     </Link>
@@ -97,7 +105,7 @@ export default function ConsoleNavigation({
   const activeSection = items.find((item) => itemHasActivePath(item, pathname));
   const showPanel = Boolean(activeSection?.children?.length);
   return (
-    <div className={`sw-nav${showPanel ? '' : ' sw-nav-no-panel'}`}>
+    <div className={`sw-nav${showPanel ? "" : " sw-nav-no-panel"}`}>
       <nav className="sw-nav-primary" aria-label="业务域">
         {items.map((item) => {
           const path = firstPagePath(item);
@@ -107,14 +115,14 @@ export default function ConsoleNavigation({
             <Link
               key={String(item.key || item.path || item.name)}
               to={path}
-              className={`sw-nav-primary-item${active ? ' is-selected' : ''}`}
-              title={String(item.name || '')}
+              className={`sw-nav-primary-item${active ? " is-selected" : ""}`}
+              title={String(item.name || "")}
               aria-current={
-                active && !item.children?.length ? 'page' : undefined
+                active && !item.children?.length ? "page" : undefined
               }
             >
               <span className="sw-nav-primary-icon" aria-hidden="true">
-                {item.icon}
+                {primaryMenuIcon(item)}
               </span>
               <span className="sw-nav-primary-label">{item.name}</span>
             </Link>
