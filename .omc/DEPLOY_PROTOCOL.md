@@ -78,6 +78,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | eb7576b | **会议模块上线（录音→ASR 匿名分人→闪记式图文总结→待办转化）**：V81 迁移（meeting/meeting_speaker/meeting_todo 三表 + `task.requirement_id` 放开 NULL + meeting 配置组 + `/meetings` 菜单与五角色授权）；backend 13 个 `/api/meetings` 端点（转写校正/说话人命名/总结重跑/待办转化/音频回放）；frontend-pro `/meetings` 列表+详情（关键词 Tag、发言统计环形图、章节速览 Timeline、决策/风险、待办草稿）；新增自托管 **asr-worker**（FunASR + ffmpeg，内网 8790 不发布宿主端口，模型缓存 ~2.1GB 于 `docker/asr-models`）。验收：30s 双人样本 9 段转写、SPEAKER_00/01 正确分人、章节/关键词/每人要点/风险齐备、待办转任务 `requirement_id=NULL` 成功；meeting 组已启用且 `meeting.asr.base-url=http://asr-worker:8790`。备份 deploy-backups/superwork-meeting-20260917-164333；前置修复：宿主 `docker/data/meetings` 属主改 999、asr-worker 构建加镜像源/wheelhouse 参数（eb7576b） | voice agent |
 
 | 2026-09-17 | d071f8d | **OA 待办审批台 + 网页会话通道**：REST 被拦时的落地实现——管理员粘贴 JSESSIONID 一次授权（隐藏敏感配置项加密持久化），ajax.do/doProjection 取待办/已办（与门户同一数据源），批量审批走详情页自发现动作；新页 /oa-affairs（V82 菜单，注意 V81 与会议模块撞号已改 V82）；两套前端页已上线 | system-config agent |
+| 2026-09-17 | b7f5a0e | **OA 自助授权三档 + 会话保活**：自动登录（免验证码时）/ 验证码登录（挑战图 5 分钟有效、取图 Cookie 并入挑战）/ 粘贴 JSESSIONID 兜底；每 10 分钟保活会话；登录失败透出 LoginError 码（9=验证码、1=账号密码）；待验证项：待办/已办真实取数、审批动作自发现、vReport 导出地址 | system-config agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
