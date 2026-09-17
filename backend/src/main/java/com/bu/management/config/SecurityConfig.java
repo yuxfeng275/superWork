@@ -4,6 +4,7 @@ import com.bu.management.constant.PositionRoles;
 import com.bu.management.security.JwtAuthenticationFilter;
 import com.bu.management.vo.Result;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -57,6 +58,9 @@ public class SecurityConfig {
 
                 // 配置授权规则
                 .authorizeHttpRequests(auth -> auth
+                        // SSE 等异步响应在完成时会以 ASYNC 分派重入过滤器链（JwtAuthenticationFilter 作为
+                        // OncePerRequestFilter 默认跳过 ASYNC 分派），此处放行内部重分派，避免已认证请求被 401 覆盖
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         // 登录公开，账号创建仅允许管理岗位执行
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/auth/register").hasAnyRole(
