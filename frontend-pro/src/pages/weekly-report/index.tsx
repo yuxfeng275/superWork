@@ -1,5 +1,6 @@
 import {
   CheckCircleOutlined,
+  ClockCircleOutlined,
   CopyOutlined,
   FileTextOutlined,
   LoadingOutlined,
@@ -124,18 +125,13 @@ export default function WeeklyReportPage() {
     const inFlight = list.filter((r) =>
       ['PENDING', 'GENERATING', 'DRAFT'].includes(r.status),
     ).length;
-    const confirmed = list.filter((r) =>
-      ['CONFIRMED', 'PUBLISHED'].includes(r.status),
-    ).length;
-    const sheetPending = list.filter(
-      (r) => r.yuqueDocUrl && r.sheetSyncStatus !== 'MANUAL_DONE',
-    ).length;
+    const confirmed = list.filter((r) => r.status === 'CONFIRMED').length;
+    const published = list.filter((r) => r.status === 'PUBLISHED').length;
     return {
       total,
       inFlight,
       confirmed,
-      sheetPending,
-      confirmedRate: total ? Math.round((confirmed / total) * 100) : 100,
+      published,
     };
   }, [list]);
 
@@ -488,7 +484,13 @@ export default function WeeklyReportPage() {
             <Statistic
               title="进行中"
               value={summary.inFlight}
-              prefix={<LoadingOutlined />}
+              prefix={
+                summary.inFlight > 0 ? (
+                  <LoadingOutlined />
+                ) : (
+                  <ClockCircleOutlined />
+                )
+              }
               suffix="待办"
             />
           </Card>
@@ -496,19 +498,19 @@ export default function WeeklyReportPage() {
         <Col xs={12} md={6}>
           <Card variant="borderless">
             <Statistic
-              title="已确认 / 发布"
+              title="已确认"
               value={summary.confirmed}
               prefix={<CheckCircleOutlined />}
-              suffix={`${summary.confirmedRate}%`}
+              suffix="周"
             />
           </Card>
         </Col>
         <Col xs={12} md={6}>
           <Card variant="borderless">
             <Statistic
-              title="待回填汇总表"
-              value={summary.sheetPending}
-              prefix={<FileTextOutlined />}
+              title="已发布"
+              value={summary.published}
+              prefix={<SendOutlined />}
               suffix="周"
             />
           </Card>
