@@ -115,6 +115,15 @@ public class AiAgentController {
     }
 
     /**
+     * 侧车只认 {@code zhipu} / {@code deepseek}；平台内 GLM 的规范编码是 {@code glm}（见 AiModelConfigService）。
+     * 这里是唯一出站翻译点，避免两套命名在各处散落。
+     */
+    private String sidecarProvider(String provider) {
+        return AiModelConfigService.PROVIDER_GLM.equals(provider)
+                ? AiModelConfigService.LEGACY_PROVIDER_ZHIPU : provider;
+    }
+
+    /**
      * 发送消息：先持久化用户消息，再中继侧车 SSE 流；
      * run_end 时把侧车新增的 AgentMessage 落库。
      */
@@ -164,7 +173,7 @@ public class AiAgentController {
         try {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("runId", runId);
-            body.put("provider", session.provider());
+            body.put("provider", sidecarProvider(session.provider()));
             body.put("baseUrl", model.baseUrl());
             body.put("apiKey", model.apiKey());
             body.put("model", model.model());
