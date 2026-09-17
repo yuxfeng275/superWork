@@ -846,6 +846,128 @@ export interface BizLineProfitReport {
   totalYtd: BizLineProfitRow;
 }
 
+export type MeetingStatus =
+  | "UPLOADED"
+  | "TRANSCRIBING"
+  | "SUMMARIZING"
+  | "DRAFT"
+  | "CONFIRMED"
+  | "FAILED";
+
+export interface MeetingSegment {
+  seq: number;
+  startMs: number;
+  endMs: number;
+  speaker: string;
+  text: string;
+  edited?: boolean;
+}
+
+export interface MeetingSpeaker {
+  speakerLabel: string;
+  displayName?: string | null;
+  mappedUserId?: number | null;
+}
+
+export interface MeetingSummarySection {
+  title: string;
+  content: string;
+  startMs: number | null;
+  endMs: number | null;
+  segmentRefs: number[];
+}
+
+export interface MeetingSpeakerPoint {
+  speaker: string;
+  points: string[];
+  segmentRefs: number[];
+}
+
+export interface MeetingEvidenceItem {
+  content: string;
+  severity?: string | null;
+  /** 服务端从转写段渲染的原文摘录 */
+  excerpt?: string | null;
+  startMs?: number | null;
+  segmentRefs?: number[];
+}
+
+export interface MeetingSummary {
+  summary: string;
+  keywords?: string[];
+  sections?: MeetingSummarySection[];
+  speakerPoints?: MeetingSpeakerPoint[];
+  decisions: MeetingEvidenceItem[];
+  risks: MeetingEvidenceItem[];
+}
+
+export type MeetingTodoStatus = "DRAFT" | "CREATED" | "DISMISSED";
+
+export interface MeetingTodo {
+  id: number;
+  title: string;
+  description?: string | null;
+  assigneeHint?: string | null;
+  dueText?: string | null;
+  dueDate?: string | null;
+  sourceSegmentSeq?: number | null;
+  sourceStartMs?: number | null;
+  sourceEndMs?: number | null;
+  sourceExcerpt?: string | null;
+  status: MeetingTodoStatus;
+  actionType?: "TASK" | "ISSUE" | null;
+  targetId?: number | null;
+  targetTitle?: string | null;
+}
+
+export interface MeetingListItem {
+  id: number;
+  title: string;
+  meetingDate: string;
+  durationSeconds?: number | null;
+  status: MeetingStatus;
+  generationError?: string | null;
+}
+
+export interface MeetingList {
+  records: MeetingListItem[];
+  total: number;
+  size: number;
+  current: number;
+  pages?: number;
+}
+
+export interface MeetingDetail extends MeetingListItem {
+  projectId?: number | null;
+  generationModel?: string | null;
+  /** 转写段（校正稿优先），seq 从 1 起 */
+  segments: MeetingSegment[];
+  speakers: MeetingSpeaker[];
+  summary?: MeetingSummary | null;
+  todos: MeetingTodo[];
+}
+
+export interface MeetingStatusSnapshot {
+  status: MeetingStatus;
+  generationError?: string | null;
+}
+
+export interface MeetingTodoUpdatePayload {
+  title?: string;
+  description?: string;
+  dueText?: string;
+  dueDate?: string | null;
+  dismiss?: boolean;
+}
+
+export interface MeetingTodoConvertPayload {
+  actionType: "TASK" | "ISSUE";
+  requirementId?: number;
+  assigneeId?: number;
+  severity?: string;
+  taskType?: string;
+}
+
 export class ApiRequestError extends Error {
   status: number;
   code?: number;
@@ -2699,6 +2821,108 @@ export const superworkApi = {
     return requestJson<WorktimeSyncLog[]>(
       `/api/finance/bl-profit/sync-logs?limit=${limit}`
     );
+  },
+  getMeetings(
+    params: { page?: number; size?: number; status?: MeetingStatus } = {}
+  ) {
+    return requestJson<MeetingList>(`/api/meetings${query(params)}`);
+  },
+  getMeeting(id: number) {
+    return requestJson<MeetingDetail>(`/api/meetings/${id}`);
+  },
+  getMeetingStatus(id: number) {
+    return requestJson<MeetingStatusSnapshot>(`/api/meetings/${id}/status`);
+  },
+  uploadMeeting(payload: {
+    file: File;
+    title: string;
+    meetingDate: string;
+    projectId?: number;
+  }) {
+    const body = new FormData();
+    body.append("file", payload.file);
+    body.append("title", payload.title);
+    body.append("meetingDate", payload.meetingDate);
+    if (payload.projectId != null)
+      body.append("projectId", String(payload.projectId));
+    return requestJson<MeetingListItem>("/api/meetings", {
+      method: "POST",
+      body,
+    });
+  },
+  updateMeetingTranscript(
+    id: number,
+    segments: Array<{ seq: number; speaker: string; text: string }>
+  ) {
+    return requestJson<MeetingSegment[]>(`/api/meetings/${id}/transcript`, {
+      method: "PUT",
+      body: JSON.stringify({ segments }),
+    });
+  },
+  updateMeetingSpeakers(
+    id: number,
+    speakers: Array<{
+      speakerLabel: string;
+      displayName?: string | null;
+      mappedUserId?: number | null;
+    }>
+  ) {
+    return requestJson<MeetingSpeaker[]>(`/api/meetings/${id}/speakers`, {
+      method: "PUT",
+      body: JSON.stringify({ speakers }),
+    });
+  },
+  summarizeMeeting(id: number) {
+    return requestJson<MeetingStatusSnapshot>(
+      `/api/meetings/${id}/summarize`,
+      { method: "POST" }
+    );
+  },
+  reprocessMeeting(id: number) {
+    return requestJson<MeetingStatusSnapshot>(
+      `/api/meetings/${id}/reprocess`,
+      { method: "POST" }
+    );
+  },
+  updateMeetingTodo(
+    id: number,
+    todoId: number,
+    payload: MeetingTodoUpdatePayload
+  ) {
+    return requestJson<MeetingTodo>(`/api/meetings/${id}/todos/${todoId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  convertMeetingTodo(
+    id: number,
+    todoId: number,
+    payload: MeetingTodoConvertPayload
+  ) {
+    return requestJson<MeetingTodo>(
+      `/api/meetings/${id}/todos/${todoId}/convert`,
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+  },
+  confirmMeeting(id: number) {
+    return requestJson<MeetingStatusSnapshot>(`/api/meetings/${id}/confirm`, {
+      method: "POST",
+    });
+  },
+  deleteMeeting(id: number) {
+    return requestJson<void>(`/api/meetings/${id}`, { method: "DELETE" });
+  },
+  async getMeetingAudioBlob(id: number) {
+    const headers = new Headers();
+    const token = localStorage.getItem("token");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(`/api/meetings/${id}/audio`, { headers });
+    if (!response.ok)
+      throw new ApiRequestError(
+        `音频加载失败（${response.status}）`,
+        response.status
+      );
+    return response.blob();
   },
 };
 
