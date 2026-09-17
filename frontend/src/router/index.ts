@@ -209,6 +209,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '连接器管理', roleAccess: 'management' }
       },
       {
+        path: 'system/models',
+        name: 'SystemModels',
+        component: () => import('@/views/ModelManageView.vue'),
+        meta: { title: '模型管理', roleAccess: 'management' }
+      },
+      {
         path: 'ai-connectors',
         redirect: '/system/connectors'
       }

@@ -176,6 +176,37 @@ export interface AiConnectorSavePayload {
   sortOrder?: number
 }
 
+/** 模型管理视图（GET /api/ai/models）：provider 即连接器编码，连接就绪状态由后端附带 */
+export interface AiModelView {
+  id: number
+  providerCode: string
+  providerName: string
+  /** 提供方连接器是否就绪（未就绪时模型不可用，需到连接器管理补全连接） */
+  providerReady: boolean
+  model: string
+  displayName: string
+  /** AI 助手可用 */
+  assistantEnabled: boolean
+  /** 用于邮件摘要与周报纪要 */
+  digestEnabled: boolean
+  /** 默认模型（同一时间只有一条，后端在设为 true 时自动取消其他行） */
+  isDefault: boolean
+  enabled: boolean
+  sortOrder: number
+}
+
+/** 模型创建/编辑请求体（PUT 可只提交改动字段） */
+export interface AiModelSavePayload {
+  providerCode?: string
+  model?: string
+  displayName?: string
+  assistantEnabled?: boolean
+  digestEnabled?: boolean
+  isDefault?: boolean
+  enabled?: boolean
+  sortOrder?: number
+}
+
 /** 站内通知（GET /api/ai/notices） */
 export interface AiNotice {
   kind: string

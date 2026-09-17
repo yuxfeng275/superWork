@@ -147,7 +147,8 @@ const defaultNavItems: NavSection[] = [
       { path: '/system/menus', icon: 'Menu', label: '菜单管理', access: 'management' },
       { path: '/system/workflow', icon: 'Connection', label: '工作流配置', access: 'management' },
       { path: '/system/configs', icon: 'Setting', label: '配置管理', access: 'management' },
-      { path: '/system/connectors', icon: 'Connection', label: '连接器管理', access: 'management' }
+      { path: '/system/connectors', icon: 'Connection', label: '连接器管理', access: 'management' },
+      { path: '/system/models', icon: 'Cpu', label: '模型管理', access: 'management' }
     ]
   }
 ]
