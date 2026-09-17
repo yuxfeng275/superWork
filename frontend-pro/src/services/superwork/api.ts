@@ -852,6 +852,13 @@ export interface OaSessionStatus {
   hint: string;
 }
 
+/** 自助授权用的登录验证码：图片 base64（PNG）+ 一次性 challengeId，约 5 分钟过期。 */
+export interface OaCaptchaChallenge {
+  challengeId: string;
+  imageBase64: string;
+  expireAt: number;
+}
+
 /** OA 待办/已办事项：REST 与网页会话通道返回同一结构。 */
 export interface OaAffair {
   id: string;
@@ -2735,6 +2742,23 @@ export const superworkApi = {
     return requestJson<OaSessionStatus>("/api/seeyon-oa/session", {
       method: "POST",
       body: JSON.stringify({ cookie }),
+    });
+  },
+  /** 自动授权：OA 不强制验证码时直接成功；否则返回 authorized=false 与可读提示。 */
+  autoOaLogin() {
+    return requestJson<OaSessionStatus>("/api/seeyon-oa/session/auto", {
+      method: "POST",
+    });
+  },
+  /** 拉取登录验证码图片（含 challengeId，供账号密码 + 验证码登录使用）。 */
+  getOaCaptcha() {
+    return requestJson<OaCaptchaChallenge>("/api/seeyon-oa/session/captcha");
+  },
+  /** 账号密码（连接器配置）+ 验证码登录；challengeId 为空时尝试免验证码登录。 */
+  loginOaSession(payload: { challengeId?: string; captcha?: string }) {
+    return requestJson<OaSessionStatus>("/api/seeyon-oa/session/login", {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
   },
   clearOaSession() {
