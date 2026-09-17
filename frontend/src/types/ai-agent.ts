@@ -146,6 +146,8 @@ export interface AiConnectorView {
   usernameConfigured: boolean
   passwordConfigured: boolean
   tokenConfigured: boolean
+  /** 机器人通道 Bot Secret 是否已配置（wecom 卡片「留空则不修改」占位提示） */
+  botSecretConfigured: boolean
   enabled: boolean
   /** 启用且必填项齐全 */
   ready: boolean
@@ -172,6 +174,8 @@ export interface AiConnectorSavePayload {
   username?: string
   password?: string
   token?: string
+  /** 机器人通道 Bot Secret（写入型，不参与回显；留空 = 保持不变） */
+  botSecret?: string
   enabled?: boolean
   sortOrder?: number
 }
