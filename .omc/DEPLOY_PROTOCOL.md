@@ -67,6 +67,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | 04febb6 | frontend-pro：商机工时弹窗右侧补历史记录（对齐跟进弹窗左右分栏）；商机列表/看板/详情新增报价入口，复用报价向导并预填客户与商机；仅前端。备份 deploy-backups/20260917-155907，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 | 2026-09-17 | 08891d6 | frontend-pro：工作台按现有模块重做，并行拉取需求/任务/缺陷/大事儿/商机/报价，补齐可跳转 KPI、待办队列、今日关注和功能入口；仅前端，含 9f03f36。备份 deploy-backups/20260917-081538，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 | 2026-09-17 | eb1a6fb | frontend-pro：去掉 Input/Select/DatePicker 点击后多出来的额外 outline 描边（全局样式叠在 Ant Design 焦点边框上）；仅前端，含 42dbe32。备份 deploy-backups/20260917-082456，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
+| 2026-09-17 | f1acc66 | frontend-pro：周报中心概览进行中为 0 停止转圈，已确认/已发布按状态拆分计数；仅前端，含 80075d9。备份 deploy-backups/20260917-084024，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
