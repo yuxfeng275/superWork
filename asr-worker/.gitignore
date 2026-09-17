@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# 离线 wheelhouse（本地/慢链路构建用，不入库）
+wheels/*
+!wheels/.gitkeep
