@@ -63,6 +63,15 @@ const statusOptions = [
   '已完成',
   '已暂停',
 ];
+// 周会导航分组头像配色：按分组键散列取色，避免 antd 默认灰色让人误以为禁用
+const GROUP_AVATAR_TONES = [
+  'linear-gradient(135deg, #1677ff 0%, #5b5ce2 100%)',
+  'linear-gradient(135deg, #0f9b8e 0%, #16a3d6 100%)',
+  'linear-gradient(135deg, #7c5cff 0%, #b04df0 100%)',
+  'linear-gradient(135deg, #d97706 0%, #f0a92e 100%)',
+  'linear-gradient(135deg, #1f8a4c 0%, #4fb069 100%)',
+  'linear-gradient(135deg, #c2456b 0%, #e0728f 100%)',
+];
 export default function KeyMattersPage() {
   const { initialState } = useModel('@@initialState');
   const [access, setAccess] = useState<Record<string, unknown>>({});
@@ -561,6 +570,27 @@ export default function KeyMattersPage() {
     [presentationGroups],
   );
   const presentationMatter = presentationItems[presentationIndex];
+  // 演示卡片头部平铺展示：状态与进度跟随草稿（编辑态）或本周周报
+  const presentationStatus = presentationMatter
+    ? (presentationEditing ? presentationDraft?.status : undefined) ||
+      effectiveStatus(presentationMatter)
+    : '';
+  const presentationProgress = presentationEditing
+    ? (presentationDraft?.progress ?? 0)
+    : presentationMatter
+      ? effectiveProgress(presentationMatter)
+      : 0;
+  const presentationStatusTone =
+    presentationStatus === '已完成'
+      ? 'success'
+      : ['有风险', '已阻塞'].includes(presentationStatus)
+        ? 'error'
+        : 'processing';
+  const presentationAvatarTone = (key: string) => {
+    let hash = 0;
+    for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
+    return GROUP_AVATAR_TONES[hash % GROUP_AVATAR_TONES.length];
+  };
   const draftForMatter = (matter?: Matter): PresentationDraft | undefined => {
     if (!matter) return undefined;
     return (
@@ -839,7 +869,7 @@ export default function KeyMattersPage() {
               <Typography.Text type="secondary">当前进度</Typography.Text>
               <Progress
                 percent={progress}
-                size="small"
+                size={{ height: 8 }}
                 showInfo={false}
                 status={
                   status === '已阻塞'
@@ -852,7 +882,11 @@ export default function KeyMattersPage() {
               <Typography.Text strong>{progress}%</Typography.Text>
             </div>
             {status === '推进中' && (
-              <div className="sw-progress-line is-weekly">
+              <div
+                className={`sw-progress-line is-weekly ${
+                  r.currentWeekUpdate ? '' : 'is-idle'
+                }`}
+              >
                 <Typography.Text type="secondary">本周进展</Typography.Text>
                 <Typography.Text strong>
                   {r.currentWeekUpdate
@@ -1925,7 +1959,7 @@ export default function KeyMattersPage() {
             <div className="sw-presentation-nav-head">
               <Typography.Text className="sw-eyebrow">快速导航</Typography.Text>
               <Segmented
-                size="small"
+                block
                 value={presentationGroupBy}
                 options={[
                   { value: 'project', label: '项目' },
@@ -1954,7 +1988,20 @@ export default function KeyMattersPage() {
                         navigatePresentation(firstIndex);
                     }}
                   >
-                    <Avatar size={28}>{group.label.slice(0, 1)}</Avatar>
+                    <Avatar
+                      size={28}
+                      shape={
+                        presentationGroupBy === 'owner' ? 'circle' : 'square'
+                      }
+                      className="sw-presentation-group-avatar"
+                      style={{
+                        backgroundImage: presentationAvatarTone(
+                          String(group.key),
+                        ),
+                      }}
+                    >
+                      {group.label.slice(0, 1)}
+                    </Avatar>
                     <span className="sw-presentation-group-copy">
                       <strong>{group.label}</strong>
                       <small>
@@ -2015,23 +2062,9 @@ export default function KeyMattersPage() {
                 <Space
                   style={{ width: '100%', justifyContent: 'space-between' }}
                 >
-                  <Space>
-                    <Tag
-                      color={
-                        presentationMatter.status === '已完成'
-                          ? 'success'
-                          : presentationMatter.status === '有风险' ||
-                              presentationMatter.status === '已阻塞'
-                            ? 'error'
-                            : 'processing'
-                      }
-                    >
-                      {presentationMatter.status}
-                    </Tag>
-                    <Tag color="blue">
-                      {presentationIndex + 1} / {presentationItems.length}
-                    </Tag>
-                  </Space>
+                  <Tag color="blue">
+                    {presentationIndex + 1} / {presentationItems.length}
+                  </Tag>
                   <Space>
                     <Button
                       onClick={() =>
@@ -2067,22 +2100,38 @@ export default function KeyMattersPage() {
                     {presentationMatter.ownerName || '未指定负责人'}
                   </Typography.Text>
                 </div>
-                <Progress
-                  className="sw-presentation-progress"
-                  percent={Number(
-                    (presentationEditing
-                      ? presentationDraft?.progress
-                      : (presentationMatter.currentWeekUpdate?.progress ??
-                        presentationMatter.progress)) || 0,
-                  )}
-                  strokeWidth={12}
-                />
-                <Row gutter={14}>
+                <Row gutter={[12, 12]} className="sw-presentation-cards">
                   <Col xs={24}>
-                    <Card size="small" title="本周进展">
+                    <Card size="small" className="sw-presentation-brief">
+                      <header className="sw-presentation-brief-head">
+                        <strong>本周进展</strong>
+                        <Tag color={presentationStatusTone}>
+                          {presentationStatus || '未设置'}
+                        </Tag>
+                        <div className="sw-presentation-brief-progress">
+                          <Progress
+                            percent={presentationProgress}
+                            size={{ height: 8 }}
+                            showInfo={false}
+                            status={
+                              presentationStatus === '已阻塞'
+                                ? 'exception'
+                                : presentationStatus === '已完成'
+                                  ? 'success'
+                                  : 'active'
+                            }
+                          />
+                          <Typography.Text
+                            strong
+                            className="sw-presentation-brief-percent"
+                          >
+                            {presentationProgress}%
+                          </Typography.Text>
+                        </div>
+                      </header>
                       {presentationEditing ? (
                         <Input.TextArea
-                          rows={4}
+                          rows={3}
                           value={presentationDraft?.progressSummary}
                           onChange={(event) =>
                             setPresentationDraft((draft) => ({
@@ -2102,7 +2151,7 @@ export default function KeyMattersPage() {
                     <Card size="small" title="问题 / 风险">
                       {presentationEditing ? (
                         <Input.TextArea
-                          rows={4}
+                          rows={2}
                           value={presentationDraft?.issues}
                           onChange={(event) =>
                             setPresentationDraft((draft) => ({
@@ -2122,7 +2171,7 @@ export default function KeyMattersPage() {
                     <Card size="small" title="需协调 / 决策">
                       {presentationEditing ? (
                         <Input.TextArea
-                          rows={4}
+                          rows={2}
                           value={presentationDraft?.supportNeeded}
                           onChange={(event) =>
                             setPresentationDraft((draft) => ({
@@ -2142,7 +2191,7 @@ export default function KeyMattersPage() {
                     <Card size="small" title="下一步行动">
                       {presentationEditing ? (
                         <Input.TextArea
-                          rows={4}
+                          rows={2}
                           value={presentationDraft?.nextWeekPlan}
                           onChange={(event) =>
                             setPresentationDraft((draft) => ({
