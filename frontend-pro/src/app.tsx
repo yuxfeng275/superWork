@@ -616,6 +616,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         '/system/workflow',
         '/system/configs',
         '/system/connectors',
+        '/system/models',
         '/system/sync',
       ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
     )

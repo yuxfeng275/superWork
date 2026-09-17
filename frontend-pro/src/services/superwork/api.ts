@@ -290,6 +290,31 @@ export interface AiConnectorSavePayload {
   enabled?: boolean;
   sortOrder?: number;
 }
+export interface AiModelView {
+  id: number;
+  /** 提供方 = 连接器编码 */
+  providerCode: string;
+  providerName: string;
+  /** 提供方连接器是否就绪（未就绪则模型不会生效） */
+  providerReady: boolean;
+  model: string;
+  displayName: string;
+  assistantEnabled: boolean;
+  digestEnabled: boolean;
+  isDefault: boolean;
+  enabled: boolean;
+  sortOrder: number;
+}
+export interface AiModelSavePayload {
+  providerCode?: string;
+  model?: string;
+  displayName?: string;
+  assistantEnabled?: boolean;
+  digestEnabled?: boolean;
+  isDefault?: boolean;
+  enabled?: boolean;
+  sortOrder?: number;
+}
 export interface AiAgentModelOption {
   provider: string;
   model: string;
@@ -1489,6 +1514,24 @@ export const superworkApi = {
     return requestJson<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: "POST",
     });
+  },
+  getAiModels() {
+    return requestJson<AiModelView[]>("/api/ai/models");
+  },
+  createAiModel(payload: AiModelSavePayload) {
+    return requestJson<AiModelView>("/api/ai/models", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateAiModel(id: number, payload: AiModelSavePayload) {
+    return requestJson<AiModelView>(`/api/ai/models/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteAiModel(id: number) {
+    return requestJson<void>(`/api/ai/models/${id}`, { method: "DELETE" });
   },
   getAiNotices() {
     return requestJson<AiNotice[]>('/api/ai/notices');
