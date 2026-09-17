@@ -162,14 +162,24 @@
     flex-direction: column;
     gap: 4px;
     min-width: 0;
+    /* 标签与百分比占一行，进度条整行铺满列宽（原先被压到约 66px） */
     .sw-progress-line {
       display: grid;
-      grid-template-columns: auto minmax(70px, 1fr) auto;
+      grid-template-columns: auto auto;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      column-gap: 8px;
+      row-gap: 4px;
+      .ant-typography:first-child {
+        grid-area: 1 / 1;
+      }
+      .ant-typography:last-child {
+        grid-area: 1 / 2;
+      }
+      .ant-progress {
+        grid-area: 2 / 1 / 3 / 3;
+      }
       &.is-weekly {
-        grid-template-columns: auto auto;
-        justify-content: start;
         .ant-typography:last-child {
           color: #2563eb;
         }
@@ -665,16 +675,6 @@ body.key-matters-standalone {
     grid-template-columns: 1fr;
     gap: 10px;
   }
-  .sw-key-matters .sw-matter-list-meta,
-  .sw-key-matters .sw-matter-list-actions {
-    grid-column: auto;
-  }
-  .sw-key-matters .sw-matter-list-progress {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-  .sw-key-matters .sw-matter-list-progress .sw-progress-line {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
   .sw-presentation-layout {
     grid-template-columns: 1fr;
   }
@@ -696,7 +696,7 @@ body.key-matters-standalone {
   gap: 12px;
   align-items: stretch;
   height: calc(100vh - 196px);
-  max-height: 620px;
+  max-height: 520px;
 }
 .sw-weekly-main {
   min-width: 0;
@@ -710,42 +710,20 @@ body.key-matters-standalone {
   border-radius: 12px;
   color: #1e293b;
 }
-.sw-weekly-workspace-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.sw-weekly-workspace-header > div {
-  display: grid;
-  gap: 3px;
-}
 .sw-weekly-kicker {
   color: #4f5cf7;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.12em;
 }
-.sw-weekly-workspace-header strong,
 .sw-weekly-history-head strong {
   color: #0f172a;
-  font-size: 17px;
-}
-.sw-weekly-workspace-header time {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #64748b;
-  font-size: 12px;
 }
 .sw-weekly-matter {
   display: grid;
   gap: 2px;
   padding-bottom: 2px;
   border-bottom: 1px dashed #e5e9f2;
-}
-.sw-weekly-matter-title {
-  font-size: 15px;
 }
 .sw-weekly-state-bar {
   display: grid;
@@ -759,20 +737,16 @@ body.key-matters-standalone {
 .sw-weekly-state-bar .ant-form-item {
   margin-bottom: 0;
 }
+/* 进度条独占一行铺满宽度，快捷百分比放在下一行 */
 .sw-weekly-progress-preview {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.sw-weekly-progress-preview .sw-weekly-progress-track {
-  flex: 1 1 auto;
-  min-width: 120px;
+  display: grid;
+  gap: 8px;
 }
 .sw-weekly-progress-preview > .ant-space {
-  flex: 0 0 auto;
+  justify-content: flex-start;
 }
 .sw-weekly-progress-track {
-  height: 8px;
+  height: 10px;
   overflow: hidden;
   background: #eef1f6;
   border-radius: 999px;
