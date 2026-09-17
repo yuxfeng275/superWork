@@ -72,6 +72,15 @@ const GROUP_AVATAR_TONES = [
   'linear-gradient(135deg, #1f8a4c 0%, #4fb069 100%)',
   'linear-gradient(135deg, #c2456b 0%, #e0728f 100%)',
 ];
+// 状态配色：周会演示的状态标签、平铺选项与进度条共用同一套表达
+const STATUS_TONES: Record<string, { hex: string; tag: string }> = {
+  未开始: { hex: '#8c8c8c', tag: 'default' },
+  推进中: { hex: '#1677ff', tag: 'processing' },
+  有风险: { hex: '#fa8c16', tag: 'warning' },
+  已阻塞: { hex: '#ff4d4f', tag: 'error' },
+  已完成: { hex: '#52c41a', tag: 'success' },
+  已暂停: { hex: '#722ed1', tag: 'purple' },
+};
 export default function KeyMattersPage() {
   const { initialState } = useModel('@@initialState');
   const [access, setAccess] = useState<Record<string, unknown>>({});
@@ -581,11 +590,9 @@ export default function KeyMattersPage() {
       ? effectiveProgress(presentationMatter)
       : 0;
   const presentationStatusTone =
-    presentationStatus === '已完成'
-      ? 'success'
-      : ['有风险', '已阻塞'].includes(presentationStatus)
-        ? 'error'
-        : 'processing';
+    STATUS_TONES[presentationStatus]?.tag ?? 'default';
+  const presentationStatusHex =
+    STATUS_TONES[presentationStatus]?.hex ?? '#8c8c8c';
   const presentationAvatarTone = (key: string) => {
     let hash = 0;
     for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
@@ -2115,7 +2122,16 @@ export default function KeyMattersPage() {
                               value={presentationDraft?.status}
                               options={statusOptions.map((value) => ({
                                 value,
-                                label: value,
+                                label: (
+                                  <span className="sw-presentation-status-option">
+                                    <i
+                                      style={{
+                                        background: STATUS_TONES[value]?.hex,
+                                      }}
+                                    />
+                                    {value}
+                                  </span>
+                                ),
                               }))}
                               onChange={(value) =>
                                 setPresentationDraft((draft) => ({
@@ -2136,6 +2152,7 @@ export default function KeyMattersPage() {
                               percent={presentationProgress}
                               size={{ height: 8 }}
                               showInfo={false}
+                              strokeColor={presentationStatusHex}
                               status={
                                 presentationStatus === '已阻塞'
                                   ? 'exception'
@@ -2295,7 +2312,7 @@ export default function KeyMattersPage() {
                       </Card>
                     </Col>
                   </Row>
-                  <Space style={{ marginTop: 20 }} wrap>
+                  <Space className="sw-presentation-actions" wrap>
                     {presentationEditing ? (
                       <>
                         <Button onClick={stashPresentationDraft}>

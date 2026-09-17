@@ -656,14 +656,32 @@
     /* 状态平铺展示（编辑态为全选项 Segmented，查看态为单个标签） */
     .sw-presentation-brief-status {
       flex: 0 0 auto;
+      .ant-segmented-item-label {
+        padding-inline: 6px;
+        font-size: 13px;
+      }
+    }
+    .sw-presentation-status-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      i {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: 0 0 auto;
+      }
     }
   }
+  /* 状态与进度之间的竖划线：跟随进度组，窄屏换行后仍作为该组的前导分隔 */
   .sw-presentation-brief-progress {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex: 1 1 220px;
-    min-width: 200px;
+    flex: 1 1 160px;
+    min-width: 160px;
+    padding-inline-start: 14px;
+    border-inline-start: 1px solid #dbe3ee;
     .ant-progress {
       flex: 1 1 auto;
       min-width: 0;
@@ -679,9 +697,17 @@
     flex: 0 0 auto;
     margin-inline-start: auto;
     .ant-btn {
-      min-width: 44px;
-      padding-inline: 6px;
+      min-width: 36px;
+      padding-inline: 4px;
     }
+  }
+  /* 底部操作按钮居中 */
+  .sw-presentation-actions {
+    display: flex;
+    width: 100%;
+    margin-top: 16px;
+    justify-content: center;
+    align-items: center;
   }
   .sw-presentation-brief-percent {
     color: #1677ff;
