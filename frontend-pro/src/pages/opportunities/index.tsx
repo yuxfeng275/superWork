@@ -3,11 +3,12 @@ import {
   EditOutlined,
   EyeOutlined,
   FieldTimeOutlined,
+  FileTextOutlined,
   PlusOutlined,
   ReloadOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
-import { useModel } from '@umijs/max';
+import { history, useModel } from '@umijs/max';
 import type { TableProps } from 'antd';
 import {
   Alert,
@@ -42,12 +43,14 @@ import {
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  type QuotationListVO,
   type SalesOpportunity,
   type SalesOpportunityFollowUp,
   type SalesOpportunityStatus,
   type SalesOpportunitySupportWorklog,
   superworkApi,
 } from '@/services/superwork/api';
+import QuotationGenerateWizard from '../quotations/GenerateWizard';
 import '../workbench/style.less';
 import './style.less';
 
@@ -94,6 +97,28 @@ type OpportunityForm = {
 
 const dateTime = (value?: string) =>
   value ? value.replace('T', ' ').slice(0, 16) : '未记录时间';
+const quoteStatusLabel: Record<string, string> = {
+  DRAFT: '草稿',
+  INTERNAL_REVIEW: '内部审核',
+  APPROVED: '已批准',
+  SENT: '已发送',
+  ACCEPTED: '已接受',
+  REJECTED: '已拒绝',
+  EXPIRED: '已过期',
+};
+const quoteStatusColor: Record<string, string> = {
+  DRAFT: 'default',
+  INTERNAL_REVIEW: 'warning',
+  APPROVED: 'processing',
+  SENT: 'blue',
+  ACCEPTED: 'success',
+  REJECTED: 'error',
+  EXPIRED: 'default',
+};
+const money = (value?: number) =>
+  value == null
+    ? '—'
+    : `¥ ${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const initialForm = (): OpportunityForm => ({
   name: '',
   customer: '',
@@ -171,7 +196,10 @@ export default function OpportunitiesPage() {
   const [worklogs, setWorklogs] = useState<SalesOpportunitySupportWorklog[]>(
     [],
   );
+  const [quotations, setQuotations] = useState<QuotationListVO[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [quoteTarget, setQuoteTarget] = useState<SalesOpportunity>();
   const [businessLines, setBusinessLines] = useState<string[]>([]);
   const [customerOptions, setCustomerOptions] = useState<string[]>([]);
   // 各商机最近一次跟进时间：用于列表「有更新」标识（近 3 天内有跟进记录）
@@ -424,15 +452,18 @@ export default function OpportunitiesPage() {
   const loadHistory = async (id: number) => {
     setHistoryLoading(true);
     try {
-      const [follow, logs] = await Promise.all([
+      const [follow, logs, quotes] = await Promise.allSettled([
         superworkApi.getSalesOpportunityFollowUps(id),
         superworkApi.getSalesOpportunitySupportWorklogs(id),
+        superworkApi.getOpportunityQuotations(id),
       ]);
-      setFollowUps(follow || []);
-      setWorklogs(logs || []);
+      setFollowUps(follow.status === 'fulfilled' ? follow.value || [] : []);
+      setWorklogs(logs.status === 'fulfilled' ? logs.value || [] : []);
+      setQuotations(quotes.status === 'fulfilled' ? quotes.value || [] : []);
     } catch {
       setFollowUps([]);
       setWorklogs([]);
+      setQuotations([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -494,6 +525,10 @@ export default function OpportunitiesPage() {
     setWorklogOpen(true);
     await loadHistory(row.id);
   };
+  const openQuote = (row: SalesOpportunity) => {
+    setQuoteTarget(row);
+    setQuoteOpen(true);
+  };
   const saveWorklog = async () => {
     if (!detail) return;
     const values = await worklogForm.validateFields();
@@ -507,7 +542,13 @@ export default function OpportunitiesPage() {
         content: values.content.trim(),
       });
       message.success('售前支持工时已登记');
-      setWorklogOpen(false);
+      worklogForm.setFieldsValue({
+        supportDate: dayjs(),
+        supporter: initialState?.currentUser?.realName || '',
+        hours: 1,
+        supportType: '方案支持',
+        content: '',
+      });
       setWorklogHours((current) => ({
         ...current,
         [detail.id]: (current[detail.id] || 0) + Number(values.hours || 0),
@@ -635,9 +676,9 @@ export default function OpportunitiesPage() {
           {
             title: '操作',
             key: 'action',
-            width: 290,
+            width: 360,
             render: (_: unknown, row: SalesOpportunity) => (
-              <Space size={0}>
+              <Space size={0} wrap>
                 <Button
                   type="link"
                   icon={<EyeOutlined />}
@@ -658,6 +699,13 @@ export default function OpportunitiesPage() {
                   onClick={() => void openWorklog(row)}
                 >
                   工时
+                </Button>
+                <Button
+                  type="link"
+                  icon={<FileTextOutlined />}
+                  onClick={() => openQuote(row)}
+                >
+                  报价
                 </Button>
                 <Button
                   type="link"
@@ -691,7 +739,7 @@ export default function OpportunitiesPage() {
         followUps.length
           ? followUps.map((item) => ({
               color: statusColor[item.status],
-              children: (
+              content: (
                 <div>
                   <Space>
                     <Typography.Text strong>{item.follower}</Typography.Text>
@@ -707,7 +755,34 @@ export default function OpportunitiesPage() {
                 </div>
               ),
             }))
-          : [{ children: historyLoading ? '正在加载' : '暂无跟进记录' }]
+          : [{ content: historyLoading ? '正在加载' : '暂无跟进记录' }]
+      }
+    />
+  );
+  const worklogHistoryTimeline = (
+    <Timeline
+      pending={historyLoading ? '加载中…' : undefined}
+      items={
+        worklogs.length
+          ? worklogs.map((item) => ({
+              content: (
+                <div>
+                  <Space>
+                    <Typography.Text strong>
+                      {item.supporter} · {item.hours} 小时
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
+                      {item.supportDate}
+                    </Typography.Text>
+                  </Space>
+                  <div>{item.content}</div>
+                  <Typography.Text type="secondary">
+                    {item.supportType}
+                  </Typography.Text>
+                </div>
+              ),
+            }))
+          : [{ content: historyLoading ? '正在加载' : '暂无工时记录' }]
       }
     />
   );
@@ -996,13 +1071,24 @@ export default function OpportunitiesPage() {
                         ¥ {Number(row.amount || 0).toFixed(0)}万
                       </Typography.Text>
                     </Space>
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => void openFollow(row)}
-                    >
-                      跟进
-                    </Button>
+                    <Space size={0}>
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => void openFollow(row)}
+                      >
+                        跟进
+                      </Button>
+                      {canManage && (
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={() => openQuote(row)}
+                        >
+                          报价
+                        </Button>
+                      )}
+                    </Space>
                   </Card>
                 ))}
             </Card>
@@ -1162,7 +1248,7 @@ export default function OpportunitiesPage() {
               </Descriptions.Item>
             </Descriptions>
             <Divider />
-            <Space>
+            <Space wrap>
               <Button
                 type="primary"
                 icon={<UserAddOutlined />}
@@ -1176,6 +1262,14 @@ export default function OpportunitiesPage() {
               >
                 登记工时
               </Button>
+              {canManage && (
+                <Button
+                  icon={<FileTextOutlined />}
+                  onClick={() => openQuote(detail)}
+                >
+                  新建报价
+                </Button>
+              )}
             </Space>
             <Divider />
             <Typography.Title level={5}>跟进历史</Typography.Title>
@@ -1195,13 +1289,39 @@ export default function OpportunitiesPage() {
                 </List.Item>
               )}
             />
+            <Divider />
+            <Typography.Title level={5}>关联报价单</Typography.Title>
+            <List
+              loading={historyLoading}
+              dataSource={quotations}
+              locale={{ emptyText: '暂无报价单' }}
+              renderItem={(item) => (
+                <List.Item
+                  extra={
+                    <Button
+                      type="link"
+                      onClick={() => history.push(`/quotations/${item.id}`)}
+                    >
+                      查看
+                    </Button>
+                  }
+                >
+                  <List.Item.Meta
+                    title={item.quotationNo}
+                    description={`${money(item.firstYearTotalInclTax)} · ${item.quoteDate?.slice(0, 10) || '—'}`}
+                  />
+                  <Tag color={quoteStatusColor[item.status] || 'default'}>
+                    {quoteStatusLabel[item.status] || item.status}
+                  </Tag>
+                </List.Item>
+              )}
+            />
           </>
         )}
       </Drawer>
       <Modal
         title="商机跟进记录"
         open={followOpen}
-        forceRender
         width={960}
         onCancel={() => setFollowOpen(false)}
         onOk={() => void saveFollow()}
@@ -1276,63 +1396,91 @@ export default function OpportunitiesPage() {
       <Modal
         title="售前支持工时登记"
         open={worklogOpen}
-        forceRender
+        width={960}
         onCancel={() => setWorklogOpen(false)}
         onOk={() => void saveWorklog()}
         okText="登记"
         cancelText="取消"
         confirmLoading={worklogSaving}
       >
-        <Form form={worklogForm} layout="vertical">
-          <Row gutter={12}>
-            <Col span={12}>
+        <Row gutter={20}>
+          <Col xs={24} md={14}>
+            <Form form={worklogForm} layout="vertical">
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item
+                    name="supportDate"
+                    label="支持日期"
+                    rules={[{ required: true }]}
+                  >
+                    <DatePicker style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="supporter"
+                    label="支持人员"
+                    rules={[{ required: true }]}
+                  >
+                    <Input />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={12}>
+                <Col span={10}>
+                  <Form.Item
+                    name="hours"
+                    label="工时（小时）"
+                    rules={[{ required: true }]}
+                  >
+                    <InputNumber min={0.1} step={0.5} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={14}>
+                  <Form.Item name="supportType" label="支持类型">
+                    <Select
+                      options={['方案支持', '售前沟通', '报价支持', '其他'].map(
+                        (value) => ({ label: value, value }),
+                      )}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
               <Form.Item
-                name="supportDate"
-                label="支持日期"
+                name="content"
+                label="支持内容"
                 rules={[{ required: true }]}
               >
-                <DatePicker style={{ width: '100%' }} />
+                <Input.TextArea rows={4} />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="supporter"
-                label="支持人员"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={10}>
-              <Form.Item
-                name="hours"
-                label="工时（小时）"
-                rules={[{ required: true }]}
-              >
-                <InputNumber min={0.1} step={0.5} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={14}>
-              <Form.Item name="supportType" label="支持类型">
-                <Select
-                  options={['方案支持', '售前沟通', '报价支持', '其他'].map(
-                    (value) => ({ label: value, value }),
-                  )}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Form.Item
-            name="content"
-            label="支持内容"
-            rules={[{ required: true }]}
-          >
-            <Input.TextArea rows={4} />
-          </Form.Item>
-        </Form>
+            </Form>
+          </Col>
+          <Col xs={24} md={10} className="sw-follow-history-col">
+            <Typography.Title level={5}>工时记录</Typography.Title>
+            {worklogHistoryTimeline}
+          </Col>
+        </Row>
       </Modal>
+      <QuotationGenerateWizard
+        open={quoteOpen}
+        lockOpportunity
+        defaults={
+          quoteTarget
+            ? {
+                opportunityId: quoteTarget.id,
+                opportunityName: quoteTarget.name,
+                customerName: quoteTarget.customer,
+              }
+            : undefined
+        }
+        onClose={() => {
+          setQuoteOpen(false);
+          setQuoteTarget(undefined);
+        }}
+        onGenerated={() => {
+          if (quoteTarget) void loadHistory(quoteTarget.id);
+        }}
+      />
       <Modal
         title="按月支持工时"
         open={monthlyOpen}

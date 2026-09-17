@@ -2401,6 +2401,11 @@ export const superworkApi = {
       { method: "POST", body: JSON.stringify(payload) }
     );
   },
+  getOpportunityQuotations(id: number) {
+    return requestJson<QuotationListVO[]>(
+      `/api/sales-opportunities/${id}/quotations`
+    );
+  },
   getQuotationPolicies(
     params: { type?: string; taxMode?: string; status?: string } = {}
   ) {
