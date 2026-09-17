@@ -25,13 +25,13 @@ import {
   TagsOutlined,
   UploadOutlined,
   UserOutlined,
-} from '@ant-design/icons';
+} from "@ant-design/icons";
 import type {
   Settings as LayoutSettings,
   MenuDataItem,
-} from '@ant-design/pro-components';
-import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
-import { history, Link, useModel } from '@umijs/max';
+} from "@ant-design/pro-components";
+import type { RequestConfig, RunTimeLayoutConfig } from "@umijs/max";
+import { history, Link, useModel } from "@umijs/max";
 import {
   App as AntApp,
   Avatar,
@@ -43,22 +43,22 @@ import {
   Popover,
   Space,
   Spin,
-} from 'antd';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
-import React, { useEffect, useMemo, useState } from 'react';
-import defaultSettings from '../config/defaultSettings';
-import ConsoleNavigation from './components/ConsoleNavigation';
-import { hasRoleAccess, type RoleAccess } from './constants/roles';
+} from "antd";
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+import React, { useEffect, useMemo, useState } from "react";
+import defaultSettings from "../config/defaultSettings";
+import ConsoleNavigation from "./components/ConsoleNavigation";
+import { hasRoleAccess, type RoleAccess } from "./constants/roles";
 import {
   type AiNotice,
   type CurrentUser,
   type MenuTreeNode,
   superworkApi,
-} from './services/superwork/api';
-import { readMenuCache, writeMenuCache } from './utils/menuCache';
+} from "./services/superwork/api";
+import { readMenuCache, writeMenuCache } from "./utils/menuCache";
 
-const loginPath = '/user/login';
+const loginPath = "/user/login";
 const initialStateRequestTimeout = 8000;
 dayjs.extend(relativeTime);
 
@@ -67,7 +67,7 @@ const withInitialStateTimeout = <T,>(promise: Promise<T>) =>
   Promise.race([
     promise,
     new Promise<undefined>((resolve) =>
-      window.setTimeout(() => resolve(undefined), initialStateRequestTimeout),
+      window.setTimeout(() => resolve(undefined), initialStateRequestTimeout)
     ),
   ]).catch(() => undefined);
 
@@ -87,7 +87,7 @@ const menuGroupIconByName: Record<string, React.ReactNode> = {
   销售管理: menuGroupIcons.sales,
   系统管理: menuGroupIcons.system,
   系统: menuGroupIcons.system,
-  'AI 与协作': menuGroupIcons.ai,
+  "AI 与协作": menuGroupIcons.ai,
   数据分析: menuGroupIcons.analysis,
 };
 const menuIconByServerName: Record<string, React.ReactNode> = {
@@ -116,15 +116,20 @@ const menuIconByServerName: Record<string, React.ReactNode> = {
   Upload: <UploadOutlined />,
   Link: <LinkOutlined />,
 };
-const resolveMenuIcon = (icon: string | null | undefined, name: string) =>
-  menuGroupIconByName[name] ??
-  menuIconByServerName[icon || ''] ?? <MenuOutlined />;
+const resolveMenuIcon = (icon: string | null | undefined, name: string) => {
+  if (name === "工作台") return menuGroupIcons.workspace;
+  if (name === "首页") return menuGroupIcons.home;
+  return (
+    menuGroupIconByName[name] ??
+    menuIconByServerName[icon || ""] ?? <MenuOutlined />
+  );
+};
 
 type MenuAuth = { paths: string[]; managedPaths: string[] };
 const filterMenuByAuth = (
   items: MenuDataItem[],
   auth?: MenuAuth,
-  keyMatterAccess?: Record<string, unknown>,
+  keyMatterAccess?: Record<string, unknown>
 ): MenuDataItem[] => {
   const hasAuth = Boolean(auth?.paths.length);
   if (!hasAuth && keyMatterAccess?.canAccess !== false) return items;
@@ -132,7 +137,7 @@ const filterMenuByAuth = (
   const managed = new Set(auth?.managedPaths || []);
   return items.reduce<MenuDataItem[]>((result, item) => {
     if (
-      (item.path === '/key-matters' || item.path === '/key-matters-meeting') &&
+      (item.path === "/key-matters" || item.path === "/key-matters-meeting") &&
       keyMatterAccess?.canAccess === false
     )
       return result;
@@ -150,11 +155,11 @@ const splitHomeMenu = (items: MenuDataItem[]): MenuDataItem[] => {
   let home: MenuDataItem | undefined;
   const visit = (entries: MenuDataItem[]): MenuDataItem[] =>
     entries.reduce<MenuDataItem[]>((result, item) => {
-      if (item.path === '/workbench') {
+      if (item.path === "/workbench") {
         home ??= {
           ...item,
-          key: '/workbench',
-          name: '首页',
+          key: "/workbench",
+          name: "首页",
           icon: menuGroupIcons.home,
         };
         return result;
@@ -176,7 +181,7 @@ const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
   if (!nodes?.length) return [];
   const mapNode = (node: MenuTreeNode, depth = 0): MenuDataItem | undefined => {
     const normalizedPath =
-      node.path === '/home' ? '/workbench' : node.path || undefined;
+      node.path === "/home" ? "/workbench" : node.path || undefined;
     const children = (node.children || [])
       .map((child) => mapNode(child, depth + 1))
       .filter(Boolean) as MenuDataItem[];
@@ -187,7 +192,7 @@ const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
       icon: resolveMenuIcon(node.icon, node.name),
       ...(normalizedPath ? { path: normalizedPath } : {}),
       ...(children.length ? { children } : {}),
-      ...(children.length && depth >= 1 ? { type: 'group' as const } : {}),
+      ...(children.length && depth >= 1 ? { type: "group" as const } : {}),
     };
   };
   const mapped = nodes
@@ -216,7 +221,9 @@ export async function getInitialState(): Promise<{
   if (history.location.pathname !== loginPath) {
     const currentUser = await fetchUserInfo();
     if (!currentUser) {
-      const redirect = `${history.location.pathname}${history.location.search || ''}${history.location.hash || ''}`;
+      const redirect = `${history.location.pathname}${
+        history.location.search || ""
+      }${history.location.hash || ""}`;
       history.replace(`${loginPath}?redirect=${encodeURIComponent(redirect)}`);
       return {
         fetchUserInfo,
@@ -269,7 +276,7 @@ const NoticeAction = () => {
     setLoading(true);
     try {
       const timeout = new Promise<never>((_, reject) =>
-        window.setTimeout(() => reject(new Error('notice-timeout')), 2500),
+        window.setTimeout(() => reject(new Error("notice-timeout")), 2500)
       );
       const [items, count] = await Promise.race([
         Promise.all([
@@ -301,19 +308,19 @@ const NoticeAction = () => {
     await load();
     if (notice.link) {
       const prefillByKind: Record<string, string> = {
-        WORKLOG_MISSING: '帮我分析一下我最近几个月的工时填报情况',
-        WORKTIME_MONTH_MISSING: '帮我分析一下我最近几个月的工时填报情况',
+        WORKLOG_MISSING: "帮我分析一下我最近几个月的工时填报情况",
+        WORKTIME_MONTH_MISSING: "帮我分析一下我最近几个月的工时填报情况",
       };
       const prefill = prefillByKind[notice.kind];
       const target =
-        notice.link === '/ai-assistant' && prefill
+        notice.link === "/ai-assistant" && prefill
           ? `${notice.link}?prefill=${encodeURIComponent(prefill)}`
           : notice.link;
       history.push(target);
     }
   };
   const content = loading ? (
-    <div style={{ padding: 24, textAlign: 'center' }}>
+    <div style={{ padding: 24, textAlign: "center" }}>
       <Spin size="small" />
     </div>
   ) : notices.length ? (
@@ -321,12 +328,14 @@ const NoticeAction = () => {
       {notices.slice(0, 8).map((notice) => (
         <li
           className="sw-notice-item"
-          key={`${notice.kind || 'notice'}-${notice.date || notice.title || 'item'}`}
+          key={`${notice.kind || "notice"}-${
+            notice.date || notice.title || "item"
+          }`}
         >
           <div className="sw-notice-copy">
-            <strong>{notice.title || notice.kind || 'AI 通知'}</strong>
+            <strong>{notice.title || notice.kind || "AI 通知"}</strong>
             <span>
-              {notice.message || notice.body || notice.date || '暂无详情'}
+              {notice.message || notice.body || notice.date || "暂无详情"}
             </span>
           </div>
           {notice.link && !notice.read && (
@@ -353,7 +362,7 @@ const NoticeAction = () => {
         setOpen(value);
         if (value) void load();
       }}
-      content={<div style={{ width: 340, maxWidth: '80vw' }}>{content}</div>}
+      content={<div style={{ width: 340, maxWidth: "80vw" }}>{content}</div>}
     >
       <Badge count={unread} size="small" overflowCount={99}>
         <Button
@@ -378,7 +387,7 @@ const deferredStateLoaded = new Set<string>();
 const DeferredInitialState: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { initialState, setInitialState } = useModel('@@initialState');
+  const { initialState, setInitialState } = useModel("@@initialState");
   const username = initialState?.currentUser?.username;
   useEffect(() => {
     if (!username || deferredStateLoaded.has(username)) return;
@@ -389,7 +398,7 @@ const DeferredInitialState: React.FC<{ children: React.ReactNode }> = ({
           withInitialStateTimeout(superworkApi.getMyMenus()),
           withInitialStateTimeout(superworkApi.getMyMenuTree()),
           withInitialStateTimeout(
-            superworkApi.getRequirements({ page: 1, size: 1 }),
+            superworkApi.getRequirements({ page: 1, size: 1 })
           ),
           withInitialStateTimeout(superworkApi.getKeyMatterAccess()),
         ]);
@@ -400,7 +409,7 @@ const DeferredInitialState: React.FC<{ children: React.ReactNode }> = ({
         ...(menuAuth ? { menuAuth } : {}),
         ...(menuTree?.length ? { menuTree } : {}),
         requirementTotal:
-          requirementPage && typeof requirementPage.total === 'number'
+          requirementPage && typeof requirementPage.total === "number"
             ? requirementPage.total
             : prev?.requirementTotal,
         ...(keyMatterAccess ? { keyMatterAccess } : {}),
@@ -414,33 +423,30 @@ type SearchEntry = { name: string; path: string; parents: string[] };
 
 const collectSearchEntries = (
   items: MenuDataItem[],
-  parents: string[] = [],
+  parents: string[] = []
 ): SearchEntry[] =>
   items.flatMap((item) => [
     ...(item.path && !item.children?.length
-      ? [{ name: String(item.name || ''), path: item.path, parents }]
+      ? [{ name: String(item.name || ""), path: item.path, parents }]
       : []),
     ...(item.children
       ? collectSearchEntries(item.children, [
           ...parents,
-          String(item.name || ''),
+          String(item.name || ""),
         ])
       : []),
   ]);
 
 const SearchAction: React.FC<{ items: MenuDataItem[] }> = ({ items }) => {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const entries = useMemo(() => collectSearchEntries(items), [items]);
   const results = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return entries.slice(0, 8);
     return entries
       .filter((entry) =>
-        [entry.name, ...entry.parents]
-          .join(' ')
-          .toLowerCase()
-          .includes(keyword),
+        [entry.name, ...entry.parents].join(" ").toLowerCase().includes(keyword)
       )
       .slice(0, 8);
   }, [entries, query]);
@@ -471,11 +477,11 @@ const SearchAction: React.FC<{ items: MenuDataItem[] }> = ({ items }) => {
                   onClick={() => {
                     history.push(entry.path);
                     setOpen(false);
-                    setQuery('');
+                    setQuery("");
                   }}
                 >
                   <strong>{entry.name}</strong>
-                  <small>{entry.parents.join(' / ') || entry.path}</small>
+                  <small>{entry.parents.join(" / ") || entry.path}</small>
                 </button>
               ))
             ) : (
@@ -506,24 +512,24 @@ const AiEntryAction = () => (
     type="text"
     aria-label="打开 AI 助手"
     icon={<RobotOutlined />}
-    onClick={() => history.push('/ai-assistant')}
+    onClick={() => history.push("/ai-assistant")}
   >
     <span>AI 搜索</span>
   </Button>
 );
 
 const topUtilityLinks = [
-  { path: '/requirements', label: '文档', icon: <FileTextOutlined /> },
-  { path: '/customers', label: '客户', icon: <UserOutlined /> },
-  { path: '/ai-assistant', label: '帮助', icon: <QuestionCircleOutlined /> },
-  { path: '/tasks', label: '协作', icon: <MessageOutlined /> },
+  { path: "/requirements", label: "文档", icon: <FileTextOutlined /> },
+  { path: "/customers", label: "客户", icon: <UserOutlined /> },
+  { path: "/ai-assistant", label: "帮助", icon: <QuestionCircleOutlined /> },
+  { path: "/tasks", label: "协作", icon: <MessageOutlined /> },
 ];
 
 const TopUtilityLinks = ({ items }: { items: MenuDataItem[] }) => (
   <nav className="sw-topbar-utilities" aria-label="工具入口">
     {topUtilityLinks
       .filter((item) =>
-        collectSearchEntries(items).some((entry) => entry.path === item.path),
+        collectSearchEntries(items).some((entry) => entry.path === item.path)
       )
       .map((item) => (
         <Link
@@ -568,14 +574,14 @@ const TopBar: React.FC<{
             menu={{
               items: [
                 {
-                  key: 'logout',
+                  key: "logout",
                   icon: <LogoutOutlined />,
-                  label: '退出登录',
+                  label: "退出登录",
                   onClick: () => {
-                    deferredStateLoaded.delete(user?.username || '');
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('user');
-                    localStorage.removeItem('refreshToken');
+                    deferredStateLoaded.delete(user?.username || "");
+                    localStorage.removeItem("token");
+                    localStorage.removeItem("user");
+                    localStorage.removeItem("refreshToken");
                     history.replace(loginPath);
                   },
                 },
@@ -588,10 +594,10 @@ const TopBar: React.FC<{
               aria-label="账号菜单"
             >
               <Avatar size={24} src={user.avatar}>
-                {(user.realName || user.username || 'U').slice(0, 1)}
+                {(user.realName || user.username || "U").slice(0, 1)}
               </Avatar>
               <span className="sw-user-copy">
-                <strong>{user.realName || user.username || '未登录'}</strong>
+                <strong>{user.realName || user.username || "未登录"}</strong>
               </span>
             </button>
           </Dropdown>
@@ -604,32 +610,32 @@ const TopBar: React.FC<{
 export const layout: RunTimeLayoutConfig = ({ initialState }) => {
   const user = initialState?.currentUser;
   const accessForPath = (pathname: string): RoleAccess | undefined => {
-    if (pathname === '/projects') return 'project';
-    if (pathname === '/customers') return 'customer';
+    if (pathname === "/projects") return "project";
+    if (pathname === "/customers") return "customer";
     if (
       [
-        '/statistics',
-        '/revenue',
-        '/kpi-report',
-        '/bl-profit',
-        '/system/users',
-        '/system/roles',
-        '/system/menus',
-        '/system/permissions',
-        '/system/workflow',
-        '/system/configs',
-        '/system/connectors',
-        '/system/models',
-        '/system/sync',
+        "/statistics",
+        "/revenue",
+        "/kpi-report",
+        "/bl-profit",
+        "/system/users",
+        "/system/roles",
+        "/system/menus",
+        "/system/permissions",
+        "/system/workflow",
+        "/system/configs",
+        "/system/connectors",
+        "/system/models",
+        "/system/sync",
       ].some((path) => pathname === path || pathname.startsWith(`${path}/`))
     )
-      return 'management';
+      return "management";
     return undefined;
   };
   const menuItems = filterMenuByAuth(
     mapServerMenu(initialState?.menuTree),
     initialState?.menuAuth,
-    initialState?.keyMatterAccess,
+    initialState?.keyMatterAccess
   );
   return {
     ...(initialState?.settings as Partial<LayoutSettings>),
@@ -644,7 +650,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       </DeferredInitialState>
     ),
     siderWidth: 281,
-    className: 'sw-console-layout',
+    className: "sw-console-layout",
     bgLayoutImgList: [],
     collapsedButtonRender: false,
     defaultCollapsed: false,
@@ -653,7 +659,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
     menuItemRender: (item, dom) => {
       const content = item.path ? <Link to={item.path}>{dom}</Link> : dom;
       if (
-        item.path === '/requirements' &&
+        item.path === "/requirements" &&
         (initialState?.requirementTotal || 0) > 0
       ) {
         return (
@@ -671,20 +677,20 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
     actionsRender: false,
     avatarProps: {
       src: user?.avatar,
-      title: user?.realName || user?.username || '未登录',
+      title: user?.realName || user?.username || "未登录",
       render: () => (
         <Dropdown
           menu={{
             items: [
               {
-                key: 'logout',
+                key: "logout",
                 icon: <LogoutOutlined />,
-                label: '退出登录',
+                label: "退出登录",
                 onClick: () => {
-                  deferredStateLoaded.delete(user?.username || '');
-                  localStorage.removeItem('token');
-                  localStorage.removeItem('user');
-                  localStorage.removeItem('refreshToken');
+                  deferredStateLoaded.delete(user?.username || "");
+                  localStorage.removeItem("token");
+                  localStorage.removeItem("user");
+                  localStorage.removeItem("refreshToken");
                   history.replace(loginPath);
                 },
               },
@@ -693,11 +699,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         >
           <Space className="sw-user-menu" size={8}>
             <Avatar size={32} src={user?.avatar}>
-              {(user?.realName || user?.username || 'U').slice(0, 1)}
+              {(user?.realName || user?.username || "U").slice(0, 1)}
             </Avatar>
             <span className="sw-user-copy">
-              <strong>{user?.realName || user?.username || '未登录'}</strong>
-              <small>{user?.role || '访客'}</small>
+              <strong>{user?.realName || user?.username || "未登录"}</strong>
+              <small>{user?.role || "访客"}</small>
             </span>
           </Space>
         </Dropdown>
@@ -709,22 +715,24 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
         history.location.pathname !== loginPath
       ) {
         history.replace(
-          `${loginPath}?redirect=${encodeURIComponent(history.location.pathname)}`,
+          `${loginPath}?redirect=${encodeURIComponent(
+            history.location.pathname
+          )}`
         );
         return;
       }
       if (
-        (history.location.pathname === '/key-matters' ||
-          history.location.pathname === '/key-matters-meeting' ||
-          history.location.pathname.startsWith('/key-matters/')) &&
+        (history.location.pathname === "/key-matters" ||
+          history.location.pathname === "/key-matters-meeting" ||
+          history.location.pathname.startsWith("/key-matters/")) &&
         initialState?.keyMatterAccess?.canAccess === false
       ) {
-        history.replace('/workbench');
+        history.replace("/workbench");
         return;
       }
       const requiredAccess = accessForPath(history.location.pathname);
       if (requiredAccess && !hasRoleAccess(user?.role, requiredAccess)) {
-        history.replace('/workbench');
+        history.replace("/workbench");
       }
     },
   };
