@@ -79,6 +79,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 
 | 2026-09-17 | d071f8d | **OA 待办审批台 + 网页会话通道**：REST 被拦时的落地实现——管理员粘贴 JSESSIONID 一次授权（隐藏敏感配置项加密持久化），ajax.do/doProjection 取待办/已办（与门户同一数据源），批量审批走详情页自发现动作；新页 /oa-affairs（V82 菜单，注意 V81 与会议模块撞号已改 V82）；两套前端页已上线 | system-config agent |
 | 2026-09-17 | b7f5a0e | **OA 自助授权三档 + 会话保活**：自动登录（免验证码时）/ 验证码登录（挑战图 5 分钟有效、取图 Cookie 并入挑战）/ 粘贴 JSESSIONID 兜底；每 10 分钟保活会话；登录失败透出 LoginError 码（9=验证码、1=账号密码）；待验证项：待办/已办真实取数、审批动作自发现、vReport 导出地址 | system-config agent |
+| 2026-09-17 | 130436b | **企微官方 CLI（wecom-cli）机器人通道集成**：后端镜像内嵌静态二进制（v1.3.0，双架构 sha512 校验）+ `/data/wecom-cli` 数据卷；连接器「企业微信」卡片新增机器人通道配置（Bot ID 存 extra_config、Bot Secret 走新增加密列 V83），保存后一键授权（`auth init --bot-id/--secret`，非交互）与扫码兜底；品类授权矩阵（8 品类体检 + 企微续期链接逐字透传）；11 个 AI 工具（通讯录/待办读写/会议含纪要转写/文档/消息/邮件）；探活合并双通道。附带修复两处既有 bug：**SSE 异步分派被 401 覆盖**（AI 助手对话报「登录已失效」，放行 ASYNC/ERROR 分派）与**出站 provider 命名不一致**（glm vs zhipu，GLM 会话空流）。部署注意：bind mount 目录需 `chown spring:spring /data/wecom-cli`（uid 999） | system-config agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
