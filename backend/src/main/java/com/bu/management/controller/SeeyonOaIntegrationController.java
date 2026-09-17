@@ -59,6 +59,53 @@ public class SeeyonOaIntegrationController {
         return Result.success(integrationService.listDoneAffairs());
     }
 
+    // ==================== 会话授权（网页通道） ====================
+
+    @GetMapping("/session")
+    @Operation(summary = "OA 网页会话授权状态（REST 被拦时的取数通道）")
+    public Result<com.bu.management.integration.SeeyonOaWebChannel.SessionStatus> sessionStatus() {
+        return Result.success(integrationService.sessionStatus());
+    }
+
+    public record SessionAuthRequest(String cookie) {}
+
+    @PostMapping("/session")
+    @Operation(summary = "保存 OA 网页会话授权（粘贴浏览器 JSESSIONID，一次授权会话复用）")
+    public Result<com.bu.management.integration.SeeyonOaWebChannel.SessionStatus> authorize(
+            @RequestBody SessionAuthRequest request) {
+        return Result.success(integrationService.authorize(request == null ? null : request.cookie()));
+    }
+
+    @DeleteMapping("/session")
+    @Operation(summary = "清除 OA 网页会话授权")
+    public Result<Void> clearSession() {
+        integrationService.clearSession();
+        return Result.success();
+    }
+
+    // ==================== 待办审批 ====================
+
+    public record ApproveRequest(String action) {}
+
+    @PostMapping("/affairs/{affairId}/approve")
+    @Operation(summary = "审批 OA 事项（action=同意/不同意，默认同意）")
+    public Result<String> approve(@PathVariable String affairId, @RequestBody(required = false) ApproveRequest request) {
+        String action = request == null || request.action() == null ? "approve" : request.action();
+        return Result.success(integrationService.approve(affairId, action));
+    }
+
+    public record BatchApproveRequest(java.util.List<String> affairIds, String action) {}
+
+    @PostMapping("/affairs/batch-approve")
+    @Operation(summary = "批量审批 OA 待办事项（逐项执行并返回每项结果）")
+    public Result<java.util.List<Map<String, Object>>> batchApprove(@RequestBody BatchApproveRequest request) {
+        if (request == null || request.affairIds() == null || request.affairIds().isEmpty()) {
+            throw new IllegalArgumentException("affairIds 不能为空");
+        }
+        String action = request.action() == null ? "approve" : request.action();
+        return Result.success(integrationService.batchApprove(request.affairIds(), action));
+    }
+
     // ==================== 数据同步 ====================
 
     @PostMapping("/sync")

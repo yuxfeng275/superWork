@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import com.bu.management.config.SeeyonOaRuntimeConfig;
 import com.bu.management.integration.SeeyonOaClient;
+import com.bu.management.integration.SeeyonOaWebChannel;
 import com.bu.management.vo.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class SeeyonOaIntegrationService {
 
     private final SeeyonOaClient oaClient;
+    private final SeeyonOaWebChannel webChannel;
     private final SeeyonOaConfigService configService;
     private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
 
@@ -60,15 +62,81 @@ public class SeeyonOaIntegrationService {
     }
 
     public List<Map<String, Object>> listPendingAffairs() {
-        return oaClient.listPendingAffairs().stream()
-                .map(this::toAffairMap)
-                .collect(Collectors.toList());
+        try {
+            return oaClient.listPendingAffairs().stream()
+                    .map(this::toAffairMap)
+                    .collect(Collectors.toList());
+        } catch (IllegalStateException e) {
+            // REST 被网关/策略拦截 → 网页会话通道（已验证与页面同一数据源）
+            log.info("OA REST 待办不可用，走网页会话通道: {}", e.getMessage());
+            return webChannel.listPendingAffairs().stream()
+                    .map(this::toWebAffairMap)
+                    .collect(Collectors.toList());
+        }
     }
 
     public List<Map<String, Object>> listDoneAffairs() {
-        return oaClient.listDoneAffairs().stream()
-                .map(this::toAffairMap)
-                .collect(Collectors.toList());
+        try {
+            return oaClient.listDoneAffairs().stream()
+                    .map(this::toAffairMap)
+                    .collect(Collectors.toList());
+        } catch (IllegalStateException e) {
+            log.info("OA REST 已办不可用，走网页会话通道: {}", e.getMessage());
+            return webChannel.listDoneAffairs().stream()
+                    .map(this::toWebAffairMap)
+                    .collect(Collectors.toList());
+        }
+    }
+
+    private Map<String, Object> toWebAffairMap(SeeyonOaWebChannel.WebAffair affair) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", affair.affairId());
+        map.put("subject", affair.title());
+        map.put("senderName", affair.sender());
+        map.put("createDate", affair.receiveTime());
+        map.put("appName", affair.type());
+        map.put("state", affair.type());
+        map.put("flowId", affair.affairId());
+        map.put("formId", null);
+        map.put("linkUrl", affair.linkUrl());
+        return map;
+    }
+
+    // ==================== 授权与审批 ====================
+
+    public SeeyonOaWebChannel.SessionStatus sessionStatus() {
+        return webChannel.sessionStatus();
+    }
+
+    public SeeyonOaWebChannel.SessionStatus authorize(String cookie) {
+        return webChannel.authorize(cookie);
+    }
+
+    public void clearSession() {
+        webChannel.clearSession();
+    }
+
+    /** 单项审批（approve=同意 / reject=不同意）。 */
+    public String approve(String affairId, String action) {
+        return webChannel.actOnAffair(affairId, action);
+    }
+
+    /** 批量审批：逐项执行，返回每项结果。 */
+    public List<Map<String, Object>> batchApprove(List<String> affairIds, String action) {
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (String affairId : affairIds) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("affairId", affairId);
+            try {
+                row.put("result", approve(affairId, action));
+                row.put("success", true);
+            } catch (IllegalStateException e) {
+                row.put("success", false);
+                row.put("result", e.getMessage());
+            }
+            results.add(row);
+        }
+        return results;
     }
 
     // ==================== 数据同步 ====================
