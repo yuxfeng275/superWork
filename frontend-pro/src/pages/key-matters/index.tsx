@@ -2052,14 +2052,23 @@ export default function KeyMattersPage() {
                     )}
                   </Space>
                 </Space>
-                <Typography.Title level={1}>
-                  {presentationMatter.title}
-                </Typography.Title>
-                <Typography.Paragraph type="secondary">
-                  {presentationMatter.projectName || 'BU 内部事项'} ·{' '}
-                  {presentationMatter.ownerName || '未指定负责人'}
-                </Typography.Paragraph>
+                <div className="sw-presentation-title-row">
+                  <Typography.Title level={1}>
+                    {presentationMatter.title}
+                  </Typography.Title>
+                  <Typography.Text
+                    type="secondary"
+                    className="sw-presentation-owner"
+                  >
+                    <FolderOpenOutlined />{' '}
+                    {presentationMatter.projectName || 'BU 内部事项'}
+                    <span className="sw-presentation-owner-divider" />
+                    <UserOutlined />{' '}
+                    {presentationMatter.ownerName || '未指定负责人'}
+                  </Typography.Text>
+                </div>
                 <Progress
+                  className="sw-presentation-progress"
                   percent={Number(
                     (presentationEditing
                       ? presentationDraft?.progress
