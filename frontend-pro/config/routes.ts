@@ -203,6 +203,12 @@ export default [
     component: './kpi-report',
   },
   {
+    path: '/oa-affairs',
+    name: 'OA 待办',
+    icon: 'checkCircle',
+    component: './oa-affairs',
+  },
+  {
     path: '/bl-profit',
     name: '业务线利润',
     icon: 'fund',

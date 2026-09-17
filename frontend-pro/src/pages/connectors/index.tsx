@@ -90,7 +90,7 @@ const MODELS_PATH = '/system/models';
 const connectorLinks: Record<string, { label: string; path: string }> = {
   yunxiao: { label: '云效映射', path: '/statistics?tab=integration' },
   worktime: { label: '工时同步', path: '/kpi-report?tab=worktime' },
-  oa: { label: '数据集成', path: '/system/sync' },
+  oa: { label: 'OA 待办', path: '/oa-affairs' },
   mail: { label: '邮箱账号', path: '/emails' },
   deepseek: { label: '模型管理', path: MODELS_PATH },
   glm: { label: '模型管理', path: MODELS_PATH },

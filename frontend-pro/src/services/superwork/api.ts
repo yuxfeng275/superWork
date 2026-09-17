@@ -846,6 +846,33 @@ export interface BizLineProfitReport {
   totalYtd: BizLineProfitRow;
 }
 
+/** 致远 OA 网页会话授权状态（REST 被网关拦截时的取数通道）。 */
+export interface OaSessionStatus {
+  authorized: boolean;
+  hint: string;
+}
+
+/** OA 待办/已办事项：REST 与网页会话通道返回同一结构。 */
+export interface OaAffair {
+  id: string;
+  subject: string;
+  senderName?: string;
+  createDate?: string;
+  appName?: string;
+  state?: string;
+  flowId?: string;
+  linkUrl?: string;
+}
+
+export type OaAffairAction = "approve" | "reject";
+
+/** 批量审批逐项结果（逐项执行，单项失败不影响其余）。 */
+export interface OaBatchApproveResult {
+  affairId: string;
+  success: boolean;
+  result?: string;
+}
+
 export class ApiRequestError extends Error {
   status: number;
   code?: number;
@@ -2698,6 +2725,37 @@ export const superworkApi = {
   getBlProfitSyncLogs(limit = 10) {
     return requestJson<WorktimeSyncLog[]>(
       `/api/finance/bl-profit/sync-logs?limit=${limit}`
+    );
+  },
+  // ==================== 致远 OA 待办（网页会话通道 + 审批） ====================
+  getOaSessionStatus() {
+    return requestJson<OaSessionStatus>("/api/seeyon-oa/session");
+  },
+  authorizeOaSession(cookie: string) {
+    return requestJson<OaSessionStatus>("/api/seeyon-oa/session", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    });
+  },
+  clearOaSession() {
+    return requestJson<void>("/api/seeyon-oa/session", { method: "DELETE" });
+  },
+  getOaPendingAffairs() {
+    return requestJson<OaAffair[]>("/api/seeyon-oa/affairs/pending");
+  },
+  getOaDoneAffairs() {
+    return requestJson<OaAffair[]>("/api/seeyon-oa/affairs/done");
+  },
+  approveOaAffair(affairId: string, action: OaAffairAction) {
+    return requestJson<string>(
+      `/api/seeyon-oa/affairs/${encodeURIComponent(affairId)}/approve`,
+      { method: "POST", body: JSON.stringify({ action }) }
+    );
+  },
+  batchApproveOaAffairs(affairIds: string[], action: OaAffairAction) {
+    return requestJson<OaBatchApproveResult[]>(
+      "/api/seeyon-oa/affairs/batch-approve",
+      { method: "POST", body: JSON.stringify({ affairIds, action }) }
     );
   },
 };
