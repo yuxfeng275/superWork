@@ -64,6 +64,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | 204ca31 | frontend-pro：补齐「系统→权限管理」`/system/permissions` 路由与只读权限列表页，避免菜单入口被 catch-all 打回首页；仅前端。备份 deploy-backups/20260917-151224，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 | 2026-09-17 | d03e8b0 | frontend-pro：查询卡片/工具栏筛选项换行后补 12px 行间距（共享 `.sw-filter-card` inline 表单与 Space，任务工具栏、大事儿查询区同步）；仅前端，含 71fae6b。备份 deploy-backups/20260917-151809，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 | 2026-09-17 | 23ef096 | frontend-pro（大事儿管理·周会演示）：①卡片区取消底部留白——`align-content: stretch` + 卡片 `height:100%`、卡体 flex 列让文本框撑满（1440×900 / 1366×768 实测底部留白 0，卡片高 226/154/154/154 与 198/126/126/126，文本框 118/96/96/96 与 90/68/68/68）；②「本周进展」状态由下拉改为平铺 Segmented（6 个状态全可见，与系统控件一致），查看态仍为单标签；③进度快捷百分比 0/25/50/75/90/100% 从底部工具条移入本周进展卡头第二行（与进度条、进度输入同行右对齐）。备份 deploy-backups/20260917-152236，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
+| 2026-09-17 | 04febb6 | frontend-pro：商机工时弹窗右侧补历史记录（对齐跟进弹窗左右分栏）；商机列表/看板/详情新增报价入口，复用报价向导并预填客户与商机；仅前端。备份 deploy-backups/20260917-155907，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
