@@ -166,7 +166,7 @@ services:
     restart: unless-stopped
     ports:
       - "18080:80"
-      - "18084:8084"
+      - "18088:8088"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d/241.conf:/etc/nginx/conf.d/default.conf:ro
