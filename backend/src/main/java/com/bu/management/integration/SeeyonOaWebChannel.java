@@ -204,8 +204,8 @@ public class SeeyonOaWebChannel {
     }
 
     /**
-     * 表单登录：302 + JSESSIONID + 无 LoginError 即成功；LoginError=9 视为验证码问题。
-     * 返回合并后的会话 Cookie 串（登录前的 JSESSIONID + 登录后的），失败返回 null。
+     * 表单登录：302 + JSESSIONID + 无 LoginError 即成功。
+     * 失败时抛出带错误码的异常（LoginError 值透传给管理员，便于定位：验证码/账号/锁定）。
      */
     private String formLogin(String existingCookies, String body) {
         try {
@@ -220,16 +220,28 @@ public class SeeyonOaWebChannel {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            boolean loginError = !response.headers().allValues("LoginError").isEmpty()
-                    || !response.headers().allValues("loginerror").isEmpty();
-            if (loginError) return null;
+            String loginError = firstHeader(response, "LoginError", "loginerror");
+            if (loginError != null) {
+                String hint = "9".equals(loginError) ? "验证码错误" : ("1".equals(loginError) ? "账号或密码错误" : "登录失败");
+                throw new IllegalStateException("OA 登录失败（loginerror=" + loginError + "）：" + hint);
+            }
             String merged = mergeCookies(existingCookies, cookiesFrom(response));
             if (!StringUtils.hasText(merged) || !merged.contains("JSESSIONID")) return null;
             return merged;
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    private String firstHeader(HttpResponse<?> response, String... names) {
+        for (String name : names) {
+            String value = response.headers().firstValue(name).orElse(null);
+            if (StringUtils.hasText(value)) return value;
+        }
+        return null;
     }
 
     private String mergeCookies(String existing, String fresh) {
