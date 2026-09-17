@@ -397,9 +397,9 @@ public class WeComCliClient {
         CAPABILITY_PROBES.put("meeting", List.of("list", "--begin-time", "2026-01-01 00:00:00", "--end-time", "2026-01-02 00:00:00", "--limit", "1"));
         CAPABILITY_PROBES.put("message", List.of("aibot", "sessions", "list"));
         CAPABILITY_PROBES.put("doc", List.of("search", "--keywords", "周报"));
-        CAPABILITY_PROBES.put("calendar", List.of("list"));
-        CAPABILITY_PROBES.put("disk", List.of("files", "list"));
-        CAPABILITY_PROBES.put("mail", List.of("list", "--limit", "1"));
+        CAPABILITY_PROBES.put("calendar", List.of("schedules", "list", "--begin-time", "2026-01-01 00:00:00", "--end-time", "2026-01-02 00:00:00"));
+        CAPABILITY_PROBES.put("disk", List.of("files", "list", "--limit", "1"));
+        CAPABILITY_PROBES.put("mail", List.of("search"));
         CAPABILITY_LABELS.put("contact", "通讯录");
         CAPABILITY_LABELS.put("todo", "待办");
         CAPABILITY_LABELS.put("meeting", "会议（含纪要/转写）");
