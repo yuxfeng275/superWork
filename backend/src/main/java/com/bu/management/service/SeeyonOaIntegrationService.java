@@ -111,6 +111,17 @@ public class SeeyonOaIntegrationService {
     public SeeyonOaWebChannel.SessionStatus authorize(String cookie) {
         return webChannel.authorize(cookie);
     }
+    public SeeyonOaWebChannel.CaptchaChallenge captchaChallenge() {
+        return webChannel.captchaChallenge();
+    }
+
+    public SeeyonOaWebChannel.SessionStatus loginWithPassword(String challengeId, String captcha) {
+        return webChannel.loginWithPassword(challengeId, captcha);
+    }
+
+    public SeeyonOaWebChannel.SessionStatus tryAutoLogin() {
+        return webChannel.tryAutoLogin();
+    }
 
     public void clearSession() {
         webChannel.clearSession();

@@ -6,6 +6,9 @@ import type * as SuperworkApiModule from '@/services/superwork/api';
 const mocks = vi.hoisted(() => ({
   getOaSessionStatus: vi.fn(),
   authorizeOaSession: vi.fn(),
+  autoOaLogin: vi.fn(),
+  getOaCaptcha: vi.fn(),
+  loginOaSession: vi.fn(),
   clearOaSession: vi.fn(),
   getOaPendingAffairs: vi.fn(),
   getOaDoneAffairs: vi.fn(),
@@ -38,6 +41,12 @@ const pendingAffairs = [
   },
 ];
 
+const captcha = (challengeId: string, imageBase64: string) => ({
+  challengeId,
+  imageBase64,
+  expireAt: Date.now() + 5 * 60 * 1000,
+});
+
 const renderPage = () =>
   render(
     <App>
@@ -45,17 +54,36 @@ const renderPage = () =>
     </App>,
   );
 
+/** 等待会话状态就绪后点「去授权」，弹窗打开即会自动尝试授权。 */
+const openAuthModal = async () => {
+  await screen.findByText('尚未完成 OA 网页会话授权');
+  fireEvent.click(screen.getAllByRole('button', { name: '去授权' })[0]);
+  return screen.findByText('OA 网页会话授权');
+};
+
+const submitCaptcha = async (code: string) => {
+  fireEvent.change(await screen.findByPlaceholderText(/输入图中验证码/), {
+    target: { value: code },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /登\s*录/ }));
+};
+
 describe('OaAffairsPage smoke', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     mocks.getOaDoneAffairs.mockResolvedValue([]);
     mocks.clearOaSession.mockResolvedValue(undefined);
+    mocks.autoOaLogin.mockResolvedValue({
+      authorized: false,
+      hint: 'OA 需要验证码登录，请在授权弹窗输入验证码（或粘贴 JSESSIONID）',
+    });
+    mocks.getOaCaptcha.mockResolvedValue(captcha('c-1', 'IMG-1'));
   });
 
   it('引导未授权用户先完成网页会话授权，不请求待办列表', async () => {
     mocks.getOaSessionStatus.mockResolvedValue({
       authorized: false,
-      hint: '未授权：请粘贴 JSESSIONID',
+      hint: '未授权：请完成授权',
     });
 
     renderPage();
@@ -64,6 +92,140 @@ describe('OaAffairsPage smoke', () => {
     expect(screen.getByText('尚未完成 OA 网页会话授权')).toBeInTheDocument();
     expect(mocks.getOaPendingAffairs).not.toHaveBeenCalled();
     expect(mocks.getOaDoneAffairs).not.toHaveBeenCalled();
+  });
+
+  it('打开授权弹窗先自动授权，成功即标记已授权并加载待办', async () => {
+    mocks.getOaSessionStatus.mockResolvedValue({
+      authorized: false,
+      hint: '未授权：请完成授权',
+    });
+    mocks.autoOaLogin.mockResolvedValue({
+      authorized: true,
+      hint: '授权成功，OA 网页会话已生效',
+    });
+    mocks.getOaPendingAffairs.mockResolvedValue(pendingAffairs);
+
+    renderPage();
+    await openAuthModal();
+
+    expect(await screen.findByText('已授权')).toBeInTheDocument();
+    expect(await screen.findByText('报销单-张三')).toBeInTheDocument();
+    expect(mocks.autoOaLogin).toHaveBeenCalledTimes(1);
+    expect(mocks.getOaCaptcha).not.toHaveBeenCalled();
+  });
+
+  it('自动授权要求验证码时展示验证码图，刷新后按新挑战登录', async () => {
+    mocks.getOaSessionStatus.mockResolvedValue({
+      authorized: false,
+      hint: '未授权：请完成授权',
+    });
+    mocks.getOaCaptcha
+      .mockResolvedValueOnce(captcha('c-1', 'IMG-1'))
+      .mockResolvedValueOnce(captcha('c-2', 'IMG-2'));
+    mocks.loginOaSession.mockResolvedValue({
+      authorized: true,
+      hint: '授权成功，OA 网页会话已生效',
+    });
+    mocks.getOaPendingAffairs.mockResolvedValue(pendingAffairs);
+
+    renderPage();
+    await openAuthModal();
+
+    expect(
+      await screen.findByText(
+        'OA 需要验证码登录，请在授权弹窗输入验证码（或粘贴 JSESSIONID）',
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByAltText('OA 登录验证码')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,IMG-1',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /刷新验证码/ }));
+    await waitFor(() =>
+      expect(screen.getByAltText('OA 登录验证码')).toHaveAttribute(
+        'src',
+        'data:image/png;base64,IMG-2',
+      ),
+    );
+
+    await submitCaptcha('8888');
+
+    await waitFor(() =>
+      expect(mocks.loginOaSession).toHaveBeenCalledWith({
+        challengeId: 'c-2',
+        captcha: '8888',
+      }),
+    );
+    expect(await screen.findByText('报销单-张三')).toBeInTheDocument();
+    expect(mocks.authorizeOaSession).not.toHaveBeenCalled();
+  });
+
+  it('验证码登录失败时内联展示后端提示并换一张验证码', async () => {
+    mocks.getOaSessionStatus.mockResolvedValue({
+      authorized: false,
+      hint: '未授权：请完成授权',
+    });
+    mocks.loginOaSession.mockRejectedValue(
+      new ApiRequestError(
+        '登录失败：账号密码错误或验证码错误（错误码见 OA 返回）',
+        400,
+      ),
+    );
+
+    renderPage();
+    await openAuthModal();
+    await screen.findByAltText('OA 登录验证码');
+
+    await submitCaptcha('0000');
+
+    expect(
+      await screen.findByText(
+        '登录失败：账号密码错误或验证码错误（错误码见 OA 返回）',
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(mocks.getOaCaptcha).toHaveBeenCalledTimes(2));
+    expect(screen.getByPlaceholderText(/输入图中验证码/)).toHaveValue('');
+  });
+
+  it('验证码不可用时展开兜底区，粘贴 JSESSIONID 完成授权', async () => {
+    mocks.getOaSessionStatus.mockResolvedValue({
+      authorized: false,
+      hint: '未授权：请完成授权',
+    });
+    mocks.autoOaLogin.mockResolvedValue({
+      authorized: false,
+      hint: '自动登录失败：OA 集成未配置账号密码，请先在连接器管理补全',
+    });
+    mocks.getOaCaptcha.mockRejectedValue(
+      new ApiRequestError('OA 登录页不可达，请检查服务地址', 500),
+    );
+    mocks.authorizeOaSession.mockResolvedValue({
+      authorized: true,
+      hint: '授权成功，OA 网页会话已生效',
+    });
+    mocks.getOaPendingAffairs.mockResolvedValue(pendingAffairs);
+
+    renderPage();
+    await openAuthModal();
+
+    expect(
+      await screen.findByText(/验证码加载失败：OA 登录页不可达/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('兜底：粘贴 JSESSIONID 授权'));
+    fireEvent.change(
+      await screen.findByPlaceholderText(/粘贴 JSESSIONID 的值/),
+      {
+        target: { value: ' JSESSIONID-ABC ' },
+      },
+    );
+    fireEvent.click(screen.getByRole('button', { name: '保存授权' }));
+
+    await waitFor(() =>
+      expect(mocks.authorizeOaSession).toHaveBeenCalledWith('JSESSIONID-ABC'),
+    );
+    expect(await screen.findByText('报销单-张三')).toBeInTheDocument();
   });
 
   it('已授权时展示待办，批量同意后逐项展示审批结果', async () => {
@@ -102,9 +264,10 @@ describe('OaAffairsPage smoke', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('成功 1')).toBeInTheDocument();
     expect(screen.getByText('失败 1')).toBeInTheDocument();
+    expect(mocks.autoOaLogin).not.toHaveBeenCalled();
   });
 
-  it('列表加载遇到 400 会话失效时弹出授权弹窗', async () => {
+  it('列表加载遇到 400 会话失效时弹出授权弹窗并自动尝试授权', async () => {
     mocks.getOaSessionStatus.mockResolvedValue({
       authorized: true,
       hint: '已授权（网页会话）',
@@ -120,5 +283,6 @@ describe('OaAffairsPage smoke', () => {
 
     expect(await screen.findByText('OA 网页会话授权')).toBeInTheDocument();
     expect(screen.getByText('尚未完成 OA 网页会话授权')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.autoOaLogin).toHaveBeenCalledTimes(1));
   });
 });

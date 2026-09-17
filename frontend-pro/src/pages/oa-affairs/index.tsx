@@ -11,6 +11,7 @@ import {
   App,
   Button,
   Card,
+  Collapse,
   Input,
   Modal,
   Popconfirm,
@@ -22,12 +23,13 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiRequestError,
   type OaAffair,
   type OaAffairAction,
   type OaBatchApproveResult,
+  type OaCaptchaChallenge,
   type OaSessionStatus,
   superworkApi,
 } from '@/services/superwork/api';
@@ -36,6 +38,8 @@ import './style.less';
 
 type AffairColumns = NonNullable<TableProps<OaAffair>['columns']>;
 type AffairTab = 'pending' | 'done';
+/** checking：打开弹窗后自动尝试免验证码登录；captcha：需要人工输验证码。 */
+type AuthStep = 'checking' | 'captcha';
 
 const ACTION_LABELS: Record<OaAffairAction, string> = {
   approve: '同意',
@@ -45,7 +49,7 @@ const ACTION_LABELS: Record<OaAffairAction, string> = {
 const errorText = (e: unknown, fallback: string) =>
   e instanceof Error && e.message ? e.message : fallback;
 
-/** 会话失效：后端 400 且提示重新授权/会话失效时，引导重新粘贴 JSESSIONID。 */
+/** 会话失效：后端 400 且提示重新授权/会话失效时，引导重新走自助授权。 */
 const isSessionExpired = (e: unknown) =>
   e instanceof ApiRequestError &&
   e.status === 400 &&
@@ -72,9 +76,18 @@ export default function OaAffairsPage() {
   const [actingId, setActingId] = useState<string>();
 
   const [authOpen, setAuthOpen] = useState(false);
-  const [cookie, setCookie] = useState('');
+  const [authAttempt, setAuthAttempt] = useState(0);
+  const [authStep, setAuthStep] = useState<AuthStep>('checking');
+  const [authHint, setAuthHint] = useState('');
   const [authError, setAuthError] = useState('');
+  const [challenge, setChallenge] = useState<OaCaptchaChallenge>();
+  const [captcha, setCaptcha] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
+  const [logging, setLogging] = useState(false);
+  const [cookie, setCookie] = useState('');
   const [authorizing, setAuthorizing] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const autoStartedRef = useRef(0);
 
   const [batchAction, setBatchAction] = useState<OaAffairAction>();
   const [batchSize, setBatchSize] = useState(0);
@@ -88,7 +101,13 @@ export default function OaAffairsPage() {
   const openAuthModal = useCallback((hint?: string) => {
     setCookie('');
     setAuthError('');
+    setAuthHint('');
+    setChallenge(undefined);
+    setCaptcha('');
+    setAuthStep('checking');
+    setPasteOpen(false);
     setAuthOpen(true);
+    setAuthAttempt((count) => count + 1);
     if (hint) setSession({ authorized: false, hint });
   }, []);
 
@@ -145,21 +164,101 @@ export default function OaAffairsPage() {
     void refresh();
   }, [refresh]);
 
+  /** 授权成功：落状态、关弹窗、刷新待办。 */
+  const completeAuth = useCallback(
+    async (status: OaSessionStatus) => {
+      setSession(status);
+      setAuthOpen(false);
+      setCookie('');
+      setCaptcha('');
+      message.success(status.hint || '授权成功');
+      await loadAffairs();
+    },
+    [loadAffairs, message],
+  );
+
+  /** 拉取验证码图片；challengeId 一次性，登录失败后必须重新拉取。 */
+  const loadCaptcha = useCallback(async () => {
+    setCaptchaLoading(true);
+    try {
+      setChallenge(await superworkApi.getOaCaptcha());
+      setCaptcha('');
+    } catch (e) {
+      setChallenge(undefined);
+      setAuthError(
+        `验证码加载失败：${errorText(e, '请改用下方粘贴 JSESSIONID 授权')}`,
+      );
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, []);
+
+  /** 打开弹窗后的第一档：不带验证码的后台自动登录。 */
+  const runAutoAuth = useCallback(async () => {
+    setAuthStep('checking');
+    setAuthError('');
+    setAuthHint('');
+    try {
+      const status = await superworkApi.autoOaLogin();
+      if (status.authorized) {
+        await completeAuth(status);
+        return;
+      }
+      setAuthHint(status.hint || '自动授权未完成，请输入验证码后登录');
+    } catch (e) {
+      setAuthError(
+        `自动授权失败：${errorText(e, '请改用验证码或粘贴 JSESSIONID 授权')}`,
+      );
+    }
+    setAuthStep('captcha');
+    await loadCaptcha();
+  }, [completeAuth, loadCaptcha]);
+
+  useEffect(() => {
+    if (!authOpen || autoStartedRef.current === authAttempt) return;
+    autoStartedRef.current = authAttempt;
+    void runAutoAuth();
+  }, [authAttempt, authOpen, runAutoAuth]);
+
+  /** 第二档：账号密码（连接器配置）+ 验证码。 */
+  const submitCaptcha = async () => {
+    const code = captcha.trim();
+    if (!code) {
+      setAuthError('请输入图中验证码');
+      return;
+    }
+    setLogging(true);
+    setAuthError('');
+    try {
+      const status = await superworkApi.loginOaSession({
+        challengeId: challenge?.challengeId,
+        captcha: code,
+      });
+      if (status.authorized) {
+        await completeAuth(status);
+        return;
+      }
+      setAuthHint(status.hint || '登录未通过，请重试');
+    } catch (e) {
+      setAuthError(errorText(e, '登录失败：账号密码或验证码错误'));
+    } finally {
+      setLogging(false);
+    }
+    await loadCaptcha();
+  };
+
+  /** 第三档兜底：粘贴浏览器里已登录 OA 的 JSESSIONID。 */
   const authorize = async () => {
     const value = cookie.trim();
     if (!value) {
       setAuthError('请先粘贴浏览器里的 JSESSIONID');
+      setPasteOpen(true);
       return;
     }
     setAuthorizing(true);
     setAuthError('');
     try {
-      const status = await superworkApi.authorizeOaSession(value);
-      setSession(status);
-      setAuthOpen(false);
-      setCookie('');
-      message.success(status.hint || '授权成功');
-      await loadAffairs();
+      await completeAuth(await superworkApi.authorizeOaSession(value));
     } catch (e) {
       setAuthError(errorText(e, '授权失败：JSESSIONID 无效或已过期'));
     } finally {
@@ -348,7 +447,7 @@ export default function OaAffairsPage() {
           type="warning"
           showIcon
           message="尚未完成 OA 网页会话授权"
-          description="致远网关会拦截 REST 取数：先粘贴浏览器里已登录 OA 的 JSESSIONID 完成一次授权，待办列表与批量审批即可使用。"
+          description="致远网关会拦截 REST 取数：点「去授权」会自动登录，要求验证码时按图输入即可，也可粘贴浏览器里的 JSESSIONID 兜底；授权后待办列表与批量审批即可使用。"
           action={
             <Button type="primary" size="small" onClick={() => openAuthModal()}>
               去授权
@@ -467,7 +566,7 @@ export default function OaAffairsPage() {
               <Button onClick={() => openAuthModal()}>重新授权</Button>
               <Popconfirm
                 title="清除 OA 网页会话授权？"
-                description="清除后需重新粘贴 JSESSIONID 才能取数与审批"
+                description="清除后需重新授权（自动登录 / 验证码 / 粘贴 JSESSIONID）才能取数与审批"
                 okText="清除"
                 cancelText="取消"
                 okButtonProps={{ danger: true }}
@@ -628,38 +727,129 @@ export default function OaAffairsPage() {
       <Modal
         title="OA 网页会话授权"
         open={authOpen}
-        onOk={() => void authorize()}
         onCancel={() => setAuthOpen(false)}
-        okText="保存授权"
-        cancelText="取消"
-        confirmLoading={authorizing}
-        maskClosable={!authorizing}
+        maskClosable={!logging && !authorizing}
         width={560}
+        footer={
+          authStep === 'checking' ? (
+            <Button onClick={() => setAuthOpen(false)}>取消</Button>
+          ) : (
+            <Space>
+              <Button
+                disabled={logging || authorizing}
+                onClick={() => setAuthOpen(false)}
+              >
+                取消
+              </Button>
+              <Button
+                type="primary"
+                loading={logging}
+                disabled={!challenge || authorizing}
+                onClick={() => void submitCaptcha()}
+              >
+                登录
+              </Button>
+            </Space>
+          )
+        }
       >
         <Space orientation="vertical" size={12} className="sw-oa-auth">
-          <Alert
-            type="info"
-            showIcon
-            message="致远网关会拦截 REST 取数，此时改走网页会话通道：粘贴一次浏览器里已登录 OA 的 JSESSIONID，后续取数与审批复用该会话。"
-          />
-          <Typography.Text strong>操作指引</Typography.Text>
-          <ol className="sw-oa-auth-steps">
-            <li>在浏览器登录致远 OA（如 oa.lucidata.cn）</li>
-            <li>按 F12 打开开发者工具，切到 Application（应用）→ Cookies</li>
-            <li>
-              选中 OA 域名，复制名为 JSESSIONID 的 Cookie 值（复制整行 Cookie
-              也可以）
-            </li>
-            <li>粘贴到下方输入框并保存；会话失效时按提示重新粘贴</li>
-          </ol>
-          <Input.TextArea
-            value={cookie}
-            onChange={(event) => setCookie(event.target.value)}
-            placeholder="粘贴 JSESSIONID 的值，或整段 Cookie（如 JSESSIONID=abc123…）"
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            allowClear
-          />
-          {authError && <Alert type="error" showIcon message={authError} />}
+          {authStep === 'checking' ? (
+            <Space align="center" size={8}>
+              <Spin size="small" />
+              <Typography.Text>
+                正在尝试自动授权（OA 未强制验证码时可直接完成）…
+              </Typography.Text>
+            </Space>
+          ) : (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                message={authHint || '自动授权未完成，请输入验证码完成登录'}
+              />
+              <div className="sw-oa-auth-captcha">
+                <div className="sw-oa-auth-captcha-frame">
+                  {challenge ? (
+                    <img
+                      src={`data:image/png;base64,${challenge.imageBase64}`}
+                      alt="OA 登录验证码"
+                    />
+                  ) : (
+                    <Spin size="small" />
+                  )}
+                </div>
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={captchaLoading}
+                  disabled={logging}
+                  onClick={() => {
+                    setAuthError('');
+                    void loadCaptcha();
+                  }}
+                >
+                  刷新验证码
+                </Button>
+              </div>
+              <Input
+                value={captcha}
+                onChange={(event) => setCaptcha(event.target.value)}
+                onPressEnter={() => void submitCaptcha()}
+                placeholder="输入图中验证码（5 分钟内有效）"
+                disabled={!challenge}
+                allowClear
+              />
+              {authError && <Alert type="error" showIcon message={authError} />}
+              <Collapse
+                ghost
+                activeKey={pasteOpen ? ['paste'] : []}
+                onChange={(keys) => setPasteOpen(keys.includes('paste'))}
+                items={[
+                  {
+                    key: 'paste',
+                    label: '兜底：粘贴 JSESSIONID 授权',
+                    children: (
+                      <Space
+                        orientation="vertical"
+                        size={12}
+                        className="sw-oa-auth-paste"
+                      >
+                        <ol className="sw-oa-auth-steps">
+                          <li>在浏览器登录致远 OA（如 oa.lucidata.cn）</li>
+                          <li>
+                            按 F12 打开开发者工具，切到 Application（应用）→
+                            Cookies
+                          </li>
+                          <li>
+                            选中 OA 域名，复制名为 JSESSIONID 的 Cookie
+                            值（复制整行 Cookie 也可以）
+                          </li>
+                          <li>
+                            粘贴到下方输入框并保存；会话失效时按提示重新粘贴
+                          </li>
+                        </ol>
+                        <Input.TextArea
+                          value={cookie}
+                          onChange={(event) => setCookie(event.target.value)}
+                          placeholder="粘贴 JSESSIONID 的值，或整段 Cookie（如 JSESSIONID=abc123…）"
+                          autoSize={{ minRows: 2, maxRows: 4 }}
+                          allowClear
+                        />
+                        <Button
+                          type="primary"
+                          loading={authorizing}
+                          disabled={logging}
+                          onClick={() => void authorize()}
+                        >
+                          保存授权
+                        </Button>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            </>
+          )}
         </Space>
       </Modal>
     </div>

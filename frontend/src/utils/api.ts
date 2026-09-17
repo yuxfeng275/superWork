@@ -46,6 +46,8 @@ import type {
   SeeyonOaAffair,
   SeeyonOaApproveAction,
   SeeyonOaBatchApproveItem,
+  SeeyonOaCaptchaChallenge,
+  SeeyonOaLoginPayload,
   SeeyonOaSessionStatus
 } from '@/types/oa-affairs'
 
@@ -1549,6 +1551,24 @@ class ApiService {
 
   async getOaSessionStatus(): Promise<SeeyonOaSessionStatus> {
     return this.request<SeeyonOaSessionStatus>('/api/seeyon-oa/session')
+  }
+
+  /** 自动授权：用连接器配置的账号密码直接登录，OA 不强制验证码时直接成功；否则 hint 说明需验证码。 */
+  async autoOaLogin(): Promise<SeeyonOaSessionStatus> {
+    return this.request<SeeyonOaSessionStatus>('/api/seeyon-oa/session/auto', { method: 'POST' })
+  }
+
+  /** 拉取一张登录验证码（challengeId + base64 图片），5 分钟内有效。 */
+  async getOaCaptcha(): Promise<SeeyonOaCaptchaChallenge> {
+    return this.request<SeeyonOaCaptchaChallenge>('/api/seeyon-oa/session/captcha')
+  }
+
+  /** 账号密码（连接器配置）+ 验证码登录；challengeId 取最近一次验证码。 */
+  async loginOaSession(payload: SeeyonOaLoginPayload): Promise<SeeyonOaSessionStatus> {
+    return this.request<SeeyonOaSessionStatus>('/api/seeyon-oa/session/login', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
   }
 
   /** 粘贴浏览器 JSESSIONID 完成一次授权；无效会话返回 400 且消息可操作。 */

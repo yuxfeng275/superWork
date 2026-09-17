@@ -8,6 +8,7 @@ import type {
   SeeyonOaAffair,
   SeeyonOaApproveAction,
   SeeyonOaBatchApproveItem,
+  SeeyonOaCaptchaChallenge,
   SeeyonOaSessionStatus
 } from '@/types/oa-affairs'
 
@@ -28,6 +29,16 @@ const authDialogVisible = ref(false)
 const authCookie = ref('')
 const authError = ref('')
 const authorizing = ref(false)
+/** 自动授权（第一档）进行中；弹窗打开即触发一次。 */
+const autoRunning = ref(false)
+/** 自动授权失败后进入第二档（验证码登录），由该标志控制验证码区展示。 */
+const captchaStage = ref(false)
+const captchaLoading = ref(false)
+const captchaChallenge = ref<SeeyonOaCaptchaChallenge | null>(null)
+const captchaCode = ref('')
+const captchaLoginRunning = ref(false)
+/** 第三档兜底：折叠面板展开项。 */
+const cookieFallbackPanels = ref<string[]>([])
 
 const pendingRows = ref<SeeyonOaAffair[]>([])
 const doneRows = ref<SeeyonOaAffair[]>([])
@@ -49,6 +60,14 @@ const allSelected = computed(() =>
 )
 const batchSuccessCount = computed(() => batchResults.value.filter(item => item.success).length)
 const batchFailureCount = computed(() => batchResults.value.length - batchSuccessCount.value)
+
+/** 验证码可能是 PNG 或 JPEG（OA 接口路径为 .jpg），按 base64 魔数选 MIME，避免 data URL 类型不符导致不渲染。 */
+const captchaImageSrc = computed(() => {
+  const raw = captchaChallenge.value?.imageBase64
+  if (!raw) return ''
+  const mime = raw.startsWith('iVBOR') ? 'image/png' : raw.startsWith('R0lGOD') ? 'image/gif' : 'image/jpeg'
+  return `data:${mime};base64,${raw}`
+})
 
 const errorText = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback
@@ -106,10 +125,86 @@ const onTabChange = (name: TabPaneName) => {
   void loadAffairs()
 }
 
+/** 授权成功统一收尾；未生效时把后端 hint 内联展示并返回 false。 */
+const finishAuthorization = async (status: SeeyonOaSessionStatus, fallback: string) => {
+  if (!status.authorized) {
+    authError.value = status.hint || '授权未生效，请重试'
+    return false
+  }
+  session.value = status
+  authPrompt.value = ''
+  authDialogVisible.value = false
+  ElMessage.success(status.hint || fallback)
+  await loadAffairs()
+  return true
+}
+
+/** 第二档：拉取验证码图片（5 分钟内有效，可反复刷新）。 */
+const loadCaptcha = async () => {
+  captchaLoading.value = true
+  captchaCode.value = ''
+  try {
+    captchaChallenge.value = await api.getOaCaptcha()
+  } catch (error: unknown) {
+    captchaChallenge.value = null
+    authError.value = errorText(error, '验证码获取失败，请点击「刷新验证码」重试')
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+/** 第一档：自动授权；账号密码未配置或 OA 要求验证码时落到验证码登录。 */
+const runAutoAuthorization = async () => {
+  autoRunning.value = true
+  authError.value = ''
+  try {
+    if (await finishAuthorization(await api.autoOaLogin(), '自动授权成功')) return
+  } catch (error: unknown) {
+    authError.value = errorText(error, '自动授权失败，请改用验证码登录或粘贴 JSESSIONID')
+  } finally {
+    autoRunning.value = false
+  }
+  captchaStage.value = true
+  await loadCaptcha()
+}
+
+/** 第二档：连接器配置的账号密码 + 验证码登录；验证码一次性，失败即换一张。 */
+const submitCaptchaLogin = async () => {
+  const captcha = captchaCode.value.trim()
+  if (!captcha) {
+    authError.value = '请输入图中验证码'
+    return
+  }
+  captchaLoginRunning.value = true
+  authError.value = ''
+  try {
+    if (
+      await finishAuthorization(
+        await api.loginOaSession({ challengeId: captchaChallenge.value?.challengeId, captcha }),
+        '验证码登录成功'
+      )
+    ) {
+      return
+    }
+    await loadCaptcha() // 验证码一次性，未通过即换一张
+  } catch (error: unknown) {
+    const message = errorText(error, '登录失败，请重试或改用 JSESSIONID 授权')
+    await loadCaptcha()
+    authError.value = message
+  } finally {
+    captchaLoginRunning.value = false
+  }
+}
+
 const openAuthDialog = (reason = '') => {
   authCookie.value = ''
+  captchaCode.value = ''
+  captchaChallenge.value = null
+  captchaStage.value = false
+  cookieFallbackPanels.value = []
   authError.value = reason
   authDialogVisible.value = true
+  void runAutoAuthorization()
 }
 
 const switchSelectAll = () => {
@@ -126,12 +221,7 @@ const submitAuthorization = async () => {
   authorizing.value = true
   authError.value = ''
   try {
-    session.value = await api.authorizeOaSession(cookie)
-    authCookie.value = ''
-    authPrompt.value = ''
-    authDialogVisible.value = false
-    ElMessage.success(session.value.hint || '授权成功')
-    await loadAffairs()
+    if (await finishAuthorization(await api.authorizeOaSession(cookie), '授权成功')) authCookie.value = ''
   } catch (error: unknown) {
     authError.value = errorText(error, '授权失败，请检查 JSESSIONID 是否有效')
   } finally {
@@ -429,24 +519,70 @@ onMounted(async () => {
         type="warning"
         :closable="false"
         show-icon
-        :title="authError || 'REST 接口被致远网关拦截时，待办取数与审批通过网页会话通道完成。'"
+        :title="authError || '打开弹窗先尝试自动授权；OA 要求验证码时输入验证码登录，仍不行再粘贴 JSESSIONID 兜底。'"
       />
-      <ol class="auth-steps">
-        <li>浏览器登录致远 OA 并进入工作台（与管理员日常审批同一浏览器）。</li>
-        <li>打开开发者工具 → Application（应用）→ Cookies → 复制 <code>JSESSIONID</code> 的值。</li>
-        <li>粘贴到下方保存，服务端复用该会话取数与审批；失效时按提示重新粘贴。</li>
-      </ol>
-      <el-input
-        v-model="authCookie"
-        type="textarea"
-        :rows="3"
-        placeholder="粘贴 JSESSIONID 的值（可含 JSESSIONID= 前缀）"
-        @keyup.enter.exact.prevent="submitAuthorization"
-      />
-      <p class="auth-note">JSESSIONID 等同登录凭据，仅保存在服务端连接器加密配置中。</p>
+
+      <section class="auth-stage">
+        <div class="auth-stage-head">
+          <span class="auth-stage-title">① 自动授权</span>
+          <el-button size="small" :icon="Refresh" :loading="autoRunning" @click="runAutoAuthorization">
+            重试自动授权
+          </el-button>
+        </div>
+        <p class="auth-note">用连接器配置的 OA 账号密码直接登录，OA 不强制验证码时打开弹窗即完成。</p>
+      </section>
+
+      <section v-if="captchaStage" class="auth-stage">
+        <div class="auth-stage-head">
+          <span class="auth-stage-title">② 验证码登录</span>
+          <el-button size="small" :icon="Refresh" :loading="captchaLoading" @click="loadCaptcha">刷新验证码</el-button>
+        </div>
+        <div class="auth-captcha">
+          <img
+            v-if="captchaImageSrc"
+            class="auth-captcha-img"
+            :src="captchaImageSrc"
+            alt="OA 登录验证码"
+            title="点击刷新验证码"
+            @click="loadCaptcha"
+          />
+          <div v-else class="auth-captcha-img auth-captcha-blank">
+            {{ captchaLoading ? '验证码加载中…' : '验证码未加载，点「刷新验证码」重试' }}
+          </div>
+          <el-input
+            v-model="captchaCode"
+            class="auth-captcha-input"
+            maxlength="8"
+            placeholder="输入图中验证码"
+            @keyup.enter="submitCaptchaLogin"
+          />
+          <el-button type="primary" :loading="captchaLoginRunning" @click="submitCaptchaLogin">登录</el-button>
+        </div>
+        <p class="auth-note">验证码 5 分钟内有效；点「登录」或回车提交，失败会自动换一张。</p>
+      </section>
+
+      <el-collapse v-model="cookieFallbackPanels" class="auth-fallback">
+        <el-collapse-item title="③ 粘贴 JSESSIONID（兜底）" name="cookie">
+          <ol class="auth-steps">
+            <li>浏览器登录致远 OA 并进入工作台（与管理员日常审批同一浏览器）。</li>
+            <li>打开开发者工具 → Application（应用）→ Cookies → 复制 <code>JSESSIONID</code> 的值。</li>
+            <li>粘贴到下方保存，服务端复用该会话取数与审批；失效时按提示重新粘贴。</li>
+          </ol>
+          <el-input
+            v-model="authCookie"
+            type="textarea"
+            :rows="3"
+            placeholder="粘贴 JSESSIONID 的值（可含 JSESSIONID= 前缀）"
+          />
+          <p class="auth-note">JSESSIONID 等同登录凭据，仅保存在服务端连接器加密配置中。</p>
+          <el-button class="auth-fallback-submit" type="primary" :loading="authorizing" @click="submitAuthorization">
+            保存授权
+          </el-button>
+        </el-collapse-item>
+      </el-collapse>
+
       <template #footer>
-        <el-button @click="authDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="authorizing" @click="submitAuthorization">保存授权</el-button>
+        <el-button @click="authDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -511,6 +647,15 @@ onMounted(async () => {
 .empty-guide { padding: 18px 0; color: #757d88; font-size: 13px; }
 .empty-guide p { margin: 0 0 10px; }
 .auth-error { margin-bottom: 14px; }
+.auth-stage { margin-bottom: 16px; }
+.auth-stage-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.auth-stage-title { color: #3f4650; font-size: 13px; font-weight: 600; }
+.auth-captcha { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.auth-captcha-img { width: 120px; height: 40px; border: 1px solid #e3e6ea; border-radius: 4px; background: #fff; object-fit: contain; cursor: pointer; }
+.auth-captcha-blank { display: flex; align-items: center; justify-content: center; width: 180px; padding: 0 8px; color: #8a919b; font-size: 12px; text-align: center; cursor: default; }
+.auth-captcha-input { width: 180px; }
+.auth-fallback { margin-top: 4px; }
+.auth-fallback-submit { margin-top: 12px; }
 .auth-steps { margin: 0 0 14px; padding-left: 20px; color: #555d68; font-size: 13px; line-height: 1.9; }
 .auth-steps code { padding: 1px 4px; border-radius: 3px; background: #eef0f3; font-size: 12px; }
 .auth-note { margin: 10px 0 0; color: #8a919b; font-size: 12px; }
