@@ -51,6 +51,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-16 | b65db78 | frontend-pro：大事儿管理快速筛选栏 276→216px；列表操作列「详情/删除」并入「更多」下拉（四列改 196px，≤1420px 两行栅格），计划时间不再被操作按钮压盖；周进展弹窗按视口定高改 2×2 表单，单屏免滚动（仅前端，backend 未变）；备份 deploy-backups/20260916-233419 | normal-modify agent |
 | 2026-09-17 | f3f43d4 | frontend-pro：修复「系统>数据集成中心 /system/sync」未在 routes.ts 注册导致点菜单被 catch-all 重定向回首页（并补 management 权限路径与 CloudSync 菜单图标映射）；登录页品牌由「BU」色块改为合拍 logo（public/logo.png），与顶栏一致；备份 deploy-backups/20260916-235311 | normal-modify agent |
 | 2026-09-17 | 8890027 | **连接器收口（Connector Hub）**：连接配置统一到 `ai_connector` 注册表与「系统管理→系统配置→连接器管理」单一入口（`/system/connectors`）；V79 迁移 + 启动搬迁器把云效/工时/OA 单行配置表与 ai-connector/email-integration/ai-agent/oa-vreport/weekly-report(yuque.*) 配置组搬入连接器并隐藏源配置（规则 v2：单行配置表优先，标记带版本可重跑）；注册表 API 迁到 `/api/connectors`，退役 `/api/{yunxiao,worktime,seeyon-oa}/config|connection-test` 与 `/api/system/configs/*/test`；两套前端清理散落表单（KPI 工时配置、驾驶舱云效配置、配置管理测试按钮）改为只读+跳转；OA 连接器按现状停用（致远网关 401，待加 IP 白名单）；备份 deploy-backups/20260916-161151 | system-config agent |
+| 2026-09-17 | a62aed2 | frontend-pro（大事儿管理）：周进展弹窗标题改为具体事项名、去掉 WEEKLY UPDATE 头部与内容区重复事项名；进度展示加宽（弹窗进度条铺满主栏、列表「当前进度」条整列铺满 66→168px 且去重百分比）、弹窗主体高度上限 520px（1440×700 也免滚动）；列表操作列改「周进展 / 详情 / 更多（编辑、删除）」；周进展不再连带打开详情抽屉（独立 weeklyMatter 状态）。本次为 8890027 之后的 master 重建，含连接器收口前端（/system/connectors）；备份 deploy-backups/20260917-095423，已按提醒重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
