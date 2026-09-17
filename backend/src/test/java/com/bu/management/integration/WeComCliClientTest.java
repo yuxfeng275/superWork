@@ -93,6 +93,20 @@ class WeComCliClientTest {
     }
 
     @Test
+    @DisplayName("能力未对企业开放（853006）：给出管理员开通提示，而非原始错误码")
+    void describesCorpUnavailableCapability() throws Exception {
+        fakeCli("printf '%s' '{\"errcode\":853006,\"errmsg\":\"this tool is not available for your corporation\"}'");
+
+        WeComCliClient.CliResult result = client.exec("message", List.of("send"));
+
+        assertThat(result.authFailure()).isFalse();
+        assertThat(client.describe(result))
+                .contains("该能力未对企业开放")
+                .contains("企业管理员")
+                .doesNotContain("this tool is not available");
+    }
+
+    @Test
     @DisplayName("CLI 自身错误信封：解析 error.code/message")
     void parsesCliErrorEnvelope() throws Exception {
         fakeCli("printf '%s' '{\"error\":{\"type\":\"UsageError\",\"code\":893201,\"message\":\"unknown argument\"}}'; exit 2");

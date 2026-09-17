@@ -39,7 +39,7 @@ export interface WecomCliPollResult {
 }
 
 /** 品类授权状态：可用 / 已过期 / 未授权 / 异常。 */
-export type WecomCliCapabilityState = 'AVAILABLE' | 'EXPIRED' | 'UNAUTHORIZED' | 'ERROR'
+export type WecomCliCapabilityState = 'AVAILABLE' | 'EXPIRED' | 'UNAUTHORIZED' | 'UNAVAILABLE' | 'ERROR'
 
 /**
  * 品类授权矩阵项（GET /api/wecom-cli/capabilities）。

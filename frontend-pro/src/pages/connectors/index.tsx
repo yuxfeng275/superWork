@@ -200,7 +200,7 @@ const genericCredentials: Record<
 /** 扫码弹窗状态：loading=正在获取二维码，其余与后端轮询状态一致。 */
 type QrState = 'loading' | WecomCliQrPollStatus;
 
-/** 机器人通道品类状态徽标（企微口径：可用 / 已过期 / 未授权 / 异常）。 */
+/** 机器人通道品类状态徽标（企微口径：可用 / 已过期 / 未授权 / 未对企开放 / 异常）。 */
 const capabilityStates: Record<
   WecomCliCapabilityState,
   { color: string; text: string }
@@ -208,6 +208,7 @@ const capabilityStates: Record<
   AVAILABLE: { color: 'success', text: '可用' },
   EXPIRED: { color: 'warning', text: '已过期' },
   UNAUTHORIZED: { color: 'default', text: '未授权' },
+  UNAVAILABLE: { color: 'warning', text: '未对企开放' },
   ERROR: { color: 'error', text: '异常' },
 };
 

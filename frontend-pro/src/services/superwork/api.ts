@@ -334,6 +334,7 @@ export type WecomCliCapabilityState =
   | "AVAILABLE"
   | "EXPIRED"
   | "UNAUTHORIZED"
+  | "UNAVAILABLE"
   | "ERROR";
 
 /** 品类授权矩阵项；message 为企微原文（未授权时含续期引导，可能带 markdown 链接）。 */

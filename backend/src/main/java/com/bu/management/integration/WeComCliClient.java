@@ -44,6 +44,9 @@ public class WeComCliClient {
     /** 品类未授权类错误码：850002 未授权 / 850003 授权已过期 / 851008 部分未授权。 */
     private static final List<Integer> AUTH_ERRCODES = List.of(850002, 850003, 851008);
 
+    /** 能力未对企业开放：需企业管理员在企微侧开通（与「未授权」不同，机器人创建者也无法自助授权）。 */
+    private static final int ERRCODE_NOT_AVAILABLE_FOR_CORP = 853006;
+
     private static final Duration STATUS_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration EXEC_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration AUTH_INIT_TIMEOUT = Duration.ofSeconds(90);
@@ -308,6 +311,9 @@ public class WeComCliClient {
         if (result.authFailure() && StringUtils.hasText(result.helpMessage())) {
             return unescape(result.helpMessage());
         }
+        if (result.errcode() == ERRCODE_NOT_AVAILABLE_FOR_CORP) {
+            return "该能力未对企业开放：需企业管理员在企业微信侧开通后重试（errcode=853006）";
+        }
         return "企业微信接口返回错误（errcode=" + result.errcode() + "）：" + result.errmsg();
     }
 
@@ -454,6 +460,8 @@ public class WeComCliClient {
                     result.add(new Capability(service, label,
                             probe.errcode() == 850003 ? "EXPIRED" : "UNAUTHORIZED",
                             describe(probe)));
+                } else if (probe.errcode() == ERRCODE_NOT_AVAILABLE_FOR_CORP) {
+                    result.add(new Capability(service, label, "UNAVAILABLE", describe(probe)));
                 } else {
                     result.add(new Capability(service, label, "ERROR",
                             "errcode=" + probe.errcode() + " " + probe.errmsg()));
