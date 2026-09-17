@@ -89,9 +89,13 @@ public class SeeyonOaWebChannel {
         String preSession = fetchLoginPageSession();
         String id = java.util.UUID.randomUUID().toString();
         long expireAt = System.currentTimeMillis() + CHALLENGE_TTL_MS;
-        byte[] image = getWithCookie(baseUrl() + "/seeyon/verifyCodeImage.jpg?v=" + System.currentTimeMillis(), preSession);
-        challenges.put(id, new Challenge(preSession, expireAt));
-        return new CaptchaChallenge(id, java.util.Base64.getEncoder().encodeToString(image), expireAt);
+        // 取图请求可能轮换会话 Cookie（JSESSIONID/ts），必须并入挑战会话，否则登录时验证码校验不过
+        HttpResponse<byte[]> imageResponse = getImageWithCookie(
+                baseUrl() + "/seeyon/verifyCodeImage.jpg?v=" + System.currentTimeMillis(), preSession);
+        String challengeSession = mergeCookies(preSession, cookiesFrom(imageResponse));
+        challenges.put(id, new Challenge(challengeSession, expireAt));
+        return new CaptchaChallenge(id,
+                java.util.Base64.getEncoder().encodeToString(imageResponse.body()), expireAt);
     }
 
     /** 账号密码表单登录（可选验证码）；登录成功后立即用最小调用验证会话，并持久化。 */
@@ -181,7 +185,7 @@ public class SeeyonOaWebChannel {
         return String.join("; ", cookies);
     }
 
-    private byte[] getWithCookie(String url, String cookie) {
+    private HttpResponse<byte[]> getImageWithCookie(String url, String cookie) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -194,7 +198,7 @@ public class SeeyonOaWebChannel {
             if (response.statusCode() != 200 || response.body() == null) {
                 throw new IllegalStateException("验证码获取失败");
             }
-            return response.body();
+            return response;
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
