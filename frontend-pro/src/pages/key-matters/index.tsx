@@ -132,13 +132,10 @@ export default function KeyMattersPage() {
   const [detail, setDetail] = useState<Matter>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [weeklyOpen, setWeeklyOpen] = useState(false);
-  const [weeklyEditingExisting, setWeeklyEditingExisting] = useState(false);
-  const [weeklyWeek, setWeeklyWeek] = useState(
-    dayjs().startOf('week').add(1, 'day'),
-  );
+  // 周进展弹窗独立持有事项，避免复用 detail 时连带打开详情抽屉
+  const [weeklyMatter, setWeeklyMatter] = useState<Matter>();
   const [weeklyForm] = Form.useForm();
   const weeklyFormProgress = Form.useWatch('progress', weeklyForm);
-  const weeklyFormWeek = Form.useWatch('weekStartDate', weeklyForm);
   const [users, setUsers] = useState<
     Array<{ id: number; realName?: string; username?: string }>
   >([]);
@@ -318,16 +315,16 @@ export default function KeyMattersPage() {
       (matter.currentWeekUpdate?.weekStartDate === weekText
         ? matter.currentWeekUpdate
         : undefined);
-    setDetail(matter);
+    setWeeklyMatter(matter);
     // 拉取完整详情，保证弹窗右侧历史周进展有数据（列表行不含完整周报）
     void superworkApi
       .getKeyMatter(matter.id)
       .then((full) =>
-        setDetail((prev) => (prev?.id === matter.id ? (full as Matter) : prev)),
+        setWeeklyMatter((prev) =>
+          prev?.id === matter.id ? (full as Matter) : prev,
+        ),
       )
       .catch(() => undefined);
-    setWeeklyWeek(week);
-    setWeeklyEditingExisting(Boolean(update));
     weeklyForm.resetFields();
     weeklyForm.setFieldsValue({
       weekStartDate: week,
@@ -425,12 +422,12 @@ export default function KeyMattersPage() {
     }
   };
   const saveWeekly = async (values: Record<string, unknown>) => {
-    if (!detail) return;
+    if (!weeklyMatter) return;
     try {
       const week =
         (values.weekStartDate as dayjs.Dayjs)?.format('YYYY-MM-DD') ||
         dayjs().startOf('week').add(1, 'day').format('YYYY-MM-DD');
-      await superworkApi.upsertKeyMatterWeeklyUpdate(detail.id, week, {
+      await superworkApi.upsertKeyMatterWeeklyUpdate(weeklyMatter.id, week, {
         status: values.status,
         progress: values.status === '已完成' ? 100 : values.progress,
         progressSummary: String(values.progressSummary || '').trim(),
@@ -440,7 +437,8 @@ export default function KeyMattersPage() {
       });
       message.success('周进展已保存');
       setWeeklyOpen(false);
-      await openDetail(detail);
+      // 详情抽屉本就打开时刷新其数据；未打开则不主动弹出（周进展只更新周报）
+      if (detail) await openDetail(detail);
       await load();
     } catch (e) {
       message.error(e instanceof Error ? e.message : '周进展保存失败');
@@ -842,6 +840,7 @@ export default function KeyMattersPage() {
               <Progress
                 percent={progress}
                 size="small"
+                showInfo={false}
                 status={
                   status === '已阻塞'
                     ? 'exception'
@@ -907,18 +906,22 @@ export default function KeyMattersPage() {
             )}
             <Button
               type="link"
-              icon={<EditOutlined />}
-              disabled={!canEdit(r)}
-              onClick={() => openEdit(r)}
+              icon={<EyeOutlined />}
+              onClick={() => void openDetail(r)}
             >
-              编辑
+              详情
             </Button>
             <Dropdown
               trigger={['click']}
               placement="bottomRight"
               menu={{
                 items: [
-                  { key: 'detail', icon: <EyeOutlined />, label: '详情' },
+                  {
+                    key: 'edit',
+                    icon: <EditOutlined />,
+                    label: '编辑',
+                    disabled: !canEdit(r),
+                  },
                   {
                     key: 'delete',
                     icon: <DeleteOutlined />,
@@ -928,7 +931,7 @@ export default function KeyMattersPage() {
                   },
                 ],
                 onClick: ({ key }) => {
-                  if (key === 'detail') void openDetail(r);
+                  if (key === 'edit') openEdit(r);
                   if (key === 'delete') void remove(r);
                 },
               }}
@@ -2340,7 +2343,7 @@ export default function KeyMattersPage() {
       )}
       <Modal
         className="sw-weekly-modal"
-        title={`${weeklyEditingExisting ? '编辑' : '填写'}周进展`}
+        title={weeklyMatter?.title || '填写周进展'}
         open={weeklyOpen}
         onCancel={() => setWeeklyOpen(false)}
         onOk={() => void weeklyForm.submit()}
@@ -2349,27 +2352,13 @@ export default function KeyMattersPage() {
         width={1080}
         style={{ top: 64 }}
       >
-        {detail && (
+        {weeklyMatter && (
           <div className="sw-weekly-layout">
             <div className="sw-weekly-main">
-              <header className="sw-weekly-workspace-header">
-                <div>
-                  <span className="sw-weekly-kicker">WEEKLY UPDATE</span>
-                  <strong>结构化周进展</strong>
-                </div>
-                <time>
-                  <CalendarOutlined />
-                  {dayjs(weeklyFormWeek || weeklyWeek).format('YYYY-MM-DD')}{' '}
-                  当周
-                </time>
-              </header>
               <div className="sw-weekly-matter">
-                <Typography.Text strong className="sw-weekly-matter-title">
-                  {detail.title}
-                </Typography.Text>
                 <Typography.Text type="secondary">
-                  {detail.projectName || 'BU 内部事项'} ·{' '}
-                  {detail.ownerName || '未指定负责人'}
+                  {weeklyMatter.projectName || 'BU 内部事项'} ·{' '}
+                  {weeklyMatter.ownerName || '未指定负责人'}
                 </Typography.Text>
               </div>
               <Form
@@ -2524,23 +2513,23 @@ export default function KeyMattersPage() {
                   <strong>周进展记录</strong>
                 </div>
                 <Typography.Text type="secondary">
-                  {detail.weeklyUpdates?.length || 0} 次更新
+                  {weeklyMatter.weeklyUpdates?.length || 0} 次更新
                 </Typography.Text>
               </div>
-              {detail.weeklyUpdates?.length ? (
+              {weeklyMatter.weeklyUpdates?.length ? (
                 <List
                   size="small"
                   className="sw-weekly-history-list"
-                  dataSource={detail.weeklyUpdates}
+                  dataSource={weeklyMatter.weeklyUpdates}
                   renderItem={(item: Matter, index: number) => {
                     const delta = historyDelta(
-                      detail.weeklyUpdates || [],
+                      weeklyMatter.weeklyUpdates || [],
                       index,
                     );
                     return (
                       <List.Item
                         actions={
-                          canFeedback(detail) && item.weekStartDate
+                          canFeedback(weeklyMatter) && item.weekStartDate
                             ? [
                                 <Button
                                   key="edit"
@@ -2548,7 +2537,7 @@ export default function KeyMattersPage() {
                                   size="small"
                                   onClick={() =>
                                     openWeekly(
-                                      detail,
+                                      weeklyMatter,
                                       dayjs(item.weekStartDate),
                                     )
                                   }
