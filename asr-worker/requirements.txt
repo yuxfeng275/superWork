@@ -1,0 +1,12 @@
+# 会议 ASR worker 运行依赖；容器内执行 pip install -r requirements.txt。
+# torch / torchaudio 走 PyTorch CPU 轮子索引：Linux（x86_64 与 aarch64）解析到 +cpu 构建，
+# 避免默认 CUDA 轮子把镜像撑大。模型权重不在这里安装，首次推理时下载到 MODEL_DIR。
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0
+torchaudio==2.11.0
+
+funasr==1.4.15
+modelscope==1.40.1
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32

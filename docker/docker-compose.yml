@@ -86,6 +86,30 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # 会议转写 worker（FunASR）：宿主 backend 经 http://localhost:8790 访问，
+  # 故发布宿主端口；模型缓存 ./asr-models（MODEL_DIR=/models），首次启动下载较慢。
+  asr-worker:
+    build:
+      context: ../asr-worker
+      dockerfile: Dockerfile
+    container_name: bu-management-asr-worker
+    restart: unless-stopped
+    ports:
+      - "8790:8790"
+    environment:
+      MODEL_DIR: /models
+      MEETING_TOKEN: ${MEETING_ASR_TOKEN:-}
+    volumes:
+      - ./asr-models:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8790/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    networks:
+      - bu-network
+
   nginx:
     image: nginx:alpine
     container_name: bu-management-nginx

@@ -51,6 +51,7 @@ class ControllerSecurityContractTest {
             DesignWorkLogController.class,
             EmailController.class,
             IssueController.class,
+            MeetingController.class,
             ProjectController.class,
             ProjectMemberController.class,
             RequirementConfirmationController.class,

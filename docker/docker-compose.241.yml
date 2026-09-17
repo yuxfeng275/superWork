@@ -92,6 +92,9 @@ services:
       EMAIL_CREDENTIAL_ENCRYPTION_KEY: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:-}
       EMAIL_SYNC_CRON: ${EMAIL_SYNC_CRON:-0 0 * * * *}
       EMAIL_DIGEST_CRON: ${EMAIL_DIGEST_CRON:-0 0 8 * * *}
+      MEETING_STORAGE_DIR: /data/meetings
+    volumes:
+      - ./data/meetings:/data/meetings
     ports:
       - "18081:8081"
     depends_on:
@@ -115,6 +118,28 @@ services:
     environment:
       PORT: 8787
       SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
+    networks:
+      - bu-network
+
+  # 会议转写 worker（FunASR）：仅 bu-network 内网，不发布宿主端口；
+  # backend 经系统配置 meeting.asr.base-url=http://asr-worker:8790 访问。
+  asr-worker:
+    build:
+      context: ../asr-worker
+      dockerfile: Dockerfile
+    container_name: superwork-bu-asr-worker
+    restart: unless-stopped
+    environment:
+      MODEL_DIR: /models
+      MEETING_TOKEN: ${MEETING_ASR_TOKEN:-}
+    volumes:
+      - ./asr-models:/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8790/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
     networks:
       - bu-network
 

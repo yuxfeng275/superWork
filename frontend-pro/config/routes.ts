@@ -37,6 +37,18 @@ export default [
     component: './requirements',
   },
   {
+    path: '/meetings',
+    name: '会议管理',
+    icon: 'timer',
+    component: './meetings',
+  },
+  {
+    path: '/meetings/:id',
+    name: '会议详情',
+    hideInMenu: true,
+    component: './meetings',
+  },
+  {
     path: '/tasks',
     name: '任务管理',
     icon: 'checkSquare',

@@ -162,4 +162,21 @@ class TaskServiceTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("需求不存在");
     }
+
+    @Test
+    @DisplayName("requirementId 为空时创建独立任务（会议待办转化）")
+    void createTask_withoutRequirement_createsStandaloneTask() {
+        CreateTaskDTO dto = new CreateTaskDTO();
+        dto.setTitle("跟进方案");
+        dto.setAssigneeId(9L);
+
+        taskService.createTask(dto, 42L);
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskMapper).insert(captor.capture());
+        Task saved = captor.getValue();
+        assertThat(saved.getRequirementId()).isNull();
+        assertThat(saved.getCreatedBy()).isEqualTo(42L);
+        assertThat(saved.getStatus()).isEqualTo("待开始");
+    }
 }
