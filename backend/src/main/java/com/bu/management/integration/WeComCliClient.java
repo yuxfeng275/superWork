@@ -57,6 +57,10 @@ public class WeComCliClient {
     @Value("${wecom.cli.config-dir:}")
     private String configDirOverride;
 
+    /** CLI 工作目录（cwd 与下载落盘处），必须独立于配置目录。 */
+    @Value("${wecom.cli.workspace:}")
+    private String workspaceOverride;
+
     /** 授权状态（连接器页展示）。 */
     public record CliStatus(boolean authorized, String botId, String hint) {}
 
@@ -88,9 +92,14 @@ public class WeComCliClient {
         return Path.of(System.getProperty("user.home", "/tmp"), ".config", "wecom").toString();
     }
 
-    /** CLI 工作目录：沙箱只允许 cwd 与系统临时目录内读写（下载落盘处）。 */
+    /**
+     * CLI 工作目录：CLI 1.3.0 起文件读写限「进程 cwd + 系统临时目录」，且**配置目录一律拒绝**
+     * （含其子路径），故工作目录必须独立于 {@link #configDir()}。
+     */
     private Path workspaceDir() {
-        Path workspace = Path.of(configDir(), "workspace");
+        String configured = StringUtils.hasText(workspaceOverride)
+                ? workspaceOverride : Path.of(System.getProperty("java.io.tmpdir", "/tmp"), "wecom-cli").toString();
+        Path workspace = Path.of(configured);
         try {
             Files.createDirectories(workspace);
         } catch (IOException e) {
@@ -173,8 +182,11 @@ public class WeComCliClient {
             Process process = builder.start();
             StringBuilder stdout = new StringBuilder();
             StringBuilder stderr = new StringBuilder();
+            // 先启动输出收集，再等待二维码文件：CLI 早期失败时才能带回错误原因
             Thread stdoutReader = drain(process.getInputStream(), stdout);
             Thread stderrReader = drain(process.getErrorStream(), stderr);
+            stdoutReader.start();
+            stderrReader.start();
             // 等待二维码文件出现（最多 15 秒），随后进程在后台继续等待扫码
             long deadline = System.currentTimeMillis() + 15_000L;
             while (System.currentTimeMillis() < deadline && !Files.exists(qrFile)) {
@@ -183,14 +195,14 @@ public class WeComCliClient {
             }
             if (!Files.exists(qrFile)) {
                 process.destroyForcibly();
-                throw new IllegalStateException("二维码生成失败：" + trim(stderr.length() > 0 ? stderr.toString() : stdout.toString()));
+                String detail = stderr.length() > 0 ? stderr.toString() : stdout.toString();
+                throw new IllegalStateException("二维码生成失败：" + (StringUtils.hasText(detail)
+                        ? trim(detail) : "CLI 未输出二维码（退出码 " + (process.isAlive() ? "运行中" : process.exitValue()) + "）"));
             }
             String base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(qrFile));
             QrSession session = new QrSession(sessionId, base64, System.currentTimeMillis() + 300_000L, process);
             qrSessions.put(sessionId, session);
             process.onExit().thenAccept(p -> session.exitCode = p.exitValue());
-            stdoutReader.start();
-            stderrReader.start();
             return session;
         } catch (IOException e) {
             throw new IllegalStateException("无法启动扫码授权：" + e.getMessage());
