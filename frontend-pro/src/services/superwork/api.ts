@@ -966,6 +966,8 @@ export interface MeetingTodoConvertPayload {
   assigneeId?: number;
   severity?: string;
   taskType?: string;
+}
+
 /** 致远 OA 网页会话授权状态（REST 被网关拦截时的取数通道）。 */
 export interface OaSessionStatus {
   authorized: boolean;
