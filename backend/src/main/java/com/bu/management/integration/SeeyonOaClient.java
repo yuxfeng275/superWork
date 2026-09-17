@@ -45,37 +45,73 @@ public class SeeyonOaClient {
     // ==================== 认证 ====================
 
     /**
-     * 获取 REST API 访问令牌
-     * POST /seeyon/rest/token
+     * 获取 REST API 访问令牌。
+     * A8 V8+/V9：`GET /seeyon/rest/token?userName=&password=`（query 参数）；
+     * 旧版部署兼容：`POST /seeyon/rest/token`（JSON 体）。先 query 后 POST。
      */
     public String obtainToken() {
         SeeyonOaRuntimeConfig config = configService.getRuntimeConfig();
         if (!config.hasCredentials()) {
             throw new IllegalStateException("OA 集成尚未完成配置");
         }
-
         // 如果已有缓存的 token 且未过期，直接返回
         if (StringUtils.hasText(cachedToken) && System.currentTimeMillis() < tokenExpireTime) {
             return cachedToken;
         }
-
-        Map<String, String> body = new LinkedHashMap<>();
-        body.put("userName", config.username());
-        body.put("password", config.password());
-
-        JsonNode response = sendJsonPost(config, REST_PATH + "/token", body);
-        String token = response.path("id").asText();
+        String token = tokenViaQuery(config);
         if (!StringUtils.hasText(token)) {
-            token = response.path("token").asText();
+            token = tokenViaPost(config);
         }
         if (!StringUtils.hasText(token)) {
-            throw new IllegalStateException("OA 认证失败：" + response.path("message").asText("未知错误"));
+            throw new IllegalStateException("OA 认证失败：账号密码错误或 REST 接口未开通");
         }
-
         // 缓存 token，默认 30 分钟
         cachedToken = token;
         tokenExpireTime = System.currentTimeMillis() + 30 * 60 * 1000;
         return token;
+    }
+
+    /** GET /seeyon/rest/token?userName=&password=（V8+/V9 形态）；失败返回 null 交由 POST 兜底。 */
+    private String tokenViaQuery(SeeyonOaRuntimeConfig config) {
+        try {
+            String query = "userName=" + URLEncoder.encode(config.username(), StandardCharsets.UTF_8)
+                    + "&password=" + URLEncoder.encode(config.password(), StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.effectiveBaseUrl() + REST_PATH + "/token?" + query))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String text = response.body() == null ? "" : response.body();
+            if (response.statusCode() != 200 || text.startsWith("<") || text.isBlank()) {
+                return null;
+            }
+            JsonNode root = objectMapper.readTree(text);
+            String token = root.path("id").asText(root.path("token").asText(""));
+            return StringUtils.hasText(token) ? token : null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            log.warn("OA query 形态获取 token 失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** POST /seeyon/rest/token（JSON 体，旧版形态）；失败返回 null。 */
+    private String tokenViaPost(SeeyonOaRuntimeConfig config) {
+        try {
+            Map<String, String> body = new LinkedHashMap<>();
+            body.put("userName", config.username());
+            body.put("password", config.password());
+            JsonNode response = sendJsonPost(config, REST_PATH + "/token", body);
+            String token = response.path("id").asText(response.path("token").asText(""));
+            return StringUtils.hasText(token) ? token : null;
+        } catch (IllegalStateException e) {
+            log.warn("OA POST 形态获取 token 失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
