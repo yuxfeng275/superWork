@@ -187,13 +187,13 @@ public class WeComCliClient {
             Thread stderrReader = drain(process.getErrorStream(), stderr);
             stdoutReader.start();
             stderrReader.start();
-            // 等待二维码文件出现（最多 15 秒），随后进程在后台继续等待扫码
+            // 等待二维码文件出现且写入完成（最多 15 秒），随后进程在后台继续等待扫码
             long deadline = System.currentTimeMillis() + 15_000L;
-            while (System.currentTimeMillis() < deadline && !Files.exists(qrFile)) {
-                if (!process.isAlive()) break;
+            while (System.currentTimeMillis() < deadline && !qrReady(qrFile)) {
+                if (!process.isAlive() && !qrReady(qrFile)) break;
                 Thread.sleep(200L);
             }
-            if (!Files.exists(qrFile)) {
+            if (!qrReady(qrFile)) {
                 process.destroyForcibly();
                 String detail = stderr.length() > 0 ? stderr.toString() : stdout.toString();
                 throw new IllegalStateException("二维码生成失败：" + (StringUtils.hasText(detail)
@@ -209,6 +209,14 @@ public class WeComCliClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("扫码授权被中断");
+        }
+    }
+
+    private boolean qrReady(Path qrFile) {
+        try {
+            return Files.exists(qrFile) && Files.size(qrFile) > 0;
+        } catch (IOException e) {
+            return false;
         }
     }
 
