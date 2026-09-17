@@ -1623,11 +1623,15 @@ export default function KeyMattersPage() {
                 }))}
               />
             </Form.Item>
-            <Form.Item name="projectId" label="关联项目">
+            <Form.Item
+              name="projectId"
+              label="关联项目"
+              rules={[{ required: true, message: '请选择项目' }]}
+            >
               <Select
-                allowClear
                 showSearch
                 optionFilterProp="label"
+                placeholder="请选择项目"
                 style={{ width: 180 }}
                 options={projects.map((p) => ({ value: p.id, label: p.name }))}
               />

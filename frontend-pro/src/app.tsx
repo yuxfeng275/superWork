@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   ApiOutlined,
+  AppstoreOutlined,
   BarChartOutlined,
   BellOutlined,
   CheckCircleOutlined,
@@ -71,7 +72,8 @@ const withInitialStateTimeout = <T,>(promise: Promise<T>) =>
   ]).catch(() => undefined);
 
 const menuGroupIcons = {
-  workspace: <HomeOutlined />,
+  home: <HomeOutlined />,
+  workspace: <AppstoreOutlined />,
   foundation: <ApartmentOutlined />,
   sales: <RiseOutlined />,
   system: <SettingOutlined />,
@@ -115,8 +117,8 @@ const menuIconByServerName: Record<string, React.ReactNode> = {
   Link: <LinkOutlined />,
 };
 const resolveMenuIcon = (icon: string | null | undefined, name: string) =>
-  menuIconByServerName[icon || ''] ??
-  menuGroupIconByName[name] ?? <MenuOutlined />;
+  menuGroupIconByName[name] ??
+  menuIconByServerName[icon || ''] ?? <MenuOutlined />;
 
 type MenuAuth = { paths: string[]; managedPaths: string[] };
 const filterMenuByAuth = (
@@ -153,7 +155,7 @@ const splitHomeMenu = (items: MenuDataItem[]): MenuDataItem[] => {
           ...item,
           key: '/workbench',
           name: '首页',
-          icon: menuGroupIcons.workspace,
+          icon: menuGroupIcons.home,
         };
         return result;
       }
@@ -170,7 +172,7 @@ const splitHomeMenu = (items: MenuDataItem[]): MenuDataItem[] => {
   return home ? [home, ...rest] : rest;
 };
 
-const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
+export const mapServerMenu = (nodes?: MenuTreeNode[]): MenuDataItem[] => {
   if (!nodes?.length) return [];
   const mapNode = (node: MenuTreeNode, depth = 0): MenuDataItem | undefined => {
     const normalizedPath =

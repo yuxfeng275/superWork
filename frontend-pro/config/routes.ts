@@ -15,7 +15,7 @@ export default [
   {
     path: '/workbench',
     name: '工作台',
-    icon: 'home',
+    icon: 'appstore',
     component: './workbench',
   },
   {
