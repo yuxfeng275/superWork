@@ -6,6 +6,19 @@ export interface SeeyonOaSessionStatus {
   hint: string
 }
 
+/** 验证码挑战：challengeId + base64 图片（PNG/JPEG 原始编码）+ 过期时间戳（5 分钟）。 */
+export interface SeeyonOaCaptchaChallenge {
+  challengeId: string
+  imageBase64: string
+  expireAt: number
+}
+
+/** 账号密码（连接器配置）+ 验证码自助授权入参。 */
+export interface SeeyonOaLoginPayload {
+  challengeId?: string
+  captcha: string
+}
+
 /** 待办/已办事项（REST 与网页会话通道返回同一结构）。 */
 export interface SeeyonOaAffair {
   id: string
