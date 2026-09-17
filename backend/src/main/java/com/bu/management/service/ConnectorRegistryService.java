@@ -518,6 +518,39 @@ public class ConnectorRegistryService {
     }
 
     private void testSeeyonRest(Connector entity, String username, String password) {
+        // A8 V8+/V9：token 为 GET query 形态；旧版为 POST JSON。先 query，失败再 POST。
+        String token = seeyonTokenViaQuery(entity, username, password);
+        if (StringUtils.hasText(token)) return;
+        seeyonTokenViaPost(entity, username, password);
+    }
+
+    /** GET /seeyon/rest/token?userName=&password=（V8+/V9 形态）；失败返回 null 交由 POST 判定。 */
+    private String seeyonTokenViaQuery(Connector entity, String username, String password) {
+        try {
+            String query = "userName=" + java.net.URLEncoder.encode(username, java.nio.charset.StandardCharsets.UTF_8)
+                    + "&password=" + java.net.URLEncoder.encode(password, java.nio.charset.StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(trimSlash(entity.getBaseUrl()) + "/seeyon/rest/token?" + query))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            String text = response.body() == null ? "" : response.body();
+            if (response.statusCode() != 200 || text.startsWith("<") || text.isBlank()) return null;
+            JsonNode root = objectMapper.readTree(text);
+            String token = root.path("id").asText(root.path("token").asText(""));
+            return StringUtils.hasText(token) ? token : null;
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** POST /seeyon/rest/token（JSON 体，旧版形态）；失败按其错误抛出。 */
+    private void seeyonTokenViaPost(Connector entity, String username, String password) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userName", username);
         body.put("password", password);
