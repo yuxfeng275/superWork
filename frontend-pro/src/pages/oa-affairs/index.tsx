@@ -85,15 +85,12 @@ export default function OaAffairsPage() {
 
   const authorized = session?.authorized === true;
 
-  const openAuthModal = useCallback(
-    (hint?: string) => {
-      setCookie('');
-      setAuthError('');
-      setAuthOpen(true);
-      if (hint) setSession({ authorized: false, hint });
-    },
-    [],
-  );
+  const openAuthModal = useCallback((hint?: string) => {
+    setCookie('');
+    setAuthError('');
+    setAuthOpen(true);
+    if (hint) setSession({ authorized: false, hint });
+  }, []);
 
   const loadSession = useCallback(async () => {
     setSessionLoading(true);
@@ -241,7 +238,9 @@ export default function OaAffairsPage() {
           `批量${ACTION_LABELS[batchAction]}完成：成功 ${results.length - failed} 项，失败 ${failed} 项`,
         );
       else
-        message.success(`批量${ACTION_LABELS[batchAction]}完成：共 ${results.length} 项`);
+        message.success(
+          `批量${ACTION_LABELS[batchAction]}完成：共 ${results.length} 项`,
+        );
       await loadAffairs();
     } catch (e) {
       if (isSessionExpired(e)) {
@@ -385,7 +384,11 @@ export default function OaAffairsPage() {
               }
             : undefined
         }
-        pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+        pagination={{
+          pageSize: 20,
+          showSizeChanger: false,
+          hideOnSinglePage: true,
+        }}
         locale={{ emptyText: selectable ? '暂无待办事项' : '暂无已办事项' }}
       />
     );

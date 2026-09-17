@@ -61,9 +61,7 @@ describe('OaAffairsPage smoke', () => {
     renderPage();
 
     expect(await screen.findByText('未授权')).toBeInTheDocument();
-    expect(
-      screen.getByText('尚未完成 OA 网页会话授权'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('尚未完成 OA 网页会话授权')).toBeInTheDocument();
     expect(mocks.getOaPendingAffairs).not.toHaveBeenCalled();
     expect(mocks.getOaDoneAffairs).not.toHaveBeenCalled();
   });
@@ -90,9 +88,7 @@ describe('OaAffairsPage smoke', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /全\s*选/ }));
     fireEvent.click(screen.getByRole('button', { name: /批量同意/ }));
-    fireEvent.click(
-      await screen.findByRole('button', { name: '确认同意' }),
-    );
+    fireEvent.click(await screen.findByRole('button', { name: '确认同意' }));
 
     await waitFor(() =>
       expect(mocks.batchApproveOaAffairs).toHaveBeenCalledWith(
@@ -123,8 +119,6 @@ describe('OaAffairsPage smoke', () => {
     renderPage();
 
     expect(await screen.findByText('OA 网页会话授权')).toBeInTheDocument();
-    expect(
-      screen.getByText('尚未完成 OA 网页会话授权'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('尚未完成 OA 网页会话授权')).toBeInTheDocument();
   });
 });
