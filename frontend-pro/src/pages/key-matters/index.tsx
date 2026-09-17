@@ -2110,22 +2110,21 @@ export default function KeyMattersPage() {
                         <header className="sw-presentation-brief-head">
                           <strong>本周进展</strong>
                           {presentationEditing ? (
-                            <Select
+                            <Segmented
                               className="sw-presentation-brief-status"
                               value={presentationDraft?.status}
-                              popupMatchSelectWidth={false}
-                              onChange={(value) =>
-                                setPresentationDraft((draft) => ({
-                                  ...draft,
-                                  status: value,
-                                  progress:
-                                    value === '已完成' ? 100 : draft?.progress,
-                                }))
-                              }
                               options={statusOptions.map((value) => ({
                                 value,
                                 label: value,
                               }))}
+                              onChange={(value) =>
+                                setPresentationDraft((draft) => ({
+                                  ...draft,
+                                  status: String(value),
+                                  progress:
+                                    value === '已完成' ? 100 : draft?.progress,
+                                }))
+                              }
                             />
                           ) : (
                             <Tag color={presentationStatusTone}>
@@ -2183,6 +2182,39 @@ export default function KeyMattersPage() {
                               </Typography.Text>
                             )}
                           </div>
+                          {presentationEditing && (
+                            <Space
+                              size={4}
+                              wrap
+                              className="sw-presentation-brief-presets"
+                            >
+                              {progressPresets.map((preset) => (
+                                <Button
+                                  key={preset}
+                                  size="small"
+                                  type={
+                                    presentationDraft?.progress === preset
+                                      ? 'primary'
+                                      : 'default'
+                                  }
+                                  onClick={() =>
+                                    setPresentationDraft((draft) => ({
+                                      ...draft,
+                                      progress: preset,
+                                      status:
+                                        preset === 100
+                                          ? '已完成'
+                                          : draft?.status === '已完成'
+                                            ? '推进中'
+                                            : draft?.status,
+                                    }))
+                                  }
+                                >
+                                  {preset}%
+                                </Button>
+                              ))}
+                            </Space>
+                          )}
                         </header>
                         {presentationEditing ? (
                           <Input.TextArea
