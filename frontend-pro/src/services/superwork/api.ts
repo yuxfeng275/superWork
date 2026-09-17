@@ -265,6 +265,8 @@ export interface AiConnectorView {
   usernameConfigured: boolean;
   passwordConfigured: boolean;
   tokenConfigured: boolean;
+  /** 机器人通道 Bot Secret 是否已配置（写入型字段不回显） */
+  botSecretConfigured: boolean;
   enabled: boolean;
   ready: boolean;
   hint: string;
@@ -287,9 +289,61 @@ export interface AiConnectorSavePayload {
   username?: string;
   password?: string;
   token?: string;
+  /** 机器人通道 Bot Secret（写入型，留空表示不修改） */
+  botSecret?: string;
   enabled?: boolean;
   sortOrder?: number;
 }
+
+/** wecom-cli 机器人通道状态（Bot ID + Secret 授权）。 */
+export interface WecomCliStatus {
+  cliInstalled: boolean;
+  authorized: boolean;
+  botId: string | null;
+  hint: string;
+}
+
+/** 机器人授权结果：Bot 凭证授权与扫码授权共用口径。 */
+export interface WecomCliAuthorizeResult {
+  authorized: boolean;
+  botId: string | null;
+  hint: string;
+}
+
+/** 扫码授权会话：base64 PNG 二维码 + 过期时间戳（毫秒），5 分钟有效。 */
+export interface WecomCliQrSession {
+  sessionId: string;
+  imageBase64: string;
+  expireAt: number;
+}
+
+export type WecomCliQrPollStatus =
+  | "pending"
+  | "authorized"
+  | "expired"
+  | "failed";
+
+/** 扫码轮询结果；authorized 后带 botId，expired/failed 带 hint。 */
+export interface WecomCliQrPollResult {
+  status: WecomCliQrPollStatus;
+  botId?: string;
+  hint?: string;
+}
+
+export type WecomCliCapabilityState =
+  | "AVAILABLE"
+  | "EXPIRED"
+  | "UNAUTHORIZED"
+  | "ERROR";
+
+/** 品类授权矩阵项；message 为企微原文（未授权时含续期引导，可能带 markdown 链接）。 */
+export interface WecomCliCapability {
+  service: string;
+  label: string;
+  state: WecomCliCapabilityState;
+  message: string;
+}
+
 export interface AiModelView {
   id: number;
   /** 提供方 = 连接器编码 */
@@ -1670,6 +1724,36 @@ export const superworkApi = {
     return requestJson<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: "POST",
     });
+  },
+  /** 机器人通道（wecom-cli）授权状态。 */
+  getWecomCliStatus() {
+    return requestJson<WecomCliStatus>("/api/wecom-cli/status");
+  },
+  /** 用连接器已保存的 Bot ID + Secret 执行无人值守授权。 */
+  authorizeWecomCli() {
+    return requestJson<WecomCliAuthorizeResult>("/api/wecom-cli/authorize", {
+      method: "POST",
+    });
+  },
+  /** 获取扫码授权二维码（base64 PNG，5 分钟有效）。 */
+  createWecomCliQrcode() {
+    return requestJson<WecomCliQrSession>("/api/wecom-cli/auth/qrcode", {
+      method: "POST",
+    });
+  },
+  /** 轮询扫码授权结果。 */
+  pollWecomCliAuth(sessionId: string) {
+    return requestJson<WecomCliQrPollResult>(
+      `/api/wecom-cli/auth/poll${query({ sessionId })}`
+    );
+  },
+  /** 品类授权矩阵；refresh=true 触发一次实时体检。 */
+  getWecomCliCapabilities(refresh = false) {
+    return requestJson<WecomCliCapability[]>(
+      `/api/wecom-cli/capabilities${query({
+        refresh: refresh ? "true" : undefined,
+      })}`
+    );
   },
   getAiModels() {
     return requestJson<AiModelView[]>("/api/ai/models");

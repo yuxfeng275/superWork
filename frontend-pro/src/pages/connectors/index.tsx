@@ -2,7 +2,9 @@ import {
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
+  QrcodeOutlined,
   ReloadOutlined,
+  SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { history } from '@umijs/max';
@@ -22,6 +24,7 @@ import {
   Row,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tag,
@@ -29,12 +32,23 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useEffect, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   type AiConnectorAuthType,
   type AiConnectorSavePayload,
   type AiConnectorView,
   superworkApi,
+  type WecomCliCapability,
+  type WecomCliCapabilityState,
+  type WecomCliQrPollStatus,
+  type WecomCliQrSession,
+  type WecomCliStatus,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
@@ -51,6 +65,8 @@ type ConnectorForm = {
   username?: string;
   password?: string;
   token?: string;
+  /** 机器人通道 Bot Secret（写入型，留空不修改） */
+  botSecret?: string;
   enabled: boolean;
   sortOrder?: number;
   extraConfig?: Record<string, unknown>;
@@ -181,6 +197,55 @@ const genericCredentials: Record<
   MAIL: {},
 };
 
+/** 扫码弹窗状态：loading=正在获取二维码，其余与后端轮询状态一致。 */
+type QrState = 'loading' | WecomCliQrPollStatus;
+
+/** 机器人通道品类状态徽标（企微口径：可用 / 已过期 / 未授权 / 异常）。 */
+const capabilityStates: Record<
+  WecomCliCapabilityState,
+  { color: string; text: string }
+> = {
+  AVAILABLE: { color: 'success', text: '可用' },
+  EXPIRED: { color: 'warning', text: '已过期' },
+  UNAUTHORIZED: { color: 'default', text: '未授权' },
+  ERROR: { color: 'error', text: '异常' },
+};
+
+/** 机器人通道状态徽标：CLI 未安装 > 未授权 > 已授权（Bot xxx）。 */
+const wecomStatusBadge = (status?: WecomCliStatus) => {
+  if (!status) return { color: 'default', text: '状态未知' };
+  if (!status.cliInstalled) return { color: 'error', text: 'CLI 未安装' };
+  if (status.authorized)
+    return { color: 'success', text: `已授权（Bot ${status.botId || '—'}）` };
+  return { color: 'warning', text: '未授权' };
+};
+
+/** 企微原文可能内嵌 markdown 链接（品类续期引导），逐字展示并把链接渲染为可点击外链。 */
+const renderCapabilityMessage = (message?: string): ReactNode => {
+  if (!message) return '—';
+  const nodes: ReactNode[] = [];
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+  let cursor = 0;
+  let match = pattern.exec(message);
+  while (match) {
+    if (match.index > cursor) nodes.push(message.slice(cursor, match.index));
+    nodes.push(
+      <a
+        key={`link-${match.index}`}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {match[1]}
+      </a>,
+    );
+    cursor = match.index + match[0].length;
+    match = pattern.exec(message);
+  }
+  if (cursor < message.length) nodes.push(message.slice(cursor));
+  return nodes;
+};
+
 export default function ConnectorsPage() {
   const [form] = Form.useForm<ConnectorForm>();
   const [rows, setRows] = useState<AiConnectorView[]>([]);
@@ -192,6 +257,19 @@ export default function ConnectorsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState<number>();
   const [toggling, setToggling] = useState<number>();
+  const [wecomStatus, setWecomStatus] = useState<WecomCliStatus>();
+  const [wecomStatusLoading, setWecomStatusLoading] = useState(false);
+  const [wecomStatusError, setWecomStatusError] = useState('');
+  const [capabilities, setCapabilities] = useState<WecomCliCapability[]>([]);
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
+  const [capabilitiesError, setCapabilitiesError] = useState('');
+  const [botAuthorizing, setBotAuthorizing] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrSession, setQrSession] = useState<WecomCliQrSession>();
+  const [qrState, setQrState] = useState<QrState>('loading');
+  const [qrHint, setQrHint] = useState('');
+  const [qrRemaining, setQrRemaining] = useState(0);
+  const qrPollingRef = useRef(false);
   const authType = Form.useWatch('authType', form);
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,6 +286,141 @@ export default function ConnectorsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  const wecomRow = rows.find((row) => row.code === 'wecom');
+  /** 机器人通道的 Bot 凭证是否已配置（Bot ID 明文回显 + Secret 配置标记）。 */
+  const wecomBotConfigured =
+    Boolean(wecomRow?.extraConfig?.botId) &&
+    Boolean(wecomRow?.botSecretConfigured);
+  const loadWecomStatus = useCallback(async () => {
+    setWecomStatusLoading(true);
+    setWecomStatusError('');
+    try {
+      setWecomStatus(await superworkApi.getWecomCliStatus());
+    } catch (e) {
+      setWecomStatus(undefined);
+      setWecomStatusError(
+        e instanceof Error ? e.message : '机器人通道状态读取失败',
+      );
+    } finally {
+      setWecomStatusLoading(false);
+    }
+  }, []);
+  const loadCapabilities = useCallback(async (refresh = false) => {
+    setCapabilitiesLoading(true);
+    setCapabilitiesError('');
+    try {
+      setCapabilities(await superworkApi.getWecomCliCapabilities(refresh));
+    } catch (e) {
+      setCapabilities([]);
+      setCapabilitiesError(
+        e instanceof Error ? e.message : '品类授权矩阵读取失败',
+      );
+    } finally {
+      setCapabilitiesLoading(false);
+    }
+  }, []);
+  /** 进入页面（企业微信连接器存在）即拉取机器人通道状态与品类矩阵。 */
+  useEffect(() => {
+    if (!wecomRow) return;
+    void loadWecomStatus();
+    void loadCapabilities();
+  }, [Boolean(wecomRow), loadWecomStatus, loadCapabilities]);
+  /** Bot 凭证授权：用连接器已保存的 Bot ID + Secret 完成无人值守授权。 */
+  const authorizeWecomBot = async () => {
+    setBotAuthorizing(true);
+    try {
+      const result = await superworkApi.authorizeWecomCli();
+      if (result.authorized) {
+        message.success(
+          result.hint || `机器人通道已授权（Bot ${result.botId || '—'}）`,
+        );
+      } else {
+        message.warning(result.hint || '授权未完成，请检查 Bot 凭证');
+      }
+      await loadWecomStatus();
+      await loadCapabilities(true);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '机器人授权失败');
+    } finally {
+      setBotAuthorizing(false);
+    }
+  };
+  const fetchQrcode = async () => {
+    setQrState('loading');
+    setQrHint('');
+    setQrSession(undefined);
+    setQrRemaining(0);
+    try {
+      const session = await superworkApi.createWecomCliQrcode();
+      setQrSession(session);
+      setQrRemaining(
+        Math.max(0, Math.ceil((session.expireAt - Date.now()) / 1000)),
+      );
+      setQrState('pending');
+    } catch (e) {
+      setQrState('failed');
+      setQrHint(e instanceof Error ? e.message : '二维码获取失败，请重试');
+    }
+  };
+  const openQrAuth = () => {
+    setQrOpen(true);
+    void fetchQrcode();
+  };
+  /** 轮询扫码结果；authorized 后关闭弹窗并刷新状态与品类矩阵。 */
+  const pollQrSession = useCallback(
+    async (sessionId: string) => {
+      if (qrPollingRef.current) return;
+      qrPollingRef.current = true;
+      try {
+        const result = await superworkApi.pollWecomCliAuth(sessionId);
+        if (result.status === 'pending') return;
+        if (result.status === 'authorized') {
+          setQrState('authorized');
+          setQrOpen(false);
+          message.success(
+            result.hint || `机器人通道已授权（Bot ${result.botId || '—'}）`,
+          );
+          await loadWecomStatus();
+          await loadCapabilities(true);
+          return;
+        }
+        setQrState(result.status);
+        setQrHint(
+          result.hint ||
+            (result.status === 'expired'
+              ? '二维码已过期，请重新获取'
+              : '授权失败，请重新获取二维码'),
+        );
+      } catch (e) {
+        setQrState('failed');
+        setQrHint(
+          e instanceof Error ? e.message : '授权状态查询失败，请重新获取二维码',
+        );
+      } finally {
+        qrPollingRef.current = false;
+      }
+    },
+    [loadCapabilities, loadWecomStatus],
+  );
+  /** 二维码倒计时与轮询：弹窗关闭、超时或终态时随 effect 清理停止，避免定时器泄漏。 */
+  useEffect(() => {
+    if (!qrOpen || !qrSession || qrState !== 'pending') return;
+    const deadline = qrSession.expireAt;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setQrRemaining(remaining);
+      if (remaining <= 0) setQrState('expired');
+    };
+    tick();
+    const countdownTimer = window.setInterval(tick, 1000);
+    const pollTimer = window.setInterval(() => {
+      void pollQrSession(qrSession.sessionId);
+    }, 3000);
+    return () => {
+      window.clearInterval(countdownTimer);
+      window.clearInterval(pollTimer);
+    };
+  }, [pollQrSession, qrOpen, qrSession, qrState]);
   const openCreate = () => {
     setEditing(undefined);
     setInitialExtra({});
@@ -246,6 +459,7 @@ export default function ConnectorsPage() {
       username: '',
       password: '',
       token: '',
+      botSecret: '',
       enabled: row.enabled,
       sortOrder: row.sortOrder,
       extraConfig: { ...(row.extraConfig || {}) },
@@ -279,6 +493,8 @@ export default function ConnectorsPage() {
       if (spec.username && values.username) payload.username = values.username;
       if (spec.password && values.password) payload.password = values.password;
       if (spec.token && values.token) payload.token = values.token;
+      if (editing?.code === 'wecom' && values.botSecret)
+        payload.botSecret = values.botSecret;
       const extraConfig = changedExtraConfig(values);
       if (Object.keys(extraConfig).length) payload.extraConfig = extraConfig;
     } else {
@@ -305,6 +521,10 @@ export default function ConnectorsPage() {
       message.success(editing ? '连接器已更新' : '连接器已创建');
       setOpen(false);
       await load();
+      if (editing?.code === 'wecom') {
+        void loadWecomStatus();
+        void loadCapabilities();
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '连接器保存失败');
     } finally {
@@ -471,6 +691,41 @@ export default function ConnectorsPage() {
       },
     },
   ];
+  const capabilityColumns: TableProps<WecomCliCapability>['columns'] = [
+    {
+      title: '品类',
+      dataIndex: 'label',
+      render: (value: string, row) => (
+        <div>
+          <Typography.Text strong>{value || row.service}</Typography.Text>
+          <Typography.Text type="secondary" className="sw-connector-meta">
+            {row.service}
+          </Typography.Text>
+        </div>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'state',
+      width: 120,
+      render: (value: WecomCliCapabilityState) => {
+        const state = capabilityStates[value] ?? {
+          color: 'default',
+          text: value || '未知',
+        };
+        return <Tag color={state.color}>{state.text}</Tag>;
+      },
+    },
+    {
+      title: '说明',
+      dataIndex: 'message',
+      render: (value: string) => (
+        <Typography.Text type="secondary" className="sw-wecom-message">
+          {renderCapabilityMessage(value)}
+        </Typography.Text>
+      ),
+    },
+  ];
   const activeSpec = editing?.builtIn ? builtinSpecs[editing.code] : undefined;
   const credentialLabels = activeSpec
     ? {
@@ -528,6 +783,7 @@ export default function ConnectorsPage() {
         )}
       </Row>
     );
+  const statusBadge = wecomStatusBadge(wecomStatus);
   return (
     <div className="sw-page sw-connectors">
       <div className="sw-page-header">
@@ -591,6 +847,154 @@ export default function ConnectorsPage() {
           locale={{ emptyText: '暂无连接器' }}
         />
       </Card>
+      {wecomRow && (
+        <Card
+          variant="borderless"
+          className="sw-table-card sw-wecom-bot"
+          title="企业微信 · 机器人通道"
+          extra={
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={capabilitiesLoading}
+              onClick={() => void loadCapabilities(true)}
+            >
+              刷新体检
+            </Button>
+          }
+        >
+          <Space orientation="vertical" size={12} className="sw-wecom-bot-body">
+            <Space size={8} wrap>
+              {wecomStatusLoading && !wecomStatus ? (
+                <Spin size="small" />
+              ) : (
+                <Tag color={statusBadge.color}>{statusBadge.text}</Tag>
+              )}
+              {wecomStatus?.hint && (
+                <Typography.Text type="secondary">
+                  {wecomStatus.hint}
+                </Typography.Text>
+              )}
+            </Space>
+            {wecomStatusError && (
+              <Alert
+                type="error"
+                showIcon
+                message={wecomStatusError}
+                action={
+                  <Button size="small" onClick={() => void loadWecomStatus()}>
+                    重试
+                  </Button>
+                }
+              />
+            )}
+            {!wecomBotConfigured && (
+              <Alert
+                type="info"
+                showIcon
+                message="未配置：填写 Bot ID 与 Bot Secret 后可启用"
+                description="Bot 凭证在「企业微信」连接器的编辑弹窗内填写，保存后回到本面板完成授权；也可直接扫码授权。"
+                action={
+                  wecomRow && (
+                    <Button size="small" onClick={() => openEdit(wecomRow)}>
+                      去填写
+                    </Button>
+                  )
+                }
+              />
+            )}
+            <Space size={8} wrap>
+              <Button
+                type="primary"
+                icon={<SafetyCertificateOutlined />}
+                loading={botAuthorizing}
+                onClick={() => void authorizeWecomBot()}
+              >
+                使用 Bot 凭证授权
+              </Button>
+              <Button icon={<QrcodeOutlined />} onClick={openQrAuth}>
+                扫码授权
+              </Button>
+            </Space>
+            <Divider titlePlacement="left" plain>
+              品类授权矩阵
+            </Divider>
+            {capabilitiesError && (
+              <Alert
+                type="error"
+                showIcon
+                message={capabilitiesError}
+                action={
+                  <Button
+                    size="small"
+                    onClick={() => void loadCapabilities(true)}
+                  >
+                    重试
+                  </Button>
+                }
+              />
+            )}
+            <Table<WecomCliCapability>
+              rowKey="service"
+              size="small"
+              loading={capabilitiesLoading}
+              columns={capabilityColumns}
+              dataSource={capabilities}
+              pagination={false}
+              locale={{ emptyText: '暂无品类数据' }}
+            />
+          </Space>
+        </Card>
+      )}
+      <Modal
+        title="企业微信扫码授权"
+        open={qrOpen}
+        width={400}
+        onCancel={() => setQrOpen(false)}
+        footer={<Button onClick={() => setQrOpen(false)}>关闭</Button>}
+      >
+        <div className="sw-wecom-qr">
+          {qrState === 'loading' ? (
+            <Space orientation="vertical" align="center" size={8}>
+              <Spin />
+              <Typography.Text type="secondary">
+                正在获取二维码…
+              </Typography.Text>
+            </Space>
+          ) : qrState === 'pending' && qrSession ? (
+            <>
+              <div className="sw-wecom-qr-frame">
+                <img
+                  src={`data:image/png;base64,${qrSession.imageBase64}`}
+                  alt="企业微信扫码授权二维码"
+                />
+              </div>
+              <Typography.Text type="secondary">
+                请用企业微信扫码完成授权；二维码{' '}
+                {Math.floor(qrRemaining / 60)}:
+                {String(qrRemaining % 60).padStart(2, '0')} 后过期
+              </Typography.Text>
+            </>
+          ) : qrState === 'authorized' ? (
+            <Alert
+              type="success"
+              showIcon
+              message={qrHint || '扫码授权成功'}
+            />
+          ) : (
+            <>
+              <Alert
+                type="warning"
+                showIcon
+                message={qrHint || '二维码已失效，请重新获取'}
+              />
+              <Button type="primary" onClick={() => void fetchQrcode()}>
+                重新获取
+              </Button>
+            </>
+          )}
+        </div>
+      </Modal>
       <Modal
         title={editing ? `编辑连接器 · ${editing.name}` : '新增连接器'}
         open={open}
@@ -670,6 +1074,41 @@ export default function ConnectorsPage() {
                   )}
                 </Form.Item>
               ))}
+              {editing?.code === 'wecom' && (
+                <>
+                  <Divider titlePlacement="left" plain>
+                    机器人通道（wecom-cli）
+                  </Divider>
+                  <Typography.Paragraph
+                    type="secondary"
+                    className="sw-wecom-form-hint"
+                  >
+                    待办、会议、文档等品类走企微智能机器人通道；保存后在下方的「机器人通道」面板完成授权与品类体检。
+                  </Typography.Paragraph>
+                  <Row gutter={14}>
+                    <Col span={12}>
+                      <Form.Item name={['extraConfig', 'botId']} label="Bot ID">
+                        <Input
+                          autoComplete="off"
+                          placeholder="企微智能机器人 Bot ID"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="botSecret" label="Bot Secret">
+                        <Input.Password
+                          autoComplete="new-password"
+                          placeholder={
+                            editing.botSecretConfigured
+                              ? '已配置，留空则不修改'
+                              : '企微智能机器人 Bot Secret'
+                          }
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </>
+              )}
             </>
           ) : (
             <>

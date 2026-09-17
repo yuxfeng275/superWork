@@ -40,6 +40,13 @@ import type {
 } from '@/types/email'
 import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, MenuTreeNode } from '@/types/kpi'
 import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiModelSavePayload, AiModelView, AiNotice } from '@/types/ai-agent'
+import type {
+  WecomCliAuthResult,
+  WecomCliCapability,
+  WecomCliPollResult,
+  WecomCliQrcode,
+  WecomCliStatus
+} from '@/types/wecom-cli'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 import type { BizLineProfitReport } from '@/types/businessLineProfit'
 import type {
@@ -1949,6 +1956,35 @@ class ApiService {
     return this.request<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: 'POST'
     })
+  }
+
+  // ==================== 企业微信机器人通道（wecom-cli） ====================
+
+  async getWecomCliStatus(): Promise<WecomCliStatus> {
+    return this.request<WecomCliStatus>('/api/wecom-cli/status')
+  }
+
+  /** 用连接器里已保存的 Bot ID + Secret 执行授权（失败时后端透传 CLI 原始错误）。 */
+  async authorizeWecomCli(): Promise<WecomCliAuthResult> {
+    return this.request<WecomCliAuthResult>('/api/wecom-cli/authorize', {
+      method: 'POST'
+    })
+  }
+
+  /** 获取扫码授权二维码（base64 PNG，5 分钟有效）。 */
+  async createWecomCliQrcode(): Promise<WecomCliQrcode> {
+    return this.request<WecomCliQrcode>('/api/wecom-cli/auth/qrcode', {
+      method: 'POST'
+    })
+  }
+
+  async pollWecomCliAuth(sessionId: string): Promise<WecomCliPollResult> {
+    return this.request<WecomCliPollResult>(`/api/wecom-cli/auth/poll?sessionId=${encodeURIComponent(sessionId)}`)
+  }
+
+  /** 品类授权矩阵；refresh=true 触发一次实时体检（较慢）。 */
+  async getWecomCliCapabilities(refresh = false): Promise<WecomCliCapability[]> {
+    return this.request<WecomCliCapability[]>(`/api/wecom-cli/capabilities?refresh=${refresh ? 'true' : 'false'}`)
   }
 
   // ==================== 模型管理（模型名 / 用途 / 默认；连接参数在连接器管理） ====================
