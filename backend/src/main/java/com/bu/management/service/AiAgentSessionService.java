@@ -22,13 +22,10 @@ import org.springframework.util.StringUtils;
 public class AiAgentSessionService {
 
     public static final String DEFAULT_TITLE = "新的对话";
-    public static final String DEFAULT_PROVIDER = AiAgentModelConfigService.PROVIDER_ZHIPU;
-    public static final String DEFAULT_MODEL = "glm-5.3";
-    public static final String PROVIDER_DEEPSEEK = AiAgentModelConfigService.PROVIDER_DEEPSEEK;
     private static final int MAX_TITLE_LENGTH = 30;
 
     private final AiAgentSessionMapper sessionMapper;
-    private final AiAgentModelConfigService modelConfigService;
+    private final AiModelConfigService modelConfigService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -56,13 +53,18 @@ public class AiAgentSessionService {
     }
 
     /**
-     * 创建会话；provider 支持 zhipu/deepseek（缺省 zhipu），
-     * model 缺省取系统配置中该 provider 的模型，运行时按 provider 取凭据。
+     * 创建会话；provider/model 缺省取「模型管理」里的默认模型，
+     * 运行期按 provider（连接器编码，兼容历史 zhipu）取地址与凭据。
      */
     public AiAgentSessionView create(Long userId, String title, String provider, String model) {
-        String resolvedProvider = PROVIDER_DEEPSEEK.equals(provider) ? PROVIDER_DEEPSEEK : DEFAULT_PROVIDER;
+        String resolvedProvider = StringUtils.hasText(provider)
+                ? modelConfigService.normalizeProvider(provider)
+                : modelConfigService.defaultModel()
+                        .orElseThrow(() -> new IllegalStateException(
+                                "尚未配置可用的 AI 模型，请在「模型管理」中启用模型并确认连接器就绪"))
+                        .provider();
         String resolvedModel = StringUtils.hasText(model) ? model.trim()
-                : modelConfigService.resolveModelConfig(resolvedProvider).model();
+                : modelConfigService.resolveModelConfig(resolvedProvider, null).model();
         AiAgentSession session = new AiAgentSession();
         session.setOwnerUserId(userId);
         session.setTitle(StringUtils.hasText(title) ? title.trim() : DEFAULT_TITLE);

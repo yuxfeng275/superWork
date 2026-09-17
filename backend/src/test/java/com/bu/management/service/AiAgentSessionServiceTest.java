@@ -2,8 +2,9 @@ package com.bu.management.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 
@@ -31,7 +32,7 @@ class AiAgentSessionServiceTest {
     private AiAgentSessionMapper sessionMapper;
 
     @Mock
-    private AiAgentModelConfigService modelConfigService;
+    private AiModelConfigService modelConfigService;
 
     private AiAgentSessionService service;
 
@@ -45,8 +46,8 @@ class AiAgentSessionServiceTest {
         session.setId(id);
         session.setOwnerUserId(ownerId);
         session.setTitle(title);
-        session.setProvider(AiAgentSessionService.DEFAULT_PROVIDER);
-        session.setModel(AiAgentSessionService.DEFAULT_MODEL);
+        session.setProvider("glm");
+        session.setModel("deepseek-v4-flash");
         session.setMessagesJson(messagesJson);
         session.setUpdatedAt(LocalDateTime.of(2026, 9, 3, 10, 0));
         return session;
@@ -158,17 +159,18 @@ class AiAgentSessionServiceTest {
     }
 
     @Test
-    @DisplayName("create：未传 provider/model 时默认 zhipu，模型取系统配置")
+    @DisplayName("create：未传 provider/model 时取「模型管理」默认模型")
     void createDefaultsProviderAndModel() {
-        when(modelConfigService.resolveModelConfig("zhipu"))
-                .thenReturn(new AiAgentModelConfigService.ModelConfig(
-                        "https://open.bigmodel.cn/api/paas/v4", "glm-5.3", "sk-test"));
+        when(modelConfigService.defaultModel()).thenReturn(java.util.Optional.of(
+                new AiModelConfigService.ModelOption("glm", "glm-5.3", "GLM（智谱）")));
+        when(modelConfigService.resolveModelConfig("glm", null)).thenReturn(
+                new AiModelConfigService.ModelConfig("https://open.bigmodel.cn/api/paas/v4", "glm-5.3", "sk-test"));
 
         service.create(7L, null, null, null);
 
         ArgumentCaptor<AiAgentSession> captor = ArgumentCaptor.forClass(AiAgentSession.class);
         verify(sessionMapper).insert(captor.capture());
-        assertThat(captor.getValue().getProvider()).isEqualTo("zhipu");
+        assertThat(captor.getValue().getProvider()).isEqualTo("glm");
         assertThat(captor.getValue().getModel()).isEqualTo("glm-5.3");
         assertThat(captor.getValue().getTitle()).isEqualTo("新的对话");
     }
@@ -176,8 +178,9 @@ class AiAgentSessionServiceTest {
     @Test
     @DisplayName("create：显式传 deepseek 时按 deepseek 解析默认模型")
     void createResolvesDeepSeekModel() {
-        when(modelConfigService.resolveModelConfig("deepseek"))
-                .thenReturn(new AiAgentModelConfigService.ModelConfig(
+        when(modelConfigService.normalizeProvider("deepseek")).thenReturn("deepseek");
+        when(modelConfigService.resolveModelConfig("deepseek", null))
+                .thenReturn(new AiModelConfigService.ModelConfig(
                         "https://api.deepseek.com", "deepseek-v4-flash", "sk-test"));
 
         service.create(7L, null, "deepseek", null);
@@ -189,15 +192,18 @@ class AiAgentSessionServiceTest {
     }
 
     @Test
-    @DisplayName("create：显式传 model 时原样保存，不再读配置")
+    @DisplayName("create：显式传 model 时原样保存，不再解析默认模型")
     void createKeepsExplicitModel() {
+        when(modelConfigService.normalizeProvider("deepseek")).thenReturn("deepseek");
+
         service.create(7L, null, "deepseek", "deepseek-v4-pro");
 
         ArgumentCaptor<AiAgentSession> captor = ArgumentCaptor.forClass(AiAgentSession.class);
         verify(sessionMapper).insert(captor.capture());
         assertThat(captor.getValue().getProvider()).isEqualTo("deepseek");
         assertThat(captor.getValue().getModel()).isEqualTo("deepseek-v4-pro");
-        verifyNoInteractions(modelConfigService);
+        verify(modelConfigService, never()).defaultModel();
+        verify(modelConfigService, never()).resolveModelConfig(any(), any());
     }
 
     @Test

@@ -3,8 +3,8 @@ package com.bu.management.controller;
 import com.bu.management.config.AiAgentProperties;
 import com.bu.management.dto.AiAgentSendMessageRequest;
 import com.bu.management.dto.CreateAiAgentSessionRequest;
-import com.bu.management.service.AiAgentModelConfigService;
 import com.bu.management.service.AiAgentSessionService;
+import com.bu.management.service.AiModelConfigService;
 import com.bu.management.service.AiAgentToolService;
 import com.bu.management.service.ConnectorRegistryService;
 import com.bu.management.vo.AiAgentSessionSummary;
@@ -66,7 +66,7 @@ public class AiAgentController {
 
     private final AiAgentSessionService sessionService;
     private final AiAgentToolService toolService;
-    private final AiAgentModelConfigService modelConfigService;
+    private final AiModelConfigService modelConfigService;
     private final ConnectorRegistryService registryService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
@@ -83,7 +83,7 @@ public class AiAgentController {
 
     /** 可用模型列表（按连接器管理里的 GLM / DeepSeek 连接解析）。 */
     @GetMapping("/models")
-    public Result<List<AiAgentModelConfigService.ModelOption>> models() {
+    public Result<List<AiModelConfigService.ModelOption>> models() {
         return Result.success(modelConfigService.listAvailableModels());
     }
 
@@ -139,8 +139,8 @@ public class AiAgentController {
 
         AiAgentSessionView session = sessionService.get(userId, id);
         JsonNode existingMessages = (JsonNode) session.messages();
-        AiAgentModelConfigService.ModelConfig model =
-                modelConfigService.resolveModelConfig(session.provider());
+        AiModelConfigService.ModelConfig model =
+                modelConfigService.resolveModelConfig(session.provider(), session.model());
 
         String runId = UUID.randomUUID().toString();
         toolService.registerRun(runId, userId);
