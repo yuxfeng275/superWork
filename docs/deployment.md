@@ -162,9 +162,17 @@ ssh 241 'cd /home/openclaw/superwork-claude-sp/docker && \
 
 ### 首次启用会议模块
 
-1. 在 `docker/` 下（或部署环境变量）设置 `MEETING_ASR_TOKEN`，使 compose 的 `${MEETING_ASR_TOKEN:-}` 生效（为空则 worker 不校验 token）。
-2. `docker compose -f docker-compose.241.yml up -d --build asr-worker backend frontend-pro`，`ps` 确认 asr-worker 为 `healthy`。
-3. 管理端「系统配置」启用 `meeting` 组，`meeting.asr.base-url` 设为 `http://asr-worker:8790`，`meeting.asr.token` 与 `MEETING_ASR_TOKEN` 保持一致。
+1. 创建录音目录并授权给后端容器用户（uid 999；容器以 `spring` 用户运行，宿主目录由 Docker 以 root 创建时上传会报 500 `AccessDeniedException: /data/meetings/tmp`）：
+
+   ```bash
+   ssh 241 'mkdir -p /home/openclaw/superwork-claude-sp/docker/data/meetings && \
+     docker run --rm -v /home/openclaw/superwork-claude-sp/docker/data/meetings:/d \
+     nginx:alpine chown -R 999:999 /d'
+   ```
+
+2. 在 `docker/` 下（或部署环境变量）设置 `MEETING_ASR_TOKEN`，使 compose 的 `${MEETING_ASR_TOKEN:-}` 生效（为空则 worker 不校验 token）。
+3. `docker compose -f docker-compose.241.yml up -d --build asr-worker backend frontend-pro`，`ps` 确认 asr-worker 为 `healthy`。
+4. 管理端「系统配置」启用 `meeting` 组，`meeting.asr.base-url` 设为 `http://asr-worker:8790`，`meeting.asr.token` 与 `MEETING_ASR_TOKEN` 保持一致。
 
 ---
 
@@ -263,6 +271,18 @@ ssh 241 'cd /home/openclaw/superwork-claude-sp/docker && docker compose -f docke
 
 # 本地 dev：只启动转写 worker（宿主 backend 经 http://localhost:8790 访问）
 cd docker && docker compose up -d asr-worker
+```
+
+> **慢链路加速（首次构建实测 18 分钟）**：241 到 `deb.debian.org` / `pypi.org` / `download.pytorch.org` 实测 4KB~90KB/s。
+> Dockerfile 支持 `--build-arg`：`APT_MIRROR`（Debian 镜像主机名）、`PIP_INDEX_URL`、`PIP_EXTRA_INDEX_URL`、`PIP_FIND_LINKS`（镜像内 wheelhouse 路径）。
+> 推荐做法：本机（国际链路）`pip download` 预取 CPU 轮子（torch+torchaudio ≈ 190MB，`--platform manylinux_2_28_x86_64 --python-version 3.11 --abi cp311`）→ rsync 到 241 的 `asr-worker/wheels/` → 用阿里云源构建：
+
+```bash
+docker compose -f docker-compose.241.yml build \
+  --build-arg APT_MIRROR=mirrors.aliyun.com \
+  --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+  --build-arg PIP_EXTRA_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+  --build-arg PIP_FIND_LINKS=/wheels asr-worker
 ```
 
 ### 健康检查
