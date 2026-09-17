@@ -83,12 +83,17 @@ const authLabels: Record<AiConnectorAuthType, string> = {
   MAIL: '邮箱（按用户绑定）',
 };
 
+/** 模型（模型名 / 用途 / 默认）已从连接器抽离到独立页面。 */
+const MODELS_PATH = '/system/models';
+
 /** 各系统的延伸动作入口；通用连接器没有跳转。 */
 const connectorLinks: Record<string, { label: string; path: string }> = {
   yunxiao: { label: '云效映射', path: '/statistics?tab=integration' },
   worktime: { label: '工时同步', path: '/kpi-report?tab=worktime' },
   oa: { label: '数据集成', path: '/system/sync' },
   mail: { label: '邮箱账号', path: '/emails' },
+  deepseek: { label: '模型管理', path: MODELS_PATH },
+  glm: { label: '模型管理', path: MODELS_PATH },
 };
 
 const builtinSpecs: Record<string, BuiltinSpec> = {
@@ -148,20 +153,10 @@ const builtinSpecs: Record<string, BuiltinSpec> = {
   deepseek: {
     baseUrl: { placeholder: 'https://api.deepseek.com' },
     token: 'API Key',
-    extras: [
-      { key: 'model', label: '助手模型', placeholder: '如 deepseek-v4-flash' },
-      {
-        key: 'digestModel',
-        label: '摘要模型',
-        placeholder: '如 deepseek-chat',
-      },
-      { key: 'digestEnabled', label: '启用每日摘要', type: 'switch' },
-    ],
   },
   glm: {
     baseUrl: { placeholder: 'https://open.bigmodel.cn/api/paas/v4' },
     token: 'API Key',
-    extras: [{ key: 'model', label: '模型', placeholder: '如 glm-5.3' }],
   },
   wecom: {
     baseUrl: { placeholder: 'https://qyapi.weixin.qq.com' },
@@ -543,7 +538,7 @@ export default function ConnectorsPage() {
           <Typography.Title level={2}>连接器管理</Typography.Title>
           <Typography.Paragraph type="secondary">
             统一维护云效、工时、OA、语雀、邮件与 AI
-            模型等外部系统连接；凭据留空表示保持原配置。
+            提供方等外部系统连接；凭据留空表示保持原配置。
           </Typography.Paragraph>
         </div>
         <Space>
@@ -555,6 +550,23 @@ export default function ConnectorsPage() {
           </Button>
         </Space>
       </div>
+      <Alert
+        type="info"
+        showIcon
+        className="sw-connector-hint"
+        message={
+          <span>
+            模型名与用途（助手可用 /
+            摘要使用）已移至「模型管理」，本页只维护地址与凭据。
+            <Typography.Link
+              className="sw-connector-hint-link"
+              onClick={() => history.push(MODELS_PATH)}
+            >
+              前往模型管理
+            </Typography.Link>
+          </span>
+        }
+      />
       {error && (
         <Alert
           type="error"

@@ -65,6 +65,21 @@
 - 就绪口径唯一：`READY / DISABLED / NOT_CONFIGURED`（`GET /api/connectors/status`，
   AI 助手面板 `GET /api/ai-agent/connectors` 同源）。
 
+### 2.2.1 连接器 vs 模型（2026-09-17 抽离）
+
+模型的选型与用途不再放在连接器里，独立为 **系统管理 → 系统配置 → 模型管理**（`/system/models`，V80）：
+
+| 维度 | 归属 | 内容 |
+|---|---|---|
+| 连接 | 连接器管理（`ai_connector`） | 服务地址、凭据、启停、连接测试、`extra_config` 业务参数 |
+| 模型 | 模型管理（`ai_model`） | 模型名（API 参数）、展示名、**助手可用**、**用于邮件摘要/周报**、默认模型、启停、排序 |
+
+- 关联方式：`ai_model.provider_code` = 连接器 `code`（如 `deepseek` / `glm`）；地址与凭据仍从连接器取。
+- 可用性 = 模型「启用 + 勾选用途」且**提供方连接器 READY**；未就绪时页面标注「连接未就绪」并指向连接器管理。
+- 助手运行：会话模型优先 → 全局默认模型 → 该提供方排序最前的模型；历史 `provider=zhipu` 归一为 `glm`。
+- 摘要：取第一条「摘要使用 + 启用 + 提供方就绪」的模型；没有则每日摘要回落规则生成。
+- V80 把原连接器里的 `model`/`digestModel`/`digestEnabled` 迁入模型表，并从连接器 `extra_config` 中移除。
+
 ### 2.3 配置组退役
 
 | 配置组 | 处理 |

@@ -7,8 +7,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * 邮件摘要与推送的运行时配置：DeepSeek / 企业微信 / 系统外链地址均取连接器注册表
- * （code=deepseek / wecom / mail），连接参数唯一来源见「连接器管理」。
+ * 邮件摘要与推送的运行时配置：
+ * 摘要模型取自「模型管理」（勾选「用于邮件摘要」且提供方连接器就绪的模型），
+ * 企业微信与系统外链地址取自连接器注册表（code=wecom / mail）。
  *
  * @author BU Team
  */
@@ -17,16 +18,17 @@ import org.springframework.util.StringUtils;
 public class EmailIntegrationConfigService {
 
     private final ConnectorRegistryService registryService;
+    private final AiModelConfigService aiModelConfigService;
 
     public EmailIntegrationRuntimeConfig getRuntimeConfig() {
-        Connector deepSeek = registryService.findByCode(ConnectorRegistryService.CODE_DEEPSEEK).orElse(null);
+        AiModelConfigService.DigestModel digest = aiModelConfigService.digestModel().orElse(null);
         Connector weCom = registryService.findByCode(ConnectorRegistryService.CODE_WECOM).orElse(null);
         Connector mail = registryService.findByCode(ConnectorRegistryService.CODE_MAIL).orElse(null);
         return new EmailIntegrationRuntimeConfig(
-                deepSeekEnabled(deepSeek),
-                deepSeek == null ? null : deepSeek.getBaseUrl(),
-                deepSeekModel(deepSeek),
-                deepSeek == null ? null : registryService.credential(deepSeek, "token"),
+                digest != null,
+                digest == null ? null : digest.baseUrl(),
+                digest == null ? null : digest.model(),
+                digest == null ? null : digest.apiKey(),
                 enabled(weCom),
                 weCom == null ? null : weCom.getBaseUrl(),
                 weCom == null ? null : registryService.extra(weCom, "corpId"),
@@ -40,18 +42,6 @@ public class EmailIntegrationConfigService {
                 .map(Connector::getBaseUrl)
                 .filter(StringUtils::hasText)
                 .orElse(null);
-    }
-
-    /** 每日摘要是否使用 DeepSeek：连接器启用且显式勾选摘要用途。 */
-    private boolean deepSeekEnabled(Connector connector) {
-        return enabled(connector) && Boolean.parseBoolean(registryService.extra(connector, "digestEnabled", "false"));
-    }
-
-    /** 摘要模型：优先「邮件摘要模型」，缺省回落到助手模型。 */
-    private String deepSeekModel(Connector connector) {
-        if (connector == null) return null;
-        String digestModel = registryService.extra(connector, "digestModel");
-        return StringUtils.hasText(digestModel) ? digestModel : registryService.extra(connector, "model");
     }
 
     private boolean enabled(Connector connector) {

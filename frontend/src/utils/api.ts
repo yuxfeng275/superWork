@@ -39,7 +39,7 @@ import type {
   EmailWeComMapping,
 } from '@/types/email'
 import type { KpiReport, KpiTarget, KpiNote, KpiAlertRule, WorktimeStatus, WorktimeSyncLog, MenuTreeNode } from '@/types/kpi'
-import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiNotice } from '@/types/ai-agent'
+import type { AiAgentMessage, AiAgentModelOption, AiAgentSession, AiAgentSessionSummary, AiAgentStreamEvent, AiConnectorStatus, AiConnectorSavePayload, AiConnectorView, AiModelSavePayload, AiModelView, AiNotice } from '@/types/ai-agent'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
 import type { BizLineProfitReport } from '@/types/businessLineProfit'
 
@@ -1886,6 +1886,33 @@ class ApiService {
   async testConnector(id: number): Promise<AiConnectorView> {
     return this.request<AiConnectorView>(`/api/connectors/${id}/test`, {
       method: 'POST'
+    })
+  }
+
+  // ==================== 模型管理（模型名 / 用途 / 默认；连接参数在连接器管理） ====================
+
+  async getAiModels(): Promise<AiModelView[]> {
+    return this.request<AiModelView[]>('/api/ai/models')
+  }
+
+  async createAiModel(payload: AiModelSavePayload): Promise<AiModelView> {
+    return this.request<AiModelView>('/api/ai/models', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  /** 更新模型（可只提交改动字段；isDefault=true 时后端自动取消其他行默认） */
+  async updateAiModel(id: number, payload: AiModelSavePayload): Promise<AiModelView> {
+    return this.request<AiModelView>(`/api/ai/models/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  async deleteAiModel(id: number): Promise<void> {
+    return this.request<void>(`/api/ai/models/${id}`, {
+      method: 'DELETE'
     })
   }
 

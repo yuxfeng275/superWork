@@ -133,6 +133,12 @@ export default [
     icon: 'api',
     component: './connectors',
   },
+  {
+    path: '/system/models',
+    name: '模型管理',
+    icon: 'ChatDotRound',
+    component: './models',
+  },
   { path: '/ai-connectors', redirect: '/system/connectors' },
   {
     path: '/system/sync',

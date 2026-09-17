@@ -19,7 +19,7 @@ const router = useRouter()
 
 type ConnectorStatus = 'READY' | 'NOT_CONFIGURED' | 'DISABLED'
 
-type ExtraKind = 'text' | 'select' | 'number' | 'boolean'
+type ExtraKind = 'text' | 'select' | 'number'
 
 interface ExtraField {
   key: string
@@ -29,7 +29,10 @@ interface ExtraField {
   options?: Array<{ label: string; value: string }>
 }
 
-/** 内置连接器的专属参数（extraConfig）；自建连接器只有通用字段 */
+/**
+ * 内置连接器的专属参数（extraConfig）；自建连接器只有通用字段。
+ * 模型名 / 用途 / 默认模型由「模型管理」维护，不再作为连接器专属参数。
+ */
 const EXTRA_FIELDS: Record<string, ExtraField[]> = {
   yunxiao: [
     {
@@ -56,12 +59,6 @@ const EXTRA_FIELDS: Record<string, ExtraField[]> = {
     { key: 'parentDir', label: '父目录', kind: 'text', placeholder: '部门会议' }
   ],
   mail: [{ key: 'searchDays', label: '检索回溯天数', kind: 'number', placeholder: '默认 90 天' }],
-  deepseek: [
-    { key: 'model', label: '助手模型', kind: 'text', placeholder: 'deepseek-v4-flash' },
-    { key: 'digestModel', label: '邮件摘要模型', kind: 'text', placeholder: 'deepseek-chat' },
-    { key: 'digestEnabled', label: '启用邮件摘要', kind: 'boolean' }
-  ],
-  glm: [{ key: 'model', label: '模型', kind: 'text', placeholder: 'glm-5.3' }],
   wecom: [
     { key: 'corpId', label: 'CorpId', kind: 'text', placeholder: '企业 ID' },
     { key: 'agentId', label: 'AgentId', kind: 'text', placeholder: '内部应用 AgentId' }
@@ -74,6 +71,13 @@ const RELATED_PAGES: Record<string, { path: string; label: string }> = {
   worktime: { path: '/kpi-report', label: 'KPI周报 · 数据同步' },
   oa: { path: '/system/sync', label: '数据集成中心' },
   mail: { path: '/emails', label: '邮件管理' }
+}
+
+/** AI 模型提供方：模型名 / 用途 / 默认在「模型管理」维护，这里只指向过去 */
+const MODEL_PROVIDER_CODES = ['deepseek', 'glm']
+
+function openModelManage() {
+  void router.push('/system/models')
 }
 
 const AUTH_LABEL: Record<AiConnectorAuthType, string> = {
@@ -137,7 +141,6 @@ const form = reactive({
 /** 专属字段输入（按类型分桶，便于 v-model 类型安全） */
 const extraText = reactive<Record<string, string>>({})
 const extraNumber = reactive<Record<string, number | undefined>>({})
-const extraBool = reactive<Record<string, boolean>>({})
 /** 打开弹窗时的专属字段原始值：只提交改动键 */
 let extraBaseline: Record<string, unknown> = {}
 
@@ -146,15 +149,13 @@ const extraFields = computed(() => EXTRA_FIELDS[form.code.trim()] ?? [])
 /** 当前编辑目标的凭据配置状态（决定留空占位提示） */
 const editing = computed(() => connectors.value.find(c => c.id === editingId.value) || null)
 
-function extraCurrent(field: ExtraField): string | number | boolean {
-  if (field.kind === 'boolean') return extraBool[field.key] === true
+function extraCurrent(field: ExtraField): string | number {
   if (field.kind === 'number') return extraNumber[field.key] ?? ''
   return (extraText[field.key] ?? '').trim()
 }
 
-function extraStored(field: ExtraField): string | number | boolean {
+function extraStored(field: ExtraField): string | number {
   const raw = extraBaseline[field.key]
-  if (field.kind === 'boolean') return raw === true || raw === 'true'
   if (field.kind === 'number') {
     const value = typeof raw === 'number' ? raw : Number(raw)
     return raw == null || raw === '' || !Number.isFinite(value) ? '' : value
@@ -164,15 +165,14 @@ function extraStored(field: ExtraField): string | number | boolean {
 
 /** 用连接器的 extraConfig 回填专属字段 */
 function resetExtra(code: string, extraConfig: Record<string, unknown> = {}) {
-  ;[extraText, extraNumber, extraBool].forEach(record => {
+  ;[extraText, extraNumber].forEach(record => {
     Object.keys(record).forEach(key => delete record[key])
   })
   extraBaseline = { ...extraConfig }
   for (const field of EXTRA_FIELDS[code] ?? []) {
     const value = extraBaseline[field.key]
     if (value == null) continue
-    if (field.kind === 'boolean') extraBool[field.key] = value === true || value === 'true'
-    else if (field.kind === 'number') {
+    if (field.kind === 'number') {
       const parsed = Number(value)
       if (Number.isFinite(parsed)) extraNumber[field.key] = parsed
     } else extraText[field.key] = String(value)
@@ -422,6 +422,10 @@ onMounted(loadConnectors)
           </div>
           <div class="card-url" :title="connectorUrl(connector)">{{ connectorUrl(connector) }}</div>
           <div v-if="connector.hint" class="card-hint">{{ connector.hint }}</div>
+          <div v-if="MODEL_PROVIDER_CODES.includes(connector.code)" class="card-hint">
+            模型配置已移至
+            <el-link type="primary" :underline="false" @click="openModelManage">「模型管理」</el-link>
+          </div>
 
           <div class="card-status">
             <span class="status-label">启用</span>
@@ -548,7 +552,6 @@ onMounted(loadConnectors)
             <el-select v-if="field.kind === 'select'" v-model="extraText[field.key]" placeholder="请选择">
               <el-option v-for="option in field.options" :key="option.value" :label="option.label" :value="option.value" />
             </el-select>
-            <el-switch v-else-if="field.kind === 'boolean'" v-model="extraBool[field.key]" />
             <el-input-number
               v-else-if="field.kind === 'number'"
               v-model="extraNumber[field.key]"
@@ -561,6 +564,10 @@ onMounted(loadConnectors)
             <span v-if="field.kind === 'number'" class="field-help">留空即删除该参数</span>
           </el-form-item>
         </template>
+        <p v-else-if="MODEL_PROVIDER_CODES.includes(form.code.trim())" class="model-note">
+          本连接器只维护服务地址与凭据；模型名、助手可用、邮件摘要与默认模型已移至
+          <el-link type="primary" :underline="false" @click="openModelManage">「模型管理」</el-link>
+        </p>
 
         <el-form-item label="排序">
           <el-input-number v-model="form.sortOrder" :min="0" />
@@ -757,6 +764,17 @@ onMounted(loadConnectors)
   color: var(--gray-500);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.model-note {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px dashed var(--gray-200);
+  border-radius: 10px;
+  background: var(--gray-50);
+  color: var(--gray-500);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .label-with-tip {
