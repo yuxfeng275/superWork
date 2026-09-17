@@ -1,0 +1,9 @@
+# 契约测试的轻量依赖：刻意不含 funasr/torch/modelscope，
+# tests/test_contract.py 用 stub 引擎断言 HTTP 契约，无需模型栈。
+# web 栈三件套与 requirements.txt 保持同版本，否则无法导入 app.py；
+# starlette 1.6 的 TestClient 已改用 httpx2（httpx 仅剩弃用兼容层）。
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32
+pytest==9.1.1
+httpx2==2.13.0
