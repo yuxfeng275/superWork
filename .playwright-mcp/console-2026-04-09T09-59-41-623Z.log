@@ -1,0 +1,34 @@
+[     152ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[     287ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/requirements?size=100:0
+[     288ms] [ERROR] 加载数据失败: Error: HTTP error! status: 403
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts:27:10)
+    at async loadData (http://127.0.0.1:5175/src/views/HomeView.vue:38:30) @ http://127.0.0.1:5175/@vite/client:509
+[  812843ms] [WARNING] [Vue Router warn]: No match found for location with path "/customer-contacts" @ http://127.0.0.1:5175/@vite/client:509
+[  812943ms] [ERROR] 加载数据失败: TypeError: Failed to fetch
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts:17:26)
+    at ApiService.getRequirements (http://127.0.0.1:5175/src/utils/api.ts:138:15)
+    at loadData (http://127.0.0.1:5175/src/views/HomeView.vue:38:40)
+    at http://127.0.0.1:5175/src/views/HomeView.vue:94:4
+    at http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:3782:87
+    at callWithErrorHandling (http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:1873:17)
+    at callWithAsyncErrorHandling (http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:1880:15)
+    at hook.__weh.hook.__weh (http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:3771:16)
+    at flushPostFlushCbs (http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:2005:25)
+    at flushJobs (http://127.0.0.1:5175/node_modules/.vite/deps/vue.runtime.esm-bundler-CnHsxGWw.js?v=97351cf4:2033:3) @ http://127.0.0.1:5175/@vite/client:509
+[  813254ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5175/src/router/index.ts?t=1775729594277:0
+[  979126ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5175/src/router/index.ts?t=1775729760647:0
+[  994746ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5175/src/router/index.ts?t=1775729776230:0
+[ 1030932ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5175/src/router/index.ts?t=1775729812354:0
+[53523660ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5175/src/router/index.ts?t=1775782304902:0
+[53621883ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[53622023ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/requirements?size=100:0
+[53622023ms] [ERROR] 加载数据失败: Error: HTTP error! status: 403
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts?t=1775729812356:27:10)
+    at async loadData (http://127.0.0.1:5175/src/views/HomeView.vue?t=1775729812356:38:30) @ http://127.0.0.1:5175/@vite/client:509
+[73606045ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:5175/@vite/client:968
+[73667964ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[73668196ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5175/api/requirements?size=100:0
+[73668199ms] [ERROR] 加载数据失败: Error: HTTP error! status: 502
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts:27:10)
+    at async loadData (http://127.0.0.1:5175/src/views/HomeView.vue:38:30) @ http://127.0.0.1:5175/@vite/client:509
+[73668206ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://127.0.0.1:5175/api/requirements?page=1&size=1:0

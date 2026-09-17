@@ -1,0 +1,12 @@
+.sw-system-configs .sw-config-group-card,
+.sw-system-configs .sw-config-editor { min-height: 420px; }
+.sw-config-group-list { display: grid; gap: 8px; margin-top: 16px; }
+.sw-config-group-list button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 13px 12px; border: 1px solid transparent; border-radius: 8px; background: #f8fafc; color: #334155; text-align: left; cursor: pointer; transition: .2s ease; }
+.sw-config-group-list button:hover { border-color: #bfdbfe; background: #eff6ff; }
+.sw-config-group-list button.is-selected { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+.sw-config-group-list button span { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.sw-config-group-list button small { color: #64748b; font-size: 12px; }
+.sw-config-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.sw-config-editor-head .ant-typography { margin: 0; }
+.sw-config-help { display: block; margin-top: 6px; font-size: 12px; }
+@media (max-width: 768px) { .sw-config-editor-head { flex-direction: column; } }

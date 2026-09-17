@@ -1,0 +1,1628 @@
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh, Upload } from '@element-plus/icons-vue'
+import type { UploadFile } from 'element-plus'
+import RevenueDeliveryTab from '@/components/RevenueDeliveryTab.vue'
+import { api } from '@/utils/api'
+import type {
+  DeliveryContractBatch,
+  DeliveryMappedContract,
+  DeliveryPendingContract,
+  RevenueCell,
+  RevenueCellDetail,
+  RevenueCostEntry,
+  RevenueWorklogEntry,
+  RevenueEstimateEntry,
+  RevenueImportBatch,
+  RevenueMatrix,
+  RevenueOpportunityOption,
+  RevenueRow,
+  RevenueSalesProject
+} from '@/types/revenue'
+
+interface BusinessLineOption { id: number; name: string }
+interface ProjectOption { id: number; name: string; businessLineId?: number; parentId?: number | null }
+
+interface FlatRow {
+  lineId: number
+  lineName: string
+  lineSpan: number
+  sectionType: string
+  sectionLabel: string
+  sectionSpan: number
+  row: RevenueRow
+}
+
+const currentYear = new Date().getFullYear()
+const year = ref(currentYear)
+const loading = ref(false)
+const matrix = ref<RevenueMatrix | null>(null)
+const displayMode = ref<'merge' | 'hours' | 'cost'>('merge')
+// 数据口径：true=含预估，false=只看实际
+const showEstimates = ref(true)
+// 当前面板由路由 meta.revenueTab 驱动（菜单拆分后每个面板对应独立菜单路径）
+const route = useRoute()
+const activeTab = computed(() => (route.meta.revenueTab as string) || 'matrix')
+const deliveryTabRef = ref<{ reload: () => Promise<void> } | null>(null)
+
+const reloadForActiveTab = () => {
+  if (activeTab.value === 'delivery') {
+    void deliveryTabRef.value?.reload()
+    return
+  }
+  activateTab(activeTab.value)
+}
+
+const handleYearChange = () => {
+  if (activeTab.value === 'delivery') return // 面板 watch year 自行刷新
+  loadMatrix()
+}
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback
+
+const formatHours = (value?: number | null) => {
+  if (value == null) return '—'
+  const num = Number(value)
+  if (num === 0) return '—'
+  return String(Math.round(num * 100) / 100)
+}
+
+const formatWan = (value?: number | null) => {
+  if (value == null) return '—'
+  const num = Number(value) / 10000
+  if (num === 0) return '—'
+  return (Math.round(num * 100) / 100).toLocaleString('zh-CN')
+}
+
+// 业务线/项目筛选：pill 风格多选；空数组=全部
+const filterLineIds = ref<number[]>([])
+const filterProjectIds = ref<number[]>([])
+
+const toggleInList = (list: number[], id: number) =>
+  list.includes(id) ? list.filter(item => item !== id) : [...list, id]
+
+const toggleLineFilter = (id: number) => {
+  filterLineIds.value = toggleInList(filterLineIds.value, id)
+  const valid = new Set(projectFilterOptions.value.map(option => option.id))
+  filterProjectIds.value = filterProjectIds.value.filter(pid => valid.has(pid))
+}
+
+const resetFilters = () => {
+  filterLineIds.value = []
+  filterProjectIds.value = []
+}
+
+const projectFilterOptions = computed(() => {
+  if (!matrix.value) return []
+  return matrix.value.lines
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
+    .flatMap(line => line.sections.flatMap(s => s.rows))
+    .filter(row => row.kind === 'project' && row.projectId != null)
+    .map(row => ({ id: row.projectId as number, name: row.name }))
+})
+
+const sumCells = (rows: RevenueRow[]) => {
+  const months = Array.from({ length: 12 }, () => ({ hours: 0, cost: 0, source: null as RevenueCell['source'] }))
+  rows.forEach(row => {
+    row.months.forEach((cell, i) => {
+      months[i].hours += Number(cell.hours || 0)
+      months[i].cost += Number(cell.cost || 0)
+      if (cell.source) months[i].source = months[i].source && months[i].source !== cell.source ? 'mixed' : cell.source
+    })
+  })
+  const totals = months.reduce((acc, cell) => ({
+    hours: acc.hours + cell.hours,
+    cost: acc.cost + cell.cost,
+    source: cell.source == null ? acc.source
+      : acc.source == null ? cell.source
+      : acc.source === cell.source ? acc.source : 'mixed'
+  }), { hours: 0, cost: 0, source: null as RevenueCell['source'] })
+  return { months, totals }
+}
+
+// 「只看实际」口径：预估格按空值参与汇总
+const visibleMonths = (row: RevenueRow) => showEstimates.value
+  ? row.months
+  : row.months.map(cell => cell.source === 'estimate'
+      ? { hours: 0, cost: 0, source: null as RevenueCell['source'] }
+      : cell)
+
+const rowWithVisibleMonths = (row: RevenueRow): RevenueRow => {
+  const months = visibleMonths(row)
+  if (showEstimates.value) return row
+  const totals = months.reduce((acc, cell) => ({
+    hours: acc.hours + cell.hours,
+    cost: acc.cost + cell.cost,
+    source: cell.source == null ? acc.source
+      : acc.source == null ? cell.source
+      : acc.source === cell.source ? acc.source : 'mixed'
+  }), { hours: 0, cost: 0, source: null as RevenueCell['source'] })
+  return { ...row, months, totals }
+}
+
+const filteredLines = computed(() => {
+  if (!matrix.value) return []
+  const projectFilterActive = filterProjectIds.value.length > 0
+  return matrix.value.lines
+    .filter(line => !filterLineIds.value.length || filterLineIds.value.includes(line.businessLineId))
+    .map(line => {
+      const sections = line.sections.map(section => ({
+        ...section,
+        rows: section.rows
+          .filter(row => {
+            if (!projectFilterActive) return true
+            return row.kind === 'project' && row.projectId != null && filterProjectIds.value.includes(row.projectId)
+          })
+          .map(rowWithVisibleMonths)
+      })).filter(section => section.rows.length > 0)
+      const visibleRows = sections.flatMap(s => s.rows)
+      const { months, totals } = sumCells(visibleRows)
+      return { ...line, sections, monthTotals: months, totals }
+    })
+    .filter(line => line.sections.length > 0)
+})
+
+const filteredMonthTotals = computed(() => {
+  const totals = Array.from({ length: 12 }, () => ({ hours: 0, cost: 0, source: null as RevenueCell['source'] }))
+  filteredLines.value.forEach(line => {
+    line.monthTotals.forEach((cell, i) => {
+      totals[i].hours += Number(cell.hours || 0)
+      totals[i].cost += Number(cell.cost || 0)
+      if (cell.source) totals[i].source = totals[i].source && totals[i].source !== cell.source ? 'mixed' : cell.source
+    })
+  })
+  return totals
+})
+
+const filteredGrandTotal = computed(() => {
+  const total = { hours: 0, cost: 0, source: null as RevenueCell['source'] }
+  filteredLines.value.forEach(line => {
+    total.hours += Number(line.totals.hours || 0)
+    total.cost += Number(line.totals.cost || 0)
+    if (line.totals.source) total.source = total.source && total.source !== line.totals.source ? 'mixed' : line.totals.source
+  })
+  return total
+})
+
+const filteredOverview = computed(() => {
+  const allRows = filteredLines.value.flatMap(line => line.sections.flatMap(s => s.rows))
+  const projectHours = allRows
+    .filter(row => ['project', 'agg_project', 'line_pool', 'simple'].includes(row.kind))
+    .reduce((sum, row) => sum + Number(row.totals?.hours || 0), 0)
+  const salesHours = allRows
+    .filter(row => !['project', 'agg_project', 'line_pool', 'simple'].includes(row.kind))
+    .reduce((sum, row) => sum + Number(row.totals?.hours || 0), 0)
+  const totalHours = projectHours + salesHours
+  const totalCost = Number(filteredGrandTotal.value.cost || 0)
+  return {
+    totalHours,
+    projectHours,
+    salesHours,
+    totalCost,
+    avgUnitPrice: totalHours > 0 ? totalCost / totalHours : null,
+    closedMonthCount: matrix.value?.overview.closedMonthCount ?? 0
+  }
+})
+
+const flatRows = computed<FlatRow[]>(() => {
+  if (!matrix.value) return []
+  const result: FlatRow[] = []
+  filteredLines.value.forEach(line => {
+    const lineRows: FlatRow[] = []
+    line.sections.forEach(section => {
+      section.rows.forEach((row, index) => {
+        lineRows.push({
+          lineId: line.businessLineId,
+          lineName: line.businessLineName,
+          lineSpan: 0,
+          sectionType: section.type,
+          sectionLabel: section.type === 'project' ? '项目' : '销售',
+          sectionSpan: index === 0 ? section.rows.length : 0,
+          row
+        })
+      })
+    })
+    lineRows.forEach((item, index) => {
+      item.lineSpan = index === 0 ? lineRows.length : 0
+    })
+    result.push(...lineRows)
+  })
+  return result
+})
+
+const flatRowsOf = (lineId: number) => flatRows.value.filter(item => item.lineId === lineId)
+
+const loadMatrix = async () => {
+  loading.value = true
+  try {
+    matrix.value = await api.getRevenueMatrix(year.value)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '营收矩阵加载失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// ---------- 月结 ----------
+const closeToggling = ref('')
+const toggleMonthClose = async (month: { yearMonth: string; closed: boolean }) => {
+  try {
+    await ElMessageBox.confirm(
+      month.closed
+        ? `取消完结后，${month.yearMonth} 将改回展示预估数据，且允许重新导入。确定继续吗？`
+        : `完结后 ${month.yearMonth} 展示导入的实际数据并锁定（不可导入、不可改预估）。确定完结吗？`,
+      month.closed ? '取消完结' : '标记完结',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  closeToggling.value = month.yearMonth
+  try {
+    if (month.closed) {
+      await api.reopenRevenueMonth(month.yearMonth)
+      ElMessage.success(`${month.yearMonth} 已取消完结`)
+    } else {
+      await api.closeRevenueMonth(month.yearMonth)
+      ElMessage.success(`${month.yearMonth} 已完结`)
+    }
+    await loadMatrix()
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '月结操作失败'))
+  } finally {
+    closeToggling.value = ''
+  }
+}
+
+// ---------- 单元格下钻 ----------
+const cellDrawer = ref(false)
+const cellLoading = ref(false)
+const cellContext = reactive({ yearMonth: '', lineId: 0, rowKey: '', title: '', closed: false })
+const cellDetail = ref<RevenueCellDetail | null>(null)
+
+const openCell = async (lineId: number, lineName: string, row: RevenueRow, monthIndex: number) => {
+  const month = matrix.value?.months[monthIndex]
+  // 单行汇总业务线：完结月不提供下钻，未完结月可录入预估
+  if (row.kind === 'simple' && month?.closed) return
+  if (!month) return
+  cellContext.yearMonth = month.yearMonth
+  cellContext.lineId = lineId
+  cellContext.rowKey = row.rowKey
+  cellContext.title = `${lineName} / ${row.name} / ${month.yearMonth}`
+  cellContext.closed = month.closed
+  cellDrawer.value = true
+  cellLoading.value = true
+  cellDetail.value = null
+  try {
+    cellDetail.value = await api.getRevenueCellDetail(month.yearMonth, lineId, row.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '明细加载失败'))
+  } finally {
+    cellLoading.value = false
+  }
+}
+
+// ---------- 预估明细 ----------
+const estimateDialog = ref(false)
+const estimateSaving = ref(false)
+const estimateForm = reactive({
+  id: undefined as number | undefined,
+  description: '',
+  personMonths: 1,
+  months: [] as string[]
+})
+
+// 批量预估：按月独立的事项与人月（只创建人月 > 0 的月份）
+const estimateBatchRows = ref<{ yearMonth: string; hours: number; description: string }[]>([])
+
+// 可预估月份：当年未完结月
+const estimableMonths = computed(() =>
+  (matrix.value?.months || []).filter(month => !month.closed).map(month => month.yearMonth))
+
+// 预估 vs 实际 偏差（完结月抽屉）
+const deviation = computed(() => {
+  if (!cellDetail.value?.closed) return null
+  const estimates = cellDetail.value.estimates || []
+  if (!estimates.length) return null
+  const estHours = estimates.reduce((sum, item) => sum + Number(item.personMonths || 0), 0)
+  const estCost = estimates.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const worklogs = cellDetail.value.worklogEntries || []
+  const costs = cellDetail.value.costEntries || []
+  const actualHours = worklogs.length
+    ? worklogs.reduce((sum, item) => sum + Number(item.hours || 0), 0)
+    : costs.reduce((sum, item) => sum + Number(item.hours || 0), 0)
+  const actualCost = costs.reduce((sum, item) => sum + Number(item.costAmount || 0), 0)
+  return { estHours, estCost, actualHours, actualCost }
+})
+
+const deviationText = (actual: number, estimate: number) => {
+  const diff = actual - estimate
+  const pct = estimate !== 0 ? (diff / estimate) * 100 : null
+  return {
+    label: `${diff >= 0 ? '+' : ''}${(Math.round(diff * 100) / 100).toLocaleString('zh-CN')}`,
+    pct: pct == null ? '—' : `${diff >= 0 ? '+' : ''}${pct.toFixed(1)}%`,
+    tone: diff > 0 ? 'over' : diff < 0 ? 'under' : 'flat'
+  }
+}
+
+const estimateRowContext = computed(() => {
+  const row = flatRows.value.find(item => item.row.rowKey === cellContext.rowKey && item.lineId === cellContext.lineId)
+  return row?.row
+})
+
+const estimateUnitPrice = computed(() => estimateRowContext.value?.unitPrice ?? null)
+const estimatePreviewAmount = computed(() =>
+  estimateUnitPrice.value == null ? null : estimateForm.personMonths * estimateUnitPrice.value)
+
+const openEstimateDialog = (entry?: RevenueEstimateEntry) => {
+  estimateForm.id = entry?.id
+  estimateForm.description = entry?.description || ''
+  estimateForm.personMonths = entry ? Number(entry.personMonths) : 1
+  estimateForm.months = [cellContext.yearMonth]
+  estimateBatchRows.value = [{ yearMonth: cellContext.yearMonth, hours: 1, description: '' }]
+  estimateDialog.value = true
+}
+
+const addBatchRow = () => {
+  estimateBatchRows.value.push({ yearMonth: cellContext.yearMonth, hours: 0, description: '' })
+}
+
+const removeBatchRow = (index: number) => {
+  if (estimateBatchRows.value.length > 1) {
+    estimateBatchRows.value.splice(index, 1)
+  }
+}
+
+const estimatePayload = () => {
+  const row = estimateRowContext.value
+  const kindMap: Record<string, { workType: string; salesKind?: string | null }> = {
+    project: { workType: 'project' },
+    line_pool: { workType: 'project' },
+    agg_project: { workType: 'project' },
+    sales_specific: { workType: 'sales', salesKind: 'specific' },
+    pool: { workType: 'sales', salesKind: 'pool' },
+    agg_sales: { workType: 'sales' },
+    other: { workType: 'sales', salesKind: 'other' },
+    simple: { workType: 'project' }
+  }
+  const kind = kindMap[row?.kind || 'project'] || kindMap.project
+  return {
+    yearMonth: cellContext.yearMonth,
+    businessLineId: cellContext.lineId,
+    projectId: row?.projectId ?? null,
+    salesProjectId: row?.salesProjectId ?? null,
+    workType: kind.workType,
+    salesKind: kind.salesKind ?? null,
+    description: estimateForm.description.trim(),
+    personMonths: estimateForm.personMonths
+  }
+}
+
+const saveEstimate = async () => {
+  if (estimateForm.id && (!estimateForm.description.trim() || estimateForm.personMonths <= 0)) {
+    ElMessage.warning('请填写预估说明和大于 0 的人月')
+    return
+  }
+  if (!estimateForm.id) {
+    const incomplete = estimateBatchRows.value.some(row => row.hours > 0 && !(row.description || estimateForm.description).trim())
+    if (incomplete) {
+      ElMessage.warning('有人月的月份需要填写说明（或在默认说明中统一填写）')
+      return
+    }
+  }
+  estimateSaving.value = true
+  try {
+    if (estimateForm.id) {
+      await api.updateRevenueEstimate(estimateForm.id, estimatePayload())
+      ElMessage.success('预估已更新')
+    } else {
+      const rows = estimateBatchRows.value.filter(row => row.hours > 0)
+      if (!rows.length) {
+        ElMessage.warning('请至少为一个月填写大于 0 的人月')
+        estimateSaving.value = false
+        return
+      }
+      const base = estimatePayload()
+      for (const row of rows) {
+        await api.createRevenueEstimate({
+          ...base,
+          yearMonth: row.yearMonth,
+          personMonths: row.hours,
+          description: (row.description || estimateForm.description).trim()
+        })
+      }
+      ElMessage.success(rows.length > 1 ? `已为 ${rows.length} 个月份创建预估` : '预估已添加')
+    }
+    estimateDialog.value = false
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '预估保存失败'))
+  } finally {
+    estimateSaving.value = false
+  }
+}
+
+const removeEstimate = async (entry: RevenueEstimateEntry) => {
+  try {
+    await ElMessageBox.confirm(`删除预估「${entry.description}」？`, '删除预估', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await api.deleteRevenueEstimate(entry.id)
+    ElMessage.success('预估已删除')
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '预估删除失败'))
+  }
+}
+
+// ---------- 完结月手工补录/修改 ----------
+const entryDialog = ref(false)
+const entrySaving = ref(false)
+const entryKind = ref<'worklog' | 'cost'>('worklog')
+const entryForm = reactive({
+  id: undefined as number | undefined,
+  employeeName: '',
+  department: '',
+  hours: 0.1,
+  workNote: '',
+  specialNote: '',
+  projectNameRaw: '',
+  employeeCount: undefined as number | undefined,
+  costAmount: 0,
+  personMonthCost: undefined as number | undefined
+})
+
+const openEntryDialog = (kind: 'worklog' | 'cost', entry?: Partial<RevenueWorklogEntry & RevenueCostEntry>) => {
+  entryKind.value = kind
+  entryForm.id = entry?.id
+  entryForm.employeeName = entry?.employeeName || ''
+  entryForm.department = entry?.department || ''
+  entryForm.hours = entry ? Number(entry.hours) : 0.1
+  entryForm.workNote = entry?.workNote || ''
+  entryForm.specialNote = entry?.specialNote || ''
+  entryForm.projectNameRaw = entry?.projectNameRaw || (estimateRowContext.value?.name ?? '') + '（手工补录）'
+  entryForm.employeeCount = entry?.employeeCount ?? undefined
+  entryForm.costAmount = entry ? Number(entry.costAmount) : 0
+  entryForm.personMonthCost = entry?.personMonthCost ?? undefined
+  entryDialog.value = true
+}
+
+const saveEntry = async () => {
+  if (entryForm.hours < 0) {
+    ElMessage.warning('人月不能为负')
+    return
+  }
+  entrySaving.value = true
+  const row = estimateRowContext.value
+  const kindPayload = estimatePayload()
+  try {
+    if (entryKind.value === 'worklog') {
+      const payload = {
+        yearMonth: cellContext.yearMonth,
+        businessLineId: cellContext.lineId,
+        projectId: row?.projectId ?? null,
+        salesProjectId: row?.salesProjectId ?? null,
+        workType: kindPayload.workType,
+        salesKind: kindPayload.salesKind ?? null,
+        employeeName: entryForm.employeeName.trim(),
+        department: entryForm.department.trim(),
+        hours: entryForm.hours,
+        workNote: entryForm.workNote.trim(),
+        specialNote: entryForm.specialNote.trim(),
+        projectNameRaw: entryForm.projectNameRaw
+      }
+      if (entryForm.id) await api.updateRevenueWorklogEntry(entryForm.id, payload)
+      else await api.createRevenueWorklogEntry(payload)
+    } else {
+      const payload = {
+        yearMonth: cellContext.yearMonth,
+        businessLineId: cellContext.lineId,
+        projectId: row?.projectId ?? null,
+        salesProjectId: row?.salesProjectId ?? null,
+        workType: kindPayload.workType,
+        salesKind: kindPayload.salesKind ?? null,
+        projectNameRaw: entryForm.projectNameRaw,
+        employeeCount: entryForm.employeeCount ?? null,
+        hours: entryForm.hours,
+        costAmount: entryForm.costAmount,
+        personMonthCost: entryForm.personMonthCost ?? null
+      }
+      if (entryForm.id) await api.updateRevenueCostEntry(entryForm.id, payload)
+      else await api.createRevenueCostEntry(payload)
+    }
+    ElMessage.success('明细已保存')
+    entryDialog.value = false
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '明细保存失败'))
+  } finally {
+    entrySaving.value = false
+  }
+}
+
+const removeEntry = async (kind: 'worklog' | 'cost', id: number) => {
+  try {
+    await ElMessageBox.confirm('删除该条明细？', '删除明细', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    if (kind === 'worklog') await api.deleteRevenueWorklogEntry(id)
+    else await api.deleteRevenueCostEntry(id)
+    ElMessage.success('明细已删除')
+    await loadMatrix()
+    cellDetail.value = await api.getRevenueCellDetail(cellContext.yearMonth, cellContext.lineId, cellContext.rowKey)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '明细删除失败'))
+  }
+}
+
+// ---------- 数据导入 ----------
+const worklogFile = ref<File | null>(null)
+const worklogMonth = ref(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
+const costFile = ref<File | null>(null)
+const importing = ref('')
+const batches = ref<RevenueImportBatch[]>([])
+const batchesLoading = ref(false)
+
+const loadBatches = async () => {
+  batchesLoading.value = true
+  try {
+    batches.value = await api.getRevenueImportBatches()
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '导入历史加载失败'))
+  } finally {
+    batchesLoading.value = false
+  }
+}
+
+const runImport = async (kind: 'worklog' | 'cost') => {
+  const file = kind === 'worklog' ? worklogFile.value : costFile.value
+  if (!file) {
+    ElMessage.warning('请先选择文件')
+    return
+  }
+  importing.value = kind
+  try {
+    const result = kind === 'worklog'
+      ? await api.importRevenueWorklog(file, worklogMonth.value)
+      : await api.importRevenueCost(file)
+    ElMessage.success(`导入完成：共 ${result.totalCount} 行，成功 ${result.successCount} 行，待映射 ${result.pendingCount} 行`)
+    worklogFile.value = null
+    costFile.value = null
+    await Promise.all([loadBatches(), loadMatrix(), loadPending()])
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '导入失败'))
+  } finally {
+    importing.value = ''
+  }
+}
+
+const contractFile = ref<File | null>(null)
+const contractImporting = ref(false)
+const contractBatches = ref<DeliveryContractBatch[]>([])
+const contractBatchesLoading = ref(false)
+const pendingContracts = ref<DeliveryPendingContract[]>([])
+const mappedContracts = ref<DeliveryMappedContract[]>([])
+const contractLoading = ref(false)
+type ContractDraft = { businessLineId?: number; projectId: number | null }
+const contractDrafts = reactive<Record<number, ContractDraft>>({})
+const mappedEditingId = ref<number | null>(null)
+const contractSavingId = ref<number | null>(null)
+const loadContractBatches = async () => { contractBatchesLoading.value = true; try { contractBatches.value = await api.getDeliveryContractBatches() } catch (error) { ElMessage.error(errorMessage(error, '合同导入历史加载失败')) } finally { contractBatchesLoading.value = false } }
+const loadContractTools = async () => { contractLoading.value = true; try { [pendingContracts.value, mappedContracts.value] = await Promise.all([api.getPendingDeliveryContracts(), api.getMappedDeliveryContracts(year.value)]) } catch (error) { ElMessage.error(errorMessage(error, '合同清单加载失败')) } finally { contractLoading.value = false } }
+const runContractImport = async () => { if (!contractFile.value) return; contractImporting.value = true; try { await api.importDeliveryContracts(contractFile.value); contractFile.value = null; ElMessage.success('合同导入完成'); await Promise.all([loadContractBatches(), loadContractTools(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同导入失败')) } finally { contractImporting.value = false } }
+const contractProjectsOf = (lineId?: number) => projects.value.filter(project => project.businessLineId === lineId)
+const businessLineNameOfSelected = (lineId?: number) => businessLines.value.find(line => line.id === lineId)?.name || '当前业务线'
+const contractLineName = (row: DeliveryPendingContract) => row.businessLineName || businessLines.value.find(line => line.id === row.bizLineId)?.name || row.bizLineRaw || '—'
+const contractProjectName = (row: DeliveryPendingContract) => row.projectName || projects.value.find(project => project.id === row.projectId)?.name || '业务线级'
+const ensureContractDraft = (row: DeliveryPendingContract) => contractDrafts[row.id] ||= { businessLineId: row.bizLineId ?? undefined, projectId: row.projectId ?? null }
+const changeContractLine = (id: number, businessLineId: number) => { contractDrafts[id] = { businessLineId, projectId: null } }
+const changeContractProject = (row: DeliveryPendingContract, value: number | 'line' | undefined) => { const draft = ensureContractDraft(row); draft.projectId = value === 'line' || value == null ? null : value }
+const beginMappedEdit = (row: DeliveryMappedContract) => { mappedEditingId.value = row.id; ensureContractDraft(row) }
+const resolveContractPending = async (row: DeliveryPendingContract) => { const draft = ensureContractDraft(row); const businessLineId = draft.businessLineId ?? row.bizLineId; if (!businessLineId) { ElMessage.warning('请选择业务线'); return } ; contractSavingId.value = row.id; try { await api.resolvePendingDeliveryContract(row.id, draft.projectId, businessLineId); ElMessage.success('合同已映射'); delete contractDrafts[row.id]; await Promise.all([loadContractTools(), loadMatrix(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同映射保存失败')) } finally { contractSavingId.value = null } }
+const saveMappedContract = async (row: DeliveryMappedContract) => { const draft = ensureContractDraft(row); if (!draft.businessLineId) { ElMessage.warning('请选择业务线'); return }; contractSavingId.value = row.id; try { await api.updateDeliveryContractMapping(row.id, { businessLineId: draft.businessLineId, projectId: draft.projectId }); mappedEditingId.value = null; delete contractDrafts[row.id]; ElMessage.success('合同归属已保存'); await Promise.all([loadContractTools(), loadMatrix(), deliveryTabRef.value?.reload()]) } catch (error) { ElMessage.error(errorMessage(error, '合同归属保存失败')) } finally { contractSavingId.value = null } }
+
+// ---------- 待映射 ----------
+const pendingLoading = ref(false)
+const pendingWorklog = ref<import('@/types/revenue').RevenueWorklogEntry[]>([])
+const pendingCost = ref<import('@/types/revenue').RevenueCostEntry[]>([])
+const businessLines = ref<BusinessLineOption[]>([])
+const projects = ref<ProjectOption[]>([])
+const resolveDrafts = reactive(new Map<string, { businessLineId?: number; projectId?: number }>())
+
+const normalizeRecords = <T>(payload: unknown): T[] => {
+  if (Array.isArray(payload)) return payload as T[]
+  if (!payload || typeof payload !== 'object') return []
+  const envelope = payload as { records?: T[]; data?: T[] | { records?: T[] } }
+  if (Array.isArray(envelope.records)) return envelope.records
+  if (Array.isArray(envelope.data)) return envelope.data
+  if (envelope.data && Array.isArray(envelope.data.records)) return envelope.data.records
+  return []
+}
+
+const loadPending = async () => {
+  pendingLoading.value = true
+  try {
+    const [pending, linePayload, projectPayload] = await Promise.all([
+      api.getRevenuePending(),
+      api.getBusinessLines({ page: 1, size: 100, status: 1 }),
+      api.getProjects({ page: 1, size: 500 })
+    ])
+    pendingWorklog.value = pending.worklog || []
+    pendingCost.value = pending.cost || []
+    businessLines.value = normalizeRecords<BusinessLineOption>(linePayload)
+    projects.value = normalizeRecords<ProjectOption>(projectPayload)
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '待映射清单加载失败'))
+  } finally {
+    pendingLoading.value = false
+  }
+}
+
+const projectsOfLine = (lineId?: number) =>
+  projects.value.filter(item => item.businessLineId === lineId)
+
+const resolvePendingRow = async (type: 'worklog' | 'cost', id: number) => {
+  const draft = resolveDrafts.get(`${type}-${id}`)
+  if (!draft?.businessLineId) {
+    ElMessage.warning('请选择归属业务线')
+    return
+  }
+  try {
+    await api.resolveRevenuePending(type, id, draft.businessLineId, draft.projectId)
+    ElMessage.success('已指定归属')
+    await Promise.all([loadPending(), loadMatrix()])
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '归属保存失败'))
+  }
+}
+
+// ---------- 销售项目 / 商机关联 ----------
+const salesProjects = ref<RevenueSalesProject[]>([])
+const opportunityOptions = ref<RevenueOpportunityOption[]>([])
+
+const loadSalesProjects = async () => {
+  try {
+    const [sp, options] = await Promise.all([
+      api.getRevenueSalesProjects(),
+      api.getRevenueOpportunityOptions()
+    ])
+    salesProjects.value = sp
+    opportunityOptions.value = options
+  } catch {
+    salesProjects.value = []
+  }
+}
+
+const bindOpportunity = async (item: RevenueSalesProject, opportunityId: number | null) => {
+  try {
+    await api.bindRevenueSalesProject(item.id, opportunityId)
+    ElMessage.success('商机关联已保存')
+    await Promise.all([loadSalesProjects(), loadMatrix()])
+  } catch (error) {
+    ElMessage.error(errorMessage(error, '商机关联失败'))
+  }
+}
+
+const businessLineNameOf = (id: number) =>
+  businessLines.value.find(item => item.id === id)?.name || `#${id}`
+
+const pageMeta = computed(() => {
+  switch (activeTab.value) {
+    case 'delivery':
+      return { title: '交付与利润', desc: '按交付口径展示项目交付金额、成本与利润表现。' }
+    case 'import':
+      return { title: '数据导入', desc: '导入工时、成本与合同数据；同月重复导入以文件为准整月覆盖。' }
+    case 'pending':
+      return { title: '待映射与销售项目', desc: '处理待映射明细与合同归属，维护销售项目与商机关联。' }
+    default:
+      return { title: '工时 & 成本', desc: '工时与成本矩阵：完结月展示导入实际值，未完结月展示预估，点击单元格查看明细。' }
+  }
+})
+
+// 面板激活时加载对应数据（immediate 覆盖直接通过菜单进入的场景）
+const activateTab = (name: string) => {
+  if (name === 'delivery') return // RevenueDeliveryTab 挂载后自行加载
+  if (name === 'import') {
+    void Promise.all([loadBatches(), loadContractBatches()])
+    return
+  }
+  if (name === 'pending') {
+    void Promise.all([loadPending(), loadSalesProjects(), loadContractTools()])
+    return
+  }
+  void loadMatrix()
+}
+
+watch(activeTab, activateTab, { immediate: true })
+</script>
+
+<template>
+  <div class="revenue-page" v-loading="loading">
+    <header class="page-head">
+      <div>
+        <span class="eyebrow">REVENUE MANAGEMENT</span>
+        <h2>{{ pageMeta.title }}</h2>
+        <p>{{ pageMeta.desc }}</p>
+      </div>
+      <div class="head-actions">
+        <el-select v-if="activeTab === 'matrix' || activeTab === 'delivery'" v-model="year" aria-label="选择年份" style="width: 130px" @change="handleYearChange">
+          <el-option v-for="y in [currentYear - 1, currentYear, currentYear + 1]" :key="y" :label="`${y}年`" :value="y" />
+        </el-select>
+        <el-button :icon="Refresh" aria-label="刷新" @click="reloadForActiveTab" />
+      </div>
+    </header>
+
+    <template v-if="activeTab === 'matrix'">
+        <template v-if="matrix">
+          <div class="filter-row" aria-label="营收筛选">
+            <div class="filter-pills" aria-label="业务线筛选">
+              <button class="filter-pill" :class="{ active: !filterLineIds.length }" @click="filterLineIds = []">全部业务线</button>
+              <button
+                v-for="line in matrix.lines"
+                :key="line.businessLineId"
+                class="filter-pill"
+                :class="{ active: filterLineIds.includes(line.businessLineId) }"
+                @click="toggleLineFilter(line.businessLineId)"
+              >{{ line.businessLineName }}</button>
+            </div>
+            <div class="filter-pills" aria-label="项目筛选">
+              <button class="filter-pill" :class="{ active: !filterProjectIds.length }" @click="filterProjectIds = []">全部项目</button>
+              <button
+                v-for="p in projectFilterOptions"
+                :key="p.id"
+                class="filter-pill"
+                :class="{ active: filterProjectIds.includes(p.id) }"
+                @click="filterProjectIds = toggleInList(filterProjectIds, p.id)"
+              >{{ p.name }}</button>
+              <button v-if="filterLineIds.length || filterProjectIds.length" class="filter-pill reset" @click="resetFilters">重置</button>
+            </div>
+            <div class="switch-group">
+              <div class="segment-switch" aria-label="数据口径">
+                <button :class="{ active: showEstimates }" @click="showEstimates = true">含预估</button>
+                <button :class="{ active: !showEstimates }" @click="showEstimates = false">只看实际</button>
+              </div>
+              <div class="segment-switch" aria-label="展示内容">
+                <button :class="{ active: displayMode === 'merge' }" @click="displayMode = 'merge'">工时 + 成本</button>
+                <button :class="{ active: displayMode === 'hours' }" @click="displayMode = 'hours'">仅工时</button>
+                <button :class="{ active: displayMode === 'cost' }" @click="displayMode = 'cost'">仅成本</button>
+              </div>
+            </div>
+          </div>
+
+          <section class="overview-strip" aria-label="年度概览">
+            <div class="overview-cell"><span>年度总工时</span><strong>{{ formatHours(filteredOverview.totalHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>项目工时</span><strong>{{ formatHours(filteredOverview.projectHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>销售工时</span><strong>{{ formatHours(filteredOverview.salesHours) }}</strong><small>人月</small></div>
+            <div class="overview-cell"><span>年度总成本</span><strong>{{ formatWan(filteredOverview.totalCost) }}</strong><small>万元</small></div>
+            <div class="overview-cell"><span>综合单价</span><strong>{{ filteredOverview.avgUnitPrice == null ? '—' : formatWan(filteredOverview.avgUnitPrice) }}</strong><small>万/人月</small></div>
+            <div class="overview-cell"><span>已完结月份</span><strong>{{ filteredOverview.closedMonthCount }}</strong><small>/ 12</small></div>
+          </section>
+
+          <div class="matrix-toolbar">
+            <span class="matrix-legend">
+              <i class="legend-swatch actual" />实际（已完结）
+              <i class="legend-swatch estimate" />预估
+            </span>
+          </div>
+
+          <div class="matrix-scroll">
+            <table class="matrix-table">
+              <thead>
+                <tr>
+                  <th class="col-line">业务线</th>
+                  <th class="col-type">类型</th>
+                  <th class="col-project">项目</th>
+                  <th class="col-price">单价<br><small>万/人月</small></th>
+                  <th v-for="(month, index) in matrix.months" :key="month.yearMonth" class="col-month">
+                    <button
+                      class="month-head"
+                      :class="{ closed: month.closed }"
+                      :title="month.closed ? '已完结，点击取消完结' : '未完结，点击标记完结'"
+                      :disabled="closeToggling === month.yearMonth"
+                      @click="toggleMonthClose(month)"
+                    >
+                      {{ index + 1 }}月
+                      <em v-if="month.closed">完</em>
+                    </button>
+                  </th>
+                  <th class="col-total">合计</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="line in filteredLines" :key="line.businessLineId">
+                  <tr v-for="item in flatRowsOf(line.businessLineId)" :key="item.lineId + '-' + item.row.rowKey">
+                    <td v-if="item.lineSpan" class="col-line" :rowspan="item.lineSpan">{{ item.lineName }}</td>
+                    <td v-if="item.sectionSpan" class="col-type" :rowspan="item.sectionSpan">{{ item.row.kind === 'simple' ? '—' : item.sectionLabel }}</td>
+                    <td class="col-project">
+                      {{ item.row.name }}
+                      <small v-if="item.row.opportunityName" class="opp-tag">商机:{{ item.row.opportunityName }}</small>
+                    </td>
+                    <td class="col-price">{{ item.row.unitPrice == null ? '—' : formatWan(item.row.unitPrice) }}</td>
+                    <td
+                      v-for="(cell, monthIndex) in item.row.months"
+                      :key="monthIndex"
+                      class="col-month cell"
+                      :class="[cell.source, { clickable: item.row.kind !== 'simple' || !matrix.months[monthIndex].closed }]"
+                      @click="openCell(item.lineId, item.lineName, item.row, monthIndex)"
+                    >
+                      <template v-if="cell.source">
+                        <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
+                        <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
+                        <i v-if="cell.source === 'estimate'" class="estimate-dot">预</i>
+                      </template>
+                      <span v-else class="cell-empty">—</span>
+                    </td>
+                    <td class="col-total cell">
+                      <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(item.row.totals.cost) }}</span>
+                      <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(item.row.totals.hours) }}</span>
+                    </td>
+                  </tr>
+                  <!-- 单行汇总的业务线（海外/全渠道产品/全域精准）不需要小计 -->
+                  <tr v-if="line.mode !== 'simple'" class="line-total-row">
+                    <td class="col-line">{{ line.businessLineName }}</td>
+                    <td class="col-type" colspan="2">小计</td>
+                    <td class="col-price">—</td>
+                    <td v-for="(cell, i) in line.monthTotals" :key="i" class="col-month cell total">
+                      <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
+                      <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
+                    </td>
+                    <td class="col-total cell total">
+                      <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(line.totals.cost) }}</span>
+                      <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(line.totals.hours) }}</span>
+                    </td>
+                  </tr>
+                </template>
+                <tr class="grand-total-row">
+                  <td class="col-line">合计</td>
+                  <td class="col-type" colspan="2"></td>
+                  <td class="col-price">—</td>
+                  <td v-for="(cell, i) in filteredMonthTotals" :key="i" class="col-month cell total">
+                    <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(cell.cost) }}</span>
+                    <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(cell.hours) }}</span>
+                  </td>
+                  <td class="col-total cell total">
+                    <span v-if="displayMode !== 'hours'" class="cell-cost">{{ formatWan(filteredGrandTotal.cost) }}</span>
+                    <span v-if="displayMode !== 'cost'" class="cell-hours">{{ formatHours(filteredGrandTotal.hours) }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+        <el-empty v-else-if="!loading" description="暂无营收数据，请先在「数据导入」中导入工时与成本明细" />
+    </template>
+
+    <template v-if="activeTab === 'delivery'">
+        <RevenueDeliveryTab
+          ref="deliveryTabRef"
+          :year="year"
+          :active="activeTab === 'delivery'"
+        />
+    </template>
+
+
+    <template v-if="activeTab === 'import'">
+        <div class="import-grid">
+          <section class="import-card">
+            <h4>工时明细导入</h4>
+            <p>工时数据_业务线明细 Excel；同月重复导入以文件为准整月覆盖；已完结月份不可导入。</p>
+            <el-date-picker v-model="worklogMonth" type="month" value-format="YYYY-MM" aria-label="工时归属月份" />
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls"
+              :on-change="(f: UploadFile) => { worklogFile = f.raw ?? null }">
+              <el-button :icon="Upload">选择文件</el-button>
+            </el-upload>
+            <span v-if="worklogFile" class="file-name">{{ worklogFile.name }}</span>
+            <el-button type="primary" :loading="importing === 'worklog'" @click="runImport('worklog')">开始导入</el-button>
+          </section>
+          <section class="import-card">
+            <h4>成本明细导入</h4>
+            <p>成本分析_项目 Excel，月份取自文件内「月份」列；同月重复导入以文件为准整月覆盖。</p>
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls"
+              :on-change="(f: UploadFile) => { costFile = f.raw ?? null }">
+              <el-button :icon="Upload">选择文件</el-button>
+            </el-upload>
+            <span v-if="costFile" class="file-name">{{ costFile.name }}</span>
+            <el-button type="primary" :loading="importing === 'cost'" @click="runImport('cost')">开始导入</el-button>
+          </section>
+        </div>
+        <section class="batch-section">
+          <h4>导入历史</h4>
+          <el-table v-loading="batchesLoading" :data="batches" class="data-table" empty-text="暂无导入记录">
+            <el-table-column prop="createdAt" label="时间" width="180" />
+            <el-table-column label="类型" width="100">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.importType === 'worklog' ? 'warning' : 'success'">
+                  {{ row.importType === 'worklog' ? '工时' : '成本' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="yearMonth" label="归属月份" width="100" />
+            <el-table-column prop="fileName" label="文件名" min-width="240" show-overflow-tooltip />
+            <el-table-column prop="totalCount" label="解析" width="80" />
+            <el-table-column prop="successCount" label="成功" width="80" />
+            <el-table-column prop="pendingCount" label="待映射" width="90" />
+          </el-table>
+        </section>
+        <div class="import-grid">
+          <section class="import-card">
+            <h4>合同导入</h4>
+            <p>OA 合同 / 已交付 Excel；未命中项目的合同进入待映射清单。</p>
+            <el-upload :auto-upload="false" :show-file-list="false" accept=".xlsx,.xls" :on-change="(f: UploadFile) => { contractFile = f.raw ?? null }">
+              <el-button :icon="Upload">选择文件</el-button>
+            </el-upload>
+            <span v-if="contractFile" class="file-name">{{ contractFile.name }}</span>
+            <el-button type="primary" :loading="contractImporting" :disabled="!contractFile" @click="runContractImport">开始导入</el-button>
+          </section>
+        </div>
+        <section class="batch-section">
+          <h4>合同导入历史（{{ contractBatches.length }}）</h4>
+          <el-table v-loading="contractBatchesLoading" :data="contractBatches" class="data-table" empty-text="暂无合同导入批次">
+            <el-table-column prop="createdAt" label="时间" />
+            <el-table-column prop="fileName" label="文件名" />
+            <el-table-column prop="totalCount" label="解析" />
+            <el-table-column prop="successCount" label="成功" />
+            <el-table-column prop="pendingCount" label="待映射" />
+          </el-table>
+        </section>
+    </template>
+
+    <template v-if="activeTab === 'pending'">
+        <section class="pending-section" v-loading="pendingLoading">
+          <h4>待映射明细（{{ pendingWorklog.length + pendingCost.length }}）</h4>
+          <el-table :data="pendingWorklog" class="data-table" empty-text="暂无待映射工时明细">
+            <el-table-column prop="yearMonth" label="月份" width="90" />
+            <el-table-column label="类型" width="80"><template #default>工时</template></el-table-column>
+            <el-table-column prop="businessLineName" label="原始业务线" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="projectNameRaw" label="原始项目" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="employeeName" label="姓名" width="100" />
+            <el-table-column prop="hours" label="人月" width="90" />
+            <el-table-column label="归属业务线" width="180">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="resolveDrafts.get(`worklog-${row.id}`)?.businessLineId"
+                  placeholder="选择业务线"
+                  @change="(v: number) => resolveDrafts.set(`worklog-${row.id}`, { businessLineId: v })"
+                >
+                  <el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="归属项目" width="180">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="resolveDrafts.get(`worklog-${row.id}`)?.projectId"
+                  clearable
+                  placeholder="留空=业务线级"
+                  :disabled="!resolveDrafts.get(`worklog-${row.id}`)?.businessLineId"
+                  @change="(v: number | undefined) => resolveDrafts.set(`worklog-${row.id}`, { ...resolveDrafts.get(`worklog-${row.id}`), projectId: v })"
+                >
+                  <el-option v-for="p in projectsOfLine(resolveDrafts.get(`worklog-${row.id}`)?.businessLineId)" :key="p.id" :label="p.name" :value="p.id" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" @click="resolvePendingRow('worklog', row.id)">确定</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-table :data="pendingCost" class="data-table" style="margin-top: 16px" empty-text="暂无待映射成本明细">
+            <el-table-column prop="yearMonth" label="月份" width="90" />
+            <el-table-column label="类型" width="80"><template #default>成本</template></el-table-column>
+            <el-table-column prop="businessLineName" label="原始业务线" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="projectNameRaw" label="原始项目" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="hours" label="人月" width="90" />
+            <el-table-column label="成本(元)" width="110">
+              <template #default="{ row }">{{ row.costAmount }}</template>
+            </el-table-column>
+            <el-table-column label="归属业务线" width="180">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="resolveDrafts.get(`cost-${row.id}`)?.businessLineId"
+                  placeholder="选择业务线"
+                  @change="(v: number) => resolveDrafts.set(`cost-${row.id}`, { businessLineId: v })"
+                >
+                  <el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="归属项目" width="180">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="resolveDrafts.get(`cost-${row.id}`)?.projectId"
+                  clearable
+                  placeholder="留空=业务线级"
+                  :disabled="!resolveDrafts.get(`cost-${row.id}`)?.businessLineId"
+                  @change="(v: number | undefined) => resolveDrafts.set(`cost-${row.id}`, { ...resolveDrafts.get(`cost-${row.id}`), projectId: v })"
+                >
+                  <el-option v-for="p in projectsOfLine(resolveDrafts.get(`cost-${row.id}`)?.businessLineId)" :key="p.id" :label="p.name" :value="p.id" />
+                </el-select>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" @click="resolvePendingRow('cost', row.id)">确定</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+
+        <section class="pending-section" style="margin-top: 24px">
+          <h4>合同待映射（{{ pendingContracts.length }}）</h4>
+          <el-table v-loading="contractLoading" :data="pendingContracts" class="data-table" empty-text="暂无待映射合同">
+            <el-table-column label="品牌/客户"><template #default="{ row }">{{ row.brand || row.customer || '—' }}</template></el-table-column>
+            <el-table-column label="合同编号/名称" min-width="220"><template #default="{ row }">{{ row.contractNo || row.detailNo }} · {{ row.contractName }}</template></el-table-column>
+            <el-table-column label="应收金额(万)"><template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template></el-table-column>
+            <el-table-column label="业务线"><template #default="{ row }"><el-select :model-value="contractDrafts[row.id]?.businessLineId ?? row.bizLineId ?? undefined" @change="(v: number) => { ensureContractDraft(row).businessLineId = v; ensureContractDraft(row).projectId = null }"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select></template></el-table-column>
+            <el-table-column label="项目"><template #default="{ row }"><el-select :model-value="contractDrafts[row.id]?.projectId" clearable placeholder="业务线级" :disabled="!(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)" @change="(v: number | 'line' | undefined) => changeContractProject(row, v)"><el-option v-if="contractDrafts[row.id]?.businessLineId || row.bizLineId != null" :label="`业务线级 · ${businessLineNameOfSelected(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)}（不落具体项目）`" value="line" /><el-option v-for="p in contractProjectsOf(contractDrafts[row.id]?.businessLineId ?? row.bizLineId)" :key="p.id" :label="p.name" :value="p.id" /></el-select></template></el-table-column>
+            <el-table-column label="操作"><template #default="{ row }"><el-button type="primary" @click="resolveContractPending(row)">确定</el-button></template></el-table-column>
+          </el-table>
+        </section>
+        <section class="pending-section" style="margin-top: 24px">
+          <h4>已映射合同（可调整归属）（{{ mappedContracts.length }}）</h4>
+          <el-table v-loading="contractLoading" :data="mappedContracts" class="data-table" empty-text="暂无已映射合同">
+            <el-table-column label="品牌/客户"><template #default="{ row }">{{ row.brand || row.customer || '—' }}</template></el-table-column>
+            <el-table-column label="合同编号/名称" min-width="220"><template #default="{ row }">{{ row.contractNo || row.detailNo }} · {{ row.contractName }}</template></el-table-column>
+            <el-table-column label="应收金额(万)"><template #default="{ row }">{{ formatWan(row.receivableAmount) }}</template></el-table-column>
+            <el-table-column label="当前业务线"><template #default="{ row }">{{ contractLineName(row) }}</template></el-table-column>
+            <el-table-column label="当前项目"><template #default="{ row }">{{ contractProjectName(row) }}</template></el-table-column>
+            <el-table-column prop="deliveryDate" label="交付日期" />
+            <el-table-column label="操作"><template #default="{ row }"><template v-if="mappedEditingId === row.id"><el-select :model-value="contractDrafts[row.id]?.businessLineId" @change="(v: number) => changeContractLine(row.id, v)"><el-option v-for="line in businessLines" :key="line.id" :label="line.name" :value="line.id" /></el-select><el-select :model-value="contractDrafts[row.id]?.projectId" clearable placeholder="业务线级" @change="(v: number | 'line' | undefined) => changeContractProject(row, v)"><el-option label="业务线级（不落具体项目）" value="line" /><el-option v-for="p in contractProjectsOf(contractDrafts[row.id]?.businessLineId)" :key="p.id" :label="p.name" :value="p.id" /></el-select><el-button type="primary" @click="saveMappedContract(row)">保存</el-button></template><el-button v-else @click="beginMappedEdit(row)">编辑</el-button></template></el-table-column>
+          </el-table>
+        </section>
+        <section class="pending-section" style="margin-top: 24px">
+          <h4>销售项目（{{ salesProjects.length }}）</h4>
+          <p class="section-note">「京博【销售】」这类具体销售项目在导入时自动注册，可在此手动关联商机。</p>
+          <el-table :data="salesProjects" class="data-table" empty-text="暂无销售项目">
+            <el-table-column prop="name" label="销售项目" min-width="160" />
+            <el-table-column label="业务线" min-width="160">
+              <template #default="{ row }">{{ businessLineNameOf(row.businessLineId) }}</template>
+            </el-table-column>
+            <el-table-column label="关联商机" min-width="240">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="row.opportunityId ?? undefined"
+                  clearable
+                  filterable
+                  placeholder="选择商机"
+                  @change="(v: number | undefined) => bindOpportunity(row, v ?? null)"
+                >
+                  <el-option v-for="o in opportunityOptions" :key="o.id" :label="`${o.name}${o.customer ? ' · ' + o.customer : ''}`" :value="o.id" />
+                </el-select>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+    </template>
+
+    <el-drawer v-model="cellDrawer" :title="cellContext.title" size="min(640px, 96vw)" destroy-on-close>
+      <div v-loading="cellLoading" class="cell-drawer">
+        <template v-if="cellDetail">
+          <template v-if="cellDetail.closed">
+            <section v-if="deviation" class="deviation-block" aria-label="预估与实际偏差">
+              <h4>预估 vs 实际</h4>
+              <div class="deviation-grid">
+                <div class="deviation-item">
+                  <span>工时（人月）</span>
+                  <p>预估 {{ deviation.estHours }} · 实际 {{ Math.round(deviation.actualHours * 100) / 100 }}</p>
+                  <strong :class="`tone-${deviationText(deviation.actualHours, deviation.estHours).tone}`">
+                    {{ deviationText(deviation.actualHours, deviation.estHours).label }}
+                    ({{ deviationText(deviation.actualHours, deviation.estHours).pct }})
+                  </strong>
+                </div>
+                <div class="deviation-item">
+                  <span>成本（万元）</span>
+                  <p>预估 {{ formatWan(deviation.estCost) }} · 实际 {{ formatWan(deviation.actualCost) }}</p>
+                  <strong :class="`tone-${deviationText(deviation.actualCost, deviation.estCost).tone}`">
+                    {{ deviationText(deviation.actualCost / 10000, deviation.estCost / 10000).label }}
+                    ({{ deviationText(deviation.actualCost, deviation.estCost).pct }})
+                  </strong>
+                </div>
+              </div>
+            </section>
+            <section>
+              <div class="estimate-head">
+                <h4>工时明细（{{ cellDetail.worklogEntries?.length || 0 }}）</h4>
+                <el-button type="primary" size="small" @click="openEntryDialog('worklog')">新增工时</el-button>
+              </div>
+              <el-table :data="cellDetail.worklogEntries || []" class="data-table" empty-text="该月无工时明细，可点击右上角补录">
+                <el-table-column prop="employeeName" label="姓名" width="90" />
+                <el-table-column prop="department" label="部门" min-width="130" show-overflow-tooltip />
+                <el-table-column prop="hours" label="人月" width="80" />
+                <el-table-column prop="workNote" label="工作说明" min-width="200" show-overflow-tooltip />
+                <el-table-column label="标签" min-width="120">
+                  <template #default="{ row }">
+                    <el-tag v-for="tag in (row.tags || '').split(',').filter(Boolean)" :key="tag" size="small" style="margin-right: 4px">{{ tag }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="110">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openEntryDialog('worklog', row)">编辑</el-button>
+                    <el-button link type="danger" @click="removeEntry('worklog', row.id)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </section>
+            <section style="margin-top: 16px">
+              <div class="estimate-head">
+                <h4>成本明细（{{ cellDetail.costEntries?.length || 0 }}）</h4>
+                <el-button type="primary" size="small" @click="openEntryDialog('cost')">新增成本</el-button>
+              </div>
+              <el-table :data="cellDetail.costEntries || []" class="data-table" empty-text="该月无成本明细，可点击右上角补录">
+                <el-table-column prop="projectNameRaw" label="项目" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="employeeCount" label="人数" width="70" />
+                <el-table-column prop="hours" label="人月" width="80" />
+                <el-table-column label="成本(元)" width="110"><template #default="{ row }">{{ row.costAmount }}</template></el-table-column>
+                <el-table-column label="人月成本(元)" width="120"><template #default="{ row }">{{ row.personMonthCost ?? '—' }}</template></el-table-column>
+                <el-table-column label="操作" width="110">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openEntryDialog('cost', row)">编辑</el-button>
+                    <el-button link type="danger" @click="removeEntry('cost', row.id)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </section>
+          </template>
+          <template v-else>
+            <section>
+              <div class="estimate-head">
+                <h4>预估明细（{{ cellDetail.estimates?.length || 0 }}）</h4>
+                <el-button type="primary" size="small" @click="openEstimateDialog()">新增预估</el-button>
+              </div>
+              <p v-if="estimateUnitPrice != null" class="section-note">
+                当前行历史完结单价：{{ formatWan(estimateUnitPrice) }} 万/人月，金额按此自动计算。
+              </p>
+              <p v-else class="section-note">该行暂无完结历史，预估金额暂不计算。</p>
+              <el-table :data="cellDetail.estimates || []" class="data-table" empty-text="暂无预估明细，点击右上角新增">
+                <el-table-column prop="description" label="说明" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="personMonths" label="人月" width="90" />
+                <el-table-column label="预估金额(元)" width="120">
+                  <template #default="{ row }">{{ row.amount == null ? '—' : row.amount }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="130">
+                  <template #default="{ row }">
+                    <el-button link type="primary" @click="openEstimateDialog(row)">编辑</el-button>
+                    <el-button link type="danger" @click="removeEstimate(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </section>
+          </template>
+        </template>
+      </div>
+    </el-drawer>
+
+    <el-dialog v-model="entryDialog" :title="`${entryForm.id ? '编辑' : '新增'}${entryKind === 'worklog' ? '工时' : '成本'}明细`" width="min(520px, 94vw)">
+      <el-form label-position="top">
+        <template v-if="entryKind === 'worklog'">
+          <el-form-item label="姓名">
+            <el-input v-model="entryForm.employeeName" maxlength="50" placeholder="填写人姓名，可留空" />
+          </el-form-item>
+          <el-form-item label="部门">
+            <el-input v-model="entryForm.department" maxlength="100" placeholder="可留空" />
+          </el-form-item>
+          <el-form-item label="人月">
+            <el-input-number v-model="entryForm.hours" :min="0.01" :max="100" :step="0.05" :precision="4" />
+          </el-form-item>
+          <el-form-item label="工作说明">
+            <el-input v-model="entryForm.workNote" type="textarea" :rows="3" maxlength="500" placeholder="商机集合行的标签由工作说明自动识别" />
+          </el-form-item>
+          <el-form-item label="特殊说明">
+            <el-input v-model="entryForm.specialNote" maxlength="200" placeholder="可留空" />
+          </el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="项目名（原始口径）">
+            <el-input v-model="entryForm.projectNameRaw" maxlength="200" />
+          </el-form-item>
+          <el-form-item label="人数">
+            <el-input-number v-model="entryForm.employeeCount" :min="0" :max="500" placeholder="可留空" />
+          </el-form-item>
+          <el-form-item label="人月">
+            <el-input-number v-model="entryForm.hours" :min="0" :max="100" :step="0.05" :precision="4" />
+          </el-form-item>
+          <el-form-item label="工时成本（元）">
+            <el-input-number v-model="entryForm.costAmount" :min="0" :precision="2" :step="1000" />
+          </el-form-item>
+          <el-form-item label="人月成本（元）">
+            <el-input-number v-model="entryForm.personMonthCost" :min="0" :precision="2" placeholder="可留空" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="entryDialog = false">取消</el-button>
+        <el-button type="primary" :loading="entrySaving" @click="saveEntry">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="estimateDialog" :title="estimateForm.id ? '编辑预估' : '新增预估'" :width="estimateForm.id ? 'min(480px, 94vw)' : 'min(680px, 94vw)'">
+      <el-form label-position="top">
+        <el-form-item :label="estimateForm.id ? '说明' : '默认说明（各月可单独覆盖）'">
+          <el-input v-model="estimateForm.description" maxlength="200" show-word-limit placeholder="例如：黄天鹅物码项目支持" />
+        </el-form-item>
+        <el-form-item v-if="!estimateForm.id" label="批量预估（可同月多条，人月 > 0 才会创建）">
+          <div class="estimate-batch-grid" aria-label="按月批量预估">
+            <div v-for="(row, index) in estimateBatchRows" :key="index" class="estimate-batch-row">
+              <el-select v-model="row.yearMonth" size="small" :aria-label="`第${index + 1}行月份`">
+                <el-option v-for="month in estimableMonths" :key="month" :label="`${month.slice(5)}月`" :value="month" />
+              </el-select>
+              <el-input v-model="row.description" size="small" maxlength="200" placeholder="事项说明（留空用默认说明）" :aria-label="`第${index + 1}行事项`" />
+              <el-input-number v-model="row.hours" :min="0" :max="100" :step="0.1" :precision="2" size="small" :aria-label="`第${index + 1}行人月`" />
+              <el-button link type="danger" size="small" :disabled="estimateBatchRows.length <= 1" :aria-label="`删除第${index + 1}行`" @click="removeBatchRow(index)">删除</el-button>
+            </div>
+            <el-button size="small" class="batch-add" @click="addBatchRow">+ 添加一条</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item v-else label="人月">
+          <el-input-number v-model="estimateForm.personMonths" :min="0.1" :max="100" :step="0.1" :precision="2" />
+        </el-form-item>
+        <el-form-item label="预估金额">
+          <span v-if="estimatePreviewAmount != null">{{ estimatePreviewAmount.toFixed(2) }} 元（人月 × 历史完结单价）</span>
+          <span v-else class="section-note">暂无完结历史单价，金额暂不计算</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="estimateDialog = false">取消</el-button>
+        <el-button type="primary" :loading="estimateSaving" @click="saveEstimate">保存</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<style scoped>
+.revenue-page {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  color: var(--el-color-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.page-head h2 {
+  margin: 4px 0;
+}
+
+.page-head p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.filter-pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-pill {
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  border: 1px solid var(--gray-300, #d4d9e3);
+  background: #fff;
+  color: var(--gray-600, #4d5a70);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.filter-pill:hover {
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+
+.filter-pill.active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: #fff;
+}
+
+.filter-pill.reset {
+  border-style: dashed;
+  color: var(--gray-500, #8a94a6);
+}
+
+.overview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.overview-cell {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #e8edf4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.overview-cell span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.overview-cell strong {
+  font-size: 22px;
+}
+
+.overview-cell small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.matrix-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.switch-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.segment-switch {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  gap: 2px;
+}
+
+.segment-switch button {
+  border: 0;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.segment-switch button:hover {
+  color: var(--el-color-primary);
+}
+
+.segment-switch button.active {
+  background: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 16%);
+}
+
+.matrix-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  margin-left: 10px;
+}
+
+.legend-swatch.actual { background: #f0fdf4; border: 1px solid #86efac; }
+.legend-swatch.estimate { background: #eff6ff; border: 1px solid #93c5fd; }
+
+.matrix-scroll {
+  overflow-x: auto;
+  border: 1px solid #e8edf4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.matrix-table th,
+.matrix-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #eef2f7;
+  border-right: 1px solid #f4f7fb;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.matrix-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  font-weight: 700;
+  color: #475569;
+  z-index: 1;
+}
+
+.col-line { font-weight: 700; background: #fafcff; }
+.col-type { color: #64748b; }
+.col-project { text-align: left !important; min-width: 140px; }
+.col-price { color: #64748b; }
+.col-total { font-weight: 700; background: #fafcff; }
+
+.month-head {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.month-head em {
+  font-style: normal;
+  font-size: 10px;
+  color: #15803d;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.cell.clickable { cursor: pointer; }
+.cell.clickable:hover { background: #f1f5f9; }
+.cell.actual { background: #f0fdf4; }
+.cell.estimate { background: #eff6ff; }
+
+.cell-cost { display: block; font-weight: 650; }
+.cell-hours { display: block; color: #64748b; font-size: 12px; }
+.cell-empty { color: #cbd5e1; }
+
+.estimate-dot {
+  font-style: normal;
+  font-size: 10px;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+  border-radius: 4px;
+  padding: 0 3px;
+  margin-left: 4px;
+}
+
+.line-total-row td { background: #f8fafc; font-weight: 700; }
+.grand-total-row td { background: #f1f5f9; font-weight: 700; }
+
+.opp-tag {
+  display: block;
+  color: #8b5cf6;
+  font-size: 11px;
+}
+
+.import-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.import-card {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 18px;
+  border: 1px solid #e8edf4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.import-card h4, .batch-section h4, .pending-section h4 { margin: 0; }
+.import-card p { margin: 0; color: #64748b; font-size: 12px; }
+
+.file-name { color: #475569; font-size: 12px; }
+.section-note { color: #64748b; font-size: 12px; margin: 4px 0 10px; }
+
+.estimate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.estimate-head h4 { margin: 0; }
+
+.estimate-batch-grid {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.estimate-batch-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 130px 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-add {
+  justify-self: start;
+}
+
+.deviation-block {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid #e8edf4;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.deviation-block h4 { margin: 0 0 8px; }
+
+.deviation-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.deviation-item span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.deviation-item p {
+  margin: 2px 0;
+  color: #334155;
+  font-size: 13px;
+}
+
+.deviation-item strong { font-size: 14px; }
+.deviation-item strong.tone-over { color: #dc2626; }
+.deviation-item strong.tone-under { color: #15803d; }
+.deviation-item strong.tone-flat { color: #64748b; }
+
+.data-table { width: 100%; }
+</style>

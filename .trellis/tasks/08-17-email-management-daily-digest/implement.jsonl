@@ -1,0 +1,7 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/backend/access-control-contract.md", "reason": "邮件 API 权限与当前用户隔离"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "邮件同步和摘要跨层契约"}
+{"file": ".trellis/spec/backend/email-management-contract.md", "reason": "邮件后端 API、同步、摘要、推送契约"}
+{"file": ".trellis/spec/frontend/email-management-ui.md", "reason": "邮件管理页面交互契约"}

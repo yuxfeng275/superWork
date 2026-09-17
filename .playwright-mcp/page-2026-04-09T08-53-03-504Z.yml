@@ -1,0 +1,56 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e8]: 📋
+        - generic [ref=e9]: 电商BU管理系统
+      - generic [ref=e10]:
+        - heading "需求全生命周期 管理平台" [level=1] [ref=e11]:
+          - text: 需求全生命周期
+          - text: 管理平台
+        - paragraph [ref=e12]: 统一管理从需求评估到交付验收的完整流程，提升团队协作效率
+      - generic [ref=e13]:
+        - generic [ref=e14]:
+          - generic [ref=e15]: ✓
+          - generic [ref=e16]: 需求全生命周期追踪
+        - generic [ref=e17]:
+          - generic [ref=e18]: ✓
+          - generic [ref=e19]: 项目与任务协同管理
+        - generic [ref=e20]:
+          - generic [ref=e21]: ✓
+          - generic [ref=e22]: 多维度数据统计看板
+    - generic [ref=e23]: © 2026 电商BU内部管理系统
+  - generic [ref=e24]:
+    - generic [ref=e25]:
+      - heading "欢迎回来" [level=2] [ref=e26]
+      - paragraph [ref=e27]: 请选择登录方式
+    - generic [ref=e28]:
+      - button "账号密码" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - text: 账号密码
+      - button "手机验证码" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+        - text: 手机验证码
+    - generic [ref=e38]:
+      - generic [ref=e39]:
+        - generic [ref=e40]: 用户名
+        - textbox "请输入用户名" [ref=e41]
+      - generic [ref=e42]:
+        - generic [ref=e43]: 密码
+        - textbox "请输入密码" [ref=e44]
+      - generic [ref=e45]:
+        - generic [ref=e46] [cursor=pointer]:
+          - checkbox "记住我" [ref=e47]
+          - generic [ref=e48]: 记住我
+        - link "忘记密码？" [ref=e49] [cursor=pointer]:
+          - /url: "#"
+      - button "登 录" [ref=e50] [cursor=pointer]
+    - generic [ref=e51]:
+      - generic [ref=e53]: 其他登录方式
+      - generic [ref=e54]:
+        - button "企微登录" [ref=e55] [cursor=pointer]:
+          - img [ref=e56]
+          - text: 企微登录
+        - button "微信扫码" [ref=e59] [cursor=pointer]:
+          - img [ref=e60]
+          - text: 微信扫码

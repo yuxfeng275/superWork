@@ -1,0 +1,4 @@
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check-frontend/SKILL.md", "reason": "Frontend check spec"}
+{"file": "frontend/src/views/KeyMattersView.vue", "reason": "检查 Calicat 对齐、响应式与可访问性"}
+{"file": "frontend/tests/key-matters.spec.ts", "reason": "运行大事儿端到端回归"}

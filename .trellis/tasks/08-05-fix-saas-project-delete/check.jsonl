@@ -1,0 +1,5 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check-backend.md", "reason": "Backend check spec"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify all database references and edge cases"}
+{"file": ".trellis/spec/backend/access-control-contract.md", "reason": "Verify permissions and endpoint contract remain unchanged"}
+{"file": "backend/src/main/resources/db/migration/V1__init_schema.sql", "reason": "Verify project foreign-key dependents"}

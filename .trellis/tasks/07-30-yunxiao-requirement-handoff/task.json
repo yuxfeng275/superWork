@@ -1,0 +1,44 @@
+{
+  "id": "yunxiao-requirement-handoff",
+  "name": "yunxiao-requirement-handoff",
+  "title": "需求自动交接云效",
+  "description": "",
+  "status": "review",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-07-30",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-30-yunxiao-worklog-audit",
+  "relatedFiles": [],
+  "notes": "开发中交接事件、查重、异步重试和人工绑定接口已部署；待真实云效项目创建与需求详情链接验收。",
+  "meta": {}
+}

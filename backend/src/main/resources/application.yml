@@ -1,0 +1,189 @@
+spring:
+  application:
+    name: bu-management-system
+  profiles:
+    active: dev
+
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:bu_management}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:bu_admin}
+    password: ${MYSQL_PASSWORD:bu_admin123}
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  # Redis 配置
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+  # Flyway 配置
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    encoding: UTF-8
+    validate-on-migrate: true
+
+  # Jackson 配置
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+  # 文件上传配置
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+# MyBatis Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+# Knife4j 配置
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.bu.management.controller
+
+# MinIO 配置
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin123}
+  bucket-name: bu-management
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET:bu-management-secret-key-2026-change-in-production}
+  expiration: 86400000  # 24小时（毫秒）
+  refresh-expiration: 604800000  # 7天（毫秒）
+
+# 云效 OpenAPI 集成。令牌仅通过环境变量注入，不落库。
+yunxiao:
+  enabled: ${YUNXIAO_ENABLED:false}
+  edition: ${YUNXIAO_EDITION:center}
+  base-url: ${YUNXIAO_BASE_URL:https://openapi-rdc.aliyuncs.com}
+  organization-id: ${YUNXIAO_ORGANIZATION_ID:}
+  token: ${YUNXIAO_TOKEN:}
+  config-encryption-key: ${YUNXIAO_CONFIG_ENCRYPTION_KEY:}
+  sync-cron: ${YUNXIAO_SYNC_CRON:0 15 * * * *}
+  handoff-retry-cron: ${YUNXIAO_HANDOFF_RETRY_CRON:0 */10 * * * *}
+
+# 致远 OA (Seeyon) 集成配置
+seeyon-oa:
+  enabled: ${SEEYON_OA_ENABLED:false}
+  base-url: ${SEEYON_OA_BASE_URL:https://oa.lucidata.cn}
+  username: ${SEEYON_OA_USERNAME:}
+  password: ${SEEYON_OA_PASSWORD:}
+  token: ${SEEYON_OA_TOKEN:}
+  config-encryption-key: ${SEEYON_OA_CONFIG_ENCRYPTION_KEY:}
+  sync-cron: ${SEEYON_OA_SYNC_CRON:0 30 * * * *}
+
+# 工时系统 (worktime.lucidata.cn) 集成配置
+worktime:
+  enabled: ${WORKTIME_ENABLED:false}
+  base-url: ${WORKTIME_BASE_URL:https://worktime.lucidata.cn}
+  employee-no: ${WORKTIME_EMPLOYEE_NO:}
+  password: ${WORKTIME_PASSWORD:}
+  config-encryption-key: ${WORKTIME_CONFIG_ENCRYPTION_KEY:}
+  contract-sync-cron: ${WORKTIME_CONTRACT_SYNC_CRON:0 30 6 * * *}
+  monthly-sync-cron: ${WORKTIME_MONTHLY_SYNC_CRON:0 0 7 * * *}
+
+# KPI 周报
+kpi:
+  snapshot-cron: ${KPI_SNAPSHOT_CRON:0 0 18 * * SUN}
+  notify-wecom-user: ${KPI_NOTIFY_WECOM_USER:}
+
+# BG 周报（周五 17:00 自动生成草稿）
+weekly:
+  report-cron: ${WEEKLY_REPORT_CRON:0 0 17 * * FRI}
+  report-notify-wecom-user: ${WEEKLY_NOTIFY_WECOM_USER:}
+
+# 服务器配置
+server:
+  port: 8081
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+
+# 运行状态检查
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    redis:
+      enabled: false
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.bu.management: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n'
+    file: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n'
+
+# Personal Alibaba Cloud Enterprise Mail
+email:
+  imap-host: ${EMAIL_IMAP_HOST:imap.qiye.aliyun.com}
+  imap-port: ${EMAIL_IMAP_PORT:993}
+  credential-encryption-key: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:}
+  sync-cron: ${EMAIL_SYNC_CRON:0 0 * * * *}
+  digest-cron: ${EMAIL_DIGEST_CRON:0 0 8 * * *}
+
+# AI 助手侧车（Pi Agent sidecar）连接配置；GLM 模型凭据走系统配置组 ai-agent
+ai-agent:
+  sidecar:
+    url: ${AI_SIDECAR_URL:http://localhost:8787}
+    token: ${AI_SIDECAR_TOKEN:}
+    run-timeout-seconds: 600
+    tool-callback-url: ${AI_SIDECAR_TOOL_CALLBACK_URL:http://localhost:8081/internal/ai-agent/tools}

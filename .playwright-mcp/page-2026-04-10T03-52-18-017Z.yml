@@ -1,0 +1,88 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - link "📋 BU管理系统" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]: 📋
+        - generic [ref=e8]: BU管理系统
+      - button [ref=e9] [cursor=pointer]:
+        - img [ref=e11]
+    - generic [ref=e13]:
+      - generic [ref=e14]: 系
+      - generic [ref=e15]:
+        - generic [ref=e16]: 系统管理员
+        - generic [ref=e17]: BU_ADMIN
+    - navigation [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: 工作台
+        - link "首页" [ref=e21] [cursor=pointer]:
+          - /url: /
+          - img [ref=e24]
+          - generic [ref=e26]: 首页
+        - link "需求管理" [ref=e27] [cursor=pointer]:
+          - /url: /requirements
+          - img [ref=e30]
+          - generic [ref=e32]: 需求管理
+        - link "任务管理" [ref=e33] [cursor=pointer]:
+          - /url: /tasks
+          - img [ref=e36]
+          - generic [ref=e38]: 任务管理
+      - generic [ref=e39]:
+        - generic [ref=e40]: 基础分类
+        - link "业务线管理" [ref=e41] [cursor=pointer]:
+          - /url: /business-lines
+          - img [ref=e44]
+          - generic [ref=e47]: 业务线管理
+        - link "项目管理" [ref=e48] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e51]
+          - generic [ref=e53]: 项目管理
+        - link "客户信息管理" [ref=e54] [cursor=pointer]:
+          - /url: /customers
+          - img [ref=e57]
+          - generic [ref=e59]: 客户信息管理
+      - generic [ref=e60]:
+        - generic [ref=e61]: 数据分析
+        - link "数据统计" [ref=e62] [cursor=pointer]:
+          - /url: /statistics
+          - img [ref=e65]
+          - generic [ref=e67]: 数据统计
+      - generic [ref=e68]:
+        - generic [ref=e69]: 系统
+        - link "用户管理" [ref=e70] [cursor=pointer]:
+          - /url: /system/users
+          - img [ref=e73]
+          - generic [ref=e75]: 用户管理
+        - link "角色管理" [ref=e76] [cursor=pointer]:
+          - /url: /system/roles
+          - img [ref=e79]
+          - generic [ref=e82]: 角色管理
+        - link "菜单管理" [ref=e83] [cursor=pointer]:
+          - /url: /system/menus
+          - img [ref=e86]
+          - generic [ref=e88]: 菜单管理
+        - link "工作流配置" [ref=e89] [cursor=pointer]:
+          - /url: /system/workflow
+          - img [ref=e92]
+          - generic [ref=e95]: 工作流配置
+    - button "退出登录" [ref=e97] [cursor=pointer]:
+      - img [ref=e99]
+      - generic [ref=e102]: 退出登录
+  - main [ref=e103]:
+    - generic [ref=e104]:
+      - heading "工作流配置" [level=1] [ref=e106]
+      - generic [ref=e107]:
+        - button [ref=e108] [cursor=pointer]:
+          - img [ref=e110]
+        - generic [ref=e115]: 系
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - generic [ref=e119]:
+          - heading "工作流配置" [level=2] [ref=e120]
+          - generic [ref=e122]:
+            - generic [ref=e123]: "0"
+            - generic [ref=e124]: 条规则
+        - button "新增规则" [ref=e126] [cursor=pointer]:
+          - img [ref=e127]
+          - text: 新增规则
+      - img [ref=e129]

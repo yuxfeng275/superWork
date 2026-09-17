@@ -1,0 +1,138 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - link "📋 BU管理系统" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]: 📋
+        - generic [ref=e8]: BU管理系统
+      - button [ref=e9] [cursor=pointer]:
+        - img [ref=e11]
+    - generic [ref=e13]:
+      - generic [ref=e14]: 系
+      - generic [ref=e15]:
+        - generic [ref=e16]: 系统管理员
+        - generic [ref=e17]: BU_ADMIN
+    - navigation [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: 工作台
+        - link "首页" [ref=e21] [cursor=pointer]:
+          - /url: /
+          - img [ref=e24]
+          - generic [ref=e26]: 首页
+        - link "需求管理" [ref=e27] [cursor=pointer]:
+          - /url: /requirements
+          - img [ref=e30]
+          - generic [ref=e32]: 需求管理
+        - link "任务管理" [ref=e33] [cursor=pointer]:
+          - /url: /tasks
+          - img [ref=e36]
+          - generic [ref=e38]: 任务管理
+      - generic [ref=e39]:
+        - generic [ref=e40]: 基础分类
+        - link "业务线管理" [ref=e41] [cursor=pointer]:
+          - /url: /business-lines
+          - img [ref=e44]
+          - generic [ref=e47]: 业务线管理
+        - link "项目管理" [ref=e48] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e51]
+          - generic [ref=e53]: 项目管理
+        - link "客户信息管理" [ref=e54] [cursor=pointer]:
+          - /url: /customers
+          - img [ref=e57]
+          - generic [ref=e59]: 客户信息管理
+      - generic [ref=e60]:
+        - generic [ref=e61]: 数据分析
+        - link "数据统计" [ref=e62] [cursor=pointer]:
+          - /url: /statistics
+          - img [ref=e65]
+          - generic [ref=e67]: 数据统计
+      - generic [ref=e68]:
+        - generic [ref=e69]: 系统
+        - link "用户管理" [ref=e70] [cursor=pointer]:
+          - /url: /system/users
+          - img [ref=e73]
+          - generic [ref=e75]: 用户管理
+        - link "角色管理" [ref=e76] [cursor=pointer]:
+          - /url: /system/roles
+          - img [ref=e79]
+          - generic [ref=e82]: 角色管理
+        - link "菜单管理" [ref=e83] [cursor=pointer]:
+          - /url: /system/menus
+          - img [ref=e86]
+          - generic [ref=e88]: 菜单管理
+        - link "工作流配置" [ref=e89] [cursor=pointer]:
+          - /url: /system/workflow
+          - img [ref=e92]
+          - generic [ref=e95]: 工作流配置
+    - button "退出登录" [ref=e97] [cursor=pointer]:
+      - img [ref=e99]
+      - generic [ref=e102]: 退出登录
+  - main [ref=e103]:
+    - generic [ref=e104]:
+      - heading "需求管理" [level=1] [ref=e106]
+      - generic [ref=e107]:
+        - button [ref=e108] [cursor=pointer]:
+          - img [ref=e110]
+        - generic [ref=e115]: 系
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - generic [ref=e119]:
+          - heading "需求列表" [level=2] [ref=e120]
+          - generic [ref=e121]:
+            - generic [ref=e122]:
+              - generic [ref=e123]: "0"
+              - generic [ref=e124]: 条
+            - generic [ref=e125]: "|"
+            - generic [ref=e126]:
+              - generic [ref=e127]: "0"
+              - generic [ref=e128]: 进行中
+            - generic [ref=e129]: "|"
+            - generic [ref=e130]:
+              - generic [ref=e131]: "0"
+              - generic [ref=e132]: 待评估
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - button "列表" [ref=e135] [cursor=pointer]:
+              - img [ref=e136]
+              - text: 列表
+            - button "看板" [ref=e139] [cursor=pointer]:
+              - img [ref=e140]
+              - text: 看板
+          - button "导出" [ref=e144] [cursor=pointer]:
+            - img [ref=e145]
+            - text: 导出
+          - button "新建需求" [ref=e148] [cursor=pointer]:
+            - img [ref=e149]
+            - text: 新建需求
+      - generic [ref=e150]:
+        - generic [ref=e151]:
+          - button "全部" [ref=e153] [cursor=pointer]
+          - textbox "搜索需求..." [ref=e154]
+        - generic [ref=e155]:
+          - button "所有需求" [ref=e157] [cursor=pointer]
+          - button "状态" [ref=e159] [cursor=pointer]:
+            - text: 状态
+            - img [ref=e160]
+          - generic [ref=e162]:
+            - generic [ref=e163]: 类型
+            - button "产品需求" [ref=e164] [cursor=pointer]
+            - button "项目需求" [ref=e165] [cursor=pointer]
+          - generic [ref=e166]:
+            - generic [ref=e167]: 优先级
+            - button "高" [ref=e168] [cursor=pointer]
+            - button "中" [ref=e169] [cursor=pointer]
+            - button "低" [ref=e170] [cursor=pointer]
+      - table [ref=e172]:
+        - rowgroup [ref=e173]:
+          - row "需求编号 需求标题 所属项目 类型 状态 优先级 负责人 更新时间 操作" [ref=e174]:
+            - columnheader "需求编号" [ref=e175]
+            - columnheader "需求标题" [ref=e176]
+            - columnheader "所属项目" [ref=e177]
+            - columnheader "类型" [ref=e178]
+            - columnheader "状态" [ref=e179]
+            - columnheader "优先级" [ref=e180]
+            - columnheader "负责人" [ref=e181]
+            - columnheader "更新时间" [ref=e182]
+            - columnheader "操作" [ref=e183]
+        - rowgroup

@@ -1,0 +1,48 @@
+{
+  "id": "redesign-key-matter-detail-meeting",
+  "name": "redesign-key-matter-detail-meeting",
+  "title": "优化大事儿详情与周会视觉布局",
+  "description": "",
+  "status": "review",
+  "dev_type": "frontend",
+  "scope": "frontend/src/views/KeyMattersView.vue, frontend/tests/key-matters.spec.ts, .trellis/spec/frontend/key-matter-management-ui.md",
+  "priority": "P2",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-08-05",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "frontend/src/views/KeyMattersView.vue",
+    "frontend/tests/key-matters.spec.ts",
+    ".trellis/spec/frontend/key-matter-management-ui.md"
+  ],
+  "notes": "Build and 5 Playwright scenarios passed. Frontend deployed to 192.168.1.241:18080; root, auth, key-matters API, health, and container asset hashes verified.",
+  "meta": {}
+}

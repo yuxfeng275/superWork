@@ -1,0 +1,114 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - link "📋 BU管理系统" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]: 📋
+        - generic [ref=e8]: BU管理系统
+      - button [ref=e9] [cursor=pointer]:
+        - img [ref=e11]
+    - generic [ref=e13]:
+      - generic [ref=e14]: 系
+      - generic [ref=e15]:
+        - generic [ref=e16]: 系统管理员
+        - generic [ref=e17]: BU_ADMIN
+    - navigation [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: 工作台
+        - link "首页" [ref=e21] [cursor=pointer]:
+          - /url: /
+          - img [ref=e24]
+          - generic [ref=e26]: 首页
+        - link "需求管理 12" [ref=e27] [cursor=pointer]:
+          - /url: /requirements
+          - img [ref=e30]
+          - generic [ref=e32]: 需求管理
+          - generic [ref=e33]: "12"
+        - link "任务管理" [ref=e34] [cursor=pointer]:
+          - /url: /tasks
+          - img [ref=e37]
+          - generic [ref=e39]: 任务管理
+        - link "项目管理" [ref=e40] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e43]
+          - generic [ref=e45]: 项目管理
+      - generic [ref=e46]:
+        - generic [ref=e47]: 数据分析
+        - link "数据统计" [ref=e48] [cursor=pointer]:
+          - /url: /statistics
+          - img [ref=e51]
+          - generic [ref=e53]: 数据统计
+      - generic [ref=e54]:
+        - generic [ref=e55]: 系统
+        - link "组织架构" [ref=e56] [cursor=pointer]:
+          - /url: /organization
+          - generic [ref=e59]: 组织架构
+        - link "用户管理" [ref=e60] [cursor=pointer]:
+          - /url: /system/users
+          - img [ref=e63]
+          - generic [ref=e65]: 用户管理
+        - link "角色管理" [ref=e66] [cursor=pointer]:
+          - /url: /system/roles
+          - img [ref=e69]
+          - generic [ref=e72]: 角色管理
+        - link "菜单管理" [ref=e73] [cursor=pointer]:
+          - /url: /system/menus
+          - img [ref=e76]
+          - generic [ref=e78]: 菜单管理
+        - link "工作流配置" [ref=e79] [cursor=pointer]:
+          - /url: /system/workflow
+          - img [ref=e82]
+          - generic [ref=e85]: 工作流配置
+    - button "退出登录" [ref=e87] [cursor=pointer]:
+      - img [ref=e89]
+      - generic [ref=e92]: 退出登录
+  - main [ref=e93]:
+    - generic [ref=e94]:
+      - heading "首页" [level=1] [ref=e96]
+      - generic [ref=e97]:
+        - button [ref=e98] [cursor=pointer]:
+          - img [ref=e100]
+        - generic [ref=e105]: 系
+    - generic [ref=e107]:
+      - heading "工作台" [level=2] [ref=e109]
+      - generic [ref=e110]:
+        - generic [ref=e111]:
+          - img [ref=e114]
+          - generic [ref=e116]:
+            - generic [ref=e117]: "0"
+            - generic [ref=e118]: 进行中需求
+        - generic [ref=e119]:
+          - img [ref=e122]
+          - generic [ref=e124]:
+            - generic [ref=e125]: "0"
+            - generic [ref=e126]: 待上线
+        - generic [ref=e127]:
+          - img [ref=e130]
+          - generic [ref=e132]:
+            - generic [ref=e133]: "0"
+            - generic [ref=e134]: 本月交付
+        - generic [ref=e135]:
+          - img [ref=e138]
+          - generic [ref=e140]:
+            - generic [ref=e141]: "0"
+            - generic [ref=e142]: 超期风险
+      - generic [ref=e143]:
+        - generic [ref=e145]:
+          - heading "最近需求" [level=3] [ref=e146]
+          - link "查看全部" [ref=e147] [cursor=pointer]:
+            - /url: /requirements
+        - generic [ref=e149]:
+          - heading "快捷操作" [level=3] [ref=e151]
+          - generic [ref=e153]:
+            - link "新建需求" [ref=e154] [cursor=pointer]:
+              - /url: /requirements
+              - img [ref=e156]
+              - generic [ref=e158]: 新建需求
+            - link "我的任务" [ref=e159] [cursor=pointer]:
+              - /url: /tasks
+              - img [ref=e161]
+              - generic [ref=e163]: 我的任务
+            - link "数据统计" [ref=e164] [cursor=pointer]:
+              - /url: /statistics
+              - img [ref=e166]
+              - generic [ref=e168]: 数据统计

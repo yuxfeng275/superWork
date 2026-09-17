@@ -1,0 +1,44 @@
+{
+  "id": "quality-p0-integration-health",
+  "name": "quality-p0-integration-health",
+  "title": "P0 云效调度恢复与业务健康",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-08-19",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 3,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-27-project-quality-audit",
+  "relatedFiles": [],
+  "notes": "Code committed 239b111 and pushed. Production deployed at 2026-08-19 12:04 CST; DEPLOYED_COMMIT=239b111; backup=/home/openclaw/deploy-backups/superwork-p0-yunxiao-health-20260819-035823; health UP; /api/bu-dashboard,/api/yunxiao/status,/api/yunxiao/analysis all 200; tokenSource=UNREADABLE and CONFIG_ERROR message are visible; no matching scheduled-task errors in last 30m. Admin must re-enter Yunxiao token to complete functional sync acceptance.",
+  "meta": {}
+}

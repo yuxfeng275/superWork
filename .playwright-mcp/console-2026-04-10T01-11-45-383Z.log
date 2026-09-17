@@ -1,0 +1,6 @@
+[     437ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[     439ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[     557ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/requirements?size=100:0
+[     558ms] [ERROR] 加载数据失败: Error: HTTP error! status: 403
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts?t=1775729812356:27:10)
+    at async loadData (http://127.0.0.1:5175/src/views/HomeView.vue?t=1775729812356:38:30) @ http://127.0.0.1:5175/@vite/client:509

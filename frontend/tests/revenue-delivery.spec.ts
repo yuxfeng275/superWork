@@ -1,0 +1,707 @@
+import { expect, test } from '@playwright/test'
+import type { Locator, Page, Route } from '@playwright/test'
+
+interface PendingContract {
+  id: number
+  brand?: string | null
+  customer?: string | null
+  contractNo?: string | null
+  detailNo?: string | null
+  contractName?: string | null
+  itemDesc?: string | null
+  bizLineRaw?: string | null
+  bizLineId?: number | null
+  receivableAmount?: number | null
+  saleMonth?: string | null
+  pending?: number
+}
+
+// ---------- summary fixtures（对齐后端 RevenueDeliverySummaryVO，金额元 / 人月） ----------
+
+/** 窗口快照：laborProfit/grossProfit 为服务端口径的中间值，前端只展示 trueProfit 系列 */
+const window = (o: Record<string, unknown>) => ({
+  delivered: 0, estimated: 0, projectHours: 0, projectLaborCost: 0, estimatedLaborCost: 0,
+  salesHours: 0, salesCost: 0, allocatedSalesHours: 0, allocatedSalesCost: 0,
+  unallocatedSalesHours: 0, unallocatedSalesCost: 0,
+  otherCosts: { partner: 0, server: 0, other: 0, total: 0 },
+  laborProfit: 0, grossProfit: 0, grossRate: null, trueProfit: 0, trueProfitRate: null,
+  ...o
+})
+
+const royalProject = (includeEstimate: boolean) => includeEstimate
+  ? {
+    projectId: 101, name: '皇家项目', isAggregate: false, oaContract: 2000000,
+    h1: window({
+      delivered: 800000, estimated: 300000, projectHours: 24, projectLaborCost: 360000, estimatedLaborCost: 80000,
+      allocatedSalesHours: 1, allocatedSalesCost: 10000,
+      otherCosts: { partner: 40000, server: 20000, other: 10000, total: 70000 },
+      grossProfit: 590000, grossRate: 53.64, trueProfit: 580000, trueProfitRate: 52.73
+    }),
+    h2: window({
+      delivered: 1000000, estimated: 700000, projectHours: 36, projectLaborCost: 540000, estimatedLaborCost: 120000,
+      allocatedSalesHours: 2, allocatedSalesCost: 20000,
+      otherCosts: { partner: 60000, server: 30000, other: 10000, total: 100000 },
+      grossProfit: 940000, grossRate: 55.29, trueProfit: 920000, trueProfitRate: 54.12
+    }),
+    ytd: window({
+      delivered: 1800000, estimated: 1000000, projectHours: 60, projectLaborCost: 900000, estimatedLaborCost: 200000,
+      allocatedSalesHours: 3, allocatedSalesCost: 30000,
+      otherCosts: { partner: 100000, server: 50000, other: 20000, total: 170000 },
+      grossProfit: 1530000, grossRate: 54.64, trueProfit: 1500000, trueProfitRate: 53.57
+    })
+  }
+  : {
+    projectId: 101, name: '皇家项目', isAggregate: false, oaContract: 2000000,
+    h1: window({
+      delivered: 800000, estimated: 0, projectHours: 24, projectLaborCost: 360000, estimatedLaborCost: 0,
+      allocatedSalesHours: 1, allocatedSalesCost: 10000,
+      otherCosts: { partner: 40000, server: 20000, other: 10000, total: 70000 },
+      grossProfit: 370000, grossRate: 46.25, trueProfit: 360000, trueProfitRate: 45
+    }),
+    h2: window({
+      delivered: 1000000, estimated: 0, projectHours: 36, projectLaborCost: 540000, estimatedLaborCost: 0,
+      allocatedSalesHours: 2, allocatedSalesCost: 20000,
+      otherCosts: { partner: 60000, server: 30000, other: 10000, total: 100000 },
+      grossProfit: 360000, grossRate: 36, trueProfit: 340000, trueProfitRate: 34
+    }),
+    ytd: window({
+      delivered: 1800000, estimated: 0, projectHours: 60, projectLaborCost: 900000, estimatedLaborCost: 0,
+      allocatedSalesHours: 3, allocatedSalesCost: 30000,
+      otherCosts: { partner: 100000, server: 50000, other: 20000, total: 170000 },
+      grossProfit: 730000, grossRate: 40.56, trueProfit: 700000, trueProfitRate: 38.89
+    })
+  }
+
+const speedoProject = (includeEstimate: boolean) => includeEstimate
+  ? {
+    projectId: 102, name: 'Speedo', isAggregate: false, oaContract: 800000,
+    h1: window({
+      delivered: 400000, estimated: 100000, projectHours: 6, projectLaborCost: 90000, estimatedLaborCost: 30000,
+      otherCosts: { partner: 0, server: 40000, other: 0, total: 40000 },
+      grossProfit: 340000, grossRate: 68, trueProfit: 340000, trueProfitRate: 68
+    }),
+    h2: window({
+      delivered: 200000, estimated: 300000, projectHours: 6, projectLaborCost: 90000, estimatedLaborCost: 90000,
+      otherCosts: { partner: 0, server: 60000, other: 0, total: 60000 },
+      grossProfit: 260000, grossRate: 52, trueProfit: 260000, trueProfitRate: 52
+    }),
+    ytd: window({
+      delivered: 600000, estimated: 400000, projectHours: 12, projectLaborCost: 180000, estimatedLaborCost: 120000,
+      otherCosts: { partner: 0, server: 100000, other: 0, total: 100000 },
+      grossProfit: 600000, grossRate: 60, trueProfit: 600000, trueProfitRate: 60
+    })
+  }
+  : {
+    projectId: 102, name: 'Speedo', isAggregate: false, oaContract: 800000,
+    h1: window({
+      delivered: 400000, estimated: 0, projectHours: 6, projectLaborCost: 90000, estimatedLaborCost: 0,
+      otherCosts: { partner: 0, server: 40000, other: 0, total: 40000 },
+      grossProfit: 270000, grossRate: 67.5, trueProfit: 270000, trueProfitRate: 67.5
+    }),
+    h2: window({
+      delivered: 200000, estimated: 0, projectHours: 6, projectLaborCost: 90000, estimatedLaborCost: 0,
+      otherCosts: { partner: 0, server: 60000, other: 0, total: 60000 },
+      grossProfit: 50000, grossRate: 25, trueProfit: 50000, trueProfitRate: 25
+    }),
+    ytd: window({
+      delivered: 600000, estimated: 0, projectHours: 12, projectLaborCost: 180000, estimatedLaborCost: 0,
+      otherCosts: { partner: 0, server: 100000, other: 0, total: 100000 },
+      grossProfit: 320000, grossRate: 53.33, trueProfit: 320000, trueProfitRate: 53.33
+    })
+  }
+
+const customLine = (includeEstimate: boolean) => {
+  const lineSales = {
+    salesHours: 10, salesCost: 150000,
+    salesAllocatedHours: 3, salesAllocatedCost: 30000,
+    salesUnallocatedHours: 7, salesUnallocatedCost: 120000,
+    salesUnallocatedDetail: [{ reason: 'POOL_NO_EVIDENCE', label: '商机集合无成单证据', cost: 120000 }]
+  }
+  const totalsWindows = includeEstimate
+    ? {
+      h1: window({
+        delivered: 1200000, estimated: 400000, projectHours: 30, projectLaborCost: 450000, estimatedLaborCost: 110000,
+        salesHours: 4, salesCost: 60000, allocatedSalesHours: 1, allocatedSalesCost: 10000,
+        unallocatedSalesHours: 3, unallocatedSalesCost: 50000,
+        otherCosts: { partner: 40000, server: 60000, other: 10000, total: 110000 },
+        grossProfit: 870000, grossRate: 54.38, trueProfit: 870000, trueProfitRate: 54.38
+      }),
+      h2: window({
+        delivered: 1200000, estimated: 1000000, projectHours: 42, projectLaborCost: 630000, estimatedLaborCost: 210000,
+        salesHours: 6, salesCost: 90000, allocatedSalesHours: 2, allocatedSalesCost: 20000,
+        unallocatedSalesHours: 4, unallocatedSalesCost: 70000,
+        otherCosts: { partner: 60000, server: 90000, other: 10000, total: 160000 },
+        grossProfit: 1110000, grossRate: 50.45, trueProfit: 1110000, trueProfitRate: 50.45
+      }),
+      ytd: window({
+        delivered: 2400000, estimated: 1400000, projectHours: 72, projectLaborCost: 1080000, estimatedLaborCost: 320000,
+        salesHours: 10, salesCost: 150000, allocatedSalesHours: 3, allocatedSalesCost: 30000,
+        unallocatedSalesHours: 7, unallocatedSalesCost: 120000,
+        otherCosts: { partner: 100000, server: 150000, other: 20000, total: 270000 },
+        grossProfit: 1980000, grossRate: 52.11, trueProfit: 1980000, trueProfitRate: 52.11
+      })
+    }
+    : {
+      h1: window({
+        delivered: 1200000, estimated: 0, projectHours: 30, projectLaborCost: 450000, estimatedLaborCost: 0,
+        salesHours: 4, salesCost: 60000, allocatedSalesHours: 1, allocatedSalesCost: 10000,
+        unallocatedSalesHours: 3, unallocatedSalesCost: 50000,
+        otherCosts: { partner: 40000, server: 60000, other: 10000, total: 110000 },
+        grossProfit: 580000, grossRate: 48.33, trueProfit: 580000, trueProfitRate: 48.33
+      }),
+      h2: window({
+        delivered: 1200000, estimated: 0, projectHours: 42, projectLaborCost: 630000, estimatedLaborCost: 0,
+        salesHours: 6, salesCost: 90000, allocatedSalesHours: 2, allocatedSalesCost: 20000,
+        unallocatedSalesHours: 4, unallocatedSalesCost: 70000,
+        otherCosts: { partner: 60000, server: 90000, other: 10000, total: 160000 },
+        grossProfit: 320000, grossRate: 26.67, trueProfit: 320000, trueProfitRate: 26.67
+      }),
+      ytd: window({
+        delivered: 2400000, estimated: 0, projectHours: 72, projectLaborCost: 1080000, estimatedLaborCost: 0,
+        salesHours: 10, salesCost: 150000, allocatedSalesHours: 3, allocatedSalesCost: 30000,
+        unallocatedSalesHours: 7, unallocatedSalesCost: 120000,
+        otherCosts: { partner: 100000, server: 150000, other: 20000, total: 270000 },
+        grossProfit: 900000, grossRate: 37.5, trueProfit: 900000, trueProfitRate: 37.5
+      })
+    }
+  return {
+    businessLineId: 1,
+    businessLineName: '全渠道云鹿定制',
+    ...lineSales,
+    projects: [royalProject(includeEstimate), speedoProject(includeEstimate)],
+    totals: {
+      projectId: null,
+      name: '合计',
+      isAggregate: false,
+      oaContract: 2800000,
+      ...totalsWindows
+    }
+  }
+}
+
+const memberLine = () => {
+  // 会员通（aggregate）：唯一「项目集」行即整线，该线全部销售工时/成本计入该行（allocated*），
+  // totals 行销售成本全额扣减后毛利=真实利润，未分配为 0（前端对单聚合行隐藏合计行）
+  const zero = window({})
+  const rowH1 = window({
+    delivered: 200000, projectHours: 4, projectLaborCost: 24000,
+    allocatedSalesHours: 2, allocatedSalesCost: 9000,
+    otherCosts: { partner: 5000, server: 0, other: 0, total: 5000 },
+    grossProfit: 171000, grossRate: 85.5, trueProfit: 162000, trueProfitRate: 81
+  })
+  const totalsH1 = window({
+    delivered: 200000, projectHours: 4, projectLaborCost: 24000,
+    salesHours: 2, salesCost: 9000, allocatedSalesHours: 2, allocatedSalesCost: 9000,
+    otherCosts: { partner: 5000, server: 0, other: 0, total: 5000 },
+    grossProfit: 162000, grossRate: 81, trueProfit: 162000, trueProfitRate: 81
+  })
+  return {
+    businessLineId: 3,
+    businessLineName: '会员通',
+    salesHours: 2, salesCost: 9000, salesAllocatedHours: 2, salesAllocatedCost: 9000,
+    salesUnallocatedHours: 0, salesUnallocatedCost: 0, salesUnallocatedDetail: [],
+    projects: [{
+      projectId: null, name: '项目集', isAggregate: true, oaContract: 600000,
+      h1: rowH1, h2: zero, ytd: rowH1
+    }],
+    totals: { projectId: null, name: '合计', isAggregate: false, oaContract: 600000, h1: totalsH1, h2: zero, ytd: totalsH1 }
+  }
+}
+
+// simple 模式单行业务线（精准等）：单行即整线，前端不再渲染业务线合计行
+const simpleLine = () => {
+  const zero = window({})
+  return {
+    businessLineId: 4,
+    businessLineName: '精准',
+    salesHours: 0, salesCost: 0, salesAllocatedHours: 0, salesAllocatedCost: 0,
+    salesUnallocatedHours: 0, salesUnallocatedCost: 0, salesUnallocatedDetail: [],
+    projects: [{
+      projectId: null, name: '精准', isAggregate: true, oaContract: 0,
+      h1: zero, h2: zero, ytd: zero
+    }],
+    totals: { projectId: null, name: '合计', isAggregate: false, oaContract: 0, h1: zero, h2: zero, ytd: zero }
+  }
+}
+
+const makeSummary = (includeEstimate: boolean) => ({
+  year: 2026,
+  includeEstimate,
+  lines: [customLine(includeEstimate), memberLine(), simpleLine()],
+  overview: includeEstimate
+    ? {
+      includeEstimate: true,
+      totalOaContract: 2800000, totalDelivered: 2400000, totalEstimated: 1400000,
+      totalLaborCost: 1550000, totalAllocatedSalesCost: 30000, totalUnallocatedSalesCost: 120000,
+      totalOtherCost: 270000, totalProfit: 1980000, profitRate: 52.11,
+      totalTrueProfit: 1980000, trueProfitRate: 52.11,
+      salesUnallocatedDetail: [{ reason: 'POOL_NO_EVIDENCE', label: '商机集合无成单证据', cost: 120000 }]
+    }
+    : {
+      includeEstimate: false,
+      totalOaContract: 2800000, totalDelivered: 2400000, totalEstimated: 0,
+      totalLaborCost: 1230000, totalAllocatedSalesCost: 30000, totalUnallocatedSalesCost: 120000,
+      totalOtherCost: 270000, totalProfit: 900000, profitRate: 37.5,
+      totalTrueProfit: 900000, trueProfitRate: 37.5,
+      salesUnallocatedDetail: [{ reason: 'POOL_NO_EVIDENCE', label: '商机集合无成单证据', cost: 120000 }]
+    }
+})
+
+/** 业务线级未落项目合同（福田等）：叠加字段 + 保持窗口/合计口径自洽（金额元） */
+const withLineLevelContract = (summary: ReturnType<typeof makeSummary>, amount = 4650): ReturnType<typeof makeSummary> => {
+  const clone = structuredClone(summary)
+  const line = clone.lines[0]
+  line.lineUnallocatedContract = amount
+  line.lineUnallocatedDelivered = amount
+  line.lineUnallocatedProfit = amount
+  if (line.totals) {
+    line.totals.lineUnallocatedContract = amount
+    line.totals.lineUnallocatedDelivered = amount
+    line.totals.lineUnallocatedProfit = amount
+    line.totals.ytd = {
+      ...line.totals.ytd,
+      delivered: (line.totals.ytd?.delivered || 0) + amount
+    }
+  }
+  const ov = clone.overview
+  ov.totalLineUnallocatedContract = amount
+  ov.totalLineUnallocatedDelivered = amount
+  ov.totalLineUnallocatedProfit = amount
+  ov.totalOaContract = (ov.totalOaContract || 0) + amount
+  ov.totalDelivered = (ov.totalDelivered || 0) + amount
+  ov.totalTrueProfit = (ov.totalTrueProfit || 0) + amount
+  return clone
+}
+
+const matrix = {
+  year: 2026,
+  months: [],
+  lines: [],
+  monthTotals: [],
+  grandTotal: { hours: 0, cost: 0, source: null },
+  overview: { totalHours: 0, projectHours: 0, salesHours: 0, totalCost: 0, closedMonthCount: 0 }
+}
+
+const fulfill = (route: Route, data: unknown) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({ code: 200, data })
+})
+
+// 每个测试独立追踪：summary 请求（含 includeEstimate 参数）与合同待映射清单
+const summaryRequests: string[] = []
+let pendingContracts: PendingContract[] = []
+const pendingFixture = (contracts: PendingContract[]) => {
+  pendingContracts = contracts
+  return contracts
+}
+const mappedFixture = []
+test.beforeEach(async ({ page }) => {
+  summaryRequests.length = 0
+  pendingContracts = []
+
+  await page.addInitScript(() => {
+    localStorage.setItem('token', 'mock-token')
+    localStorage.setItem('user', JSON.stringify({ id: 1, username: 'admin', realName: '系统管理员', role: 'DIRECTOR' }))
+  })
+
+  await page.route('**/api/revenue/matrix**', route => fulfill(route, matrix))
+
+  await page.route('**/api/revenue/delivery/summary**', route => {
+    const url = new URL(route.request().url())
+    summaryRequests.push(url.toString())
+    const includeEstimate = url.searchParams.get('includeEstimate') === 'true'
+    return fulfill(route, makeSummary(includeEstimate))
+  })
+
+  await page.route('**/api/revenue/delivery-plans**', route => fulfill(route, []))
+  await page.route('**/api/revenue/estimates/unit-price**', route => fulfill(route, { unitPrice: 22790.7 }))
+  await page.route('**/api/revenue/other-costs**', route => fulfill(route, []))
+  await page.route('**/api/revenue/pending', route => fulfill(route, { worklog: [], cost: [] }))
+  await page.route('**/api/revenue/sales-projects', route => fulfill(route, []))
+  await page.route('**/api/revenue/opportunity-options', route => fulfill(route, []))
+
+  await page.route('**/api/revenue/contracts/pending**', route => {
+    if (/\/pending\/\d+\/resolve$/.test(route.request().url())) {
+      pendingContracts = []
+      return fulfill(route, null)
+    }
+    const fixture = new URL(route.request().url()).searchParams.get('fixture')
+    if (fixture === 'futian') return fulfill(route, [{ id: 31, brand: '北汽福田', contractNo: 'FT-2026-002', detailNo: '20260902000031', contractName: '北汽福田定制开发服务合同', bizLineRaw: '全域-全渠道-全域云鹿定制', bizLineId: 1, receivableAmount: 4650, pending: 1 }])
+    if (fixture === 'flyhigh') return fulfill(route, [{ id: 21, brand: '飞鹤', contractNo: 'FH-2026-001', detailNo: '3957852593046113680', contractName: '飞鹤 2026 年度会员运营服务合同', bizLineRaw: '全域-全渠道-全域云鹿定制', bizLineId: 1, receivableAmount: 250000, pending: 1 }])
+    return fulfill(route, pendingContracts)
+  })
+  await page.route('**/api/revenue/contracts/mapped**', route => fulfill(route, []))
+
+  await page.route('**/api/business-lines**', route => fulfill(route, {
+    records: [
+      { id: 1, name: '全渠道云鹿定制' },
+      { id: 2, name: 'SAAS' },
+      { id: 3, name: '会员通' }
+    ],
+    total: 3
+  }))
+  await page.route('**/api/projects**', route => fulfill(route, {
+    records: [
+      { id: 101, name: '皇家项目', businessLineId: 1 },
+      { id: 102, name: 'Speedo', businessLineId: 1 },
+      { id: 15, name: '黄天鹅', businessLineId: 2 }
+    ],
+    total: 3
+  }))
+})
+
+const openDeliveryPanel = async (page: Page) => {
+  await page.goto('/revenue/delivery')
+  const panel = page.locator('.revenue-page')
+  await expect(panel.locator('.matrix-table')).toBeVisible()
+  return panel
+}
+
+const dataRow = (panel: Locator, name: string) =>
+  panel.locator('.matrix-table tbody tr', { hasText: name })
+
+// 概览卡固定顺序：合同总额（收款月）/ OA 合同总额 / 已交付 / 预估交付 / 人工成本 / 其他成本 / 真实利润 / 真实利润率
+const overviewCell = (panel: Locator, index: number) =>
+  panel.locator('.overview-strip .overview-cell').nth(index)
+
+// 当前表格只渲染一个 9 列期间块；全行（业务线/项目/OA 三列）期间起始列 = 3
+const TABLE = { delivered: 3, estimated: 4, hours: 5, labor: 6, salesHours: 7, salesCost: 8, other: 9, profit: 10, rate: 11 }
+
+test('交付汇总表默认全年并可在 H1/H2 间本地切换', async ({ page }) => {
+  const panel = await openDeliveryPanel(page)
+  const table = panel.locator('.matrix-table')
+
+  // 默认全年：只有全年期间标题和 9 个指标列
+  await expect(table).toContainText('全年 YTD')
+  await expect(table).not.toContainText('上半年 H1')
+  await expect(table).not.toContainText('下半年 H2')
+  await expect(panel.getByRole('button', { name: '全年' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('button', { name: '未税' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('button', { name: '含税' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(table).toContainText('按交付日期')
+  await expect(table).toContainText('皇家项目')
+  await expect(table).toContainText('Speedo')
+  await expect(table).toContainText('项目集')
+  await expect(table).toContainText('全渠道云鹿定制')
+  await expect(table).toContainText('会员通')
+  await expect(table).toContainText('合计')
+
+  // 会员通聚合行：该线全部销售工时/成本计入「项目集」行并扣减真实利润
+  const memberRow = dataRow(panel, '项目集')
+  const memberCell = (index: number) => memberRow.locator('td').nth(index)
+  await expect(memberCell(TABLE.salesHours)).toContainText('2')
+  await expect(memberCell(TABLE.salesCost)).toContainText('0.9')
+  await expect(memberCell(TABLE.profit)).toContainText('16.2')
+  await memberRow.locator('td').nth(TABLE.profit).click()
+  const memberDrawer = page.getByRole('dialog')
+  await expect(memberDrawer).toContainText('减 · 销售成本')
+  await expect(memberDrawer).toContainText('真实利润（已扣销售成本）')
+  await page.keyboard.press('Escape')
+
+  const royalRow = dataRow(panel, '皇家项目')
+  const cell = (index: number) => royalRow.locator('td').nth(index)
+  await expect(cell(2)).toContainText('200')
+  await expect(cell(TABLE.delivered)).toContainText('180')
+  await expect(cell(TABLE.estimated)).toContainText('100')
+  await expect(cell(TABLE.hours)).toContainText('60')
+  await expect(cell(TABLE.labor)).toContainText('90')
+  await expect(cell(TABLE.salesHours)).toContainText('3')
+  await expect(cell(TABLE.salesCost)).toContainText('3')
+  await expect(cell(TABLE.other)).toContainText('17')
+  await expect(cell(TABLE.profit)).toContainText('150')
+  await expect(cell(TABLE.rate)).toContainText('53.57%')
+
+  const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
+  const salesBadge = lineTotalRow.locator('.row-note-badge.sales')
+  await expect(salesBadge).toHaveAttribute('aria-label', /未分配销售 7 人月 · 12 万/)
+  await expect(salesBadge).toHaveAttribute('aria-label', /仅扣业务线利润/)
+
+  // 单行聚合业务线（会员通/精准，无项目细拆）不渲染业务线合计行
+  await expect(table.locator('tbody tr.line-total-row', { hasText: '会员通' })).toHaveCount(0)
+  await expect(table.locator('tbody tr.line-total-row', { hasText: '精准' })).toHaveCount(0)
+  await expect(dataRow(panel, '项目集')).toHaveCount(1)
+  await expect(dataRow(panel, '项目集')).not.toHaveClass(/line-total-row/)
+
+  const totalCell = (index: number) => lineTotalRow.locator('td').nth(index)
+  await expect(totalCell(2)).toContainText('280')
+  await expect(totalCell(TABLE.salesHours)).toContainText('7')
+  await expect(totalCell(TABLE.salesCost)).toContainText('12')
+  await expect(totalCell(TABLE.labor)).toContainText('108')
+  await expect(totalCell(TABLE.other)).toContainText('27')
+  await expect(totalCell(TABLE.profit)).toContainText('198')
+  await expect(totalCell(TABLE.rate)).toContainText('52.11%')
+
+  // 末行「全表（含销售）」：工时=工时+销售工时（76+12=88）、成本=工时成本+销售成本（110.4+15.9=126.3 万）
+  const combinedRow = dataRow(panel, '全表（含销售）')
+  const combinedCell = (index: number) => combinedRow.locator('td').nth(index)
+  await expect(combinedCell(TABLE.hours)).toContainText('88')
+  await expect(combinedCell(TABLE.labor)).toContainText('126.3')
+  await expect(combinedCell(TABLE.salesHours)).toHaveText('—')
+  await expect(combinedCell(TABLE.salesCost)).toHaveText('—')
+
+  const overview = panel.locator('.overview-strip')
+  await expect(overview).toContainText('OA 合同总额')
+  await expect(overview).toContainText('真实利润率')
+  await panel.locator('.caliber-help').hover()
+  await expect(page.locator('.el-popper', { hasText: '概览卡为全年口径' })).toBeVisible()
+  await expect(overviewCell(panel, 0)).toContainText('280')
+  await expect(overviewCell(panel, 1)).toContainText('280')
+  await expect(overviewCell(panel, 2)).toContainText('240')
+  await expect(overviewCell(panel, 3)).toContainText('140')
+  await expect(overviewCell(panel, 4)).toContainText('155')
+  await expect(overviewCell(panel, 5)).toContainText('27')
+  await expect(overviewCell(panel, 6)).toContainText('198')
+  await expect(overviewCell(panel, 7)).toContainText('52.11%')
+
+  const requestsBeforePeriodSwitch = summaryRequests.length
+  await panel.getByRole('button', { name: '上半年 H1' }).click()
+  await expect(table).toContainText('上半年 H1')
+  await expect(table).not.toContainText('全年 YTD')
+  await expect(royalRow.locator('td').nth(TABLE.delivered)).toContainText('80')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('30')
+  expect(summaryRequests).toHaveLength(requestsBeforePeriodSwitch)
+
+  await panel.getByRole('button', { name: '下半年 H2' }).click()
+  await expect(table).toContainText('下半年 H2')
+  await expect(table).not.toContainText('上半年 H1')
+  await expect(royalRow.locator('td').nth(TABLE.delivered)).toContainText('100')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('70')
+  expect(summaryRequests).toHaveLength(requestsBeforePeriodSwitch)
+
+  // 项目利润抽屉始终使用当前选中期间
+  await royalRow.locator('td').nth(TABLE.profit).click()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer).toContainText('下半年 H2')
+  await expect(drawer).toContainText('减 · 成单销售成本')
+  await page.keyboard.press('Escape')
+
+  // 业务线合计行仍支持利润构成抽屉
+  await lineTotalRow.locator('td').nth(TABLE.profit).click()
+  const totalsDrawer = page.getByRole('dialog')
+  await expect(totalsDrawer).toContainText('减 · 销售成本（含成单+未分配）')
+  await expect(totalsDrawer).toContainText('业务线利润')
+})
+
+test('含预估开关联动：切换口径重新拉 summary 且预估列/利润联动', async ({ page }) => {
+  const panel = await openDeliveryPanel(page)
+  const royalRow = dataRow(panel, '皇家项目')
+
+  await expect(overviewCell(panel, 6)).toContainText('198')
+  await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('150')
+  expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
+
+  await panel.getByRole('button', { name: '只看实际' }).click()
+  await expect(overviewCell(panel, 6)).toContainText('90')
+  await expect(overviewCell(panel, 7)).toContainText('37.5%')
+  await expect(royalRow.locator('td').nth(TABLE.profit)).toContainText('70')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toHaveText('—')
+  expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=false')
+
+  await panel.getByRole('button', { name: '含预估' }).click()
+  await expect(overviewCell(panel, 6)).toContainText('198')
+  await expect(royalRow.locator('td').nth(TABLE.estimated)).toContainText('100')
+  expect(summaryRequests[summaryRequests.length - 1]).toContain('includeEstimate=true')
+})
+
+test('预估交付批量新增：dialog 加行并断言 batch POST payload', async ({ page }) => {
+  const panel = await openDeliveryPanel(page)
+  const royalRow = dataRow(panel, '皇家项目')
+
+  await royalRow.getByRole('button', { name: '预估交付' }).click()
+  const dialog = page.getByRole('dialog', { name: /预估交付计划/ })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('历史完结单价：2.28')   // estimates/unit-price 提示
+
+  const grid = dialog.getByLabel('按月批量新增预估交付')
+  const batchRow = (index: number) => grid.locator('.plan-batch-row').nth(index)
+  const chooseMonth = async (rowIndex: number, label: string) => {
+    await batchRow(rowIndex).locator('.el-select__wrapper').click()
+    await page.getByRole('option', { name: label }).last().click()
+  }
+  const setAmount = async (rowIndex: number, value: string) => {
+    const input = batchRow(rowIndex).locator('.el-input-number input').first()
+    await input.click()
+    await input.press('Meta+A')
+    await input.pressSequentially(value)
+    await input.press('Tab')
+  }
+
+  // 两行：同月（08月）不同金额
+  await chooseMonth(0, '08月')
+  await setAmount(0, '60')
+  await dialog.getByRole('button', { name: '+ 添加一条' }).click()
+  await chooseMonth(1, '08月')
+  await setAmount(1, '40')
+
+  const posted: Array<{ businessLineId: number; projectId: number; year: number; rows: Array<{ yearMonth: string; amountYuan: number; personMonths: number }> }> = []
+  await page.route('**/api/revenue/delivery-plans/batch', route => {
+    posted.push(route.request().postDataJSON())
+    return fulfill(route, [])
+  })
+  await dialog.getByRole('button', { name: '保存批量新增' }).click()
+
+  await expect(page.locator('.el-message')).toContainText('已保存 2 条预估交付计划')
+  expect(posted).toHaveLength(1)
+  expect(posted[0]).toMatchObject({ businessLineId: 1, projectId: 101, year: 2026 })
+  expect(posted[0].rows).toHaveLength(2)
+  expect(posted[0].rows.map(row => row.yearMonth)).toEqual(['2026-08', '2026-08'])
+  expect(posted[0].rows[0].amountYuan).toBe(600000)
+  expect(posted[0].rows[1].amountYuan).toBe(400000)
+})
+
+test('待映射黄天鹅合同切换业务线后映射到 SAAS 项目', async ({ page }) => {
+  const fixture: PendingContract = {
+    id: 21,
+    brand: '黄天鹅',
+    contractNo: 'HT-21',
+    contractName: '黄天鹅待映射合同',
+    bizLineId: 1,
+    projectId: null,
+    receivableAmount: 250000,
+    pending: 1
+  }
+  let currentPending: PendingContract[] = [fixture]
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', async route => {
+    if (route.request().method() === 'POST') {
+      currentPending = []
+      return fulfill(route, null)
+    }
+    return fulfill(route, currentPending)
+  })
+  await page.goto('/revenue/pending')
+  const panel = page.locator('.revenue-page')
+  const pendingSection = panel.locator('.pending-section').filter({ hasText: '合同待映射' })
+  const pendingTable = pendingSection.locator('.data-table')
+  await expect(pendingTable).toContainText('HT-21')
+  const row = pendingTable.locator('tr', { hasText: 'HT-21' })
+  const lineSelect = row.locator('.el-select').nth(0)
+  const projectSelect = row.locator('.el-select').nth(1)
+  await lineSelect.locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: 'SAAS', exact: true }).last().evaluate(element => (element as HTMLElement).click())
+  await expect(projectSelect.locator('.el-select__wrapper')).toContainText('业务线级')
+  await projectSelect.locator('.el-select__wrapper').click()
+  await page.getByRole('option', { name: '黄天鹅', exact: true }).last().evaluate(element => (element as HTMLElement).click())
+  const resolveRequest = page.waitForRequest(request => /\/api\/revenue\/contracts\/pending\/21\/resolve$/.test(request.url()) && request.method() === 'POST')
+  await row.getByRole('button', { name: '确定' }).click()
+  const request = await resolveRequest
+  expect(request.method()).toBe('POST')
+  expect(request.postDataJSON()).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect(page.locator('.el-message').last()).toContainText('合同已映射')
+  await expect(pendingTable).toContainText('暂无待映射合同')
+})
+
+test('业务线级合同（福田定制不落项目）在业务线合计与整表合计可见，含交付日期口径提示', async ({ page }) => {
+  // 定制线叠加业务线级未落项目合同（4650 元 = 0.47 万）
+  await page.route('**/api/revenue/delivery/summary**', route => {
+    const url = new URL(route.request().url())
+    const includeEstimate = url.searchParams.get('includeEstimate') === 'true'
+    return fulfill(route, withLineLevelContract(makeSummary(includeEstimate)))
+  })
+  const panel = await openDeliveryPanel(page)
+  const table = panel.locator('.matrix-table')
+
+  // 业务线合计行：线级合同说明（「线」徽标 tooltip）+ OA 列含线级合同金额
+  const lineTotalRow = table.locator('tbody tr.line-total-row', { hasText: '全渠道云鹿定制' })
+  const lineContractBadge = lineTotalRow.locator('.row-note-badge.contract')
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /合同 0.47 万/)
+  await expect(lineContractBadge).toHaveAttribute('aria-label', /已交付 0.47 万/)
+  await expect(lineTotalRow.locator('td').nth(2)).toContainText('280.46') // OA=280万+0.47万（0.465 浮点进位显示 280.46）
+
+  // 整表合计行：线级合同不消失
+  const grandRow = table.locator('tbody tr.grand-total-row')
+  const grandContractBadge = grandRow.locator('.row-note-badge.contract')
+  await expect(grandContractBadge).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
+  await expect(grandContractBadge).toHaveAttribute('aria-label', /已交付 0.47 万/)
+
+  // delivery_date 口径：列头提示
+  const groupHead = table.locator('thead .group-head').first()
+  await expect(groupHead).toContainText('按交付日期')
+  await expect(groupHead).toHaveAttribute('title', /delivery_date/)
+
+  // includeEstimate 联动不回归：切实际口径仍显示线级合同（不消失）
+  await panel.getByRole('button', { name: '只看实际' }).click()
+  await expect(overviewCell(panel, 6)).toContainText('90') // 实际口径利润（回归锚点）
+  const lineBadgeAfterToggle = table.locator('tbody tr.line-total-row').first().locator('.row-note-badge.contract')
+  await expect(lineBadgeAfterToggle).toHaveAttribute('aria-label', /业务线级合同（未落具体项目）/)
+})
+
+test('待映射合同可归属业务线级（不落具体项目），POST 携带 businessLineId', async ({ page }) => {
+  const fixture: PendingContract = { id: 31, brand: '北汽福田', contractNo: 'FT-2026-002', contractName: '北汽福田定制开发服务合同', bizLineId: 1, receivableAmount: 4650, pending: 1 }
+  let currentPending = [fixture]
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', async route => { if (route.request().method() === 'POST') { currentPending = []; return fulfill(route, null) } return fulfill(route, currentPending) })
+  await page.goto('/revenue/pending')
+  const panel = page.locator('.revenue-page')
+  const pendingTable = panel.locator('.pending-section').filter({ hasText: '合同待映射' }).locator('.data-table')
+  const row = pendingTable.locator('tr', { hasText: 'FT-2026-002' })
+  await row.locator('.el-select__wrapper').nth(1).click()
+  await page.getByRole('option', { name: /业务线级.*不落具体项目/ }).click()
+  const resolveRequest = page.waitForRequest(request => /\/api\/revenue\/contracts\/pending\/31\/resolve$/.test(request.url()) && request.method() === 'POST')
+  await row.getByRole('button', { name: '确定' }).click()
+  expect((await resolveRequest).postDataJSON()).toEqual({ businessLineId: 1 })
+  await expect(page.locator('.el-message').last()).toContainText('合同已映射')
+  await expect(pendingTable).toContainText('暂无待映射合同')
+})
+
+test('已映射黄天鹅合同可从定制切换到 SAAS 项目', async ({ page }) => {
+  const original = { id: 41, brand: '黄天鹅', contractNo: 'HT-41', contractName: '黄天鹅合同', bizLineId: 1, projectId: 101, businessLineName: '全渠道云鹿定制', projectName: '皇家项目', receivableAmount: 180800, pending: 0 }
+  let currentMapped = [original]
+  let mappingBody: unknown
+  await page.unroute('**/api/revenue/contracts/pending**')
+  await page.route('**/api/revenue/contracts/pending**', route => fulfill(route, []))
+  await page.unroute('**/api/revenue/contracts/mapped**')
+  await page.route('**/api/revenue/contracts/mapped**', route => fulfill(route, currentMapped))
+  await page.route('**/api/revenue/contracts/41/mapping', async route => {
+    expect(route.request().method()).toBe('PUT')
+    mappingBody = route.request().postDataJSON()
+    currentMapped = [{ ...original, bizLineId: 2, projectId: 15, businessLineName: 'SAAS', projectName: '黄天鹅' }]
+    return fulfill(route, currentMapped[0])
+  })
+  await page.route('**/api/business-lines**', route => fulfill(route, { records: [{ id: 1, name: '全渠道云鹿定制' }, { id: 2, name: 'SAAS' }] }))
+  await page.route('**/api/projects**', route => fulfill(route, { records: [{ id: 101, name: '皇家项目', businessLineId: 1 }, { id: 15, name: '黄天鹅', businessLineId: 2 }] }))
+  await page.goto('/revenue/pending')
+  const panel = page.locator('.revenue-page')
+  const mappedSection = panel.locator('.pending-section').filter({ hasText: '已映射合同' })
+  const mappedTable = mappedSection.locator('.data-table')
+  const row = mappedTable.locator('tr', { hasText: 'HT-41' })
+  await row.getByRole('button', { name: '编辑' }).click()
+  const lineSelect = row.locator('.el-select').nth(0)
+  const projectSelect = row.locator('.el-select').nth(1)
+  await lineSelect.locator('.el-select__wrapper').click()
+  await lineSelect.locator('input').press('End')
+  await lineSelect.locator('input').press('Enter')
+  await expect(projectSelect.locator('.el-select__wrapper')).toContainText('业务线级')
+  await projectSelect.locator('.el-select__wrapper').click()
+  const options = page.getByRole('option')
+  await expect(options.filter({ hasText: '黄天鹅' })).toBeVisible()
+  await expect(options.filter({ hasText: '皇家项目' })).toHaveCount(0)
+  await options.filter({ hasText: '黄天鹅' }).click({ force: true })
+  const putRequest = page.waitForRequest(request => request.url().endsWith('/api/revenue/contracts/41/mapping') && request.method() === 'PUT')
+  await row.getByRole('button', { name: '保存' }).click()
+  const request = await putRequest
+  expect(request.method()).toBe('PUT')
+  expect(request.postDataJSON()).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect.poll(() => mappingBody).toEqual({ businessLineId: 2, projectId: 15 })
+  await expect(page.locator('.el-message').last()).toContainText('合同归属已保存')
+  await expect(mappedTable).toContainText('SAAS')
+  await expect(mappedTable).toContainText('黄天鹅')
+})
+
+test('合同工具只出现在数据导入和待映射页面', async ({ page }) => {
+  await page.goto('/revenue/import')
+  const importPanel = page.locator('.revenue-page')
+  await expect(importPanel.getByRole('heading', { name: '合同导入', exact: true })).toHaveCount(1)
+  await expect(importPanel.getByText('合同导入历史', { exact: false })).toHaveCount(1)
+  await page.goto('/revenue/pending')
+  const pendingPanel = page.locator('.revenue-page')
+  await expect(pendingPanel.getByRole('heading', { name: '合同待映射', exact: false })).toHaveCount(1)
+  await expect(pendingPanel.getByRole('heading', { name: '已映射合同（可调整归属）', exact: false })).toHaveCount(1)
+  await page.goto('/revenue/delivery')
+  const deliveryPanel = page.locator('.revenue-page')
+  await expect(deliveryPanel.getByText('合同导入', { exact: false })).toHaveCount(0)
+  await expect(deliveryPanel.getByText('合同待映射', { exact: false })).toHaveCount(0)
+  await expect(deliveryPanel.getByText('已映射合同', { exact: false })).toHaveCount(0)
+})

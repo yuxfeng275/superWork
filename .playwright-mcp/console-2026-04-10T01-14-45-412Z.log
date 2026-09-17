@@ -1,0 +1,28 @@
+[     157ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[   10412ms] [WARNING] Invalid prop: type check failed for prop "value". Expected String | Number | Boolean | Object, got Null  null at <ElOption>
+at <ElOptions>
+at <ElScrollbar>
+at <ElSelectDropdown>
+at <ElFocusTrap>
+at <ElPopperContent>
+at <BaseTransition>
+at <Transition>
+at <Teleport>
+at <ElTooltipContent>
+at <ElPopper>
+at <ElTooltip>
+at <ElSelect>
+at <ElFormItem>
+at <ElForm>
+at <ElDialogContent>
+at <ElFocusTrap>
+at <ElOverlay>
+at <BaseTransition>
+at <Transition>
+at <Teleport>
+at <ElDialog>
+at <ProjectView>
+at <RouterView>
+at <MainLayout>
+at <RouterView>
+at <App> [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://127.0.0.1:5175/@vite/client:509

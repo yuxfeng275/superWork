@@ -1,0 +1,92 @@
+package com.bu.management.controller;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.annotation.RequirePermission;
+import com.bu.management.config.WorktimeRuntimeConfig;
+import com.bu.management.entity.DataSyncLog;
+import com.bu.management.entity.WorktimeSyncLog;
+import com.bu.management.integration.WorktimeApiClient;
+import com.bu.management.mapper.WorktimeSyncLogMapper;
+import com.bu.management.service.WorktimeConfigService;
+import com.bu.management.sync.SyncOrchestrator;
+import com.bu.management.sync.collector.WorktimeContractCollector;
+import com.bu.management.sync.collector.WorktimeMonthlyCollector;
+import com.bu.management.vo.Result;
+import com.fasterxml.jackson.databind.JsonNode;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Tag(name = "工时系统集成", description = "工时系统（worktime）连接配置与数据自动同步")
+@RestController
+@RequestMapping("/api/worktime")
+@RequiredArgsConstructor
+@RequirePermission({"kpi:manage"})
+public class WorktimeIntegrationController {
+
+    private final WorktimeConfigService configService;
+    private final WorktimeApiClient apiClient;
+    private final SyncOrchestrator syncOrchestrator;
+    private final WorktimeSyncLogMapper syncLogMapper;
+
+    // ==================== 配置管理 ====================
+
+    @GetMapping("/status")
+    @Operation(summary = "获取工时系统集成状态")
+    public Result<Map<String, Object>> getStatus() {
+        WorktimeRuntimeConfig config = configService.getRuntimeConfig();
+        Map<String, Object> status = new HashMap<>();
+        status.put("enabled", config.enabled());
+        status.put("baseUrl", config.baseUrl());
+        status.put("credentialConfigured", config.hasCredentials());
+        status.put("credentialSource", config.credentialSource());
+        status.put("lastTestedAt", config.lastTestedAt());
+        status.put("lastTestStatus", config.lastTestStatus());
+        status.put("lastTestMessage", config.lastTestMessage());
+        // 最近一次各类型同步结果
+        for (String type : List.of("contract", "worklog", "cost")) {
+            WorktimeSyncLog latest = syncLogMapper.selectOne(new LambdaQueryWrapper<WorktimeSyncLog>()
+                    .eq(WorktimeSyncLog::getSyncType, type)
+                    .orderByDesc(WorktimeSyncLog::getId)
+                    .last("LIMIT 1"));
+            status.put("last" + type.substring(0, 1).toUpperCase() + type.substring(1) + "Sync", latest);
+        }
+        return Result.success(status);
+    }
+
+    // ==================== 手动同步 ====================
+
+    @PostMapping("/sync/contracts")
+    @Operation(summary = "手动同步合同明细（默认当年），经统一同步编排器执行")
+    public Result<List<DataSyncLog>> syncContracts(@RequestParam(required = false) Integer year,
+                                                   @RequestAttribute("userId") Long userId) {
+        String scope = year == null ? null : String.valueOf(year);
+        return Result.success("合同明细同步完成",
+                syncOrchestrator.run(WorktimeContractCollector.TASK_CODE, scope, "manual", userId));
+    }
+
+    @PostMapping("/sync/monthly")
+    @Operation(summary = "手动同步工时/成本（forceMonth=YYYY-MM 时强制重拉该月），经统一同步编排器执行")
+    public Result<List<DataSyncLog>> syncMonthly(@RequestParam(required = false) String forceMonth,
+                                                 @RequestAttribute("userId") Long userId) {
+        return Result.success("月度数据同步完成",
+                syncOrchestrator.run(WorktimeMonthlyCollector.TASK_CODE, forceMonth, "manual", userId));
+    }
+
+    // ==================== 同步日志 ====================
+
+    @GetMapping("/sync/logs")
+    @Operation(summary = "同步日志")
+    public Result<List<WorktimeSyncLog>> syncLogs(@RequestParam(required = false) String syncType) {
+        return Result.success(syncLogMapper.selectList(new LambdaQueryWrapper<WorktimeSyncLog>()
+                .eq(syncType != null && !syncType.isBlank(), WorktimeSyncLog::getSyncType, syncType)
+                .orderByDesc(WorktimeSyncLog::getId)
+                .last("LIMIT 50")));
+    }
+}

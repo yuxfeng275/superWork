@@ -1,0 +1,48 @@
+name: bu-ai
+
+services:
+  backend-ai:
+    image: eclipse-temurin:17-jre
+    container_name: bu-ai-backend
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "java -jar /app/app.jar"
+    volumes:
+      - ./backend/management-1.0.0.jar:/app/app.jar:ro
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      TZ: Asia/Shanghai
+      SPRING_DATASOURCE_URL: jdbc:mysql://superwork-bu-mysql:3306/bu_management?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: bu_admin
+      SPRING_DATASOURCE_PASSWORD: bu_admin123
+      REDIS_HOST: superwork-bu-redis
+      SPRING_DATA_REDIS_HOST: superwork-bu-redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      MINIO_ENDPOINT: http://superwork-bu-minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      AI_SIDECAR_URL: http://superwork-bu-ai-sidecar:8787
+      AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
+      AI_SIDECAR_TOOL_CALLBACK_URL: http://bu-ai-backend:8081/internal/ai-agent/tools
+      JWT_SECRET: superwork-bu-management-server-241-change-me
+      EMAIL_CREDENTIAL_ENCRYPTION_KEY: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:-}
+    ports:
+      - "18082:8081"
+    networks:
+      - superwork-bu-network
+
+  frontend-ai:
+    image: nginx:alpine
+    container_name: bu-ai-frontend
+    restart: unless-stopped
+    volumes:
+      - ./frontend-dist:/usr/share/nginx/html:ro
+      - ./frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "18083:80"
+    networks:
+      - superwork-bu-network
+
+networks:
+  superwork-bu-network:
+    external: true

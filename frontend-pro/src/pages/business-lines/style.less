@@ -1,0 +1,42 @@
+.sw-business-lines .sw-filter-card {
+  margin-bottom: 16px;
+}
+.sw-business-lines .sw-table-card {
+  margin-top: 16px;
+}
+.sw-business-line-id {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.sw-business-lines .ant-table-cell {
+  vertical-align: middle;
+}
+.sw-business-line-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.sw-business-line-card {
+  border: 1px solid #e8edf5;
+  min-height: 230px;
+}
+@media (max-width: 768px) {
+  .sw-business-lines .sw-filter-card .ant-form {
+    display: block;
+  }
+  .sw-business-lines .sw-filter-card .ant-form-item {
+    margin: 0 0 12px;
+  }
+}
+@media (max-width: 1000px) {
+  .sw-business-line-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .sw-business-line-grid {
+    grid-template-columns: 1fr;
+  }
+}

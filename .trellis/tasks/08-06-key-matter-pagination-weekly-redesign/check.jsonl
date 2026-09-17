@@ -1,0 +1,4 @@
+{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".claude/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": ".trellis/spec/frontend/key-matter-management-ui.md", "reason": "Verify page and weekly-update contract"}
+{"file": "frontend/tests/key-matters.spec.ts", "reason": "Regression coverage for key-matter workflows"}

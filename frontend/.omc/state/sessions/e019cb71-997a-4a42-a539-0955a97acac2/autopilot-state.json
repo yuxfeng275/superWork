@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "started_at": "2026-04-09T06:58:22.887Z",
+  "original_prompt": "/autopilot 1新建项目时可以选择到非项目经理角色之外的人；2项目状态需要增加：待开始、进行中、已交付、运维中；3菜单管理页面需要优化一下，现在太丑了",
+  "session_id": "e019cb71-997a-4a42-a539-0955a97acac2",
+  "project_path": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-04-09T06:58:22.887Z"
+}

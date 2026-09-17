@@ -1,0 +1,5 @@
+[      60ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[     149ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/business-lines?page=1&size=200:0
+[     149ms] [ERROR] 加载业务线失败: Error: HTTP error! status: 403
+    at ApiService.request (http://127.0.0.1:5175/src/utils/api.ts?t=1775729812356:27:10)
+    at async loadBusinessLines (http://127.0.0.1:5175/src/views/BusinessLineView.vue:40:21) @ http://127.0.0.1:5175/@vite/client:509

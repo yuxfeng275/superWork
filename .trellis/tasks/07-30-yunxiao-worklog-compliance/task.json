@@ -1,0 +1,44 @@
+{
+  "id": "yunxiao-worklog-compliance",
+  "name": "yunxiao-worklog-compliance",
+  "title": "云效工时合规检测",
+  "description": "",
+  "status": "review",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-07-30",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "07-30-yunxiao-worklog-audit",
+  "relatedFiles": [],
+  "notes": "实际/预计工时、工作日历、豁免、18:30/10:00 判定和同步失败降级未知已部署；待连续 5 日对账、详情与导出。",
+  "meta": {}
+}

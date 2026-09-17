@@ -1,0 +1,55 @@
+{
+  "id": "project-quality-audit",
+  "name": "project-quality-audit",
+  "title": "全系统质量治理与体验重构",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": "fullstack",
+  "scope": null,
+  "priority": "P0",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-07-27",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 1,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-19-quality-p0-integration-health",
+    "08-19-quality-p0-actor-security",
+    "08-19-quality-p0-flow-stability",
+    "08-19-quality-gates-infra",
+    "08-19-quality-frontend-foundation",
+    "08-19-quality-api-foundation",
+    "08-19-quality-core-delivery-flow",
+    "08-19-quality-business-experience",
+    "08-19-quality-admin-integrations",
+    "08-19-quality-performance-release"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "P0 integration health deployed 239b111 and verified. Actor identity work in progress; direct actor-bearing writes now derive JWT userId in task/issue/attachment/worklog/confirmation/design-worklog.",
+  "meta": {}
+}

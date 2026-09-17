@@ -1,0 +1,1250 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, ArrowRight, Calendar, Close, CopyDocument, Delete, Document, Edit, Lock, Paperclip, Refresh, Search } from '@element-plus/icons-vue'
+import { api } from '@/utils/api'
+import type {
+  EmailAccount,
+  EmailDailyDigest,
+  EmailDigestItem,
+  EmailMessageDetail,
+  EmailMessagePage,
+  EmailMessageSummary,
+  EmailSyncStatus,
+  EmailWeComMapping,
+  EmailProjectGroup,
+  EmailSenderCompanyGroup,
+  EmailGroupingJobStatus,
+  EmailValueMetrics,
+  EmailActionLink
+} from '@/types/email'
+
+const pageSize = 20
+const account = ref<EmailAccount>()
+const accountLoading = ref(true)
+const accountError = ref('')
+const savingAccount = ref(false)
+const testingConnection = ref(false)
+const settingsVisible = ref(false)
+const bindForm = reactive({ emailAddress: '', appPassword: '' })
+const weComMapping = ref<EmailWeComMapping>()
+const weComForm = reactive({ userId: '', enabled: true })
+const savingWeCom = ref(false)
+const selectedDate = ref(shanghaiDate(new Date(Date.now() - 86_400_000)))
+const digest = ref<EmailDailyDigest>()
+const digestLoading = ref(false)
+const digestError = ref('')
+const regeneratingDigest = ref(false)
+
+const messages = ref<EmailMessagePage>(emptyMessagePage())
+const messagesLoading = ref(false)
+const messagesError = ref('')
+const inboxFilters = reactive({ date: '', keyword: '', page: 1 })
+const projectGroups = ref<EmailProjectGroup[]>([])
+const senderCompanyGroups = ref<EmailSenderCompanyGroup[]>([])
+const groupMode = ref<'project' | 'company'>('project')
+const selectedProjectGroup = ref('all')
+const selectedSenderCompany = ref('all')
+const groupingStatus = ref<EmailGroupingJobStatus>({ status: 'IDLE', total: 0, processed: 0, grouped: 0, ungrouped: 0 })
+let groupingPollTimer: number | undefined
+
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const detailActiveTab = ref('original')
+const digestActiveTab = ref('overview')
+const interpreting = ref(false)
+const selectedMessage = ref<EmailMessageDetail>()
+const detailMessageId = ref<number>()
+
+const syncStatus = ref<EmailSyncStatus>({ status: 'IDLE' })
+let syncPollTimer: number | undefined
+
+const configured = computed(() => Boolean(account.value?.configured))
+const syncRunning = computed(() => ['QUEUED', 'RUNNING'].includes(syncStatus.value.status))
+const groupingRunning = computed(() => groupingStatus.value.status === 'RUNNING')
+const allProjectMailCount = computed(() => projectGroups.value.reduce((sum, group) => sum + group.mailCount, 0))
+const allCompanyMailCount = computed(() => senderCompanyGroups.value.reduce((sum, group) => sum + group.mailCount, 0))
+const maskedAddress = computed(() => maskEmail(account.value?.emailAddress))
+const accountStatusText = computed(() => {
+  if (syncRunning.value) return '正在同步'
+  if (syncStatus.value.status === 'SUCCESS') return '同步成功'
+  if (syncStatus.value.status === 'FAILED') return '同步失败'
+  return account.value?.connectionStatus === 'CONNECTED' ? '连接正常' : '等待同步'
+})
+const syncMessage = computed(() => syncStatus.value.message || syncStatus.value.error || '')
+const digestModeLabel = computed(() => {
+  if (digest.value?.status === 'EMPTY') return '空摘要'
+  if (digest.value?.status === 'PENDING') return '待生成'
+  if (digest.value?.status === 'DEGRADED' || digest.value?.generationMode === 'RULES') return '规则降级'
+  if (digest.value?.generationMode === 'AI') return 'AI'
+  return digest.value?.status === 'FAILED' ? '生成失败' : ''
+})
+const digestModeType = computed(() => {
+  if (digest.value?.status === 'DEGRADED' || digest.value?.generationMode === 'RULES') return 'warning'
+  if (digest.value?.status === 'FAILED') return 'danger'
+  if (digest.value?.status === 'EMPTY' || digest.value?.status === 'PENDING') return 'info'
+  return 'success'
+})
+const pushLabel = computed(() => {
+  const labels: Record<string, string> = {
+    SUCCESS: '已推送',
+    PENDING: '待推送',
+    NOT_CONFIGURED: '未配置',
+    UNMAPPED: '未映射',
+    FAILED: '失败'
+  }
+  return digest.value?.pushStatus ? labels[digest.value.pushStatus] || digest.value.pushStatus : ''
+})
+
+const selectedMessageIndex = computed(() => {
+  if (!selectedMessage.value) return -1
+  return messages.value.records.findIndex(message => message.id === selectedMessage.value?.id)
+})
+const selectedMessagePosition = computed(() => selectedMessageIndex.value >= 0
+  ? `${selectedMessageIndex.value + 1} / ${messages.value.records.length}`
+  : '')
+const previousMessage = computed(() => selectedMessageIndex.value > 0
+  ? messages.value.records[selectedMessageIndex.value - 1]
+  : undefined)
+const nextMessage = computed(() => selectedMessageIndex.value >= 0
+  && selectedMessageIndex.value < messages.value.records.length - 1
+  ? messages.value.records[selectedMessageIndex.value + 1]
+  : undefined)
+const senderInitial = computed(() => {
+  const source = selectedMessage.value?.fromName || selectedMessage.value?.fromAddress || '邮'
+  return source.trim().charAt(0).toUpperCase() || '邮'
+})
+
+function emptyMessagePage(): EmailMessagePage {
+  return { records: [], total: 0, size: pageSize, current: 1, pages: 0 }
+}
+
+function shanghaiDate(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(value)
+}
+
+function shiftDate(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00+08:00`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return shanghaiDate(date)
+}
+
+function maskEmail(value?: string) {
+  if (!value) return '邮箱账户'
+  const [local, domain] = value.split('@')
+  if (!domain) return '***'
+  if (local.length <= 2) return `${local.charAt(0)}***@${domain}`
+  return `${local.charAt(0)}***${local.charAt(local.length - 1)}@${domain}`
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '暂无记录'
+  return value.replace('T', ' ').slice(0, 16)
+}
+
+function formatFullDateTime(value?: string) {
+  if (!value) return '时间未知'
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+  const date = new Date(value.includes('T') && !hasTimezone ? `${value}+08:00` : value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ')
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
+    hour: '2-digit', minute: '2-digit'
+  }).format(date)
+}
+
+function attachmentIcon(contentType?: string) {
+  if (contentType?.includes('pdf')) return 'PDF'
+  if (contentType?.startsWith('image/')) return 'IMG'
+  if (contentType?.includes('sheet') || contentType?.includes('excel')) return 'XLS'
+  if (contentType?.includes('word') || contentType?.includes('document')) return 'DOC'
+  if (contentType?.includes('zip') || contentType?.includes('compressed')) return 'ZIP'
+  return 'FILE'
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 / 1024).toFixed(1)} MB`
+}
+
+function errorText(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
+async function loadAccount() {
+  accountLoading.value = true
+  accountError.value = ''
+  try {
+    account.value = await api.getEmailAccount()
+    if (account.value.configured) {
+      bindForm.emailAddress = account.value.emailAddress || ''
+      await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false), loadProjectGroups(), loadSenderCompanyGroups(), loadGroupingStatus(false), loadValueMetrics()])
+      void loadWeComMapping()
+    }
+  } catch (error: unknown) {
+    accountError.value = errorText(error, '邮箱账户加载失败，请稍后重试')
+  } finally {
+    accountLoading.value = false
+  }
+}
+
+async function loadWeComMapping() {
+  try {
+    const mapping = await api.getEmailWeComMapping()
+    weComMapping.value = mapping
+    weComForm.userId = mapping.weComUserId || ''
+    weComForm.enabled = mapping.enabled
+  } catch {
+    weComMapping.value = undefined
+  }
+}
+
+async function saveWeComMapping() {
+  const userId = weComForm.userId.trim()
+  if (!userId) {
+    ElMessage.warning('请填写企业微信 UserId')
+    return
+  }
+  savingWeCom.value = true
+  try {
+    weComMapping.value = await api.saveEmailWeComMapping(userId, weComForm.enabled)
+    ElMessage.success('企业微信推送身份已保存')
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '企业微信推送身份保存失败'))
+  } finally {
+    savingWeCom.value = false
+  }
+}
+
+async function saveAccount() {
+  const emailAddress = bindForm.emailAddress.trim()
+  const appPassword = bindForm.appPassword
+  if (!emailAddress || (!appPassword && !account.value?.credentialConfigured)) {
+    ElMessage.warning('请填写企业邮箱地址和第三方客户端安全密码')
+    return
+  }
+  savingAccount.value = true
+  try {
+    account.value = await api.saveEmailAccount({ emailAddress, appPassword })
+    bindForm.appPassword = ''
+    settingsVisible.value = false
+    ElMessage.success(`${emailAddress} 已绑定`)
+    await Promise.all([loadDigest(), loadMessages(), loadSyncStatus(false)])
+  } catch (error: unknown) {
+    bindForm.appPassword = ''
+    ElMessage.error(errorText(error, '邮箱绑定失败，请检查填写内容'))
+  } finally {
+    savingAccount.value = false
+  }
+}
+
+function openSettings() {
+  bindForm.emailAddress = account.value?.emailAddress || ''
+  bindForm.appPassword = ''
+  settingsVisible.value = true
+}
+
+async function testConnection() {
+  testingConnection.value = true
+  try {
+    const result = await api.testEmailAccount()
+    bindForm.appPassword = ''
+    result.success ? ElMessage.success(result.message || '连接测试成功') : ElMessage.error(result.message || '连接测试失败')
+  } catch {
+    bindForm.appPassword = ''
+    ElMessage.error('连接测试失败，请检查邮箱配置')
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+async function removeAccount() {
+  try {
+    await ElMessageBox.confirm('解绑后将停止后续同步，已收取邮件不会在此操作中展示。', '解绑邮箱', {
+      type: 'warning',
+      confirmButtonText: '确认解绑',
+      cancelButtonText: '取消'
+    })
+    await api.removeEmailAccount()
+    stopSyncPolling()
+    account.value = {
+      configured: false,
+      enabled: false,
+      provider: 'ALIBABA_CLOUD_ENTERPRISE_MAIL',
+      credentialConfigured: false
+    }
+    bindForm.emailAddress = ''
+    bindForm.appPassword = ''
+    settingsVisible.value = false
+    digest.value = undefined
+    messages.value = emptyMessagePage()
+    ElMessage.success('邮箱已解绑')
+  } catch (error: unknown) {
+    if (error instanceof Error) ElMessage.error(errorText(error, '邮箱解绑失败'))
+  }
+}
+
+async function loadDigest() {
+  digestLoading.value = true
+  digestError.value = ''
+  try {
+    const result = await api.getEmailDigest(selectedDate.value)
+    result.topics ||= []
+    result.progressItems ||= []
+    digest.value = result
+  } catch (error: unknown) {
+    digestError.value = errorText(error, '邮件摘要加载失败，收件箱仍可正常使用')
+  } finally {
+    digestLoading.value = false
+  }
+}
+
+async function changeDigestDate(days: number) {
+  selectedDate.value = shiftDate(selectedDate.value, days)
+  await loadDigest()
+}
+
+async function regenerateDigest() {
+  regeneratingDigest.value = true
+  try {
+    const result = await api.regenerateEmailDigest(selectedDate.value)
+    if ('businessDate' in result) digest.value = result
+    ElMessage.success('摘要已进入生成队列，可继续阅读邮件')
+    window.setTimeout(() => void loadDigest(), 800)
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '摘要重新生成失败'))
+  } finally {
+    regeneratingDigest.value = false
+  }
+}
+
+async function loadMessages() {
+  messagesLoading.value = true
+  messagesError.value = ''
+  try {
+    messages.value = await api.getEmailMessages({
+      page: inboxFilters.page,
+      size: pageSize,
+      date: inboxFilters.date || undefined,
+      keyword: inboxFilters.keyword.trim() || undefined,
+      projectId: groupMode.value === 'project' && selectedProjectGroup.value.startsWith('project:')
+        ? Number(selectedProjectGroup.value.slice(8)) : undefined,
+      ungrouped: groupMode.value === 'project' && selectedProjectGroup.value === 'ungrouped',
+      senderDomain: groupMode.value === 'company' && selectedSenderCompany.value !== 'all'
+        ? selectedSenderCompany.value : undefined
+    })
+  } catch (error: unknown) {
+    messagesError.value = errorText(error, '收件箱加载失败，请重试')
+  } finally {
+    messagesLoading.value = false
+  }
+}
+
+async function loadProjectGroups() {
+  try {
+    projectGroups.value = await api.getEmailProjectGroups()
+  } catch {
+    projectGroups.value = []
+  }
+}
+
+async function loadSenderCompanyGroups() {
+  try {
+    senderCompanyGroups.value = await api.getEmailSenderCompanyGroups()
+  } catch {
+    senderCompanyGroups.value = []
+  }
+}
+
+function changeGroupMode(mode: 'project' | 'company') {
+  groupMode.value = mode
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+function selectSenderCompany(domain: string) {
+  selectedSenderCompany.value = domain
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+function selectProjectGroup(group: string) {
+  selectedProjectGroup.value = group
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+async function startSmartGrouping(regroupAll = false) {
+  if (groupingRunning.value) return
+  try {
+    groupingStatus.value = await api.startEmailGrouping(regroupAll)
+    startGroupingPolling()
+  } catch (error: unknown) {
+    groupingStatus.value = { status: 'FAILED', total: 0, processed: 0, grouped: 0, ungrouped: 0, message: errorText(error, '智能分组启动失败') }
+    ElMessage.error(groupingStatus.value.message)
+  }
+}
+
+async function loadGroupingStatus(refreshOnSuccess: boolean) {
+  try {
+    const previous = groupingStatus.value.status
+    groupingStatus.value = await api.getEmailGroupingStatus()
+    if (groupingStatus.value.status === 'RUNNING') {
+      startGroupingPolling()
+    } else {
+      stopGroupingPolling()
+      if (refreshOnSuccess && previous === 'RUNNING' && groupingStatus.value.status === 'SUCCESS') {
+        await Promise.all([loadProjectGroups(), loadSenderCompanyGroups(), loadMessages()])
+        ElMessage.success(`智能分组完成：${groupingStatus.value.grouped} 封已归入项目，${groupingStatus.value.ungrouped} 封未分组`)
+      }
+    }
+  } catch {
+    stopGroupingPolling()
+  }
+}
+
+function startGroupingPolling() {
+  stopGroupingPolling()
+  groupingPollTimer = window.setInterval(() => void loadGroupingStatus(true), 600)
+}
+
+function stopGroupingPolling() {
+  if (groupingPollTimer !== undefined) {
+    window.clearInterval(groupingPollTimer)
+    groupingPollTimer = undefined
+  }
+}
+
+function searchMessages() {
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+function resetMessageFilters() {
+  inboxFilters.date = ''
+  inboxFilters.keyword = ''
+  inboxFilters.page = 1
+  void loadMessages()
+}
+
+function changeMessagePage(page: number) {
+  inboxFilters.page = page
+  void loadMessages()
+}
+
+async function openMessage(messageOrId: EmailMessageSummary | number) {
+  const id = typeof messageOrId === 'number' ? messageOrId : messageOrId.id
+  detailMessageId.value = id
+  detailActiveTab.value = 'original'
+  detailVisible.value = true
+  detailLoading.value = true
+  detailError.value = ''
+  selectedMessage.value = undefined
+  try {
+    const detail = await api.getEmailMessage(id)
+    detail.interpretation ||= {
+      status: 'NOT_GENERATED', keyPoints: [], actionItems: [], risks: []
+    }
+    selectedMessage.value = detail
+  } catch (error: unknown) {
+    detailError.value = errorText(error, '邮件详情加载失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+async function navigateMessage(direction: -1 | 1) {
+  const target = direction < 0 ? previousMessage.value : nextMessage.value
+  if (target) await openMessage(target)
+}
+
+async function copyMessageInfo() {
+  if (!selectedMessage.value) return
+  const message = selectedMessage.value
+  const text = [
+    message.subject || '（无主题）',
+    `发件人：${message.fromName || message.fromAddress} <${message.fromAddress}>`,
+    `时间：${formatFullDateTime(message.receivedAt)}`,
+    message.messageId ? `Message-ID：${message.messageId}` : ''
+  ].filter(Boolean).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('邮件信息已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择邮件信息')
+  }
+}
+
+function retryMessageDetail() {
+  if (detailMessageId.value) void openMessage(detailMessageId.value)
+}
+
+async function handleDetailTabChange(name: string | number) {
+  detailActiveTab.value = String(name)
+  if (name === 'ai' && selectedMessage.value?.interpretation.status === 'NOT_GENERATED') {
+    await generateInterpretation(false)
+  }
+}
+
+async function generateInterpretation(force: boolean) {
+  if (!selectedMessage.value || interpreting.value) return
+  if (!force && selectedMessage.value.interpretation.status === 'SUCCESS') return
+  interpreting.value = true
+  selectedMessage.value.interpretation.status = 'GENERATING'
+  try {
+    selectedMessage.value.interpretation = await api.generateEmailInterpretation(selectedMessage.value.id)
+    if (selectedMessage.value.interpretation.status === 'SUCCESS') {
+      ElMessage.success('AI 解读已生成并保存')
+    } else {
+      ElMessage.error(selectedMessage.value.interpretation.errorMessage || 'AI 解读失败')
+    }
+  } catch (error: unknown) {
+    selectedMessage.value.interpretation.status = 'FAILED'
+    selectedMessage.value.interpretation.errorMessage = errorText(error, 'AI 解读失败')
+    ElMessage.error(selectedMessage.value.interpretation.errorMessage)
+  } finally {
+    interpreting.value = false
+  }
+}
+
+const DISPOSITION_LABELS: Record<string, string> = {
+  URGENT_REPLY: '需立即回复',
+  REPLY: '需要回复',
+  ACTION_NO_REPLY: '需要行动',
+  WAITING: '等对方',
+  REFERENCE: '参考',
+  NOISE: '噪音'
+}
+
+function dispositionLabel(disposition?: string) {
+  return disposition ? (DISPOSITION_LABELS[disposition] || disposition) : ''
+}
+
+function dispositionTagType(disposition?: string) {
+  if (disposition === 'URGENT_REPLY') return 'danger'
+  if (disposition === 'REPLY') return 'warning'
+  if (disposition === 'ACTION_NO_REPLY') return 'primary'
+  if (disposition === 'NOISE') return 'info'
+  return 'success'
+}
+
+// ---------- 手动纠偏分组（沉淀发件人路由规则） ----------
+const regroupVisible = ref(false)
+const regroupProjectId = ref<number>()
+const regroupSaving = ref(false)
+const projectOptions = ref<{ id: number; name: string; fullPath?: string }[]>([])
+
+async function openRegroup() {
+  if (!selectedMessage.value) return
+  regroupProjectId.value = selectedMessage.value.projectId ?? undefined
+  regroupVisible.value = true
+  if (!projectOptions.value.length) {
+    try {
+      const payload = await api.getProjects({ page: 1, size: 500 }) as unknown as { records?: { id: number; name: string; fullPath?: string }[] }
+      projectOptions.value = payload.records ?? []
+    } catch {
+      ElMessage.error('项目列表加载失败')
+    }
+  }
+}
+
+async function saveRegroup() {
+  if (!selectedMessage.value || !regroupProjectId.value) {
+    ElMessage.warning('请选择归属项目')
+    return
+  }
+  regroupSaving.value = true
+  try {
+    await api.assignEmailProject(selectedMessage.value.id, regroupProjectId.value)
+    ElMessage.success('已更正分组，该发件人后续邮件将自动归入此项目')
+    regroupVisible.value = false
+    if (detailMessageId.value) await openMessage(detailMessageId.value)
+    await loadProjectGroups()
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '分组更正失败'))
+  } finally {
+    regroupSaving.value = false
+  }
+}
+
+function interpretationPriorityType(priority?: string) {
+  if (priority === '高' || priority?.toUpperCase() === 'HIGH') return 'danger'
+  if (priority === '中' || priority?.toUpperCase() === 'MEDIUM') return 'warning'
+  return 'info'
+}
+
+async function startSync() {
+  if (syncRunning.value) return
+  try {
+    syncStatus.value = await api.startEmailSync()
+    if (syncStatus.value.status === 'QUEUED') syncStatus.value.status = 'RUNNING'
+    startSyncPolling()
+  } catch (error: unknown) {
+    syncStatus.value = { status: 'FAILED', message: errorText(error, '同步启动失败') }
+  }
+}
+
+async function loadSyncStatus(refreshOnSuccess: boolean) {
+  try {
+    const previous = syncStatus.value.status
+    const next = await api.getEmailSyncStatus()
+    if (next.status === 'QUEUED') next.status = 'RUNNING'
+    syncStatus.value = next
+    if (next.status === 'RUNNING') {
+      startSyncPolling()
+    } else if (previous === 'RUNNING' && next.status === 'SUCCESS' && refreshOnSuccess) {
+      stopSyncPolling()
+      await Promise.all([loadMessages(), loadDigest(), loadProjectGroups(), loadSenderCompanyGroups(), loadGroupingStatus(false)])
+    } else {
+      stopSyncPolling()
+    }
+  } catch {
+    stopSyncPolling()
+    syncStatus.value = { status: 'FAILED', message: '同步状态获取失败，请稍后刷新' }
+  }
+}
+
+function startSyncPolling() {
+  stopSyncPolling()
+  syncPollTimer = window.setInterval(() => void loadSyncStatus(true), 350)
+}
+
+function stopSyncPolling() {
+  if (syncPollTimer !== undefined) {
+    window.clearInterval(syncPollTimer)
+    syncPollTimer = undefined
+  }
+}
+
+function digestItemTitle(item: EmailDigestItem) {
+  return item.title || item.subject || '关联邮件'
+}
+
+function digestItemContent(item: EmailDigestItem) {
+  return item.content || item.summary || item.action || item.sender || '点击查看邮件详情'
+}
+
+function digestStatusType(status?: string) {
+  if (status === '已完成') return 'success'
+  if (status === '推进中') return 'warning'
+  return 'info'
+}
+
+function openDigestSource(messageIds?: number[]) {
+  if (messageIds?.length) void openMessage(messageIds[0])
+}
+
+// ---------- 行动闭环：转任务/转事项、摘要反馈、价值面板 ----------
+
+const convertingKey = ref('')
+const valueMetrics = ref<EmailValueMetrics>()
+const sendingFeedback = ref(false)
+const replyDraft = ref('')
+const replying = ref(false)
+const actions = ref<EmailActionLink[]>([])
+
+const closedItemKeys = computed(() => {
+  const keys = new Set<string>()
+  if (actions.value) {
+    for (const action of actions.value.filter(a => a.status === 'CLOSED')) {
+      keys.add(`${action.itemKind}|${action.itemTitle}`)
+    }
+  }
+  return keys
+})
+
+function itemClosed(item: EmailDigestItem, kind: string) {
+  return closedItemKeys.value.has(`${kind}|${digestItemTitle(item)}`)
+}
+
+async function convertItem(item: EmailDigestItem, kind: 'TODO' | 'RISK', actionType: 'TASK' | 'ISSUE') {
+  if (!item.messageId || convertingKey.value) return
+  const key = `${actionType}:${item.messageId}:${digestItemTitle(item)}`
+  convertingKey.value = key
+  try {
+    const result = await api.convertEmailItem({
+      messageId: item.messageId,
+      itemKind: kind,
+      itemTitle: digestItemTitle(item),
+      actionType,
+      severity: kind === 'RISK' ? '中' : undefined
+    })
+    if (result.created) {
+      ElMessage.success(`已${actionType === 'TASK' ? '创建任务' : '创建事项'}「${result.targetTitle}」，完成后摘要自动标记闭环`)
+    } else {
+      ElMessage.info(`该条目已有对应的${actionType === 'TASK' ? '任务' : '事项'}，无需重复创建`)
+    }
+    actions.value = await api.getEmailActions(item.messageId)
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '转化失败，请稍后重试'))
+  } finally {
+    convertingKey.value = ''
+  }
+}
+
+async function sendFeedback(feedback: 'USEFUL' | 'USELESS') {
+  if (sendingFeedback.value) return
+  sendingFeedback.value = true
+  try {
+    digest.value = await api.feedbackEmailDigest(selectedDate.value, feedback)
+    ElMessage.success(feedback === 'USEFUL' ? '已反馈：有用' : '已反馈：没用，我们会改进摘要')
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '反馈失败'))
+  } finally {
+    sendingFeedback.value = false
+  }
+}
+
+async function loadValueMetrics() {
+  try {
+    valueMetrics.value = await api.getEmailValueMetrics()
+  } catch {
+    valueMetrics.value = undefined
+  }
+}
+
+const closeRatePercent = computed(() => {
+  const metrics = valueMetrics.value
+  if (!metrics || metrics.closeRate == null) return '—'
+  return `${Math.round(metrics.closeRate * 100)}%`
+})
+
+async function sendReplyDraft() {
+  if (!selectedMessage.value || replying.value) return
+  if (!replyDraft.value.trim()) {
+    ElMessage.warning('请先填写或生成回复内容')
+    return
+  }
+  replying.value = true
+  try {
+    const result = await api.replyEmail(selectedMessage.value.id, replyDraft.value)
+    if (result.status === 'SENT') {
+      ElMessage.success('回复已发送')
+      replyDraft.value = ''
+    } else {
+      ElMessage.error(result.errorMessage || '回复发送失败')
+    }
+  } catch (error: unknown) {
+    ElMessage.error(errorText(error, '回复发送失败'))
+  } finally {
+    replying.value = false
+  }
+}
+
+onMounted(loadAccount)
+onBeforeUnmount(() => {
+  stopSyncPolling()
+  stopGroupingPolling()
+})
+</script>
+
+<template>
+  <div class="email-page" v-loading="accountLoading">
+    <el-alert
+      v-if="accountError"
+      :title="accountError"
+      type="error"
+      :closable="false"
+      show-icon
+    >
+      <template #default><el-button size="small" @click="loadAccount">重试</el-button></template>
+    </el-alert>
+
+    <section v-else-if="!accountLoading && !configured" class="bind-card">
+      <div class="bind-intro">
+        <span class="eyebrow">PERSONAL INBOX</span>
+        <h2>绑定阿里云企业邮箱</h2>
+        <p>首个版本仅支持阿里云企业邮箱的个人收件箱（Inbox），不会读取已发送、草稿或其他文件夹。</p>
+        <ul>
+          <li>首次同步最近 7 个自然日，此后每小时增量收取</li>
+          <li>系统只保存正文纯文本和附件元数据</li>
+          <li>请使用第三方客户端安全密码，不是网页登录密码</li>
+        </ul>
+      </div>
+      <el-form class="bind-form" label-position="top" @submit.prevent="saveAccount">
+        <el-form-item label="企业邮箱地址">
+          <el-input v-model="bindForm.emailAddress" type="email" autocomplete="email" aria-label="企业邮箱地址" placeholder="name@company.com" />
+        </el-form-item>
+        <el-form-item label="第三方客户端安全密码">
+          <el-input v-model="bindForm.appPassword" type="password" autocomplete="new-password" aria-label="第三方客户端安全密码" show-password placeholder="在邮箱安全设置中生成" />
+          <span class="field-tip">安全密码仅用于服务端连接测试与同步，保存后不会回显。</span>
+        </el-form-item>
+        <el-button native-type="submit" type="primary" size="large" :loading="savingAccount">保存并绑定</el-button>
+      </el-form>
+    </section>
+
+    <template v-else-if="configured">
+      <header class="account-header">
+        <div>
+          <span class="eyebrow">ALIBABA CLOUD ENTERPRISE MAIL</span>
+          <div class="account-title-row">
+            <h2>{{ maskedAddress }}</h2>
+            <el-tag :type="syncStatus.status === 'FAILED' ? 'danger' : syncRunning ? 'warning' : 'success'">
+              {{ accountStatusText }}
+            </el-tag>
+          </div>
+          <p>上次同步：{{ formatDateTime(account?.lastSyncAt || syncStatus.finishedAt || syncStatus.completedAt) }}</p>
+          <p v-if="syncMessage" class="sync-message" :class="{ failed: syncStatus.status === 'FAILED' }">{{ syncMessage }}</p>
+        </div>
+        <div class="account-actions">
+          <el-button type="primary" :icon="Refresh" :disabled="syncRunning" @click="startSync">
+            {{ syncRunning ? '同步中…' : '立即同步' }}
+          </el-button>
+          <el-button :icon="Edit" @click="openSettings">账户设置</el-button>
+        </div>
+      </header>
+      <section v-if="valueMetrics" class="value-bar" aria-label="本月邮件价值">
+        <div><strong>{{ valueMetrics.converted }}</strong><span>本月转化</span></div>
+        <div><strong>{{ closeRatePercent }}</strong><span>待办闭环率</span></div>
+        <div><strong>{{ valueMetrics.useful }}</strong><span>摘要好评</span></div>
+        <div><strong>{{ valueMetrics.avgResponseMinutes == null ? '—' : valueMetrics.avgResponseMinutes + ' 分' }}</strong><span>平均响应</span></div>
+      </section>
+
+      <section class="digest-panel" aria-label="每日邮件摘要">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">DAILY DIGEST · ASIA/SHANGHAI</span>
+            <h2>每日邮件摘要</h2>
+          </div>
+          <div class="digest-controls">
+            <el-button circle :icon="ArrowLeft" aria-label="前一天" @click="changeDigestDate(-1)" />
+            <el-date-picker v-model="selectedDate" type="date" value-format="YYYY-MM-DD" :clearable="false" aria-label="摘要日期" @change="loadDigest" />
+            <el-button circle :icon="ArrowRight" aria-label="后一天" @click="changeDigestDate(1)" />
+            <el-button :loading="regeneratingDigest" @click="regenerateDigest">重新生成</el-button>
+          </div>
+        </div>
+
+        <el-alert v-if="digestError" :title="digestError" type="error" :closable="false" show-icon />
+        <div v-else v-loading="digestLoading" class="digest-content">
+          <el-tabs v-if="digest" v-model="digestActiveTab" class="digest-tabs">
+            <el-tab-pane label="摘要总览" name="overview">
+              <section aria-label="摘要总览" class="digest-overview digest-overview-rich">
+                <div class="digest-overview-head"><div><span class="digest-date-label">{{ selectedDate }} · 昨日邮件总结</span><h3>今天先看这几件事</h3></div><div class="digest-status-row"><el-tag v-if="digestModeLabel" :type="digestModeType">{{ digestModeLabel }}</el-tag><el-tag v-if="pushLabel" type="info">推送 · {{ pushLabel }}</el-tag></div></div>
+                <div class="digest-metrics"><div><strong>{{ digest.mailCount }}</strong><span>邮件总数</span></div><div class="metric-important"><strong>{{ digest.importantItems.length }}</strong><span>重要邮件</span></div><div class="metric-todo"><strong>{{ digest.todos.length }}</strong><span>待办事项</span></div><div class="metric-risk"><strong>{{ digest.risks.length }}</strong><span>风险提醒</span></div><div class="metric-reply"><strong>{{ digest.replySuggestions.length }}</strong><span>回复建议</span></div></div>
+                <div class="digest-flow" aria-label="邮件处理脉络">
+                  <div class="flow-node received"><span class="flow-icon">✉</span><strong>邮件输入</strong><small>{{ digest.mailCount }} 封</small></div>
+                  <span class="flow-arrow">→</span>
+                  <div class="flow-node analyzed"><span class="flow-icon">✦</span><strong>议题提炼</strong><small>{{ digest.topics.length }} 个议题</small></div>
+                  <span class="flow-arrow">→</span>
+                  <div class="flow-node action"><span class="flow-icon">✓</span><strong>决策进展</strong><small>{{ digest.progressItems.length }} 项进展</small></div>
+                  <span class="flow-arrow">→</span>
+                  <div class="flow-node risk"><span class="flow-icon">!</span><strong>行动闭环</strong><small>{{ digest.todos.length }} 个待办</small></div>
+                </div>
+                <div class="digest-insight-grid">
+                  <section class="digest-insight conclusion"><span class="insight-label">一句话结论</span><p>{{ digest.overview || (digest.status === 'EMPTY' ? '当天没有收到邮件。' : '摘要正在准备中。') }}</p></section>
+                  <section class="digest-insight focus"><span class="insight-label">优先关注</span><ul><li v-for="item in digest.todos.slice(0, 3)" :key="`focus-${item.messageId}-${item.title}`"><button type="button" @click="openMessage(item.messageId)">{{ digestItemTitle(item) }}</button><small>{{ digestItemContent(item) }}</small></li><li v-if="!digest.todos.length">暂无需要立即推进的事项</li></ul></section>
+                </div>
+                <details class="digest-full-summary"><summary>查看 AI 完整总结</summary><p>{{ digest.overview || '暂无完整总结' }}</p></details>
+                <div class="digest-meta-line"><span v-if="digest.generatedModel">由 {{ digest.generatedModel }} 生成</span><span v-if="digest.generatedAt">{{ formatDateTime(digest.generatedAt) }} 更新</span><span v-if="digest.pushMessage">{{ digest.pushMessage }}</span><span v-if="digest.closedTotal">闭环：{{ digest.closedDone || 0 }}/{{ digest.closedTotal }}</span></div>
+                <div class="digest-feedback">
+                  <span>这份摘要有用吗？</span>
+                  <el-button size="small" :type="digest.feedback === 'USEFUL' ? 'success' : 'default'" plain :loading="sendingFeedback" @click="sendFeedback('USEFUL')">👍 有用</el-button>
+                  <el-button size="small" :type="digest.feedback === 'USELESS' ? 'danger' : 'default'" plain :loading="sendingFeedback" @click="sendFeedback('USELESS')">👎 没用</el-button>
+                </div>
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`议题归纳 ${digest.topics.length}`" name="topics">
+              <section aria-label="议题归纳" class="minutes-topic-list">
+                <article v-for="(topic, index) in digest.topics" :key="`topic-${index}`" class="minutes-topic-card">
+                  <div class="topic-index">{{ String(index + 1).padStart(2, '0') }}</div>
+                  <div class="topic-copy"><div class="topic-head"><h3>{{ topic.title }}</h3><el-tag :type="digestStatusType(topic.status)" effect="light">{{ topic.status }}</el-tag></div><p>{{ topic.summary }}</p><button v-if="topic.messageIds?.length" type="button" @click="openDigestSource(topic.messageIds)">查看 {{ topic.messageIds.length }} 封相关邮件 <el-icon><ArrowRight /></el-icon></button></div>
+                </article>
+                <el-empty v-if="!digest.topics.length" description="暂无议题归纳，请重新生成摘要" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`决策进展 ${digest.progressItems.length}`" name="progress">
+              <section aria-label="决策与进展" class="minutes-progress-list">
+                <article v-for="(progress, index) in digest.progressItems" :key="`progress-${index}`" class="minutes-progress-item" :class="progress.status === '已完成' ? 'done' : progress.status === '推进中' ? 'doing' : 'pending'">
+                  <span class="progress-dot"></span><div><div class="topic-head"><h3>{{ progress.title }}</h3><el-tag :type="digestStatusType(progress.status)" effect="plain">{{ progress.status }}</el-tag></div><p>{{ progress.detail }}</p><button v-if="progress.messageIds?.length" type="button" @click="openDigestSource(progress.messageIds)">查看依据邮件</button></div>
+                </article>
+                <el-empty v-if="!digest.progressItems.length" description="暂无决策或进展记录" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`重要邮件 ${digest.importantItems.length}`" name="important">
+              <section aria-label="重要邮件" class="digest-tab-list important">
+                <button v-for="item in digest.importantItems" :key="`important-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
+                <el-empty v-if="!digest.importantItems.length" description="暂无重要邮件" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`待办事项 ${digest.todos.length}`" name="todos">
+              <section aria-label="待办事项" class="digest-tab-list todo">
+                <div v-for="item in digest.todos" :key="`todo-${item.messageId}`" class="digest-item-rich" :class="{ closed: itemClosed(item, 'TODO') }">
+                  <button type="button" class="digest-item-body" @click="openMessage(item.messageId)">
+                    <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag v-if="itemClosed(item, 'TODO')" type="success" size="small" effect="dark">已闭环</el-tag><el-tag v-else size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                    <p>{{ digestItemContent(item) }}</p>
+                    <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                  </button>
+                  <div v-if="!itemClosed(item, 'TODO')" class="digest-item-actions">
+                    <el-button size="small" type="primary" plain :loading="convertingKey === `TASK:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'TODO', 'TASK')">转任务</el-button>
+                    <el-button size="small" :loading="convertingKey === `ISSUE:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'TODO', 'ISSUE')">转事项</el-button>
+                  </div>
+                </div>
+                <el-empty v-if="!digest.todos.length" description="暂无待办事项" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`风险提醒 ${digest.risks.length}`" name="risks">
+              <section aria-label="风险提醒" class="digest-tab-list risk">
+                <div v-for="item in digest.risks" :key="`risk-${item.messageId}`" class="digest-item-rich" :class="{ closed: itemClosed(item, 'RISK') }">
+                  <button type="button" class="digest-item-body" @click="openMessage(item.messageId)">
+                    <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag v-if="itemClosed(item, 'RISK')" type="success" size="small" effect="dark">已闭环</el-tag><el-tag v-else size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                    <p>{{ digestItemContent(item) }}</p>
+                    <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                  </button>
+                  <div v-if="!itemClosed(item, 'RISK')" class="digest-item-actions">
+                    <el-button size="small" type="warning" plain :loading="convertingKey === `ISSUE:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'RISK', 'ISSUE')">转事项</el-button>
+                    <el-button size="small" :loading="convertingKey === `TASK:${item.messageId}:${digestItemTitle(item)}`" @click="convertItem(item, 'RISK', 'TASK')">转任务</el-button>
+                  </div>
+                </div>
+                <el-empty v-if="!digest.risks.length" description="暂无风险提醒" :image-size="70" />
+              </section>
+            </el-tab-pane>
+            <el-tab-pane :label="`回复建议 ${digest.replySuggestions.length}`" name="replies">
+              <section aria-label="回复建议" class="digest-tab-list reply">
+                <button v-for="item in digest.replySuggestions" :key="`reply-${item.messageId}`" type="button" class="digest-item-rich" @click="openMessage(item.messageId)">
+                  <div class="digest-item-rich-head"><strong>{{ digestItemTitle(item) }}</strong><el-tag size="small" effect="plain">查看邮件 <el-icon><ArrowRight /></el-icon></el-tag></div>
+                  <p>{{ digestItemContent(item) }}</p>
+                  <div class="digest-item-rich-meta"><span v-if="item.sender">{{ item.sender }}</span><span v-if="item.deadline">截止：{{ item.deadline }}</span><span v-if="item.action">行动：{{ item.action }}</span></div>
+                </button>
+                <el-empty v-if="!digest.replySuggestions.length" description="暂无回复建议" :image-size="70" />
+              </section>
+            </el-tab-pane>
+          </el-tabs>
+          <el-empty v-else description="该日期暂无摘要" />
+        </div>
+      </section>
+
+      <section class="inbox-panel">
+        <div class="section-heading inbox-heading">
+          <div><span class="eyebrow">INBOX · SMART GROUPING</span><h2>项目邮件</h2></div>
+          <div class="inbox-filters">
+            <el-date-picker v-model="inboxFilters.date" type="date" value-format="YYYY-MM-DD" clearable placeholder="收件日期" aria-label="收件日期" />
+            <el-input v-model="inboxFilters.keyword" clearable placeholder="搜索发件人或主题" aria-label="搜索邮件" :prefix-icon="Search" @keyup.enter="searchMessages" />
+            <el-button type="primary" @click="searchMessages">筛选</el-button>
+            <el-button @click="resetMessageFilters">重置</el-button>
+          </div>
+        </div>
+
+        <div class="inbox-layout">
+          <aside class="mail-group-sidebar" aria-label="邮件分组导航">
+            <div class="group-mode-switch" role="tablist" aria-label="分组方式">
+              <button type="button" role="tab" :aria-selected="groupMode === 'project'" :class="{ active: groupMode === 'project' }" @click="changeGroupMode('project')">按项目</button>
+              <button type="button" role="tab" :aria-selected="groupMode === 'company'" :class="{ active: groupMode === 'company' }" @click="changeGroupMode('company')">按发件人公司</button>
+            </div>
+
+            <div v-if="groupMode === 'project'" class="group-list" aria-label="邮件项目分组">
+              <button type="button" class="group-list-item" :class="{ active: selectedProjectGroup === 'all' }" @click="selectProjectGroup('all')"><span><strong>全部邮件</strong><small>所有项目邮件</small></span><b>{{ allProjectMailCount || messages.total }}</b></button>
+              <button v-for="group in projectGroups" :key="group.projectId || 'ungrouped'" type="button" class="group-list-item" :class="{ active: selectedProjectGroup === (group.projectId ? `project:${group.projectId}` : 'ungrouped'), ungrouped: !group.projectId }" @click="selectProjectGroup(group.projectId ? `project:${group.projectId}` : 'ungrouped')"><span><strong>{{ group.projectName }}</strong><small>{{ group.projectId ? group.projectFullPath : '无法可靠匹配项目' }}</small></span><b>{{ group.mailCount }}</b></button>
+              <div class="sidebar-group-actions">
+                <el-button type="primary" plain size="small" :loading="groupingRunning" @click="startSmartGrouping(false)">{{ groupingRunning ? `${groupingStatus.processed}/${groupingStatus.total}` : '智能分组' }}</el-button>
+                <el-button text size="small" :disabled="groupingRunning" @click="startSmartGrouping(true)">全部重分</el-button>
+              </div>
+            </div>
+
+            <div v-else class="group-list" aria-label="发件人公司分组">
+              <button type="button" class="group-list-item" :class="{ active: selectedSenderCompany === 'all' }" @click="selectSenderCompany('all')"><span><strong>全部公司</strong><small>所有发件人</small></span><b>{{ allCompanyMailCount || messages.total }}</b></button>
+              <button v-for="company in senderCompanyGroups" :key="company.domain" type="button" class="group-list-item company" :class="{ active: selectedSenderCompany === company.domain }" @click="selectSenderCompany(company.domain)"><span><strong>{{ company.companyName }}</strong><small>{{ company.domain }}</small></span><b>{{ company.mailCount }}</b></button>
+              <el-empty v-if="!senderCompanyGroups.length" description="暂无公司分组" :image-size="54" />
+            </div>
+          </aside>
+
+          <main class="inbox-main">
+            <div v-if="groupingRunning" class="grouping-progress"><el-progress :percentage="groupingStatus.total ? Math.round(groupingStatus.processed * 100 / groupingStatus.total) : 0" :stroke-width="6" /><span>AI 正在根据邮件标题和正文匹配系统项目</span></div>
+            <el-alert v-else-if="groupingStatus.status === 'FAILED'" :title="groupingStatus.message || '智能分组失败'" type="error" :closable="false" show-icon />
+            <el-alert v-if="messagesError" :title="messagesError" type="error" :closable="false" show-icon />
+            <div v-else aria-label="收件箱列表" class="message-list" v-loading="messagesLoading">
+              <button v-for="message in messages.records" :key="message.id" type="button" class="message-row" @click="openMessage(message)">
+                <div class="sender-cell"><strong>{{ message.fromName || message.fromAddress }}</strong><span>{{ message.fromAddress }}</span></div>
+                <div class="message-copy"><div class="message-title-line"><strong>{{ message.subject || '（无主题）' }}</strong><el-tag size="small" :type="message.projectId ? 'success' : 'info'" effect="plain">{{ message.projectName || '未分组' }}</el-tag></div><span>{{ message.preview || '暂无正文预览' }}</span></div>
+                <div class="message-meta"><span>{{ formatDateTime(message.receivedAt) }}</span><span v-if="message.hasAttachments">📎 {{ message.attachmentCount }} 个附件</span></div>
+              </button>
+              <el-empty v-if="!messagesLoading && !messages.records.length" description="当前分组下暂无邮件" />
+            </div>
+            <el-pagination v-if="messages.total > pageSize" class="pagination" background layout="prev, pager, next" :page-size="pageSize" :total="messages.total" :current-page="inboxFilters.page" @current-change="changeMessagePage" />
+          </main>
+        </div>
+      </section>
+
+    </template>
+
+    <el-dialog v-model="settingsVisible" title="账户设置" width="min(520px, calc(100vw - 24px))" @closed="bindForm.appPassword = ''">
+      <el-form label-position="top" @submit.prevent="saveAccount">
+        <el-form-item label="企业邮箱地址"><el-input v-model="bindForm.emailAddress" type="email" aria-label="企业邮箱地址" /></el-form-item>
+        <el-form-item label="第三方客户端安全密码">
+          <el-input v-model="bindForm.appPassword" type="password" aria-label="第三方客户端安全密码" autocomplete="new-password" placeholder="留空保持现有安全密码" />
+          <span class="field-tip">安全密码不会回显；需要更新时输入新密码。</span>
+        </el-form-item>
+        <el-divider content-position="left">企业微信摘要推送</el-divider>
+        <el-form-item label="企业微信 UserId">
+          <el-input v-model="weComForm.userId" aria-label="企业微信 UserId" placeholder="例如：zhangsan" />
+          <span class="field-tip">用于内部应用点对点推送，只能填写当前员工自己的企业微信 UserId。</span>
+        </el-form-item>
+        <el-form-item label="启用推送">
+          <el-switch v-model="weComForm.enabled" />
+        </el-form-item>
+        <el-button :loading="savingWeCom" :disabled="!weComForm.userId.trim()" @click="saveWeComMapping">保存推送身份</el-button>
+      </el-form>
+      <template #footer>
+        <div class="settings-footer">
+          <el-button type="danger" plain :icon="Delete" @click="removeAccount">解绑邮箱</el-button>
+          <span class="footer-spacer"></span>
+          <el-button :loading="testingConnection" @click="testConnection">测试连接</el-button>
+          <el-button type="primary" :loading="savingAccount" @click="saveAccount">保存设置</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-drawer
+      v-model="detailVisible"
+      :with-header="false"
+      size="min(860px, 92vw)"
+      class="email-detail-drawer"
+      append-to-body
+      destroy-on-close
+      aria-label="邮件详情"
+    >
+      <article class="mail-reader" v-loading="detailLoading">
+        <header class="reader-toolbar">
+          <div class="reader-location">
+            <span class="reader-kicker">INBOX · 只读邮件</span>
+            <span v-if="selectedMessagePosition" class="reader-position">{{ selectedMessagePosition }}</span>
+          </div>
+          <div class="reader-toolbar-actions">
+            <el-tooltip content="上一封" placement="bottom">
+              <el-button circle :icon="ArrowLeft" aria-label="上一封邮件" :disabled="!previousMessage || detailLoading" @click="navigateMessage(-1)" />
+            </el-tooltip>
+            <el-tooltip content="下一封" placement="bottom">
+              <el-button circle :icon="ArrowRight" aria-label="下一封邮件" :disabled="!nextMessage || detailLoading" @click="navigateMessage(1)" />
+            </el-tooltip>
+            <span class="toolbar-divider"></span>
+            <el-tooltip content="复制邮件信息" placement="bottom">
+              <el-button circle :icon="CopyDocument" aria-label="复制邮件信息" :disabled="!selectedMessage" @click="copyMessageInfo" />
+            </el-tooltip>
+            <el-tooltip content="关闭" placement="bottom">
+              <el-button circle :icon="Close" aria-label="关闭邮件详情" @click="detailVisible = false" />
+            </el-tooltip>
+          </div>
+        </header>
+
+        <div v-if="detailError" class="reader-error">
+          <el-alert :title="detailError" type="error" :closable="false" show-icon />
+          <el-button type="primary" plain @click="retryMessageDetail">重新加载</el-button>
+        </div>
+
+        <template v-else-if="selectedMessage">
+          <section class="reader-hero">
+            <div class="reader-subject-row">
+              <div>
+                <div class="reader-badges">
+                  <el-tag type="info" effect="plain">收件箱</el-tag>
+                  <el-tag :type="selectedMessage.projectId ? 'success' : 'info'" effect="plain">{{ selectedMessage.projectName || '未分组' }}</el-tag>
+                  <el-tag v-if="selectedMessage.attachments.length" type="warning" effect="plain">
+                    <el-icon><Paperclip /></el-icon>{{ selectedMessage.attachments.length }} 个附件
+                  </el-tag>
+                </div>
+                <h1>{{ selectedMessage.subject || '（无主题）' }}</h1>
+              </div>
+              <div class="received-time">
+                <el-icon><Calendar /></el-icon>
+                <span>{{ formatFullDateTime(selectedMessage.receivedAt) }}</span>
+              </div>
+            </div>
+
+            <div class="sender-profile">
+              <div class="sender-avatar" aria-hidden="true">{{ senderInitial }}</div>
+              <div class="sender-identity">
+                <strong>{{ selectedMessage.fromName || selectedMessage.fromAddress }}</strong>
+                <span>{{ selectedMessage.fromAddress }}</span>
+              </div>
+              <el-tag type="success" effect="light">发件人</el-tag>
+            </div>
+
+            <details class="recipient-details">
+              <summary>
+                <span>发送给 {{ selectedMessage.toAddresses.length ? selectedMessage.toAddresses.join('、') : '未知收件人' }}</span>
+                <small>查看完整信头</small>
+              </summary>
+              <dl>
+                <div><dt>发件人</dt><dd>{{ selectedMessage.fromName || selectedMessage.fromAddress }} &lt;{{ selectedMessage.fromAddress }}&gt;</dd></div>
+                <div><dt>收件人</dt><dd>{{ selectedMessage.toAddresses.join('、') || '—' }}</dd></div>
+                <div v-if="selectedMessage.ccAddresses.length"><dt>抄送</dt><dd>{{ selectedMessage.ccAddresses.join('、') }}</dd></div>
+                <div><dt>接收时间</dt><dd>{{ formatFullDateTime(selectedMessage.receivedAt) }}</dd></div>
+                <div><dt>所属项目</dt><dd>{{ selectedMessage.projectFullPath || '未分组' }}<span v-if="selectedMessage.groupingConfidence"> · 置信度 {{ Math.round(selectedMessage.groupingConfidence * 100) }}%</span>
+                  <el-button link type="primary" size="small" class="regroup-trigger" aria-label="更正分组" @click="openRegroup">更正</el-button>
+                </dd></div>
+                <div v-if="selectedMessage.groupingReason"><dt>分组依据</dt><dd>{{ selectedMessage.groupingReason }}</dd></div>
+                <div v-if="selectedMessage.messageId"><dt>Message-ID</dt><dd class="message-id">{{ selectedMessage.messageId }}</dd></div>
+              </dl>
+            </details>
+          </section>
+
+          <el-tabs v-model="detailActiveTab" class="reader-tabs" @tab-change="handleDetailTabChange">
+            <el-tab-pane label="邮件原文" name="original">
+              <section class="reader-security-note">
+                <el-icon><Lock /></el-icon>
+                <div><strong>安全阅读模式</strong><span>仅展示已提取的纯文本；脚本、远程图片和邮件 HTML 均不会执行。</span></div>
+              </section>
+
+              <section class="reader-body-section">
+                <div class="reader-section-title"><el-icon><Document /></el-icon><span>邮件正文</span></div>
+                <div class="message-paper">
+                  <pre class="message-body">{{ selectedMessage.textBody || '（邮件正文为空）' }}</pre>
+                </div>
+              </section>
+
+              <section v-if="selectedMessage.attachments.length" class="attachments" aria-label="附件元数据">
+                <div class="reader-section-title"><el-icon><Paperclip /></el-icon><span>附件</span><small>仅展示元数据，不下载文件内容</small></div>
+                <div class="attachment-grid">
+                  <article v-for="attachment in selectedMessage.attachments" :key="`${attachment.fileName}-${attachment.size}`" class="attachment-card">
+                    <div class="attachment-type">{{ attachmentIcon(attachment.contentType) }}</div>
+                    <div class="attachment-info"><strong>{{ attachment.fileName }}</strong><span>{{ attachment.contentType || '未知类型' }}</span></div>
+                    <span class="attachment-size">{{ formatBytes(attachment.size) }}</span>
+                  </article>
+                </div>
+              </section>
+            </el-tab-pane>
+
+            <el-tab-pane name="ai">
+              <template #label><span class="ai-tab-label">✦ AI 解读<el-tag v-if="selectedMessage.interpretation.status === 'SUCCESS'" type="success" size="small">已生成</el-tag></span></template>
+              <section class="ai-interpretation" aria-label="AI 解读">
+                <div v-if="interpreting || selectedMessage.interpretation.status === 'GENERATING'" class="ai-generating">
+                  <div class="ai-orb">✦</div><h3>正在深度解读这封邮件</h3><p>AI 正在提取核心结论、待办、风险与回复建议，完成后会自动保存。</p><el-progress :percentage="70" :indeterminate="true" :duration="2" />
+                </div>
+                <div v-else-if="selectedMessage.interpretation.status === 'FAILED'" class="ai-empty-state failed">
+                  <div class="ai-orb">!</div><h3>AI 解读失败</h3><p>{{ selectedMessage.interpretation.errorMessage || '请稍后重试。' }}</p><el-button type="primary" @click="generateInterpretation(true)">重新解读</el-button>
+                </div>
+                <div v-else-if="selectedMessage.interpretation.status === 'SUCCESS'" class="ai-result">
+                  <header class="ai-result-head"><div><span class="reader-kicker">AI INTERPRETATION</span><h2>邮件智能解读</h2></div><div class="ai-result-actions"><el-tag v-if="selectedMessage.interpretation.disposition" :type="dispositionTagType(selectedMessage.interpretation.disposition)" effect="dark">{{ dispositionLabel(selectedMessage.interpretation.disposition) }}</el-tag><el-tag type="success">{{ selectedMessage.interpretation.model || 'AI' }}</el-tag><el-button plain :loading="interpreting" @click="generateInterpretation(true)">重新解读</el-button></div></header>
+                  <section class="ai-summary-card"><span>核心结论</span><p>{{ selectedMessage.interpretation.summary || '暂无核心结论' }}</p></section>
+                  <section class="ai-intent-card"><strong>发件人意图</strong><p>{{ selectedMessage.interpretation.senderIntent || '暂无意图判断' }}</p></section>
+                  <div class="ai-analysis-grid">
+                    <section class="ai-analysis-card points"><h3>关键要点</h3><ul><li v-for="(point, index) in selectedMessage.interpretation.keyPoints" :key="`point-${index}`">{{ point }}</li></ul><p v-if="!selectedMessage.interpretation.keyPoints.length">暂无关键要点</p></section>
+                    <section class="ai-analysis-card actions"><h3>待办事项</h3><article v-for="(action, index) in selectedMessage.interpretation.actionItems" :key="`action-${index}`" class="ai-action-item"><div><strong>{{ action.content || '待办事项' }}</strong><span v-if="action.deadline">截止：{{ action.deadline }}</span></div><el-tag :type="interpretationPriorityType(action.priority)" size="small">{{ action.priority || '普通' }}</el-tag></article><p v-if="!selectedMessage.interpretation.actionItems.length">暂无明确待办</p></section>
+                    <section class="ai-analysis-card risks"><h3>风险提醒</h3><ul><li v-for="(risk, index) in selectedMessage.interpretation.risks" :key="`risk-${index}`">{{ risk }}</li></ul><p v-if="!selectedMessage.interpretation.risks.length">未识别到明显风险</p></section>
+                    <section class="ai-analysis-card reply"><h3>建议回复</h3><pre>{{ selectedMessage.interpretation.replySuggestion || '暂无回复建议' }}</pre>
+                      <div v-if="selectedMessage.interpretation.replySuggestion" class="reply-send">
+                        <el-input v-model="replyDraft" type="textarea" :rows="4" placeholder="可编辑后通过绑定邮箱直接发送" aria-label="回复草稿" />
+                        <div class="reply-send-actions">
+                          <el-button size="small" @click="replyDraft = selectedMessage!.interpretation!.replySuggestion!">填入建议</el-button>
+                          <el-button size="small" type="primary" :loading="replying" @click="sendReplyDraft">通过邮箱发送</el-button>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                  <footer class="ai-result-foot">由 {{ selectedMessage.interpretation.model || 'AI' }} 生成 · {{ formatDateTime(selectedMessage.interpretation.generatedAt) }} · 请结合邮件原文核验</footer>
+                </div>
+                <div v-else class="ai-empty-state">
+                  <div class="ai-orb">✦</div><h3>让 AI 帮你快速读懂邮件</h3><p>点击后将生成核心结论、关键要点、待办、风险与回复建议，并保存到邮件记录。</p><el-button type="primary" size="large" @click="generateInterpretation(false)">开始 AI 解读</el-button>
+                </div>
+              </section>
+            </el-tab-pane>
+          </el-tabs>
+
+        </template>
+
+        <el-empty v-else-if="!detailLoading" description="请选择一封邮件查看详情" />
+
+        <el-dialog v-model="regroupVisible" title="更正邮件分组" width="min(440px, 92vw)">
+          <p class="regroup-note">将「{{ selectedMessage?.fromAddress }}」的邮件归入：</p>
+          <el-select v-model="regroupProjectId" filterable placeholder="选择项目" style="width: 100%" aria-label="更正归属项目">
+            <el-option v-for="project in projectOptions" :key="project.id" :label="project.fullPath || project.name" :value="project.id" />
+          </el-select>
+          <template #footer>
+            <el-button @click="regroupVisible = false">取消</el-button>
+            <el-button type="primary" :loading="regroupSaving" @click="saveRegroup">保存</el-button>
+          </template>
+        </el-dialog>
+      </article>
+    </el-drawer>
+  </div>
+</template>
+
+<style scoped>
+.email-page { display: flex; flex-direction: column; gap: 20px; min-width: 0; text-align: left; color: var(--gray-700); }
+.email-page *, .email-page *::before, .email-page *::after { box-sizing: border-box; }
+.bind-card, .account-header, .digest-panel, .inbox-panel { background: #fff; border: 1px solid var(--gray-200); border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, .04); }
+.bind-card { max-width: 900px; width: 100%; margin: 32px auto; padding: 36px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; }
+.bind-intro h2, .account-header h2, .section-heading h2 { margin: 4px 0 8px; font-size: 22px; color: var(--gray-900); }
+.bind-intro p { line-height: 1.7; color: var(--gray-600); }
+.bind-intro ul { margin: 24px 0 0; padding-left: 20px; color: var(--gray-600); line-height: 2; }
+.bind-form { padding: 24px; border-radius: 12px; background: var(--gray-50); }
+.bind-form .el-button { width: 100%; }
+.eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.field-tip { display: block; margin-top: 6px; color: var(--gray-500); font-size: 12px; line-height: 1.5; }
+.account-header { padding: 22px 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.account-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.account-header p { color: var(--gray-500); font-size: 13px; }
+.account-header .sync-message { margin-top: 5px; color: var(--success); }
+.account-header .sync-message.failed { color: var(--danger); }
+.account-actions { display: flex; flex-shrink: 0; }
+.digest-panel, .inbox-panel { padding: 24px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.digest-controls, .inbox-filters { display: flex; align-items: center; gap: 8px; }
+.digest-controls :deep(.el-date-editor) { width: 145px; }
+.digest-content { min-height: 120px; }
+.digest-overview { border-radius: 12px; padding: 18px; background: linear-gradient(135deg, #eef2ff, #f8fafc); border: 1px solid #e0e7ff; }
+.digest-status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--gray-500); font-size: 12px; }
+.overview-copy { margin-top: 12px; color: var(--gray-800); font-size: 16px; line-height: 1.7; }
+.push-message { margin-top: 8px; color: var(--gray-500); font-size: 13px; }
+.digest-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.digest-card { min-width: 0; padding: 16px; border: 1px solid var(--gray-200); border-radius: 12px; border-top-width: 3px; }
+.digest-card.important { border-top-color: #6366f1; }.digest-card.todo { border-top-color: #0ea5e9; }.digest-card.risk { border-top-color: #f97316; }.digest-card.reply { border-top-color: #10b981; }
+.digest-card h3 { margin: 0 0 10px; font-size: 14px; color: var(--gray-800); }
+.digest-item { display: flex; flex-direction: column; width: 100%; min-width: 0; padding: 10px 0; border: 0; border-top: 1px solid var(--gray-100); background: transparent; text-align: left; cursor: pointer; }
+.digest-item:hover strong { color: var(--primary); }.digest-item strong, .digest-item span { overflow-wrap: anywhere; }.digest-item strong { color: var(--gray-800); font-size: 13px; }.digest-item span, .empty-copy { margin-top: 4px; color: var(--gray-500); font-size: 12px; line-height: 1.5; }
+.inbox-heading { align-items: flex-end; }.inbox-filters :deep(.el-date-editor) { width: 145px; }.inbox-filters :deep(.el-input) { width: 230px; }
+.message-list { min-height: 120px; border-top: 1px solid var(--gray-200); }
+.message-row { width: 100%; display: grid; grid-template-columns: minmax(140px, .8fr) minmax(240px, 2fr) minmax(150px, .7fr); gap: 18px; align-items: center; padding: 16px 8px; border: 0; border-bottom: 1px solid var(--gray-100); background: #fff; text-align: left; cursor: pointer; }
+.message-row:hover { background: var(--gray-50); }.sender-cell, .message-copy, .message-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.sender-cell strong, .message-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-800); font-size: 13px; }.sender-cell span, .message-copy span, .message-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-500); font-size: 12px; }.message-meta { align-items: flex-end; }
+.pagination { justify-content: flex-end; margin-top: 18px; }.settings-footer { display: flex; width: 100%; }.footer-spacer { flex: 1; }
+.mail-reader { min-height: 100%; background: #f7f8fb; color: var(--gray-700); }
+.reader-toolbar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; padding: 11px 22px; border-bottom: 1px solid #e5e7eb; background: rgba(255, 255, 255, .94); backdrop-filter: blur(14px); }
+.reader-location, .reader-toolbar-actions { display: flex; align-items: center; gap: 9px; }.reader-kicker { color: #596273; font-size: 11px; font-weight: 700; letter-spacing: .08em; }.reader-position { padding: 3px 8px; border-radius: 999px; background: #eef2f7; color: #727b8b; font-size: 11px; }.toolbar-divider { width: 1px; height: 24px; background: #e5e7eb; }
+.reader-error { display: flex; flex-direction: column; gap: 16px; padding: 30px; }
+.reader-hero { padding: 34px 40px 22px; background: #fff; border-bottom: 1px solid #e8ebf0; }.reader-subject-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; }.reader-badges { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }.reader-badges .el-tag { gap: 4px; }.reader-hero h1 { max-width: 650px; margin: 13px 0 0; color: #202938; font-size: clamp(24px, 3vw, 34px); font-weight: 700; line-height: 1.32; letter-spacing: -.025em; overflow-wrap: anywhere; }.received-time { display: flex; align-items: center; gap: 7px; padding-top: 5px; color: #778193; font-size: 12px; white-space: nowrap; }
+.sender-profile { display: flex; align-items: center; gap: 12px; margin-top: 28px; }.sender-avatar { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 14px; background: linear-gradient(135deg, #5368d8, #7c5bd8); box-shadow: 0 8px 20px rgba(83,104,216,.22); color: #fff; font-size: 18px; font-weight: 700; }.sender-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.sender-identity strong { color: #2b3443; font-size: 15px; }.sender-identity span { color: #7a8494; font-size: 12px; overflow-wrap: anywhere; }.sender-profile .el-tag { margin-left: auto; }
+.recipient-details { margin: 16px 0 0 58px; border-top: 1px solid #f0f1f4; }.recipient-details summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0 2px; color: #707b8c; font-size: 12px; cursor: pointer; list-style: none; }.recipient-details summary::-webkit-details-marker { display: none; }.recipient-details summary small { color: var(--primary); }.recipient-details dl { margin: 10px 0 0; padding: 14px 16px; border-radius: 10px; background: #f8f9fb; }.recipient-details dl div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; padding: 5px 0; }.recipient-details dt { color: #8a93a2; }.recipient-details dd { margin: 0; color: #566173; overflow-wrap: anywhere; }.message-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.reader-security-note { display: flex; align-items: center; gap: 12px; margin: 20px 40px 0; padding: 13px 16px; border: 1px solid #dce9df; border-radius: 12px; background: #f3faf5; color: #427053; }.reader-security-note > .el-icon { flex-shrink: 0; font-size: 20px; }.reader-security-note div { display: flex; flex-direction: column; gap: 2px; }.reader-security-note strong { font-size: 13px; }.reader-security-note span { color: #648170; font-size: 12px; line-height: 1.5; }
+.reader-body-section, .attachments { padding: 24px 40px 0; }.reader-section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; color: #4d5869; font-size: 13px; font-weight: 700; }.reader-section-title .el-icon { color: #7785a6; font-size: 16px; }.reader-section-title small { margin-left: auto; color: #8a93a2; font-size: 11px; font-weight: 400; }.message-paper { min-height: 300px; padding: clamp(24px, 4vw, 42px); border: 1px solid #e1e4ea; border-radius: 14px; background: #fff; box-shadow: 0 12px 35px rgba(30, 41, 59, .06); }.message-body { margin: 0; border: 0; background: transparent; color: #303947; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; font-size: 15px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.attachments { padding-bottom: 38px; }.attachment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }.attachment-card { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px; border: 1px solid #e2e5eb; border-radius: 12px; background: #fff; transition: border-color .18s, box-shadow .18s, transform .18s; }.attachment-card:hover { border-color: #c6d0ea; box-shadow: 0 8px 22px rgba(30,41,59,.07); transform: translateY(-1px); }.attachment-type { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; background: #eef2ff; color: #5368d8; font-size: 10px; font-weight: 800; letter-spacing: .03em; }.attachment-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #394353; font-size: 13px; }.attachment-info span, .attachment-size { color: #8a93a2; font-size: 11px; }.attachment-size { margin-left: auto; white-space: nowrap; }
+:global(.email-detail-drawer) { width: min(860px, 92vw) !important; }.email-detail-drawer :deep(.el-drawer__body) { padding: 0; overflow: auto; }.email-detail-drawer :deep(.el-loading-mask) { z-index: 5; }
+@media (max-width: 820px) { .bind-card { grid-template-columns: 1fr; gap: 24px; padding: 24px; }.account-header, .section-heading { align-items: flex-start; flex-direction: column; }.account-actions, .account-actions .el-button { width: 100%; }.digest-controls, .inbox-filters { width: 100%; flex-wrap: wrap; }.inbox-filters :deep(.el-date-editor), .inbox-filters :deep(.el-input) { flex: 1 1 180px; width: auto; }.message-row { grid-template-columns: 1fr; gap: 8px; }.message-meta { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }.message-meta span { white-space: normal; }.settings-footer { flex-wrap: wrap; gap: 8px; }.settings-footer .el-button { margin-left: 0; }.footer-spacer { display: none; flex-basis: 100%; }.digest-grid { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { :global(.email-detail-drawer) { width: 100vw !important; }.reader-toolbar { padding: 9px 13px; }.reader-kicker { display: none; }.reader-hero { padding: 24px 18px 18px; }.reader-subject-row { flex-direction: column-reverse; gap: 12px; }.reader-hero h1 { font-size: 25px; }.received-time { padding: 0; white-space: normal; }.recipient-details { margin-left: 0; }.reader-security-note { margin: 14px 18px 0; }.reader-body-section, .attachments { padding-right: 18px; padding-left: 18px; }.message-paper { padding: 22px 18px; border-radius: 11px; }.attachment-grid { grid-template-columns: 1fr; }.reader-section-title small { display: none; } }
+@media (max-width: 480px) { .digest-panel, .inbox-panel { padding: 16px; }.bind-card { margin: 0; padding: 18px; }.digest-controls .el-button:last-child { flex: 1; }.digest-controls :deep(.el-date-editor) { flex: 1; width: 120px; }.account-actions { flex-direction: column; gap: 8px; }.account-actions .el-button { margin-left: 0; }.reader-toolbar-actions .el-button:nth-child(3), .toolbar-divider { display: none; }.sender-profile .el-tag { display: none; }.message-body { font-size: 14px; line-height: 1.85; } }
+
+
+.digest-tabs :deep(.el-tabs__header) { margin: 0 0 16px; }.digest-tabs :deep(.el-tabs__nav-wrap::after), .reader-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: #e7eaf0; }.digest-tabs :deep(.el-tabs__item) { height: 46px; color: #687386; font-weight: 600; }.digest-tabs :deep(.el-tabs__item.is-active) { color: var(--primary); }.digest-tab-list { min-height: 150px; padding: 4px 18px 14px; border: 1px solid #e4e7ed; border-radius: 12px; background: #fff; }.digest-tab-list.important { border-top: 3px solid #6366f1; }.digest-tab-list.todo { border-top: 3px solid #0ea5e9; }.digest-tab-list.risk { border-top: 3px solid #f97316; }.digest-tab-list.reply { border-top: 3px solid #10b981; }.digest-tab-list .digest-item:first-child { border-top: 0; }
+.reader-tabs { padding-top: 8px; }.reader-tabs :deep(.el-tabs__header) { position: sticky; top: 64px; z-index: 3; margin: 0; padding: 0 40px; background: rgba(247,248,251,.96); backdrop-filter: blur(12px); }.reader-tabs :deep(.el-tabs__item) { height: 52px; padding: 0 22px; color: #687386; font-weight: 700; }.reader-tabs :deep(.el-tabs__content) { overflow: visible; }.ai-tab-label { display: inline-flex; align-items: center; gap: 7px; }.ai-tab-label .el-tag { height: 20px; padding: 0 6px; font-size: 10px; }
+.ai-interpretation { min-height: 470px; padding: 26px 40px 40px; }.ai-empty-state, .ai-generating { display: flex; align-items: center; flex-direction: column; justify-content: center; min-height: 400px; padding: 40px; border: 1px dashed #cfd7ed; border-radius: 16px; background: radial-gradient(circle at 50% 0, #f1f3ff, #fff 62%); text-align: center; }.ai-empty-state.failed { border-color: #f3c7c7; background: #fff8f8; }.ai-orb { display: flex; align-items: center; justify-content: center; width: 68px; height: 68px; margin-bottom: 18px; border-radius: 22px; background: linear-gradient(135deg, #5368d8, #9b5de5); box-shadow: 0 14px 34px rgba(83,104,216,.25); color: #fff; font-size: 30px; }.ai-empty-state.failed .ai-orb { background: linear-gradient(135deg, #d95c5c, #e77e64); }.ai-empty-state h3, .ai-generating h3 { margin: 0; color: #2c3545; font-size: 20px; }.ai-empty-state p, .ai-generating p { max-width: 480px; margin: 10px 0 22px; color: #778193; line-height: 1.7; }.ai-generating .el-progress { width: min(360px, 90%); }
+.ai-result { display: flex; flex-direction: column; gap: 14px; }.ai-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }.ai-result-head h2 { margin: 5px 0 0; color: #293344; font-size: 22px; }.ai-result-actions { display: flex; align-items: center; gap: 8px; }.ai-summary-card { padding: 20px 22px; border: 1px solid #d9ddf5; border-radius: 14px; background: linear-gradient(135deg, #f0f2ff, #fbfbff); }.ai-summary-card span { color: #6170b5; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.ai-summary-card p { margin: 8px 0 0; color: #303b50; font-size: 17px; font-weight: 600; line-height: 1.65; }.ai-intent-card { display: grid; grid-template-columns: 110px 1fr; gap: 14px; padding: 16px 20px; border-left: 4px solid #7081cf; border-radius: 10px; background: #fff; box-shadow: 0 5px 18px rgba(30,41,59,.04); }.ai-intent-card strong { color: #596579; }.ai-intent-card p { margin: 0; color: #3e4858; line-height: 1.65; }
+.ai-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }.ai-analysis-card { min-height: 150px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 13px; background: #fff; }.ai-analysis-card h3 { margin: 0 0 12px; color: #3d4859; font-size: 14px; }.ai-analysis-card ul { margin: 0; padding-left: 19px; }.ai-analysis-card li { margin: 7px 0; color: #596579; line-height: 1.55; }.ai-analysis-card > p { color: #8a93a2; font-size: 12px; }.ai-analysis-card.points { border-top: 3px solid #6366f1; }.ai-analysis-card.actions { border-top: 3px solid #0ea5e9; }.ai-analysis-card.risks { border-top: 3px solid #f97316; }.ai-analysis-card.reply { border-top: 3px solid #10b981; }.ai-action-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid #f0f1f4; }.ai-action-item div { display: flex; flex-direction: column; gap: 4px; }.ai-action-item strong { color: #4a5567; font-size: 13px; }.ai-action-item span { color: #8a93a2; font-size: 11px; }.ai-analysis-card.reply pre { margin: 0; color: #465365; font-family: inherit; line-height: 1.7; white-space: pre-wrap; }.ai-result-foot { color: #9098a6; font-size: 11px; text-align: right; }
+@media (max-width: 700px) { .reader-tabs :deep(.el-tabs__header) { top: 59px; padding: 0 18px; }.ai-interpretation { padding: 20px 18px 30px; }.ai-analysis-grid { grid-template-columns: 1fr; }.ai-result-head { flex-direction: column; }.ai-result-actions { width: 100%; justify-content: space-between; }.ai-intent-card { grid-template-columns: 1fr; gap: 5px; }.ai-empty-state, .ai-generating { min-height: 350px; padding: 26px 18px; }.digest-tabs :deep(.el-tabs__nav) { white-space: nowrap; }.digest-tabs :deep(.el-tabs__nav-scroll) { overflow-x: auto; } }
+
+
+.inbox-layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 410px; border: 1px solid #e3e6ec; border-radius: 13px; overflow: hidden; }.mail-group-sidebar { min-width: 0; padding: 12px; border-right: 1px solid #e3e6ec; background: #f7f8fa; }.group-mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 9px; background: #e9ecf2; }.group-mode-switch button { padding: 8px 5px; border: 0; border-radius: 7px; background: transparent; color: #707a8a; font-size: 11px; font-weight: 700; cursor: pointer; }.group-mode-switch button.active { background: #fff; box-shadow: 0 2px 7px rgba(30,41,59,.09); color: var(--primary); }.group-list { display: flex; flex-direction: column; gap: 4px; margin-top: 11px; }.group-list-item { display: flex; align-items: center; justify-content: space-between; gap: 9px; width: 100%; min-width: 0; padding: 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: #626d7d; text-align: left; cursor: pointer; transition: all .15s; }.group-list-item:hover { background: #fff; }.group-list-item.active { border-color: #ccd4f3; background: #eef1ff; color: #465cc0; }.group-list-item.ungrouped { border-style: dashed; }.group-list-item > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }.group-list-item strong, .group-list-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.group-list-item strong { font-size: 12px; }.group-list-item small { color: #9098a5; font-size: 9px; }.group-list-item b { display: flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 5px; border-radius: 999px; background: #e8ebf0; color: #6c7685; font-size: 10px; }.group-list-item.active b { background: #dce2ff; color: #465cc0; }.sidebar-group-actions { display: grid; grid-template-columns: 1fr auto; gap: 4px; margin-top: 9px; padding-top: 10px; border-top: 1px solid #e3e6ec; }.sidebar-group-actions .el-button { margin-left: 0; }.inbox-main { min-width: 0; padding: 0 16px 16px; }.inbox-main .message-list { border-top: 0; }.grouping-progress { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 14px; margin: 12px 0; padding: 11px 14px; border-radius: 10px; background: #f0f4ff; color: #63708a; font-size: 11px; }.message-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }.message-title-line strong { flex: 1; }.message-title-line .el-tag { max-width: 105px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 820px) { .inbox-layout { grid-template-columns: 1fr; }.mail-group-sidebar { overflow-x: auto; border-right: 0; border-bottom: 1px solid #e3e6ec; }.group-mode-switch { width: 260px; }.group-list { flex-direction: row; width: max-content; }.group-list-item { width: 150px; }.sidebar-group-actions { display: flex; margin-top: 0; padding: 0; border: 0; }.inbox-main { padding: 0 12px 12px; } }
+@media (max-width: 700px) { .grouping-progress { grid-template-columns: 1fr; }.message-title-line { align-items: flex-start; }.message-title-line .el-tag { max-width: 90px; } }
+
+.digest-overview-rich { padding: 24px; border: 1px solid #dfe4ee; background: linear-gradient(135deg, #f6f8ff 0%, #fff 58%); }.digest-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }.digest-date-label { color: #75809a; font-size: 11px; font-weight: 700; letter-spacing: .08em; }.digest-overview-head h3 { margin: 7px 0 0; color: #283346; font-size: 21px; }.digest-overview-head .digest-status-row { justify-content: flex-end; }.digest-metrics { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); gap: 10px; margin-top: 23px; }.digest-metrics > div { display: flex; flex-direction: column; gap: 5px; padding: 13px 14px; border: 1px solid #e3e7ef; border-radius: 10px; background: rgba(255,255,255,.8); }.digest-metrics strong { color: #303b50; font-size: 25px; line-height: 1; }.digest-metrics span { color: #8490a1; font-size: 11px; }.digest-metrics .metric-important { border-bottom: 3px solid #6366f1; }.digest-metrics .metric-todo { border-bottom: 3px solid #0ea5e9; }.digest-metrics .metric-risk { border-bottom: 3px solid #f97316; }.digest-metrics .metric-reply { border-bottom: 3px solid #10b981; }.digest-overview-rich .overview-copy { max-width: 860px; margin: 22px 0 0; padding-top: 18px; border-top: 1px solid #e5e8f0; font-size: 16px; line-height: 1.85; }.digest-meta-line { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 17px; color: #8a93a2; font-size: 11px; }.digest-tab-list { padding: 8px 14px 14px; border: 1px solid #e1e5ec; border-radius: 12px; background: #fff; }.digest-tab-list.important { border-top: 3px solid #6366f1; }.digest-tab-list.todo { border-top: 3px solid #0ea5e9; }.digest-tab-list.risk { border-top: 3px solid #f97316; }.digest-tab-list.reply { border-top: 3px solid #10b981; }.digest-item-rich { display: block; width: 100%; padding: 16px 8px; border: 0; border-top: 1px solid #edf0f4; background: transparent; color: #586477; text-align: left; cursor: pointer; }.digest-item-rich:first-of-type { border-top: 0; }.digest-item-rich:hover { background: #fafbfe; }.digest-item-rich-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.digest-item-rich-head strong { color: #354052; font-size: 14px; }.digest-item-rich-head .el-tag { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; color: #6977b9; }.digest-item-rich p { margin: 8px 0 0; color: #5d687a; font-size: 13px; line-height: 1.7; }.digest-item-rich-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 9px; color: #919aaa; font-size: 11px; }.digest-item-rich-meta span + span { padding-left: 12px; border-left: 1px solid #e0e4eb; }
+@media (max-width: 700px) { .digest-overview-rich { padding: 18px; }.digest-overview-head { flex-direction: column; }.digest-overview-head .digest-status-row { justify-content: flex-start; }.digest-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }.digest-metrics > div:first-child { grid-column: 1 / -1; }.digest-item-rich-head strong { line-height: 1.5; }.digest-item-rich-meta span + span { padding-left: 0; border-left: 0; } }
+
+.digest-flow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 24px 0 18px; padding: 16px 10px; border-radius: 14px; background: #f8f9fc; }.flow-node { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid #e2e6ef; border-radius: 10px; background: #fff; }.flow-node .flow-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-weight: 800; }.flow-node.received .flow-icon { background: #7085df; }.flow-node.analyzed .flow-icon { background: #8a62d9; }.flow-node.action .flow-icon { background: #27a879; }.flow-node.risk .flow-icon { background: #e58b47; }.flow-node strong { color: #374154; font-size: 12px; white-space: nowrap; }.flow-node small { color: #8a93a2; font-size: 10px; white-space: nowrap; }.flow-arrow { flex-shrink: 0; color: #aab3c2; font-size: 20px; font-weight: 700; }.digest-insight-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; }.digest-insight { min-width: 0; padding: 17px 19px; border-radius: 12px; background: #fff; border: 1px solid #e1e5ed; }.digest-insight.conclusion { border-left: 4px solid #687bd2; }.digest-insight.focus { border-left: 4px solid #e58b47; }.insight-label { color: #78849a; font-size: 11px; font-weight: 800; letter-spacing: .08em; }.digest-insight p { display: -webkit-box; margin: 9px 0 0; overflow: hidden; color: #394456; font-size: 14px; line-height: 1.75; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }.digest-insight ul { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 0; padding: 0; list-style: none; }.digest-insight li { position: relative; padding-left: 14px; color: #727e90; font-size: 12px; line-height: 1.45; }.digest-insight li::before { position: absolute; top: 7px; left: 0; width: 5px; height: 5px; border-radius: 50%; background: #e58b47; content: ''; }.digest-insight li button { display: block; max-width: 100%; padding: 0; overflow: hidden; border: 0; background: transparent; color: #3d4a61; font-size: 12px; font-weight: 700; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }.digest-insight li button:hover { color: var(--primary); }.digest-insight li small { display: block; overflow: hidden; color: #8a93a2; text-overflow: ellipsis; white-space: nowrap; }.digest-full-summary { margin-top: 14px; border-top: 1px solid #e5e8ef; }.digest-full-summary summary { padding-top: 12px; color: #6473b4; font-size: 12px; cursor: pointer; }.digest-full-summary p { margin: 10px 0 0; color: #778193; font-size: 13px; line-height: 1.8; }
+.value-bar { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; padding: 14px 18px; border: 1px solid #e3e7ef; border-radius: 12px; background: linear-gradient(135deg, #f0f7ff 0%, #fff 70%); }.value-bar > div { display: flex; flex-direction: column; gap: 4px; }.value-bar strong { color: #283346; font-size: 20px; }.value-bar span { color: #75809a; font-size: 12px; }
+@media (max-width: 700px) { .digest-flow { align-items: stretch; flex-direction: column; gap: 6px; padding: 10px; }.flow-node { justify-content: flex-start; }.flow-arrow { align-self: center; transform: rotate(90deg); font-size: 16px; }.digest-insight-grid { grid-template-columns: 1fr; }.digest-insight p { -webkit-line-clamp: 5; } }
+
+.minutes-topic-list { display: flex; flex-direction: column; gap: 12px; }.minutes-topic-card { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 15px; padding: 18px; border: 1px solid #e1e5ec; border-radius: 12px; background: #fff; }.topic-index { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg,#e9edff,#f5f2ff); color: #6272c3; font-size: 13px; font-weight: 800; }.topic-copy, .minutes-progress-item > div { min-width: 0; }.topic-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.topic-head h3 { margin: 0; color: #354052; font-size: 15px; line-height: 1.5; }.topic-copy p, .minutes-progress-item p { margin: 8px 0 0; color: #657084; font-size: 13px; line-height: 1.75; }.topic-copy button, .minutes-progress-item button { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 0; border: 0; background: transparent; color: #6475c4; font-size: 11px; cursor: pointer; }.minutes-progress-list { position: relative; display: flex; flex-direction: column; gap: 0; padding-left: 18px; }.minutes-progress-list::before { position: absolute; top: 12px; bottom: 12px; left: 24px; width: 2px; background: #e3e7ee; content: ''; }.minutes-progress-item { position: relative; display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 14px; padding: 0 0 24px; }.progress-dot { z-index: 1; width: 14px; height: 14px; margin-top: 4px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 2px #aab4c5; background: #aab4c5; }.minutes-progress-item.done .progress-dot { box-shadow: 0 0 0 2px #37a678; background: #37a678; }.minutes-progress-item.doing .progress-dot { box-shadow: 0 0 0 2px #e6a24d; background: #e6a24d; }.minutes-progress-item.pending .progress-dot { box-shadow: 0 0 0 2px #8190a6; background: #fff; }
+@media (max-width:700px) { .minutes-topic-card { grid-template-columns: 38px minmax(0,1fr); padding: 14px; }.topic-index { width: 34px; height: 34px; }.topic-head { flex-direction: column; gap: 6px; } }
+
+.digest-item-rich { border: 1px solid #e4e7ed; border-radius: 12px; background: #fff; overflow: hidden; }.digest-item-rich.closed { opacity: .68; }.digest-item-body { display: block; width: 100%; padding: 14px 16px; border: 0; background: transparent; text-align: left; cursor: pointer; }.digest-item-body:hover { background: #f8f9fd; }.digest-item-body.closed strong { text-decoration: line-through; color: #97a1b3; }.digest-item-actions { display: flex; gap: 8px; padding: 0 16px 12px; }.digest-feedback { display: flex; align-items: center; gap: 10px; margin-top: 14px; color: #687386; font-size: 13px; }.reply-send { margin-top: 10px; }.reply-send-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+</style>

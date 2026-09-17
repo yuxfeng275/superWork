@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "started_at": "2026-04-08T02:12:10.366Z",
+  "original_prompt": "/ralph US-001 US-003没有解决，001下拉还是显示数字没有显示项目名称；003的UI样式没有与需求列表的展现保持一致",
+  "session_id": "087dd231-35a2-4921-9ff9-e78861a1f609",
+  "project_path": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-04-08T02:12:10.366Z"
+}

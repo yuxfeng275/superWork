@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>组织架构 - 电商BU内部管理系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f0f2f5;
+        }
+        .layout { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 220px; background: #001529; color: white;
+            position: fixed; height: 100vh; overflow-y: auto;
+        }
+        .sidebar-logo {
+            height: 64px; display: flex; align-items: center;
+            justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-logo h1 { font-size: 18px; font-weight: 600; }
+        .menu { padding: 16px 0; }
+        .menu-item {
+            padding: 12px 24px; cursor: pointer;
+            display: flex; align-items: center; gap: 12px;
+            color: rgba(255,255,255,0.65); transition: all 0.3s;
+        }
+        .menu-item:hover, .menu-item.active {
+            background: rgba(255,255,255,0.1); color: white;
+        }
+        .menu-item.active { border-right: 3px solid #667eea; }
+        .main { flex: 1; margin-left: 220px; }
+        .header {
+            height: 64px; background: white; border-bottom: 1px solid #f0f0f0;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; position: sticky; top: 0; z-index: 100;
+        }
+        .header-title { font-size: 18px; font-weight: 600; color: #262626; }
+        .header-user { display: flex; align-items: center; gap: 12px; }
+        .user-avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; display: flex; align-items: center; justify-content: center;
+        }
+        .content { padding: 24px; }
+        .tabs {
+            background: white; padding: 0 24px; border-radius: 8px 8px 0 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .tab-item {
+            display: inline-block; padding: 16px 24px; font-size: 14px;
+            color: #595959; cursor: pointer; border-bottom: 2px solid transparent;
+        }
+        .tab-item:hover { color: #667eea; }
+        .tab-item.active { color: #667eea; border-bottom-color: #667eea; }
+        .tab-content { background: white; padding: 24px; border-radius: 0 0 8px 8px; }
+        .toolbar {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+        }
+        .btn {
+            height: 36px; padding: 0 20px; border-radius: 6px;
+            font-size: 14px; cursor: pointer; border: none; transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .btn-primary:hover { opacity: 0.9; }
+        .btn-default { background: white; border: 1px solid #d9d9d9; color: #595959; }
+        .tree-card {
+            background: white; border: 1px solid #f0f0f0; border-radius: 8px;
+            padding: 20px; margin-bottom: 16px;
+        }
+        .tree-node {
+            padding: 12px 0; border-bottom: 1px solid #f0f0f0;
+        }
+        .tree-node:last-child { border-bottom: none; }
+        .tree-node-header {
+            display: flex; align-items: center; gap: 12px; cursor: pointer;
+        }
+        .tree-icon {
+            width: 32px; height: 32px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+        }
+        .tree-icon.bl { background: #e6f7ff; }
+        .tree-icon.prj { background: #f6ffed; }
+        .tree-node-title { flex: 1; }
+        .tree-node-title h4 { font-size: 14px; font-weight: 600; color: #262626; }
+        .tree-node-title p { font-size: 12px; color: #8c8c8c; margin-top: 2px; }
+        .tree-node-actions { display: flex; gap: 8px; opacity: 0; transition: opacity 0.3s; }
+        .tree-node:hover .tree-node-actions { opacity: 1; }
+        .tree-action { padding: 4px 8px; font-size: 12px; color: #667eea; cursor: pointer; border-radius: 4px; }
+        .tree-action:hover { background: #e8f3ff; }
+        .tree-children { margin-left: 44px; padding-left: 20px; border-left: 1px dashed #d9d9d9; margin-top: 8px; }
+        .member-table { width: 100%; }
+        .member-table th, .member-table td {
+            padding: 12px 16px; text-align: left; border-bottom: 1px solid #f0f0f0;
+        }
+        .member-table th { font-weight: 600; color: #262626; font-size: 14px; background: #fafafa; }
+        .member-table td { font-size: 14px; color: #595959; }
+        .member-info { display: flex; align-items: center; gap: 12px; }
+        .member-avatar {
+            width: 36px; height: 36px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+        }
+        .role-tag {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 12px;
+        }
+        .role-tag.admin { background: #fff1f0; color: #ff4d4f; }
+        .role-tag.manager { background: #e6f7ff; color: #1890ff; }
+        .role-tag.dev { background: #f6ffed; color: #52c41a; }
+        .role-tag.test { background: #f9f0ff; color: #722ed1; }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); display: flex;
+            align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal {
+            background: white; border-radius: 12px;
+            width: 500px; max-height: 80vh; overflow-y: auto;
+        }
+        .modal-header {
+            padding: 20px 24px; border-bottom: 1px solid #f0f0f0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h3 { font-size: 18px; font-weight: 600; }
+        .modal-close { font-size: 20px; cursor: pointer; color: #8c8c8c; }
+        .modal-body { padding: 24px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 14px; color: #262626; margin-bottom: 8px; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9;
+            border-radius: 6px; font-size: 14px;
+        }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .modal-footer {
+            padding: 16px 24px; border-top: 1px solid #f0f0f0;
+            display: flex; justify-content: flex-end; gap: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="layout">
+            <aside class="sidebar">
+                <div class="sidebar-logo"><h1>BU管理系统</h1></div>
+                <nav class="menu">
+                    <div class="menu-item"><span>🏠</span><span>首页</span></div>
+                    <div class="menu-item"><span>📋</span><span>需求管理</span></div>
+                    <div class="menu-item"><span>✅</span><span>任务管理</span></div>
+                    <div class="menu-item"><span>📊</span><span>统计看板</span></div>
+                    <div class="menu-item active"><span>🏢</span><span>组织架构</span></div>
+                </nav>
+            </aside>
+
+            <main class="main">
+                <header class="header">
+                    <div class="header-title">组织架构管理</div>
+                    <div class="header-user">
+                        <span>欢迎，管理员</span>
+                        <div class="user-avatar">A</div>
+                    </div>
+                </header>
+
+                <div class="content">
+                    <div class="tabs">
+                        <div class="tab-item" :class="{ active: activeTab === 'businessLine' }" @click="activeTab = 'businessLine'">业务线</div>
+                        <div class="tab-item" :class="{ active: activeTab === 'project' }" @click="activeTab = 'project'">项目</div>
+                        <div class="tab-item" :class="{ active: activeTab === 'member' }" @click="activeTab = 'member'">成员</div>
+                    </div>
+
+                    <div class="tab-content">
+                        <!-- 业务线 Tab -->
+                        <div v-if="activeTab === 'businessLine'">
+                            <div class="toolbar">
+                                <div></div>
+                                <button class="btn btn-primary" @click="showCreateBL = true">+ 新建业务线</button>
+                            </div>
+                            <div class="tree-card">
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon bl">🏢</div>
+                                        <div class="tree-node-title">
+                                            <h4>电商业务线</h4>
+                                            <p>负责人：张三 | 成员 12 人</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon bl">🏢</div>
+                                        <div class="tree-node-title">
+                                            <h4>供应链业务线</h4>
+                                            <p>负责人：李四 | 成员 8 人</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon bl">🏢</div>
+                                        <div class="tree-node-title">
+                                            <h4>客服业务线</h4>
+                                            <p>负责人：王五 | 成员 6 人</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 项目 Tab -->
+                        <div v-if="activeTab === 'project'">
+                            <div class="toolbar">
+                                <div></div>
+                                <button class="btn btn-primary" @click="showCreateProject = true">+ 新建项目</button>
+                            </div>
+                            <div class="tree-card">
+                                <div style="padding: 8px 0; font-weight: 600; color: #8c8c8c; font-size: 14px;">电商业务线</div>
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon prj">📦</div>
+                                        <div class="tree-node-title">
+                                            <h4>ERP系统</h4>
+                                            <p>项目经理：张三 | 成员 5 人 | 进度 65%</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon prj">📦</div>
+                                        <div class="tree-node-title">
+                                            <h4>CRM系统</h4>
+                                            <p>项目经理：李四 | 成员 4 人 | 进度 40%</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="padding: 16px 0 8px; font-weight: 600; color: #8c8c8c; font-size: 14px;">供应链业务线</div>
+                                <div class="tree-node">
+                                    <div class="tree-node-header">
+                                        <div class="tree-icon prj">📦</div>
+                                        <div class="tree-node-title">
+                                            <h4>WMS系统</h4>
+                                            <p>项目经理：王五 | 成员 4 人 | 进度 80%</p>
+                                        </div>
+                                        <div class="tree-node-actions">
+                                            <span class="tree-action">编辑</span>
+                                            <span class="tree-action">删除</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 成员 Tab -->
+                        <div v-if="activeTab === 'member'">
+                            <div class="toolbar">
+                                <div class="filter-item">
+                                    <select style="height: 36px; padding: 0 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px;">
+                                        <option value="">全部业务线</option>
+                                        <option value="1">电商业务线</option>
+                                        <option value="2">供应链业务线</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary" @click="showCreateMember = true">+ 新建成员</button>
+                            </div>
+                            <table class="member-table">
+                                <thead>
+                                    <tr>
+                                        <th>成员</th>
+                                        <th>角色</th>
+                                        <th>所属业务线</th>
+                                        <th>邮箱</th>
+                                        <th>手机</th>
+                                        <th>状态</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="member-info">
+                                                <div class="member-avatar">张</div>
+                                                <span>张三</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="role-tag admin">BU负责人</span></td>
+                                        <td>电商业务线</td>
+                                        <td>zhangsan@company.com</td>
+                                        <td>13800138001</td>
+                                        <td>启用</td>
+                                        <td><span class="tree-action">编辑</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="member-info">
+                                                <div class="member-avatar">李</div>
+                                                <span>李四</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="role-tag manager">项目经理</span></td>
+                                        <td>供应链业务线</td>
+                                        <td>lisi@company.com</td>
+                                        <td>13800138002</td>
+                                        <td>启用</td>
+                                        <td><span class="tree-action">编辑</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="member-info">
+                                                <div class="member-avatar">王</div>
+                                                <span>王五</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="role-tag dev">研发</span></td>
+                                        <td>电商业务线</td>
+                                        <td>wangwu@company.com</td>
+                                        <td>13800138003</td>
+                                        <td>启用</td>
+                                        <td><span class="tree-action">编辑</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="member-info">
+                                                <div class="member-avatar">赵</div>
+                                                <span>赵六</span>
+                                            </div>
+                                        </td>
+                                        <td><span class="role-tag test">测试</span></td>
+                                        <td>电商业务线</td>
+                                        <td>zhaoliu@company.com</td>
+                                        <td>13800138004</td>
+                                        <td>启用</td>
+                                        <td><span class="tree-action">编辑</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- 新建业务线弹窗 -->
+        <div class="modal-overlay" v-if="showCreateBL" @click.self="showCreateBL = false">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>新建业务线</h3>
+                    <span class="modal-close" @click="showCreateBL = false">×</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>业务线名称 *</label>
+                        <input type="text" placeholder="请输入业务线名称">
+                    </div>
+                    <div class="form-group">
+                        <label>负责人 *</label>
+                        <select>
+                            <option value="">请选择负责人</option>
+                            <option value="1">张三</option>
+                            <option value="2">李四</option>
+                            <option value="3">王五</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>描述</label>
+                        <input type="text" placeholder="请输入描述">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-default" @click="showCreateBL = false">取消</button>
+                    <button class="btn btn-primary" @click="showCreateBL = false">确定</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 新建项目弹窗 -->
+        <div class="modal-overlay" v-if="showCreateProject" @click.self="showCreateProject = false">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>新建项目</h3>
+                    <span class="modal-close" @click="showCreateProject = false">×</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>项目名称 *</label>
+                        <input type="text" placeholder="请输入项目名称">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>所属业务线 *</label>
+                            <select>
+                                <option value="">请选择业务线</option>
+                                <option value="1">电商业务线</option>
+                                <option value="2">供应链业务线</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>项目经理 *</label>
+                            <select>
+                                <option value="">请选择项目经理</option>
+                                <option value="1">张三</option>
+                                <option value="2">李四</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>描述</label>
+                        <input type="text" placeholder="请输入项目描述">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-default" @click="showCreateProject = false">取消</button>
+                    <button class="btn btn-primary" @click="showCreateProject = false">确定</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 新建成员弹窗 -->
+        <div class="modal-overlay" v-if="showCreateMember" @click.self="showCreateMember = false">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>新建成员</h3>
+                    <span class="modal-close" @click="showCreateMember = false">×</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>用户名 *</label>
+                            <input type="text" placeholder="请输入用户名">
+                        </div>
+                        <div class="form-group">
+                            <label>真实姓名 *</label>
+                            <input type="text" placeholder="请输入真实姓名">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>角色 *</label>
+                            <select>
+                                <option value="">请选择角色</option>
+                                <option value="BU负责人">BU负责人</option>
+                                <option value="项目经理">项目经理</option>
+                                <option value="技术经理">技术经理</option>
+                                <option value="产品经理">产品经理</option>
+                                <option value="研发">研发</option>
+                                <option value="测试">测试</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>所属业务线 *</label>
+                            <select>
+                                <option value="">请选择业务线</option>
+                                <option value="1">电商业务线</option>
+                                <option value="2">供应链业务线</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>邮箱 *</label>
+                            <input type="email" placeholder="请输入邮箱">
+                        </div>
+                        <div class="form-group">
+                            <label>手机</label>
+                            <input type="tel" placeholder="请输入手机号">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>初始密码 *</label>
+                        <input type="password" placeholder="请输入初始密码">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-default" @click="showCreateMember = false">取消</button>
+                    <button class="btn btn-primary" @click="showCreateMember = false">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref } = Vue
+        const app = createApp({
+            setup() {
+                const activeTab = ref('businessLine')
+                const showCreateBL = ref(false)
+                const showCreateProject = ref(false)
+                const showCreateMember = ref(false)
+                return { activeTab, showCreateBL, showCreateProject, showCreateMember }
+            }
+        })
+        app.use(ElementPlus)
+        app.mount('#app')
+    </script>
+</body>
+</html>

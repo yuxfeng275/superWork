@@ -1,0 +1,4 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/key-matter-management-ui.md", "reason": "Key-matter pagination and weekly-update UI contract"}
+{"file": "frontend/src/views/KeyMattersView.vue", "reason": "Existing key-matter implementation and visual patterns"}

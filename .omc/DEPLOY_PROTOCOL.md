@@ -1,0 +1,100 @@
+# 部署协调约定（所有 agent 必须遵守）
+
+> 更新：2026-09-04；维护者：master 分支工作 agent
+> 适用范围：`superWork-claude-sp` 主工作空间 + `superWork-sp-agent`/`bigwork` 等 worktree 的所有 agent
+
+## 铁律
+
+1. **先合并，后部署**：任何部署到 241 的代码必须已经合入 `master` 分支。
+   禁止直接从 feature/worktree 分支构建部署。241 上的 jar/dist 必须与 origin/master 一致。
+
+2. **master 是唯一部署源**：部署产物（jar/dist）只从 `master` 分支的 `backend/target/management-1.0.0.jar`
+   与 `frontend/dist/` 构建。worktree（bigwork/aiagent 等）只负责开发与自测。
+
+3. **合并前必须同步**：merge 到 master 前先 `git fetch`，确认没有其他 agent 刚推过提交；
+   merge 后 `git push origin master` 成功才算完成合并。
+
+4. **部署后登记**：部署完成立即更新：
+   - `241:/home/openclaw/superwork-claude-sp/DEPLOYED_COMMIT` = 部署的 commit 短 hash
+   - 本文件的「部署记录」小节
+
+5. **注意并行 agent**：`aiagent` 分支的 agent 在同步工作。合并时如遇本地未提交改动冲突，
+   先 stash（带说明性消息），merge 后立即 `stash pop` 恢复；绝不能丢弃别人的工作。
+
+## 部署标准流程
+
+```
+# 1. 在 feature/worktree 分支提交并验证
+# 2. 在 master 工作空间（superWork-claude-sp）：
+git fetch origin
+git merge <branch> --no-edit        # 或直接在 master 上提交
+git push origin master
+# 3. 构建 + 同步 + 重建容器（参照 docs/deployment.md）：
+rsync jar/dist → server-241
+ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --build backend frontend'
+# 4. 登记部署
+```
+
+## 部署记录
+
+| 时间 | commit | 内容 | 操作者 |
+|---|---|---|---|
+| 2026-09-04 | 3ada6af | 大事儿周会左右卡片加宽 | master agent |
+| 2026-09-04 | e87d84c | 未关联项目快速筛选修复 | master agent |
+| 2026-09-04 | c2d1593 | 短信合同归精准线 + 非 full 线业务线优先 | master agent |
+| 2026-09-04 | 003e4f1 | 合同总额新增收款月口径（工时系统对齐 4,738,115.91） | master agent |
+
+| 2026-09-15 | 6b658ac | 系统菜单管理接口：全量菜单、创建/更新/删除、排序 | master agent |
+| 2026-09-15 | 34d0cc7 | 菜单更新保留原有 icon，避免编辑其他字段时图标丢失 | master agent |
+| 2026-09-16 | d0a1700 | 后端（V76-V78 数据同步中心/OA采集）+ 新前端 frontend-pro 并行上线（:18084，旧前端 :18080 保留共兜底，共用后端 :18081）；备份 deploy-backups/20260916-142813 | master agent |
+| 2026-09-16 | c478587 | frontend-pro：大事儿列表新增周进展入口；周报弹窗改为周会卡片样式+右侧历史进度（仅前端，backend 未变） | master agent |
+| 2026-09-16 | b65db78 | frontend-pro：大事儿管理快速筛选栏 276→216px；列表操作列「详情/删除」并入「更多」下拉（四列改 196px，≤1420px 两行栅格），计划时间不再被操作按钮压盖；周进展弹窗按视口定高改 2×2 表单，单屏免滚动（仅前端，backend 未变）；备份 deploy-backups/20260916-233419 | normal-modify agent |
+| 2026-09-17 | f3f43d4 | frontend-pro：修复「系统>数据集成中心 /system/sync」未在 routes.ts 注册导致点菜单被 catch-all 重定向回首页（并补 management 权限路径与 CloudSync 菜单图标映射）；登录页品牌由「BU」色块改为合拍 logo（public/logo.png），与顶栏一致；备份 deploy-backups/20260916-235311 | normal-modify agent |
+| 2026-09-17 | 8890027 | **连接器收口（Connector Hub）**：连接配置统一到 `ai_connector` 注册表与「系统管理→系统配置→连接器管理」单一入口（`/system/connectors`）；V79 迁移 + 启动搬迁器把云效/工时/OA 单行配置表与 ai-connector/email-integration/ai-agent/oa-vreport/weekly-report(yuque.*) 配置组搬入连接器并隐藏源配置（规则 v2：单行配置表优先，标记带版本可重跑）；注册表 API 迁到 `/api/connectors`，退役 `/api/{yunxiao,worktime,seeyon-oa}/config|connection-test` 与 `/api/system/configs/*/test`；两套前端清理散落表单（KPI 工时配置、驾驶舱云效配置、配置管理测试按钮）改为只读+跳转；OA 连接器按现状停用（致远网关 401，待加 IP 白名单）；备份 deploy-backups/20260916-161151 | system-config agent |
+| 2026-09-17 | a62aed2 | frontend-pro（大事儿管理）：周进展弹窗标题改为具体事项名、去掉 WEEKLY UPDATE 头部与内容区重复事项名；进度展示加宽（弹窗进度条铺满主栏、列表「当前进度」条整列铺满 66→168px 且去重百分比）、弹窗主体高度上限 520px（1440×700 也免滚动）；列表操作列改「周进展 / 详情 / 更多（编辑、删除）」；周进展不再连带打开详情抽屉（独立 weeklyMatter 状态）。本次为 8890027 之后的 master 重建，含连接器收口前端（/system/connectors）；备份 deploy-backups/20260917-095423，已按提醒重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
+| 2026-09-17 | 2a7e8a8 | frontend-pro（大事儿管理·周会与列表）：①周会演示状态标签+进度条平铺到「本周进展」卡标题后（去掉顶部独立状态标签与独立进度条）；②周会演示改整屏布局：deck 按视口定高 calc(100vh-84px)，卡片区内部滚动、标题/进度/操作/缩略图常驻可见，收回演示页内容区与页面留白（16+24→8+0），编辑态文本框 4 行→3/2/2/2 行，≤1420/≤1180 分级收紧卡片与字号（1440×900、1366×768 实测卡片区 hidden=0）；③列表进度条上下留白 4→11/12px 且对称、条高 6→8px、标签弱化数值强化、未更新用琥珀色；④周会快速筛选「项目/负责人」改为系统一致的默认尺寸 block Segmented（24→32px 全宽）；⑤周会分组头像由 antd 默认灰改为按分组键散列的品牌渐变（负责人圆形/项目圆角方形）。备份 deploy-backups/20260917-115837，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
+| 2026-09-17 | 9c69e84 | frontend-pro：周会演示标题行右侧展示项目归属与负责人、进度条增加上下间距（仅前端） | master agent |
+| 2026-09-17 | fdd0f22 | frontend-pro（报价策略/报价单）：查询区与列表补齐 16px 间距（筛选卡片 `margin-bottom: 16px`，与客户/商机/项目页一致）；仅前端。备份 deploy-backups/20260917-141432，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
+
+| 2026-09-17 | 1cd5ad6 | frontend-pro（大事儿管理·周会演示）：①状态与进度改为「本周进展」标题行内编辑（Select 116px + 进度条 + InputNumber 96px），非编辑态该行仍为 状态标签+进度条+百分比；②删除底部状态/进度选择器与快捷百分比按钮，底部仅留 暂存草稿/保存并下一项/取消（查看态 查看详情/更新周报）；③缩略图 sw-presentation-thumbs 移出舞台卡片，放入新增 .sw-presentation-main（舞台+缩略图）列，单行横向滚动 28px 圆点；卡片区 1440×900/1366×768/1280×720 实测 hidden=0；④圆形分组头像恢复正圆（仅圆角方形分组加 8px 圆角）。本次为 10cd441（模型管理抽离）之后的 master 合并重建；备份 deploy-backups/20260917-143743，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | normal-modify agent |
+| 2026-09-17 | 10cd441 | **模型管理抽离**：AI 模型独立成「系统管理→系统配置→模型管理」（`/system/models`，`ai_model` 表 V80：模型名/助手可用/摘要使用/默认/启停），连接器只管连接（地址/凭据/启停/测试）；模型 API `/api/ai/models`，助手下拉改由模型注册表驱动（同名模型自动补提供方名）；摘要按排序取「摘要使用」模型不被助手默认模型抢占；两套前端新增模型页，连接器页移除模型字段；新增 OA/语雀连通性确认文档 docs/oa-yuque-readiness.md；备份 deploy-backups/20260917-061125 | system-config agent |
+
+### ⚠️ 部署操作提醒（2026-09-17）
+
+重建 `frontend` / `frontend-pro` 容器后**必须同时 `docker restart superwork-bu-nginx`**：
+nginx upstream 用 `server frontend:80` 形式在启动时解析一次，容器重建换 IP 后仍指向旧地址，
+会出现「:18080 显示 frontend-pro、:18084 显示旧 Vue 前端」的端口互换（本次部署已遇并修复）。
+
+
+## 回滚
+
+备份目录：`241:/home/openclaw/deploy-backups/<时间戳>/`（含上一版 jar/dist/DEPLOYED_COMMIT）。
+回滚 = 恢复备份文件 + 重建容器 + 更新 DEPLOYED_COMMIT 与本记录。
+
+## ⚠️ 事故记录（2026-09-07）
+
+**502 事故**：aiagent 分支 agent 在 master 部署后，把 **aiagent 分支的 jar**（含 V50/V51/V52 迁移）
+rsync 覆盖了 241 的 jar 并重启。随后 master 的镜像重建又用回旧镜像+aiagent jar 混合，
+Flyway checksum 反复 mismatch → 后端 crash loop → 502。
+
+**教训（补充铁律）**：
+1. rsync/构建前必须 `git -C <worktree> branch --show-current` 确认在 **master** 上；
+   非 master worktree 的 `backend/target/*.jar` **不得**同步到 241。
+2. 迁移文件（db/migration）属分支独有资产：master 部署时若 flyway 报 checksum mismatch/
+   failed migration，先确认这些迁移文件是否属于 master——不属于则删除
+   `flyway_schema_history` 中对应版本记录（保留业务表），再重启。
+3. 修复过程中 ai_connector / ai_agent 相关表已保留，aiagent 分支下次部署（其 jar 含
+   V50/51/52 文件）会重新执行这些迁移——需要先确保 flyway history 与该分支对齐。
+
+**当前状态（2026-09-07 09:15）**：master jar 已恢复（369fafc7），flyway history 清理至
+V48+V50，backend UP、UI 200。V50 记录保留（master jar 无此文件但历史存在不影响）。
+| 2026-09-07 | a1233f2 | 其他成本新增短信成本(sms)类型：CRUD/汇总/前端全链路 | bigwork agent |
+| 2026-09-07 | 10dca06 | 交付利润备注收敛：合计行「销/线/无」文号徽标+悬浮；口径说明ⓘ弹层 | bigwork agent |
+| 2026-09-07 | 5fa29d1 | 业务线合计行开放其他成本维护；其他成本单元格悬浮明细 | bigwork agent |
+| 2026-09-07 | a047bff | 删除越权测试项目；交付利润页横幅文字收敛为 tooltip（口径说明ⓘ保留） | bigwork agent |
+| 2026-09-07 | 4982025 | 交付利润页工具栏与概览卡间距调整；排查2月1.89元补录（已计入，万元显示四舍五入不可见，非bug） | bigwork agent |
+| 2026-09-07 | 2459a54 | 交付与利润 tab 移至第二位；H1/H2/YTD 营收核算全面核对（h1+h2==ytd 全部成立，无计算错误） | bigwork agent |
+| 2026-09-07 | 2459a54 | H1/H2/YTD 全链路核查：后端窗口计算+前端渲染均正确（h1+h2==ytd）；tab 顺序最终确认 | bigwork agent |
+| 2026-09-07 | 2459a54 | H1/H2 逐行 Playwright 核查（按真实数据 mock）：全部行随窗口变化，前端后端无 bug | bigwork agent |
+| 2026-09-08 | 81b67b1 | 修复交付与利润 H1/H2/全年切换部分行冻结(嵌套 template v-for 片段锚点错位,改 tr/td 直挂 key) | bigwork agent |
+| 2026-09-08 | 8980d3d | 修复其他成本编辑保存报"业务线不能为空"(PUT 请求体漏带归属字段) | bigwork agent |

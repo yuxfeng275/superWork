@@ -1,0 +1,211 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e427]:
+      - generic [ref=e428]:
+        - button [ref=e429] [cursor=pointer]:
+          - img [ref=e430]
+        - generic [ref=e432]:
+          - generic [ref=e433]: REQ202604091438500001
+          - heading "测试" [level=1] [ref=e434]
+          - generic [ref=e435]:
+            - generic [ref=e436]: 皇家项目
+            - generic [ref=e437]: PRO返利
+            - generic [ref=e438]: 全渠道云鹿定制
+            - generic [ref=e439]: 测试中
+      - generic [ref=e440]:
+        - button "编辑" [ref=e441] [cursor=pointer]
+        - button "导出" [ref=e442] [cursor=pointer]:
+          - img [ref=e443]
+          - text: 导出
+    - generic [ref=e446]:
+      - generic [ref=e447]:
+        - generic [ref=e448]: "1"
+        - generic [ref=e449]: 待评估
+      - generic [ref=e450]:
+        - generic [ref=e451]: "2"
+        - generic [ref=e452]: 评估中
+      - generic [ref=e453]:
+        - generic [ref=e454]: "3"
+        - generic [ref=e455]: 待设计
+      - generic [ref=e456]:
+        - generic [ref=e457]: "4"
+        - generic [ref=e458]: 设计中
+      - generic [ref=e459]:
+        - generic [ref=e460]: "5"
+        - generic [ref=e461]: 待确认
+      - generic [ref=e462]:
+        - generic [ref=e463]: "6"
+        - generic [ref=e464]: 开发中
+      - generic [ref=e465]:
+        - generic [ref=e466]: "7"
+        - generic [ref=e467]: 测试中
+      - generic [ref=e468]:
+        - generic [ref=e469]: "8"
+        - generic [ref=e470]: 待上线
+      - generic [ref=e471]:
+        - generic [ref=e472]: "9"
+        - generic [ref=e473]: 已上线
+      - generic [ref=e474]:
+        - generic [ref=e475]: "10"
+        - generic [ref=e476]: 已交付
+      - generic [ref=e477]:
+        - generic [ref=e478]: "11"
+        - generic [ref=e479]: 已验收
+    - generic [ref=e480]:
+      - generic [ref=e481]: 可执行操作
+      - generic [ref=e482]:
+        - button "测试通过" [ref=e483] [cursor=pointer]
+        - button "测试失败" [ref=e484] [cursor=pointer]
+    - generic [ref=e485]:
+      - generic [ref=e486]:
+        - generic [ref=e487]:
+          - heading "评估信息" [level=3] [ref=e489]
+          - generic [ref=e490]:
+            - generic [ref=e491]:
+              - generic [ref=e492]: 技术可行性
+              - generic [ref=e493]: 可行
+            - generic [ref=e494]:
+              - generic [ref=e495]: 预估工时
+              - generic [ref=e496]: 20人天
+            - generic [ref=e497]:
+              - generic [ref=e498]: 预估报价
+              - generic [ref=e499]: ¥40000
+            - generic [ref=e500]:
+              - generic [ref=e501]: 预估上线
+              - generic [ref=e502]: 2026-04-10
+            - generic [ref=e503]:
+              - generic [ref=e504]: 评估人
+              - generic [ref=e505]: 系统管理员
+        - generic [ref=e506]:
+          - heading "设计工作" [level=3] [ref=e508]
+          - generic [ref=e510]: 暂无设计工作，点击“开始设计”后生成
+        - generic [ref=e511]:
+          - heading "开发任务" [level=3] [ref=e513]
+          - generic [ref=e514]:
+            - generic [ref=e515]:
+              - img [ref=e517]
+              - generic [ref=e519]:
+                - generic [ref=e520]: 前端接口开发
+                - generic [ref=e521]: 开发任务 | -h | 系统管理员
+              - combobox [ref=e523]:
+                - option "待开始"
+                - option "进行中"
+                - option "已完成" [selected]
+                - option "已测试"
+            - generic [ref=e524]:
+              - img [ref=e526]
+              - generic [ref=e528]:
+                - generic [ref=e529]: 后端接口开发
+                - generic [ref=e530]: 开发任务 | -h | 系统管理员
+              - combobox [ref=e532]:
+                - option "待开始"
+                - option "进行中"
+                - option "已完成" [selected]
+                - option "已测试"
+            - generic [ref=e533]:
+              - img [ref=e535]
+              - generic [ref=e537]:
+                - generic [ref=e538]: 验证添加任务-1776439815503
+                - generic [ref=e539]: 开发任务 | -h | 系统管理员
+              - combobox [ref=e541]:
+                - option "待开始"
+                - option "进行中"
+                - option "已完成" [selected]
+                - option "已测试"
+        - generic [ref=e542]:
+          - heading "需求描述" [level=3] [ref=e544]
+          - generic [ref=e545]: 测试
+        - generic [ref=e546]:
+          - generic [ref=e547]:
+            - heading "附件" [level=3] [ref=e548]
+            - generic [ref=e549] [cursor=pointer]: 上传
+          - generic [ref=e550]: 暂无附件
+        - generic [ref=e551]:
+          - heading "活动日志" [level=3] [ref=e553]
+          - generic [ref=e554]:
+            - generic [ref=e557]:
+              - generic [ref=e558]: 创建任务：前端接口开发
+              - generic [ref=e559]:
+                - generic [ref=e560]: 系统管理员
+                - generic [ref=e561]: 2026-04-17 23:31
+            - generic [ref=e564]:
+              - generic [ref=e565]: 创建任务：后端接口开发
+              - generic [ref=e566]:
+                - generic [ref=e567]: 系统管理员
+                - generic [ref=e568]: 2026-04-17 23:31
+            - generic [ref=e571]:
+              - generic [ref=e572]: 创建任务：验证添加任务-1776439815503
+              - generic [ref=e573]:
+                - generic [ref=e574]: 系统管理员
+                - generic [ref=e575]: 2026-04-17 23:30
+            - generic [ref=e578]:
+              - generic [ref=e579]: 完成客户确认
+              - generic [ref=e580]:
+                - generic [ref=e581]: 系统管理员
+                - generic [ref=e582]: 2026-04-17 23:17
+            - generic [ref=e585]:
+              - generic [ref=e586]: BU 决策：通过
+              - generic [ref=e587]:
+                - generic [ref=e588]: 系统管理员
+                - generic [ref=e589]: 2026-04-17 22:40
+            - generic [ref=e592]:
+              - generic [ref=e593]: 提交了评估信息
+              - generic [ref=e594]:
+                - generic [ref=e595]: 系统管理员
+                - generic [ref=e596]: 2026-04-17 22:40
+            - generic [ref=e599]:
+              - generic [ref=e600]: 需求已创建
+              - generic [ref=e601]:
+                - generic [ref=e602]: 系统管理员
+                - generic [ref=e603]: 2026-04-09 06:38
+      - generic [ref=e604]:
+        - generic [ref=e605]:
+          - generic [ref=e606]: 基本信息
+          - generic [ref=e607]:
+            - generic [ref=e608]: 需求类型
+            - generic [ref=e609]: 项目需求
+          - generic [ref=e610]:
+            - generic [ref=e611]: 优先级
+            - generic [ref=e612]: 中
+          - generic [ref=e613]:
+            - generic [ref=e614]: 负责人
+            - generic [ref=e615]: 系统管理员
+          - generic [ref=e616]:
+            - generic [ref=e617]: 期望上线
+            - generic [ref=e618]: 2026-04-10
+        - generic [ref=e619]:
+          - generic [ref=e620]: 来源信息
+          - generic [ref=e621]:
+            - generic [ref=e622]: 需求来源
+            - generic [ref=e623]: 外部
+          - generic [ref=e624]:
+            - generic [ref=e625]: 提出人
+            - generic [ref=e626]: Ember
+          - generic [ref=e627]:
+            - generic [ref=e628]: 创建时间
+            - generic [ref=e629]: 2026-04-09
+        - generic [ref=e630]:
+          - generic [ref=e631]: 项目信息
+          - generic [ref=e632]:
+            - generic [ref=e633]: 所属业务线
+            - generic [ref=e634]: 全渠道云鹿定制
+          - generic [ref=e635]:
+            - generic [ref=e636]: 所属项目
+            - generic [ref=e637]: 皇家项目
+          - generic [ref=e638]:
+            - generic [ref=e639]: 子项目
+            - generic [ref=e640]: PRO返利
+  - dialog "提示" [ref=e642]:
+    - generic [ref=e643]:
+      - generic [ref=e644]:
+        - generic [ref=e645]: 提示
+        - button "Close this dialog" [ref=e646] [cursor=pointer]:
+          - img [ref=e648]
+      - generic [ref=e651]:
+        - img [ref=e653]
+        - paragraph [ref=e656]: 确认测试通过吗？
+      - generic [ref=e657]:
+        - button "取消" [ref=e658] [cursor=pointer]:
+          - generic [ref=e659]: 取消
+        - button "确认" [active] [ref=e660] [cursor=pointer]:
+          - generic [ref=e661]: 确认

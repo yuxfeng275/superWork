@@ -1,0 +1,15 @@
+CREATE TABLE quotation_policy (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(200) NOT NULL COMMENT '策略名称',
+    type VARCHAR(50) NOT NULL COMMENT '策略类型: SAAS/PRIVATE_DEPLOYMENT/MEMBERSHIP',
+    tax_mode VARCHAR(20) NOT NULL COMMENT '计税模式: TAX_INCLUDED/TAX_EXCLUDED',
+    version INT NOT NULL DEFAULT 1 COMMENT '版本号',
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT' COMMENT '状态: DRAFT/PUBLISHED/ARCHIVED',
+    effective_date DATE COMMENT '生效日期',
+    expiry_date DATE COMMENT '失效日期',
+    created_by VARCHAR(100) COMMENT '创建人',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_quotation_policy_type (type),
+    INDEX idx_quotation_policy_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价策略';

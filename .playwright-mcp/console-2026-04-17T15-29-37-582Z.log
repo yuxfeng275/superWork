@@ -1,0 +1,1 @@
+[     249ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://localhost:5175/@vite/client:509

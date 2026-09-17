@@ -1,0 +1,1096 @@
+package com.bu.management.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.entity.BusinessLine;
+import com.bu.management.entity.Project;
+import com.bu.management.entity.RevenueContractEntry;
+import com.bu.management.entity.RevenueCostEntry;
+import com.bu.management.entity.RevenueDeliveryPlan;
+import com.bu.management.entity.RevenueOtherCost;
+import com.bu.management.entity.RevenueSalesProject;
+import com.bu.management.entity.RevenueWorklogEntry;
+import com.bu.management.entity.SalesOpportunity;
+import com.bu.management.mapper.BusinessLineMapper;
+import com.bu.management.mapper.ProjectMapper;
+import com.bu.management.mapper.RevenueContractEntryMapper;
+import com.bu.management.mapper.RevenueCostEntryMapper;
+import com.bu.management.mapper.RevenueDeliveryPlanMapper;
+import com.bu.management.mapper.RevenueOtherCostMapper;
+import com.bu.management.mapper.RevenueSalesProjectMapper;
+import com.bu.management.mapper.RevenueWorklogEntryMapper;
+import com.bu.management.mapper.SalesOpportunityMapper;
+import com.bu.management.vo.RevenueDeliverySummaryVO;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * 项目交付营收（利润）汇总。
+ * <p>口径（与业务确认）：
+ * <ul>
+ *   <li>OA 合同总额/已交付均取合同明细「应收金额」：年度主过滤严格使用交付日期年份；交付日期为空仅进入无日期统计；已交付=交付日期&lt;=今天；H1/H2 按交付日期所在月份 1-6/7-12 划分。</li>
+ *   <li>毛利 = (已交付+预估交付) − 人工成本 − 其他成本；人工成本=项目工时成本+销售工时成本（销售仅业务线级）。</li>
+ *   <li>项目工时合计/成本沿用矩阵口径：仅完结月实际（未完结月不计）；预估交付计划与月份完结解耦照常全算。</li>
+ *   <li>行集合与既有营收矩阵 full 模式一致（主项目行、佳贝/海普归澳优），会员通按业务线聚合行「项目集」；full 线未指定项目的合同/其他成本保留在线级 totals。</li>
+ *   <li>其他成本按 月份×业务线×项目×类型 手动维护，仅取归属月 &lt;= 当月（实际发生）部分。</li>
+ * </ul>
+ *
+ * <p>销售成本 → 项目层拆分（成单证据制，确定性规则，不做均摊）：
+ * <ul>
+ *   <li>仅 full/aggregate 模式业务线参与拆分；simple 模式（产品/精准等）销售行并入单行项目工时，不做拆分。</li>
+ *   <li>aggregate 线（会员通）唯一「项目集」行即整线：该线全部销售工时/成本直接计入该行。</li>
+ *   <li>full 线可分配证据：sales_kind='specific' 的销售成本行 → revenue_sales_project(商机绑定) →
+ *       商机客户在同年合同明细中存在唯一已映射项目的同客户合同 → 落入该项目行。</li>
+ *   <li>其余（商机集合/其他/无商机绑定/客户匹配多项目或无匹配合同）保留在业务线池（未分配），
+ *       原因按代码汇总在 salesUnallocatedDetail（见 {@link RevenueDeliverySummaryVO.UnallocatedItem}）。</li>
+ *   <li>full 模式业务线级项目工时（project_id 为空，矩阵归入「其他」行）→ 计入线 totals 工时/成本，
+ *       项目行不污染；由此交付与利润的全表「含销售合计」行可与工时&成本对账。</li>
+ * </ul>
+ */
+@Service
+@RequiredArgsConstructor
+public class RevenueDeliverySummaryService {
+
+    private static final Map<String, String> PROJECT_ALIASES = Map.of(
+            "佳贝艾特", "澳优",
+            "海普诺凯", "澳优");
+    // 交付利润仅覆盖有营收的业务线。
+    private static final Set<String> EXCLUDED_BUSINESS_LINE_NAMES = Set.of("海外业务线", "全渠道产品");
+    private static final DateTimeFormatter YM = DateTimeFormatter.ofPattern("yyyy-MM");
+
+    /** 未分配销售成本原因代码与中文说明 */
+    private static final Map<String, String> UNALLOC_REASONS = Map.of(
+            "NO_OPP_LINK", "具体销售项目未关联商机，无客户/成单证据",
+            "NO_MATCH_CONTRACT", "已关联商机但年内无同客户成单合同",
+            "MULTI_PROJECT", "同客户成单合同对应多个项目，无法唯一归属",
+            "POOL_NO_EVIDENCE", "商机集合/其他销售行无成单项目证据，保留业务线级");
+
+    private final RevenueWorklogEntryMapper worklogEntryMapper;
+    private final RevenueCostEntryMapper costEntryMapper;
+    private final RevenueContractEntryMapper contractEntryMapper;
+    private final RevenueDeliveryPlanMapper planMapper;
+    private final RevenueOtherCostMapper otherCostMapper;
+    private final RevenueMonthService monthService;
+    private final BusinessLineMapper businessLineMapper;
+    private final ProjectMapper projectMapper;
+    private final RevenueSalesProjectMapper salesProjectMapper;
+    private final SalesOpportunityMapper opportunityMapper;
+    private final RevenueFinancialReportService financialReportService;
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate) {
+        return summary(year, includeEstimate, false);
+    }
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, boolean excludeTax) {
+        return summary(year, includeEstimate, LocalDate.now(), excludeTax);
+    }
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, LocalDate today) {
+        return summary(year, includeEstimate, today, false);
+    }
+
+    public RevenueDeliverySummaryVO summary(int year, boolean includeEstimate, LocalDate today, boolean excludeTax) {
+        List<BusinessLine> lines = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
+                        .eq(BusinessLine::getStatus, 1).orderByAsc(BusinessLine::getId)).stream()
+                .filter(line -> !EXCLUDED_BUSINESS_LINE_NAMES.contains(line.getName()))
+                .toList();
+        RevenueDeliverySummaryVO vo = base(year, includeEstimate, excludeTax);
+        if (lines.isEmpty()) {
+            return vo;
+        }
+        Set<Long> includedLineIds = lines.stream().map(BusinessLine::getId).collect(Collectors.toSet());
+        Map<Long, String> lineMode = lines.stream().collect(Collectors.toMap(BusinessLine::getId,
+                line -> StringUtils.hasText(line.getRevenueMode()) ? line.getRevenueMode() : "full", (a, b) -> a));
+        Map<Long, Boolean> costVisible = lines.stream().collect(Collectors.toMap(BusinessLine::getId,
+                line -> line.getCostVisible() == null || line.getCostVisible() == 1, (a, b) -> a));
+        Map<Long, Project> projectsById = projectMapper.selectList(null).stream()
+                .filter(project -> includedLineIds.contains(project.getBusinessLineId()))
+                .collect(Collectors.toMap(Project::getId, Function.identity(), (a, b) -> a));
+        Map<Long, Long> aliasToRoot = aliasMap(projectsById);
+        Set<String> closed = monthService.closedMonths();
+        String yearPrefix = year + "-";
+        String currentYearMonth = YM.format(today);
+
+        // 行注册：full=主项目行（别名源不注册）/ aggregate=项目集聚合行 / simple=单行
+        Map<String, RowDef> rowsByKey = new LinkedHashMap<>();
+        Map<Long, List<RowDef>> rowsOfLine = new LinkedHashMap<>();
+        for (BusinessLine line : lines) {
+            List<RowDef> defs = new ArrayList<>();
+            String mode = lineMode.get(line.getId());
+            if ("simple".equals(mode)) {
+                defs.add(register(rowsByKey, new RowDef("simple:" + line.getId(), line.getId(), null,
+                        line.getName(), true)));
+            } else if ("aggregate".equals(mode)) {
+                defs.add(register(rowsByKey, new RowDef("agg:" + line.getId(), line.getId(), null,
+                        "项目集", true)));
+            } else {
+                projectsById.values().stream()
+                        .filter(p -> Objects.equals(p.getBusinessLineId(), line.getId()) && p.getParentId() == null)
+                        .filter(p -> !aliasToRoot.containsKey(p.getId()))
+                        .sorted(Comparator.comparing(Project::getId))
+                        .forEach(p -> defs.add(register(rowsByKey,
+                                new RowDef("p:" + p.getId(), line.getId(), p.getId(), p.getName(), false))));
+            }
+            rowsOfLine.put(line.getId(), defs);
+        }
+
+        // 合同严格按项目交付日期年份隔离；交付日期为空单独统计，不泄漏至任何年度。
+        List<RevenueContractEntry> contractRows = contractEntryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>());
+        Map<String, BigDecimal> oaContract = new HashMap<>();
+        Map<String, BigDecimal[]> deliveredByMonth = new HashMap<>();
+        Map<String, Set<String>> contractBucketsByCustomer = new HashMap<>();
+        Map<Long, BigDecimal> lineUnallocatedContract = new HashMap<>();
+        Map<Long, BigDecimal> lineUnallocatedDelivered = new HashMap<>();
+        Map<String, BigDecimal[]> lineUnallocatedDeliveredByMonth = new HashMap<>();
+        Map<Long, BigDecimal> noDeliveryDateByLine = new HashMap<>();
+        // 工时系统合同总额口径：sale_month（收款月）在年度内的全部合同行合计（不做 pending/业务线/交付日期过滤）
+        BigDecimal oaContractBySaleMonth = BigDecimal.ZERO;
+        for (RevenueContractEntry entry : contractRows) {
+            if (entry.getReceivableAmount() == null) {
+                continue;
+            }
+            if (entry.getSaleMonth() != null && entry.getSaleMonth().startsWith(yearPrefix)) {
+                oaContractBySaleMonth = oaContractBySaleMonth.add(entry.getReceivableAmount());
+            }
+            Long lineId = entry.getBizLineId();
+            if (!includedLineIds.contains(lineId)) {
+                continue;
+            }
+            if (entry.getDeliveryDate() == null) {
+                if (lineId != null) {
+                    noDeliveryDateByLine.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                }
+                continue;
+            }
+            if (!Objects.equals(entry.getPending(), 0) || lineId == null) {
+                continue;
+            }
+            if (entry.getDeliveryDate().getYear() != year) {
+                continue;
+            }
+            String key = deliveryBucketKey(lineId, entry.getProjectId(), lineMode.get(lineId),
+                    projectsById, aliasToRoot);
+            if (key == null) {
+                if (lineId != null) {
+                    lineUnallocatedContract.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                    if (!entry.getDeliveryDate().isAfter(today)) {
+                        lineUnallocatedDelivered.merge(lineId, entry.getReceivableAmount(), BigDecimal::add);
+                        addMonth(lineUnallocatedDeliveredByMonth, lineId.toString(),
+                                entry.getDeliveryDate().getMonthValue() - 1, entry.getReceivableAmount());
+                    }
+                }
+                continue;
+            }
+            oaContract.merge(key, entry.getReceivableAmount(), BigDecimal::add);
+            if (!entry.getDeliveryDate().isAfter(today)) {
+                int m = entry.getDeliveryDate().getMonthValue() - 1;
+                addMonth(deliveredByMonth, key, m, entry.getReceivableAmount());
+            }
+            if (lineId != null && entry.getCustomer() != null && rowsByKey.containsKey(key)) {
+                String mapKey = lineId + "#" + entry.getCustomer().trim().toLowerCase(Locale.ROOT);
+                contractBucketsByCustomer.computeIfAbsent(mapKey, k -> new LinkedHashSet<>()).add(key);
+            }
+        }
+
+        // 销售项目注册表与商机（成单证据链：具体销售项目 → 商机 → 同客户成单合同）
+        Map<Long, RevenueSalesProject> salesProjectsById = salesProjectMapper.selectList(null).stream()
+                .filter(project -> includedLineIds.contains(project.getBusinessLineId()))
+                .collect(Collectors.toMap(RevenueSalesProject::getId, Function.identity(), (a, b) -> a));
+        Map<Long, SalesOpportunity> opportunitiesById = opportunityMapper.selectList(null).stream()
+                .collect(Collectors.toMap(SalesOpportunity::getId, Function.identity(), (a, b) -> a));
+
+        // 完结月实际工时/成本按桶×月累计（工时=工时明细人月，缺失回退成本明细人月）
+        Map<String, MonthAcc> laborAcc = new HashMap<>();
+        Map<String, MonthAcc> salesAcc = new HashMap<>();
+        Map<Long, MonthAcc> lineProjectAcc = new HashMap<>();
+        for (RevenueWorklogEntry entry : worklogEntryMapper.selectList(new LambdaQueryWrapper<RevenueWorklogEntry>()
+                .eq(RevenueWorklogEntry::getPending, 0).likeRight(RevenueWorklogEntry::getYearMonth, yearPrefix))) {
+            if (!closed.contains(entry.getYearMonth())
+                    || !includedLineIds.contains(entry.getBusinessLineId())) {
+                continue;
+            }
+            int m = monthIndex(entry.getYearMonth());
+            if (m < 0) {
+                continue;
+            }
+            String mode = lineMode.get(entry.getBusinessLineId());
+            if (isSales(entry.getWorkType())) {
+                bucketOf(salesAcc, laborAcc, entry.getBusinessLineId(), mode, true, m)
+                        .addWorklogHours(m, entry.getHours());
+            } else {
+                String key = laborBucketKey(entry.getBusinessLineId(), entry.getProjectId(), mode,
+                        projectsById, aliasToRoot);
+                if (key != null) {
+                    laborAcc.computeIfAbsent(key, k -> new MonthAcc()).addWorklogHours(m, entry.getHours());
+                } else if ("full".equals(mode) && entry.getProjectId() == null) {
+                    lineProjectAcc.computeIfAbsent(entry.getBusinessLineId(), k -> new MonthAcc())
+                            .addWorklogHours(m, entry.getHours());
+                }
+            }
+        }
+        // 销售分配累计器：allocHours/allocCost 按月落在项目桶；unallocReasonsByLine 记录未分配原因（全年）
+        Map<String, BigDecimal[]> allocHours = new HashMap<>();
+        Map<String, BigDecimal[]> allocCost = new HashMap<>();
+        Map<Long, Map<String, BigDecimal>> unallocReasonsByLine = new HashMap<>();
+        for (RevenueCostEntry entry : costEntryMapper.selectList(new LambdaQueryWrapper<RevenueCostEntry>()
+                .eq(RevenueCostEntry::getPending, 0).likeRight(RevenueCostEntry::getYearMonth, yearPrefix))) {
+            if (!closed.contains(entry.getYearMonth())
+                    || !includedLineIds.contains(entry.getBusinessLineId())) {
+                continue;
+            }
+            int m = monthIndex(entry.getYearMonth());
+            if (m < 0) {
+                continue;
+            }
+            String mode = lineMode.get(entry.getBusinessLineId());
+            boolean visible = costVisible.getOrDefault(entry.getBusinessLineId(), true);
+            MonthAcc acc;
+            if (isSales(entry.getWorkType())) {
+                acc = bucketOf(salesAcc, laborAcc, entry.getBusinessLineId(), mode, true, m);
+                if (visible && !"simple".equals(mode)) {
+                    allocateSales(entry, m, mode, rowsByKey, salesProjectsById, opportunitiesById,
+                            contractBucketsByCustomer, aliasToRoot, allocHours, allocCost, unallocReasonsByLine);
+                }
+            } else {
+                String key = laborBucketKey(entry.getBusinessLineId(), entry.getProjectId(), mode,
+                        projectsById, aliasToRoot);
+                if (key == null) {
+                    if ("full".equals(mode) && entry.getProjectId() == null) {
+                        acc = lineProjectAcc.computeIfAbsent(entry.getBusinessLineId(), k -> new MonthAcc());
+                    } else {
+                        continue;
+                    }
+                } else {
+                    acc = laborAcc.computeIfAbsent(key, k -> new MonthAcc());
+                }
+            }
+            acc.addCostHours(m, entry.getHours());
+            if (visible) {
+                acc.addCost(m, entry.getCostAmount());
+            }
+        }
+
+        // 预估交付计划：金额 + 预估工时成本
+        Map<String, BigDecimal[]> planAmount = new HashMap<>();
+        Map<String, BigDecimal[]> planLabor = new HashMap<>();
+        for (RevenueDeliveryPlan plan : planMapper.selectList(new LambdaQueryWrapper<RevenueDeliveryPlan>()
+                .likeRight(RevenueDeliveryPlan::getYearMonth, yearPrefix))) {
+            if (!includedLineIds.contains(plan.getBusinessLineId())) {
+                continue;
+            }
+            String key = deliveryBucketKey(plan.getBusinessLineId(), plan.getProjectId(),
+                    lineMode.get(plan.getBusinessLineId()), projectsById, aliasToRoot);
+            if (key == null) {
+                continue;
+            }
+            int m = monthIndex(plan.getYearMonth());
+            if (m < 0) {
+                continue;
+            }
+            addMonth(planAmount, key, m, plan.getAmountYuan());
+            addMonth(planLabor, key, m, plan.getLaborCostYuan());
+        }
+
+        // 其他成本：类型×桶×月（仅归属月 <= 当月）
+        // 其他成本：类型×桶×月（仅归属月 <= 当月）；full 线 projectId=null 保留在线级池
+        Map<String, Map<String, BigDecimal[]>> otherByType = new HashMap<>();
+        for (RevenueOtherCost cost : otherCostMapper.selectList(new LambdaQueryWrapper<RevenueOtherCost>()
+                .likeRight(RevenueOtherCost::getYearMonth, yearPrefix))) {
+            if (!includedLineIds.contains(cost.getBusinessLineId())) {
+                continue;
+            }
+            String mode = lineMode.get(cost.getBusinessLineId());
+            String key = deliveryBucketKey(cost.getBusinessLineId(), cost.getProjectId(), mode,
+                    projectsById, aliasToRoot);
+            if (key == null && cost.getProjectId() == null && cost.getBusinessLineId() != null) {
+                key = "line-unallocated:" + cost.getBusinessLineId();
+            }
+            if (key == null || cost.getCostType() == null || cost.getAmountYuan() == null
+                    || cost.getYearMonth().compareTo(currentYearMonth) > 0) {
+                continue;
+            }
+            int m = monthIndex(cost.getYearMonth());
+            if (m < 0) {
+                continue;
+            }
+            addMonth(otherByType.computeIfAbsent(cost.getCostType(), k -> new HashMap<>()), key, m,
+                    cost.getAmountYuan());
+        }
+
+        // ===== 含税→未税换算（excludeTax=true 时，所有营收金额 ÷ (1 + taxRate/100)）=====
+        if (excludeTax) {
+            Map<Long, BigDecimal> divisorByLine = new HashMap<>();
+            for (BusinessLine line : lines) {
+                BigDecimal rate = line.getTaxRate() != null ? line.getTaxRate() : BigDecimal.ZERO;
+                divisorByLine.put(line.getId(),
+                        BigDecimal.ONE.add(rate.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
+            }
+            java.util.function.Function<String, BigDecimal> divOf = key -> {
+                RowDef def = rowsByKey.get(key);
+                return def != null ? divisorByLine.getOrDefault(def.businessLineId, BigDecimal.ONE) : BigDecimal.ONE;
+            };
+            // 行级 OA 合同总额
+            oaContract.replaceAll((k, v) -> v.divide(divOf.apply(k), 2, RoundingMode.HALF_UP));
+            // 行级已交付按月份
+            deliveredByMonth.forEach((k, arr) -> {
+                BigDecimal d = divOf.apply(k);
+                for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+            });
+            // 业务线级未指定项目合同
+            lineUnallocatedContract.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            lineUnallocatedDelivered.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            lineUnallocatedDeliveredByMonth.forEach((k, arr) -> {
+                try {
+                    Long lineId = Long.parseLong(k);
+                    BigDecimal d = divisorByLine.getOrDefault(lineId, BigDecimal.ONE);
+                    for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+                } catch (NumberFormatException ignored) {}
+            });
+            // 无交付日期合同
+            noDeliveryDateByLine.replaceAll((k, v) ->
+                    v.divide(divisorByLine.getOrDefault(k, BigDecimal.ONE), 2, RoundingMode.HALF_UP));
+            // 预估交付计划金额
+            planAmount.forEach((k, arr) -> {
+                BigDecimal d = divOf.apply(k);
+                for (int i = 0; i < 12; i++) if (arr[i] != null) arr[i] = arr[i].divide(d, 2, RoundingMode.HALF_UP);
+            });
+        }
+
+        // 组装输出：业务线 → 项目行 + 线 totals（扣销售成本）
+        for (BusinessLine line : lines) {
+            RevenueDeliverySummaryVO.Line out = new RevenueDeliverySummaryVO.Line();
+            out.setBusinessLineId(line.getId());
+            out.setBusinessLineName(line.getName());
+            MonthAcc sales = salesAcc.get("s:" + line.getId());
+            BigDecimal lineSalesHours = BigDecimal.ZERO;
+            BigDecimal lineSalesCost = BigDecimal.ZERO;
+            if (sales != null) {
+                for (int m = 0; m < 12; m++) {
+                    lineSalesHours = lineSalesHours.add(sales.hoursOf(m));
+                    lineSalesCost = lineSalesCost.add(sales.costOf(m));
+                }
+            }
+            out.setSalesHours(lineSalesHours);
+            out.setSalesCost(lineSalesCost);
+            RevenueDeliverySummaryVO.ProjectRow totals = newTotalsRow();
+            List<RowDef> defs = rowsOfLine.get(line.getId());
+            for (RowDef def : defs) {
+                MonthAcc acc = laborAcc.get(def.rowKey);
+                RevenueDeliverySummaryVO.ProjectRow row = new RevenueDeliverySummaryVO.ProjectRow();
+                row.setProjectId(def.projectId);
+                row.setName(def.name);
+                row.setIsAggregate(def.aggregate);
+                row.setOaContract(oaContract.getOrDefault(def.rowKey, BigDecimal.ZERO));
+                row.setH1(window(def.rowKey, acc, deliveredByMonth, planAmount, planLabor, otherByType,
+                        allocHours, allocCost, 0, 5, includeEstimate));
+                row.setH2(window(def.rowKey, acc, deliveredByMonth, planAmount, planLabor, otherByType,
+                        allocHours, allocCost, 6, 11, includeEstimate));
+                row.setYtd(window(def.rowKey, acc, deliveredByMonth, planAmount, planLabor, otherByType,
+                        allocHours, allocCost, 0, 11, includeEstimate));
+                out.getProjects().add(row);
+                addInto(totals, row);
+            }
+            addSalesInto(totals, sales, includeEstimate);
+            // full 模式业务线级项目工时（project_id 为空，矩阵归入「其他」行）→ 计入线 totals
+            MonthAcc lineProject = lineProjectAcc.get(line.getId());
+            if (lineProject != null) {
+                addLineProjectInto(totals, lineProject, includeEstimate);
+            }
+            BigDecimal lineContract = lineUnallocatedContract.getOrDefault(line.getId(), BigDecimal.ZERO);
+            BigDecimal lineDelivered = lineUnallocatedDelivered.getOrDefault(line.getId(), BigDecimal.ZERO);
+            String lineKey = "line-unallocated:" + line.getId();
+            RevenueDeliverySummaryVO.OtherCosts lineOtherH1 = otherCostsOf(otherByType, lineKey, 0, 5);
+            RevenueDeliverySummaryVO.OtherCosts lineOtherH2 = otherCostsOf(otherByType, lineKey, 6, 11);
+            RevenueDeliverySummaryVO.OtherCosts lineOtherYtd = otherCostsOf(otherByType, lineKey, 0, 11);
+            out.setLineUnallocatedContract(lineContract);
+            out.setLineUnallocatedDelivered(lineDelivered);
+            BigDecimal noDate = noDeliveryDateByLine.getOrDefault(line.getId(), BigDecimal.ZERO);
+            out.setNoDeliveryDateContract(noDate);
+            totals.setLineUnallocatedContract(lineContract);
+            totals.setLineUnallocatedDelivered(lineDelivered);
+            totals.setNoDeliveryDateContract(noDate);
+            for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
+                int from = win == totals.getH1() ? 0 : (win == totals.getH2() ? 6 : 0);
+                int to = win == totals.getH1() ? 5 : 11;
+                RevenueDeliverySummaryVO.OtherCosts lineOther = win == totals.getH1()
+                        ? lineOtherH1 : (win == totals.getH2() ? lineOtherH2 : lineOtherYtd);
+                mergeOther(win, lineOther);
+                BigDecimal delivered = BigDecimal.ZERO;
+                BigDecimal[] months = lineUnallocatedDeliveredByMonth.get(String.valueOf(line.getId()));
+                if (months != null) for (int m = from; m <= to; m++) delivered = delivered.add(nz(months[m]));
+                win.setDelivered(add(win.getDelivered(), delivered));
+                recompute(win, includeEstimate);
+            }
+            totals.setLineUnallocatedProfit(lineDelivered.subtract(lineSalesCost).subtract(lineOtherYtd.getTotal()));
+            out.setLineUnallocatedProfit(totals.getLineUnallocatedProfit());
+            out.setSalesAllocatedHours(nz(totals.getYtd().getAllocatedSalesHours()));
+            out.setSalesAllocatedCost(nz(totals.getYtd().getAllocatedSalesCost()));
+            out.setSalesUnallocatedHours(nz(totals.getYtd().getUnallocatedSalesHours()));
+            out.setSalesUnallocatedCost(nz(totals.getYtd().getUnallocatedSalesCost()));
+            Map<String, BigDecimal> reasons = unallocReasonsByLine.get(line.getId());
+            if (reasons != null) reasons.forEach((code, cost) -> out.getSalesUnallocatedDetail().add(item(code, cost)));
+            out.getSalesUnallocatedDetail().sort(Comparator.comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
+            out.setTotals(totals);
+            vo.getLines().add(out);
+        }
+
+        // ===== 财报收入对齐 =====
+        // 加载财报月度数据，按 会员通/精准/定制+SAAS 三类与系统收入对比，差额以「财务调节」行补充
+        Map<Long, Map<String, BigDecimal>> finByLine = financialReportService.loadYearMap(year);
+        // 计算系统各线 H1 / H2 / YTD 已交付收入（从 deliveredByMonth 按行汇总）
+        Map<Long, BigDecimal[]> sysRev = new HashMap<>(); // lineId -> [h1, h2, ytd]
+        for (BusinessLine line : lines) {
+            BigDecimal[] arr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+            List<RowDef> defs = rowsOfLine.get(line.getId());
+            if (defs != null) {
+                for (RowDef def : defs) {
+                    BigDecimal[] dm = deliveredByMonth.get(def.rowKey);
+                    if (dm != null) {
+                        for (int m = 0; m < 12; m++) {
+                            BigDecimal v = dm[m] != null ? dm[m] : BigDecimal.ZERO;
+                            arr[2] = arr[2].add(v);
+                            if (m <= 5) arr[0] = arr[0].add(v);
+                            else arr[1] = arr[1].add(v);
+                        }
+                    }
+                }
+            }
+            // 加上线级未分配已交付
+            BigDecimal[] ldm = lineUnallocatedDeliveredByMonth.get(String.valueOf(line.getId()));
+            if (ldm != null) {
+                for (int m = 0; m < 12; m++) {
+                    BigDecimal v = ldm[m] != null ? ldm[m] : BigDecimal.ZERO;
+                    arr[2] = arr[2].add(v);
+                    if (m <= 5) arr[0] = arr[0].add(v);
+                    else arr[1] = arr[1].add(v);
+                }
+            }
+            sysRev.put(line.getId(), arr);
+        }
+        // 计算财报各线 H1/H2/YTD
+        Map<Long, BigDecimal[]> finRev = new HashMap<>();
+        for (Map.Entry<Long, Map<String, BigDecimal>> e : finByLine.entrySet()) {
+            Long lid = e.getKey();
+            BigDecimal[] arr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+            for (Map.Entry<String, BigDecimal> me : e.getValue().entrySet()) {
+                int m = Integer.parseInt(me.getKey().substring(5, 7)) - 1;
+                arr[2] = arr[2].add(me.getValue());
+                if (m <= 5) arr[0] = arr[0].add(me.getValue());
+                else arr[1] = arr[1].add(me.getValue());
+            }
+            finRev.put(lid, arr);
+        }
+        // 定制+SAAS 合计对比
+        BigDecimal[] finCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        BigDecimal[] sysCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        for (Long lid : List.of(1L, 2L)) {
+            BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+            BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+            for (int i = 0; i < 3; i++) {
+                finCustomSaas[i] = finCustomSaas[i].add(f[i]);
+                sysCustomSaas[i] = sysCustomSaas[i].add(s[i]);
+            }
+        }
+        // 为每条线插入财务调节行（如果财报 > 系统）
+        for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
+            Long lid = out.getBusinessLineId();
+            BigDecimal gapH1 = BigDecimal.ZERO, gapH2 = BigDecimal.ZERO, gapYtd = BigDecimal.ZERO;
+            if (lid == 1L || lid == 2L) {
+                // 定制/SAAS 用合计对比，按各线系统收入占比分摊
+                BigDecimal totalSysCustomSaas = sysCustomSaas[2];
+                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                if (totalSysCustomSaas.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal ratio = s[2].divide(totalSysCustomSaas, 6, RoundingMode.HALF_UP);
+                    for (int i = 0; i < 3; i++) {
+                        BigDecimal combinedGap = finCustomSaas[i].subtract(sysCustomSaas[i]);
+                        if (combinedGap.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal[] arr = {gapH1, gapH2, gapYtd};
+                            arr[i] = combinedGap.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+                            gapH1 = arr[0]; gapH2 = arr[1]; gapYtd = arr[2];
+                        }
+                    }
+                }
+            } else {
+                // 会员通/精准：直接对比
+                BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                gapH1 = f[0].subtract(s[0]).max(BigDecimal.ZERO);
+                gapH2 = f[1].subtract(s[1]).max(BigDecimal.ZERO);
+                gapYtd = f[2].subtract(s[2]).max(BigDecimal.ZERO);
+            }
+            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0 && gapH1.compareTo(BigDecimal.ZERO) <= 0 && gapH2.compareTo(BigDecimal.ZERO) <= 0) continue;
+            // 创建财务调节行（窗口需完整初始化，否则 addWindow 合并 otherCosts 时 NPE）
+            RevenueDeliverySummaryVO.ProjectRow adj = new RevenueDeliverySummaryVO.ProjectRow();
+            adj.setName("财务调节");
+            adj.setIsAggregate(false);
+            adj.setH1(newRevenueWindow());
+            adj.setH2(newRevenueWindow());
+            adj.setYtd(newRevenueWindow());
+            adj.getH1().setDelivered(gapH1);
+            adj.getH2().setDelivered(gapH2);
+            adj.getYtd().setDelivered(gapYtd);
+            // 并入线 totals
+            addInto(out.getTotals(), adj);
+            // 追加到项目行列表
+            if (out.getProjects() == null) out.setProjects(new ArrayList<>());
+            out.getProjects().add(adj);
+        }
+
+        BigDecimal totalOa = BigDecimal.ZERO;
+        BigDecimal[] totalsArr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+        Map<String, BigDecimal> globalReasons = new HashMap<>();
+        BigDecimal totalLineContract = BigDecimal.ZERO;
+        BigDecimal totalLineDelivered = BigDecimal.ZERO;
+        BigDecimal totalLineProfit = BigDecimal.ZERO;
+        BigDecimal totalNoDelivery = BigDecimal.ZERO;
+        for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
+            RevenueDeliverySummaryVO.ProjectRow totals = out.getTotals();
+            totalOa = totalOa.add(totals.getOaContract()).add(nz(out.getLineUnallocatedContract()));
+            totalLineContract = totalLineContract.add(nz(out.getLineUnallocatedContract()));
+            totalLineDelivered = totalLineDelivered.add(nz(out.getLineUnallocatedDelivered()));
+            totalLineProfit = totalLineProfit.add(nz(out.getLineUnallocatedProfit()));
+            totalNoDelivery = totalNoDelivery.add(nz(out.getNoDeliveryDateContract()));
+            RevenueDeliverySummaryVO.Window ytd = totals.getYtd();
+            totalsArr[0] = totalsArr[0].add(ytd.getDelivered());
+            totalsArr[1] = totalsArr[1].add(ytd.getEstimated());
+            totalsArr[2] = totalsArr[2].add(ytd.getProjectLaborCost());
+            if (includeEstimate) {
+                totalsArr[2] = totalsArr[2].add(nz(ytd.getEstimatedLaborCost()));
+            }
+            totalsArr[2] = totalsArr[2].add(nz(ytd.getSalesCost()));
+            totalsArr[3] = totalsArr[3].add(nz(ytd.getAllocatedSalesCost()));
+            totalsArr[4] = totalsArr[4].add(nz(ytd.getUnallocatedSalesCost()));
+            totalsArr[5] = totalsArr[5].add(otherOf(ytd));
+            totalsArr[6] = totalsArr[6].add(nz(ytd.getTrueProfit()));
+            out.getSalesUnallocatedDetail().forEach(item ->
+                    globalReasons.merge(item.getReason(), item.getCost(), BigDecimal::add));
+        }
+        RevenueDeliverySummaryVO.Overview overview = vo.getOverview();
+        overview.setTotalOaContract(totalOa);
+        overview.setTotalOaContractBySaleMonth(oaContractBySaleMonth);
+        overview.setTotalLineUnallocatedContract(totalLineContract);
+        overview.setTotalLineUnallocatedDelivered(totalLineDelivered);
+        overview.setTotalLineUnallocatedProfit(totalLineProfit);
+        overview.setTotalNoDeliveryDateContract(totalNoDelivery);
+        overview.setTotalDelivered(totalsArr[0]);
+        overview.setTotalEstimated(totalsArr[1]);
+        overview.setTotalLaborCost(totalsArr[2]);
+        overview.setTotalAllocatedSalesCost(totalsArr[3]);
+        overview.setTotalUnallocatedSalesCost(totalsArr[4]);
+        overview.setTotalOtherCost(totalsArr[5]);
+        overview.setTotalProfit(totalsArr[6]);
+        overview.setProfitRate(rate(totalsArr[6],
+                totalsArr[0].add(includeEstimate ? totalsArr[1] : BigDecimal.ZERO)));
+        overview.setTotalTrueProfit(totalsArr[6]);
+        overview.setTrueProfitRate(overview.getProfitRate());
+        globalReasons.forEach((code, cost) -> overview.getSalesUnallocatedDetail().add(item(code, cost)));
+        overview.getSalesUnallocatedDetail().sort(Comparator
+                .comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
+        return vo;
+    }
+
+    // ------------------------------------------------------------ 销售成本分配
+
+    /**
+     * 成单销售成本分配（确定性规则，无证据不分配）：
+     * aggregate 线（会员通）唯一「项目集」行即整线，销售行全部落入该聚合行；
+     * full 线 specific 销售行 → 销售项目商机 → 商机客户同年合同存在唯一项目 → 落该项目桶；
+     * 其余（pool/other/无商机/多项目/无合同）→ 记入未分配原因。
+     */
+    private void allocateSales(RevenueCostEntry entry, int month, String mode,
+                               Map<String, RowDef> rowsByKey,
+                               Map<Long, RevenueSalesProject> salesProjectsById,
+                               Map<Long, SalesOpportunity> opportunitiesById,
+                               Map<String, Set<String>> contractBucketsByCustomer,
+                               Map<Long, Long> aliasToRoot,
+                               Map<String, BigDecimal[]> allocHours,
+                               Map<String, BigDecimal[]> allocCost,
+                               Map<Long, Map<String, BigDecimal>> unallocReasonsByLine) {
+        String bucket = null;
+        String reason = null;
+        if ("aggregate".equals(mode)) {
+            bucket = "agg:" + entry.getBusinessLineId();
+        } else if ("specific".equals(entry.getSalesKind()) && entry.getSalesProjectId() != null) {
+            RevenueSalesProject salesProject = salesProjectsById.get(entry.getSalesProjectId());
+            SalesOpportunity opportunity = salesProject == null || salesProject.getOpportunityId() == null
+                    ? null : opportunitiesById.get(salesProject.getOpportunityId());
+            String customer = opportunity == null ? null
+                    : (opportunity.getCustomer() == null ? null
+                    : opportunity.getCustomer().trim().toLowerCase(Locale.ROOT));
+            if (salesProject == null || opportunity == null || !StringUtils.hasText(customer)) {
+                reason = "NO_OPP_LINK";
+            } else {
+                Set<String> candidates = contractBucketsByCustomer.get(
+                        entry.getBusinessLineId() + "#" + customer);
+                if (candidates == null || candidates.isEmpty()) {
+                    reason = "NO_MATCH_CONTRACT";
+                } else if (candidates.size() == 1) {
+                    bucket = candidates.iterator().next();
+                } else {
+                    reason = "MULTI_PROJECT";
+                }
+            }
+        } else {
+            reason = "POOL_NO_EVIDENCE";
+        }
+        if (bucket != null && rowsByKey.containsKey(bucket)) {
+            addMonth(allocHours, bucket, month, entry.getHours());
+            addMonth(allocCost, bucket, month, entry.getCostAmount());
+            return;
+        }
+        if (reason != null && entry.getCostAmount() != null
+                && entry.getCostAmount().compareTo(BigDecimal.ZERO) > 0) {
+            Map<String, BigDecimal> reasons = unallocReasonsByLine
+                    .computeIfAbsent(entry.getBusinessLineId(), k -> new HashMap<>());
+            reasons.merge(reason, entry.getCostAmount(), BigDecimal::add);
+        }
+    }
+
+    // ------------------------------------------------------------ 窗口计算
+
+    private RevenueDeliverySummaryVO.Window window(String rowKey, MonthAcc acc,
+                                                    Map<String, BigDecimal[]> delivered,
+                                                    Map<String, BigDecimal[]> planAmount,
+                                                    Map<String, BigDecimal[]> planLabor,
+                                                    Map<String, Map<String, BigDecimal[]>> otherByType,
+                                                    Map<String, BigDecimal[]> allocHours,
+                                                    Map<String, BigDecimal[]> allocCost,
+                                                    int from, int to, boolean includeEstimate) {
+        RevenueDeliverySummaryVO.Window win = newRevenueWindow();
+        BigDecimal deliveredSum = BigDecimal.ZERO;
+        BigDecimal estimated = BigDecimal.ZERO;
+        BigDecimal hours = BigDecimal.ZERO;
+        BigDecimal labor = BigDecimal.ZERO;
+        BigDecimal estLabor = BigDecimal.ZERO;
+        BigDecimal allocH = BigDecimal.ZERO;
+        BigDecimal allocC = BigDecimal.ZERO;
+        for (int m = from; m <= to; m++) {
+            deliveredSum = deliveredSum.add(monthOf(delivered, rowKey, m));
+            estimated = estimated.add(monthOf(planAmount, rowKey, m));
+            estLabor = estLabor.add(monthOf(planLabor, rowKey, m));
+            if (acc != null) {
+                hours = hours.add(acc.hoursOf(m));
+                labor = labor.add(acc.costOf(m));
+            }
+            allocH = allocH.add(monthOf(allocHours, rowKey, m));
+            allocC = allocC.add(monthOf(allocCost, rowKey, m));
+        }
+        win.setDelivered(deliveredSum);
+        win.setEstimated(estimated);
+        win.setProjectHours(hours);
+        win.setProjectLaborCost(labor);
+        win.setEstimatedLaborCost(estLabor);
+        win.setSalesHours(BigDecimal.ZERO);
+        win.setSalesCost(BigDecimal.ZERO);
+        win.setAllocatedSalesHours(allocH);
+        win.setAllocatedSalesCost(allocC);
+        win.setUnallocatedSalesHours(BigDecimal.ZERO);
+        win.setUnallocatedSalesCost(BigDecimal.ZERO);
+        win.setOtherCosts(otherCostsOf(otherByType, rowKey, from, to));
+        BigDecimal revenue = deliveredSum.add(includeEstimate ? estimated : BigDecimal.ZERO);
+        BigDecimal cost = labor.add(includeEstimate ? estLabor : BigDecimal.ZERO);
+        BigDecimal laborProfit = revenue.subtract(cost);
+        BigDecimal gross = laborProfit.subtract(win.getOtherCosts().getTotal());
+        win.setLaborProfit(laborProfit);
+        win.setGrossProfit(gross);
+        win.setGrossRate(rate(gross, revenue));
+        // 项目真实利润：毛利 − 已分配销售成本（未分配销售成本不进项目行）
+        BigDecimal trueProfit = gross.subtract(allocC);
+        win.setTrueProfit(trueProfit);
+        win.setTrueProfitRate(rate(trueProfit, revenue));
+        return win;
+    }
+
+    private void addInto(RevenueDeliverySummaryVO.ProjectRow totals, RevenueDeliverySummaryVO.ProjectRow row) {
+        totals.setOaContract(add(totals.getOaContract(), row.getOaContract()));
+        addWindow(totals.getH1(), row.getH1());
+        addWindow(totals.getH2(), row.getH2());
+        addWindow(totals.getYtd(), row.getYtd());
+    }
+
+    private void addWindow(RevenueDeliverySummaryVO.Window target, RevenueDeliverySummaryVO.Window src) {
+        target.setDelivered(add(target.getDelivered(), src.getDelivered()));
+        target.setEstimated(add(target.getEstimated(), src.getEstimated()));
+        target.setProjectHours(add(target.getProjectHours(), src.getProjectHours()));
+        target.setProjectLaborCost(add(target.getProjectLaborCost(), src.getProjectLaborCost()));
+        target.setEstimatedLaborCost(add(target.getEstimatedLaborCost(), src.getEstimatedLaborCost()));
+        target.setAllocatedSalesHours(add(target.getAllocatedSalesHours(), src.getAllocatedSalesHours()));
+        target.setAllocatedSalesCost(add(target.getAllocatedSalesCost(), src.getAllocatedSalesCost()));
+        RevenueDeliverySummaryVO.OtherCosts other = target.getOtherCosts();
+        RevenueDeliverySummaryVO.OtherCosts srcOther = src.getOtherCosts();
+        if (other != null && srcOther != null) {
+            other.setPartner(add(other.getPartner(), srcOther.getPartner()));
+            other.setServer(add(other.getServer(), srcOther.getServer()));
+            other.setSms(add(other.getSms(), srcOther.getSms()));
+            other.setOther(add(other.getOther(), srcOther.getOther()));
+            other.setTotal(other.getPartner().add(other.getServer()).add(other.getSms()).add(other.getOther()));
+        }
+    }
+
+    private void mergeOther(RevenueDeliverySummaryVO.Window window, RevenueDeliverySummaryVO.OtherCosts source) {
+        RevenueDeliverySummaryVO.OtherCosts target = window.getOtherCosts();
+        if (target == null || source == null) {
+            return;
+        }
+        target.setPartner(add(target.getPartner(), source.getPartner()));
+        target.setServer(add(target.getServer(), source.getServer()));
+        target.setSms(add(target.getSms(), source.getSms()));
+        target.setOther(add(target.getOther(), source.getOther()));
+        target.setTotal(target.getPartner().add(target.getServer()).add(target.getSms()).add(target.getOther()));
+    }
+    /** 线 totals：项目行加总后补该线销售（窗口）工时/成本，拆分已分配/未分配并重算毛利 */
+    private void addSalesInto(RevenueDeliverySummaryVO.ProjectRow totals, MonthAcc sales, boolean includeEstimate) {
+        for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
+            int from = win == totals.getH1() ? 0 : (win == totals.getH2() ? 6 : 0);
+            int to = win == totals.getH1() ? 5 : 11;
+            BigDecimal sHours = BigDecimal.ZERO;
+            BigDecimal sCost = BigDecimal.ZERO;
+            if (sales != null) {
+                for (int m = from; m <= to; m++) {
+                    sHours = sHours.add(sales.hoursOf(m));
+                    sCost = sCost.add(sales.costOf(m));
+                }
+            }
+            win.setSalesHours(sHours);
+            win.setSalesCost(sCost);
+            // 未分配 = 该线销售全口径 − 已落入项目行的部分（成本同源成本行，恒非负；工时按显示口径取整保护）
+            BigDecimal allocatedC = win.getAllocatedSalesCost();
+            BigDecimal allocatedH = win.getAllocatedSalesHours();
+            win.setUnallocatedSalesCost(sCost.subtract(allocatedC).max(BigDecimal.ZERO));
+            win.setUnallocatedSalesHours(sHours.subtract(allocatedH).max(BigDecimal.ZERO));
+            recompute(win, includeEstimate);
+        }
+    }
+
+    /** 线 totals：业务线级项目工时（project_id=null，full 模式）→ 并入 totals 工时/成本列并重算利润 */
+    private void addLineProjectInto(RevenueDeliverySummaryVO.ProjectRow totals, MonthAcc lineProject,
+                                    boolean includeEstimate) {
+        for (RevenueDeliverySummaryVO.Window win : List.of(totals.getH1(), totals.getH2(), totals.getYtd())) {
+            int from = win == totals.getH1() ? 0 : (win == totals.getH2() ? 6 : 0);
+            int to = win == totals.getH1() ? 5 : 11;
+            BigDecimal lpHours = BigDecimal.ZERO;
+            BigDecimal lpCost = BigDecimal.ZERO;
+            for (int m = from; m <= to; m++) {
+                lpHours = lpHours.add(lineProject.hoursOf(m));
+                lpCost = lpCost.add(lineProject.costOf(m));
+            }
+            win.setProjectHours(win.getProjectHours().add(lpHours));
+            win.setProjectLaborCost(win.getProjectLaborCost().add(lpCost));
+            recompute(win, includeEstimate);
+        }
+    }
+
+    private void recompute(RevenueDeliverySummaryVO.Window win, boolean includeEstimate) {
+        BigDecimal revenue = win.getDelivered()
+                .add(includeEstimate ? nz(win.getEstimated()) : BigDecimal.ZERO);
+        BigDecimal labor = win.getProjectLaborCost()
+                .add(includeEstimate ? nz(win.getEstimatedLaborCost()) : BigDecimal.ZERO)
+                .add(nz(win.getSalesCost()));
+        BigDecimal laborProfit = revenue.subtract(labor);
+        BigDecimal gross = laborProfit.subtract(otherOf(win));
+        win.setLaborProfit(laborProfit);
+        win.setGrossProfit(gross);
+        win.setGrossRate(rate(gross, revenue));
+        // 线/表汇总真实利润 = Σ项目真实利润 − 未分配销售成本；销售成本已全额计入，故与毛利一致
+        win.setTrueProfit(gross);
+        win.setTrueProfitRate(win.getGrossRate());
+    }
+
+    // ------------------------------------------------------------ 工具
+
+    private RevenueDeliverySummaryVO.UnallocatedItem item(String reason, BigDecimal cost) {
+        RevenueDeliverySummaryVO.UnallocatedItem item = new RevenueDeliverySummaryVO.UnallocatedItem();
+        item.setReason(reason);
+        item.setLabel(UNALLOC_REASONS.getOrDefault(reason, reason));
+        item.setCost(cost);
+        return item;
+    }
+
+    private RowDef register(Map<String, RowDef> rowsByKey, RowDef def) {
+        rowsByKey.put(def.rowKey, def);
+        return def;
+    }
+
+    /** sales 行：simple 线并入单行桶，其余进业务线销售桶 */
+    private MonthAcc bucketOf(Map<String, MonthAcc> salesAcc, Map<String, MonthAcc> laborAcc,
+                              Long lineId, String mode, boolean salesEntry, int month) {
+        if (!salesEntry) {
+            throw new IllegalArgumentException("bucketOf 仅用于 sales 行");
+        }
+        if ("simple".equals(mode)) {
+            return laborAcc.computeIfAbsent("simple:" + lineId, k -> new MonthAcc());
+        }
+        return salesAcc.computeIfAbsent("s:" + lineId, k -> new MonthAcc());
+    }
+
+    /** 实际工时/成本行项目桶：simple=单行；aggregate=项目集；full=p-根项目（别名归并），业务线级项目行不入桶 */
+    private String laborBucketKey(Long lineId, Long projectId, String mode,
+                                  Map<Long, Project> projectsById, Map<Long, Long> aliasToRoot) {
+        if ("simple".equals(mode)) {
+            return "simple:" + lineId;
+        }
+        if ("aggregate".equals(mode)) {
+            return "agg:" + lineId;
+        }
+        if (projectId == null) {
+            return null;
+        }
+        Long root = rootIdOf(projectId, projectsById);
+        return root == null ? null : "p:" + aliasToRoot.getOrDefault(root, root);
+    }
+
+    /** 合同/计划/其他成本归属桶：项目行；业务线级走 aggregate/simple 聚合行；full 无聚合行返回 null */
+    private String deliveryBucketKey(Long lineId, Long projectId, String mode,
+                                     Map<Long, Project> projectsById, Map<Long, Long> aliasToRoot) {
+        if (projectId == null) {
+            if ("aggregate".equals(mode)) {
+                return "agg:" + lineId;
+            }
+            if ("simple".equals(mode)) {
+                return "simple:" + lineId;
+            }
+            return null;
+        }
+        if ("aggregate".equals(mode)) {
+            return "agg:" + lineId;
+        }
+        if ("simple".equals(mode)) {
+            return "simple:" + lineId;
+        }
+        Long root = rootIdOf(projectId, projectsById);
+        return root == null ? null : "p:" + aliasToRoot.getOrDefault(root, root);
+    }
+
+    private boolean isSales(String workType) {
+        return "sales".equals(workType);
+    }
+
+    private Long rootIdOf(Long projectId, Map<Long, Project> projectsById) {
+        Project project = projectsById.get(projectId);
+        while (project != null && project.getParentId() != null) {
+            project = projectsById.get(project.getParentId());
+        }
+        return project == null ? null : project.getId();
+    }
+
+    private Map<Long, Long> aliasMap(Map<Long, Project> projectsById) {
+        Map<Long, Long> aliasToRoot = new HashMap<>();
+        PROJECT_ALIASES.forEach((sourceName, targetName) -> {
+            List<Project> sources = projectsById.values().stream()
+                    .filter(p -> sourceName.equals(p.getName())).toList();
+            for (Project source : sources) {
+                projectsById.values().stream()
+                        .filter(p -> targetName.equals(p.getName())
+                                && Objects.equals(p.getBusinessLineId(), source.getBusinessLineId()))
+                        .findFirst()
+                        .ifPresent(target -> aliasToRoot.put(source.getId(), target.getId()));
+            }
+        });
+        return aliasToRoot;
+    }
+
+    private RevenueDeliverySummaryVO.OtherCosts otherCostsOf(Map<String, Map<String, BigDecimal[]>> byType,
+                                                             String rowKey, int from, int to) {
+        RevenueDeliverySummaryVO.OtherCosts other = new RevenueDeliverySummaryVO.OtherCosts();
+        BigDecimal partner = BigDecimal.ZERO;
+        BigDecimal server = BigDecimal.ZERO;
+        BigDecimal sms = BigDecimal.ZERO;
+        BigDecimal otherType = BigDecimal.ZERO;
+        for (Map.Entry<String, Map<String, BigDecimal[]>> typeEntry : byType.entrySet()) {
+            BigDecimal[] months = typeEntry.getValue().get(rowKey);
+            if (months == null) {
+                continue;
+            }
+            BigDecimal sum = BigDecimal.ZERO;
+            for (int m = from; m <= to; m++) {
+                if (months[m] != null) {
+                    sum = sum.add(months[m]);
+                }
+            }
+            if ("partner".equals(typeEntry.getKey())) {
+                partner = partner.add(sum);
+            } else if ("server".equals(typeEntry.getKey())) {
+                server = server.add(sum);
+            } else if ("sms".equals(typeEntry.getKey())) {
+                sms = sms.add(sum);
+            } else {
+                otherType = otherType.add(sum);
+            }
+        }
+        other.setPartner(partner);
+        other.setServer(server);
+        other.setSms(sms);
+        other.setOther(otherType);
+        other.setTotal(partner.add(server).add(sms).add(otherType));
+        return other;
+    }
+
+    private BigDecimal otherOf(RevenueDeliverySummaryVO.Window win) {
+        return win.getOtherCosts() == null ? BigDecimal.ZERO : win.getOtherCosts().getTotal();
+    }
+
+    private BigDecimal rate(BigDecimal profit, BigDecimal revenue) {
+        if (revenue == null || revenue.signum() <= 0) {
+            return null;
+        }
+        return profit.multiply(new BigDecimal("100")).divide(revenue, 2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal add(BigDecimal a, BigDecimal b) {
+        return (a == null ? BigDecimal.ZERO : a).add(b == null ? BigDecimal.ZERO : b);
+    }
+
+    private BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v;
+    }
+
+    private void addMonth(Map<String, BigDecimal[]> map, String key, int month, BigDecimal value) {
+        if (value == null) {
+            return;
+        }
+        BigDecimal[] months = map.computeIfAbsent(key, k -> new BigDecimal[12]);
+        months[month] = (months[month] == null ? BigDecimal.ZERO : months[month]).add(value);
+    }
+
+    private BigDecimal monthOf(Map<String, BigDecimal[]> map, String key, int month) {
+        BigDecimal[] months = map.get(key);
+        return months == null || months[month] == null ? BigDecimal.ZERO : months[month];
+    }
+
+    private int monthIndex(String yearMonth) {
+        if (yearMonth == null || yearMonth.length() < 7) {
+            return -1;
+        }
+        try {
+            int month = Integer.parseInt(yearMonth.substring(5, 7));
+            return month >= 1 && month <= 12 ? month - 1 : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private RevenueDeliverySummaryVO.ProjectRow newTotalsRow() {
+        RevenueDeliverySummaryVO.ProjectRow totals = new RevenueDeliverySummaryVO.ProjectRow();
+        totals.setName("合计");
+        totals.setProjectId(null);
+        totals.setIsAggregate(false);
+        totals.setOaContract(BigDecimal.ZERO);
+        totals.setH1(newRevenueWindow());
+        totals.setH2(newRevenueWindow());
+        totals.setYtd(newRevenueWindow());
+        return totals;
+    }
+
+    private RevenueDeliverySummaryVO.Window newRevenueWindow() {
+        RevenueDeliverySummaryVO.Window win = new RevenueDeliverySummaryVO.Window();
+        win.setDelivered(BigDecimal.ZERO);
+        win.setEstimated(BigDecimal.ZERO);
+        win.setProjectHours(BigDecimal.ZERO);
+        win.setProjectLaborCost(BigDecimal.ZERO);
+        win.setEstimatedLaborCost(BigDecimal.ZERO);
+        win.setSalesHours(BigDecimal.ZERO);
+        win.setSalesCost(BigDecimal.ZERO);
+        win.setAllocatedSalesHours(BigDecimal.ZERO);
+        win.setAllocatedSalesCost(BigDecimal.ZERO);
+        win.setUnallocatedSalesHours(BigDecimal.ZERO);
+        win.setUnallocatedSalesCost(BigDecimal.ZERO);
+        RevenueDeliverySummaryVO.OtherCosts other = new RevenueDeliverySummaryVO.OtherCosts();
+        other.setPartner(BigDecimal.ZERO);
+        other.setServer(BigDecimal.ZERO);
+        other.setOther(BigDecimal.ZERO);
+        other.setTotal(BigDecimal.ZERO);
+        win.setOtherCosts(other);
+        win.setLaborProfit(BigDecimal.ZERO);
+        win.setGrossProfit(BigDecimal.ZERO);
+        win.setTrueProfit(BigDecimal.ZERO);
+        return win;
+    }
+
+    private RevenueDeliverySummaryVO base(int year, boolean includeEstimate, boolean excludeTax) {
+        RevenueDeliverySummaryVO vo = new RevenueDeliverySummaryVO();
+        vo.setYear(year);
+        vo.setIncludeEstimate(includeEstimate);
+        vo.setExcludeTax(excludeTax);
+        RevenueDeliverySummaryVO.Overview overview = new RevenueDeliverySummaryVO.Overview();
+        overview.setIncludeEstimate(includeEstimate);
+        overview.setExcludeTax(excludeTax);
+        overview.setTotalOaContract(BigDecimal.ZERO);
+        overview.setTotalOaContractBySaleMonth(BigDecimal.ZERO);
+        overview.setTotalDelivered(BigDecimal.ZERO);
+        overview.setTotalEstimated(BigDecimal.ZERO);
+        overview.setTotalLaborCost(BigDecimal.ZERO);
+        overview.setTotalAllocatedSalesCost(BigDecimal.ZERO);
+        overview.setTotalUnallocatedSalesCost(BigDecimal.ZERO);
+        overview.setTotalOtherCost(BigDecimal.ZERO);
+        overview.setTotalProfit(BigDecimal.ZERO);
+        overview.setTotalTrueProfit(BigDecimal.ZERO);
+        vo.setOverview(overview);
+        return vo;
+    }
+
+    private static final class RowDef {
+        private final String rowKey;
+        private final Long businessLineId;
+        private final Long projectId;
+        private final String name;
+        private final boolean aggregate;
+
+        private RowDef(String rowKey, Long businessLineId, Long projectId, String name, boolean aggregate) {
+            this.rowKey = rowKey;
+            this.businessLineId = businessLineId;
+            this.projectId = projectId;
+            this.name = name;
+            this.aggregate = aggregate;
+        }
+    }
+
+    /** 月度累计器：工时明细人月 / 成本明细人月与金额（金额仅在成本可见业务线累计） */
+    private static final class MonthAcc {
+        private final BigDecimal[] worklogHours = new BigDecimal[12];
+        private final BigDecimal[] costHours = new BigDecimal[12];
+        private final BigDecimal[] cost = new BigDecimal[12];
+
+        private void addWorklogHours(int m, BigDecimal v) {
+            worklogHours[m] = (worklogHours[m] == null ? BigDecimal.ZERO : worklogHours[m]).add(v);
+        }
+
+        private void addCostHours(int m, BigDecimal v) {
+            costHours[m] = (costHours[m] == null ? BigDecimal.ZERO : costHours[m]).add(v);
+        }
+
+        private void addCost(int m, BigDecimal v) {
+            cost[m] = (cost[m] == null ? BigDecimal.ZERO : cost[m]).add(v);
+        }
+
+        private BigDecimal hoursOf(int m) {
+            if (worklogHours[m] != null) {
+                return worklogHours[m];
+            }
+            return costHours[m] == null ? BigDecimal.ZERO : costHours[m];
+        }
+
+        private BigDecimal costOf(int m) {
+            return cost[m] == null ? BigDecimal.ZERO : cost[m];
+        }
+    }
+}

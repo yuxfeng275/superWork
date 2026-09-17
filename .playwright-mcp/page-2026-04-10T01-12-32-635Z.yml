@@ -1,0 +1,103 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - link "📋 BU管理系统" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]: 📋
+        - generic [ref=e8]: BU管理系统
+      - button [ref=e9] [cursor=pointer]:
+        - img [ref=e11]
+    - generic [ref=e13]:
+      - generic [ref=e14]: 系
+      - generic [ref=e15]:
+        - generic [ref=e16]: 系统管理员
+        - generic [ref=e17]: BU_ADMIN
+    - navigation [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: 工作台
+        - link "首页" [ref=e21] [cursor=pointer]:
+          - /url: /
+          - img [ref=e24]
+          - generic [ref=e26]: 首页
+        - link "需求管理 12" [ref=e27] [cursor=pointer]:
+          - /url: /requirements
+          - img [ref=e30]
+          - generic [ref=e32]: 需求管理
+          - generic [ref=e33]: "12"
+        - link "任务管理" [ref=e34] [cursor=pointer]:
+          - /url: /tasks
+          - img [ref=e37]
+          - generic [ref=e39]: 任务管理
+      - generic [ref=e40]:
+        - generic [ref=e41]: 基础分类
+        - link "业务线管理" [ref=e42] [cursor=pointer]:
+          - /url: /business-lines
+          - img [ref=e45]
+          - generic [ref=e48]: 业务线管理
+        - link "项目管理" [ref=e49] [cursor=pointer]:
+          - /url: /projects
+          - img [ref=e52]
+          - generic [ref=e54]: 项目管理
+        - link "客户信息管理" [ref=e55] [cursor=pointer]:
+          - /url: /customers
+          - img [ref=e58]
+          - generic [ref=e60]: 客户信息管理
+      - generic [ref=e61]:
+        - generic [ref=e62]: 数据分析
+        - link "数据统计" [ref=e63] [cursor=pointer]:
+          - /url: /statistics
+          - img [ref=e66]
+          - generic [ref=e68]: 数据统计
+      - generic [ref=e69]:
+        - generic [ref=e70]: 系统
+        - link "用户管理" [ref=e71] [cursor=pointer]:
+          - /url: /system/users
+          - img [ref=e74]
+          - generic [ref=e76]: 用户管理
+        - link "角色管理" [ref=e77] [cursor=pointer]:
+          - /url: /system/roles
+          - img [ref=e80]
+          - generic [ref=e83]: 角色管理
+        - link "菜单管理" [ref=e84] [cursor=pointer]:
+          - /url: /system/menus
+          - img [ref=e87]
+          - generic [ref=e89]: 菜单管理
+        - link "工作流配置" [ref=e90] [cursor=pointer]:
+          - /url: /system/workflow
+          - img [ref=e93]
+          - generic [ref=e96]: 工作流配置
+    - button "退出登录" [ref=e98] [cursor=pointer]:
+      - img [ref=e100]
+      - generic [ref=e103]: 退出登录
+  - main [ref=e104]:
+    - generic [ref=e105]:
+      - heading "项目管理" [level=1] [ref=e107]
+      - generic [ref=e108]:
+        - button [ref=e109] [cursor=pointer]:
+          - img [ref=e111]
+        - generic [ref=e116]: 系
+    - generic [ref=e118]:
+      - generic [ref=e119]:
+        - generic [ref=e120]:
+          - heading "项目管理" [level=2] [ref=e121]
+          - generic [ref=e123]:
+            - generic [ref=e124]: "0"
+            - generic [ref=e125]: 个项目
+        - generic [ref=e126]:
+          - button "重置" [ref=e127] [cursor=pointer]:
+            - img [ref=e128]
+            - text: 重置
+          - button "新增项目" [ref=e131] [cursor=pointer]:
+            - img [ref=e132]
+            - text: 新增项目
+      - generic [ref=e134]:
+        - generic [ref=e136] [cursor=pointer]:
+          - generic:
+            - combobox [ref=e138]
+            - generic [ref=e139]: 按业务线筛选
+          - img [ref=e142]
+        - generic [ref=e144]:
+          - img
+          - textbox "搜索项目名称或编码" [ref=e145]
+        - button "搜索" [ref=e146] [cursor=pointer]
+      - img [ref=e148]

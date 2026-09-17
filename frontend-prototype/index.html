@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电商BU内部管理系统 - 原型导航</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 60px;
+        }
+        .header h1 {
+            font-size: 42px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header p {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        }
+        .card-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        .card-icon.login { background: #e8f3ff; color: #1890ff; }
+        .card-icon.list { background: #e8fff0; color: #52c41a; }
+        .card-icon.detail { background: #fff7e6; color: #fa8c16; }
+        .card-icon.task { background: #fff1f0; color: #ff4d4f; }
+        .card-icon.stat { background: #f6ffed; color: #52c41a; }
+        .card-icon.org { background: #e6f7ff; color: #1890ff; }
+        .card h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #262626;
+        }
+        .card p {
+            font-size: 14px;
+            color: #8c8c8c;
+            line-height: 1.6;
+        }
+        .card .tag {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 16px;
+            background: #f0f0f0;
+            color: #666;
+        }
+        .card .tag.p0 { background: #fff1f0; color: #ff4d4f; }
+        .card .tag.p1 { background: #fff7e6; color: #fa8c16; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>电商BU内部管理系统</h1>
+            <p>原型设计展示 - 点击任意卡片查看页面</p>
+        </div>
+
+        <div class="grid">
+            <a href="login.html" class="card">
+                <div class="card-icon login">🔐</div>
+                <h3>登录页面</h3>
+                <p>用户认证入口，包含用户名密码登录、记住我功能</p>
+                <span class="tag p0">P0 核心页面</span>
+            </a>
+
+            <a href="requirements.html" class="card">
+                <div class="card-icon list">📋</div>
+                <h3>需求列表页面</h3>
+                <p>需求CRUD操作、筛选搜索、分页展示</p>
+                <span class="tag p0">P0 核心页面</span>
+            </a>
+
+            <a href="requirement-detail.html" class="card">
+                <div class="card-icon detail">📄</div>
+                <h3>需求详情页面</h3>
+                <p>需求全生命周期管理、状态流转、附件上传</p>
+                <span class="tag p0">P0 核心页面</span>
+            </a>
+
+            <a href="tasks.html" class="card">
+                <div class="card-icon task">✅</div>
+                <h3>任务管理页面</h3>
+                <p>任务创建分配、工时记录、看板视图</p>
+                <span class="tag p0">P0 核心页面</span>
+            </a>
+
+            <a href="statistics.html" class="card">
+                <div class="card-icon stat">📊</div>
+                <h3>数据统计看板</h3>
+                <p>人效分析、业务线健康度、图表展示</p>
+                <span class="tag p1">P1 重要页面</span>
+            </a>
+
+            <a href="organization.html" class="card">
+                <div class="card-icon org">🏢</div>
+                <h3>组织架构管理</h3>
+                <p>业务线、项目、成员管理（树形结构）</p>
+                <span class="tag p1">P2 辅助页面</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

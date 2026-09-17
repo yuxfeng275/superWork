@@ -1,0 +1,32 @@
+[      88ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://127.0.0.1:5175/@vite/client:509
+[     162ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/users?page=1&size=200:0
+[     165ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/business-lines?size=999:0
+[     165ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/projects/tree:0
+[   15269ms] [WARNING] Invalid prop: type check failed for prop "value". Expected String | Number | Boolean | Object, got Null  null at <ElOption>
+at <ElOptions>
+at <ElScrollbar>
+at <ElSelectDropdown>
+at <ElFocusTrap>
+at <ElPopperContent>
+at <BaseTransition>
+at <Transition>
+at <Teleport>
+at <ElTooltipContent>
+at <ElPopper>
+at <ElTooltip>
+at <ElSelect>
+at <ElFormItem>
+at <ElForm>
+at <ElDialogContent>
+at <ElFocusTrap>
+at <ElOverlay>
+at <BaseTransition>
+at <Transition>
+at <Teleport>
+at <ElDialog>
+at <ProjectView>
+at <RouterView>
+at <MainLayout>
+at <RouterView>
+at <App> [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://127.0.0.1:5175/@vite/client:509
+[   15415ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://127.0.0.1:5175/api/projects/tree:0

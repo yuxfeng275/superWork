@@ -1,0 +1,84 @@
+.sw-toolbar {
+  width: 100%;
+  margin: 4px 0 16px;
+}
+.sw-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.sw-summary-grid .ant-card {
+  border: 1px solid #e9edf4;
+}
+.sw-summary-grid .ant-statistic-content {
+  font-size: 26px;
+}
+.sw-group-more {
+  display: block;
+  margin: 10px 0 2px;
+  font-size: 12px;
+}
+.sw-task-group-list {
+  max-height: 560px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.sw-task-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.sw-task-card {
+  border: 1px solid #e8edf5;
+}
+.sw-overdue {
+  color: #dc2626;
+  font-weight: 600;
+}
+.sw-defect-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.sw-defect-column {
+  min-height: 260px;
+  background: #f8fafc;
+  border: 1px solid #e9edf4;
+}
+.sw-defect-card {
+  border: 1px solid #edf1f6;
+  background: #fff;
+}
+.sw-defect-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* 左侧 248px 导航存在时，1280px 视口的内容区已不足以容纳四个 220px 看板列。 */
+@media (max-width: 1280px) {
+  .sw-defect-board {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .sw-defect-board {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .sw-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 960px) {
+  .sw-task-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .sw-task-card-grid {
+    grid-template-columns: 1fr;
+  }
+}

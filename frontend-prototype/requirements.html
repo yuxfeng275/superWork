@@ -1,0 +1,2816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>需求管理 - 电商BU内部管理系统</title>
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <style>
+        /* 页面特定样式 */
+
+        /* 标题旁的统计 */
+        .title-with-stats {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .inline-stats {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-left: 16px;
+            border-left: 1px solid var(--gray-200);
+        }
+
+        .inline-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .stat-num {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--gray-800);
+        }
+
+        .stat-num.green { color: var(--success); }
+        .stat-num.yellow { color: var(--warning); }
+        .stat-num.red { color: var(--danger); }
+
+        .stat-text {
+            font-size: 13px;
+            color: var(--gray-500);
+        }
+
+        .stat-divider {
+            color: var(--gray-300);
+        }
+
+        /* 筛选药片按钮 */
+        .filter-pills {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .filter-label {
+            font-size: 12px;
+            color: var(--gray-500);
+            margin-right: 2px;
+        }
+
+        .filter-pill {
+            padding: 4px 10px;
+            border-radius: 14px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid var(--gray-200);
+            background: #FFFFFF;
+            color: var(--gray-600);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .filter-pill:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .filter-pill.active {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
+        .filter-pill.active.yellow { background: var(--warning); border-color: var(--warning); }
+        .filter-pill.active.blue { background: var(--primary); border-color: var(--primary); }
+        .filter-pill.active.green { background: var(--success); border-color: var(--success); }
+        .filter-pill.active.red { background: var(--danger); border-color: var(--danger); }
+        .filter-pill.active.purple { background: #9333EA; border-color: #9333EA; }
+        .filter-pill.active.cyan { background: var(--info); border-color: var(--info); }
+        .filter-pill.active.gray { background: var(--gray-500); border-color: var(--gray-500); }
+
+        /* 项目选择器 */
+        .project-selector {
+            background: #FFFFFF;
+            border-radius: var(--radius-md);
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .project-selector .business-tabs {
+            margin-bottom: 0;
+        }
+
+        .project-selector .filter-row {
+            padding: 8px 0;
+            border-top: 1px solid var(--gray-100);
+            border-bottom: 1px solid var(--gray-100);
+            margin-bottom: 8px;
+        }
+
+        .project-selector .search-input {
+            height: 32px;
+            font-size: 13px;
+            width: 180px;
+        }
+
+        .selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .selector-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .selector-link {
+            font-size: 11px;
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .selector-link:hover {
+            text-decoration: underline;
+        }
+
+        /* 当前筛选标签 */
+        .current-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .filter-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            background: var(--primary-light);
+            color: var(--primary);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .filter-tag .remove {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: transparent;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            line-height: 1;
+        }
+
+        .filter-tag .remove:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .filter-tag.business {
+            background: #DBEAFE;
+            color: #1D4ED8;
+        }
+
+        .filter-tag.project {
+            background: #D1FAE5;
+            color: #047857;
+        }
+
+        .filter-tag.sub {
+            background: #FEF3C7;
+            color: #B45309;
+        }
+
+        .filter-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            background: var(--gray-100);
+            color: var(--gray-600);
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+        }
+
+        .filter-all:hover {
+            background: var(--gray-200);
+        }
+
+        .filter-all.active {
+            background: var(--gray-800);
+            color: white;
+        }
+
+        /* 业务线选项卡 */
+        .business-tabs {
+            display: flex;
+            gap: 4px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--gray-200);
+            margin-bottom: 10px;
+        }
+
+        .business-tab {
+            padding: 5px 12px;
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--gray-500);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .business-tab:hover {
+            color: var(--gray-700);
+            background: var(--gray-100);
+        }
+
+        .business-tab.active {
+            color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        /* 项目网格 */
+        .project-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .project-card {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1.5px solid var(--gray-200);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: #FFFFFF;
+        }
+
+        .project-card:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .project-card.selected {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .project-logo {
+            width: 24px;
+            height: 24px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .project-info {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .project-card-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gray-800);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .project-card-count {
+            font-size: 10px;
+            color: var(--gray-400);
+        }
+
+        .project-card.selected .project-card-count {
+            color: var(--primary);
+        }
+
+        .project-card-sub {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 3px;
+        }
+
+        .sub-tag {
+            font-size: 10px;
+            color: var(--gray-500);
+            background: var(--gray-100);
+            padding: 1px 5px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .sub-tag:hover {
+            background: var(--gray-200);
+        }
+
+        .sub-tag.selected {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* 表格视图 */
+        .table-card {
+            background: #FFFFFF;
+            border-radius: var(--radius-md);
+            overflow: auto;
+            box-shadow: var(--shadow-sm);
+            max-height: calc(100vh - 280px);
+        }
+
+        .req-no {
+            font-size: 12px;
+            color: var(--gray-400);
+            font-family: monospace;
+        }
+
+        .project-tag {
+            display: inline-block;
+            padding: 2px 10px;
+            background: var(--primary-light);
+            color: var(--primary);
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        /* 看板视图 */
+        .kanban-board {
+            display: flex;
+            gap: 12px;
+            overflow-x: auto;
+            padding-bottom: 16px;
+        }
+
+        .kanban-column {
+            flex: 0 0 260px;
+            background: var(--gray-100);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            max-height: calc(100vh - 320px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .kanban-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 0 4px;
+        }
+
+        .kanban-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .kanban-count {
+            width: 22px;
+            height: 22px;
+            border-radius: var(--radius-sm);
+            background: var(--gray-200);
+            color: var(--gray-600);
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .kanban-cards {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .kanban-card {
+            background: #FFFFFF;
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .kanban-card:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+
+        .kanban-card-no {
+            font-size: 10px;
+            color: var(--gray-400);
+            font-family: monospace;
+            margin-bottom: 4px;
+        }
+
+        .kanban-card-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--gray-800);
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+
+        .kanban-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .kanban-card-project {
+            font-size: 10px;
+            color: var(--primary);
+            background: var(--primary-light);
+            padding: 2px 6px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        .kanban-card-sub {
+            font-size: 10px;
+            color: var(--gray-500);
+            background: var(--gray-100);
+            padding: 2px 6px;
+            border-radius: 3px;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1200px) {
+        }
+
+        @media (max-width: 768px) {
+            .project-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 弹窗样式 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal {
+            background: #fff;
+            border-radius: var(--radius-lg);
+            width: 580px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            animation: slideUp 0.2s ease;
+        }
+
+        .create-modal {
+            width: 900px;
+            height: 700px;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--gray-200);
+            flex-shrink: 0;
+        }
+
+        .modal-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            border: none;
+            background: transparent;
+            color: var(--gray-500);
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .modal-close:hover {
+            background: var(--gray-100);
+            color: var(--gray-700);
+        }
+
+        .modal-body {
+            padding: 16px 20px;
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .form-left {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        .form-right {
+            width: 220px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 12px 20px;
+            border-top: 1px solid var(--gray-200);
+            background: var(--gray-50);
+            flex-shrink: 0;
+        }
+
+        .form-group {
+            margin-bottom: 0;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--gray-600);
+            margin-bottom: 6px;
+        }
+
+        .required {
+            color: var(--danger);
+        }
+
+        /* 项目选择器样式 */
+        .project-selector-modal {
+            background: var(--gray-50);
+            border-radius: var(--radius-md);
+            padding: 8px;
+            max-height: 130px;
+            overflow-y: auto;
+        }
+
+        .business-tabs-modal {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .business-tab-modal {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--gray-600);
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .business-tab-modal:hover {
+            background: var(--gray-200);
+        }
+
+        .business-tab-modal.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .project-cards-modal {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .project-card-modal {
+            padding: 6px 10px;
+            border: 1.5px solid var(--gray-200);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: #fff;
+            min-width: 80px;
+        }
+
+        .project-card-modal:hover {
+            border-color: var(--primary);
+        }
+
+        .project-card-modal.selected {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+
+        .project-card-modal .project-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gray-800);
+            display: block;
+        }
+
+        .project-card-modal .sub-count {
+            font-size: 10px;
+            color: var(--gray-400);
+        }
+
+        .sub-tags-modal {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 6px;
+        }
+
+        .sub-tag-modal {
+            padding: 2px 6px;
+            background: var(--gray-100);
+            border-radius: 4px;
+            font-size: 10px;
+            color: var(--gray-600);
+            cursor: pointer;
+        }
+
+        .sub-tag-modal:hover {
+            background: var(--gray-200);
+        }
+
+        .sub-tag-modal.selected {
+            background: var(--primary);
+            color: white;
+        }
+
+        /* 富文本编辑器 */
+        .rich-editor {
+            border: 1.5px solid var(--gray-200);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            min-height: 120px;
+            max-height: 180px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .editor-toolbar {
+            display: flex;
+            gap: 4px;
+            padding: 8px;
+            background: var(--gray-50);
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .editor-toolbar button {
+            padding: 4px 8px;
+            border: 1px solid var(--gray-200);
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.15s ease;
+        }
+
+        .editor-toolbar button:hover {
+            background: var(--gray-100);
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            background: var(--gray-200);
+            margin: 0 4px;
+        }
+
+        .editor-content {
+            flex: 1;
+            padding: 10px;
+            font-size: 13px;
+            line-height: 1.6;
+            overflow-y: auto;
+            outline: none;
+        }
+
+        .editor-content:empty:before {
+            content: '请输入需求描述...';
+            color: var(--gray-400);
+        }
+
+        /* 单选框 */
+        .radio-group {
+            display: flex;
+            gap: 6px;
+        }
+
+        .radio-group.vertical {
+            flex-direction: column;
+        }
+
+        .radio-item {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            border: 1.5px solid var(--gray-200);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-size: 12px;
+            color: var(--gray-600);
+        }
+
+        .radio-item input {
+            display: none;
+        }
+
+        .radio-item:hover {
+            border-color: var(--gray-300);
+        }
+
+        .radio-item.active {
+            border-color: var(--primary);
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .radio-item.priority-high.active {
+            border-color: var(--danger);
+            background: #FEE2E2;
+            color: var(--danger);
+        }
+
+        .radio-item.priority-medium.active {
+            border-color: var(--warning);
+            background: #FEF3C7;
+            color: var(--warning);
+        }
+
+        .radio-item.priority-low.active {
+            border-color: var(--gray-500);
+            background: var(--gray-100);
+            color: var(--gray-600);
+        }
+
+        /* 小上传区域 */
+        .upload-area-sm {
+            border: 1.5px dashed var(--gray-200);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            text-align: center;
+            color: var(--gray-400);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .upload-area-sm:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        .upload-area-sm svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .upload-area-sm span {
+            font-size: 11px;
+        }
+
+        /* 需求详情抽屉 */
+        .detail-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: flex-end;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .drawer-panel {
+            width: 600px;
+            max-width: 100%;
+            height: 100%;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            animation: slideInRight 0.3s ease;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+            }
+            to {
+                transform: translateX(0);
+            }
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--gray-200);
+            flex-shrink: 0;
+        }
+
+        .drawer-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .drawer-title .req-no {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--gray-800);
+            font-family: monospace;
+        }
+
+        .drawer-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .drawer-close {
+            width: 32px;
+            height: 32px;
+            border-radius: var(--radius-sm);
+            border: none;
+            background: transparent;
+            color: var(--gray-500);
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+        }
+
+        .drawer-close:hover {
+            background: var(--gray-100);
+            color: var(--gray-700);
+        }
+
+        .drawer-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .detail-section {
+            margin-bottom: 24px;
+        }
+
+        .detail-section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--gray-800);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--gray-100);
+        }
+
+        .detail-row {
+            margin-bottom: 12px;
+        }
+
+        .detail-row.two-cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detail-item.full {
+            grid-column: 1 / -1;
+        }
+
+        .detail-item label {
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+
+        .detail-value {
+            font-size: 13px;
+            color: var(--gray-800);
+        }
+
+        .sub-name {
+            color: var(--gray-400);
+        }
+
+        .detail-description {
+            font-size: 13px;
+            color: var(--gray-700);
+            line-height: 1.6;
+            padding: 12px;
+            background: var(--gray-50);
+            border-radius: var(--radius-md);
+        }
+
+        .detail-attachments {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .attachment-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--gray-50);
+            border-radius: var(--radius-sm);
+        }
+
+        .attachment-icon {
+            font-size: 18px;
+        }
+
+        .attachment-name {
+            flex: 1;
+            font-size: 13px;
+            color: var(--gray-700);
+        }
+
+        .attachment-size {
+            font-size: 12px;
+            color: var(--gray-400);
+        }
+
+        .no-data {
+            font-size: 13px;
+            color: var(--gray-400);
+            text-align: center;
+            padding: 20px;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 20px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 5px;
+            top: 8px;
+            bottom: 8px;
+            width: 2px;
+            background: var(--gray-200);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-bottom: 16px;
+        }
+
+        .timeline-item:last-child {
+            padding-bottom: 0;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: -17px;
+            top: 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: 2px solid #fff;
+        }
+
+        .timeline-content {
+            background: var(--gray-50);
+            border-radius: var(--radius-sm);
+            padding: 10px 12px;
+        }
+
+        .timeline-text {
+            font-size: 13px;
+            color: var(--gray-700);
+            margin-bottom: 4px;
+        }
+
+        .timeline-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 11px;
+            color: var(--gray-400);
+        }
+
+        .timeline-user {
+            color: var(--primary);
+        }
+
+        /* 状态流转进度 */
+        .status-flow {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            padding: 16px 0;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+
+        .status-flow-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            min-width: 80px;
+            position: relative;
+        }
+
+        .status-flow-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 14px;
+            left: calc(50% + 20px);
+            width: calc(100% - 40px);
+            height: 2px;
+            background: var(--gray-200);
+        }
+
+        .status-flow-item.completed:not(:last-child)::after {
+            background: var(--success);
+        }
+
+        .status-flow-item.current:not(:last-child)::after {
+            background: linear-gradient(to right, var(--primary) 50%, var(--gray-200) 50%);
+        }
+
+        .status-dot {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--gray-200);
+            color: var(--gray-500);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            position: relative;
+            z-index: 1;
+        }
+
+        .status-flow-item.completed .status-dot {
+            background: var(--success);
+            color: white;
+        }
+
+        .status-flow-item.current .status-dot {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+        }
+
+        .status-flow-item.rejected .status-dot {
+            background: var(--gray-300);
+            color: var(--gray-500);
+        }
+
+        .status-label {
+            font-size: 11px;
+            color: var(--gray-500);
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .status-flow-item.current .status-label {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .status-flow-item.completed .status-label {
+            color: var(--success);
+        }
+
+        /* 操作面板 */
+        .action-panel {
+            background: var(--gray-50);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .action-panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-700);
+            margin-bottom: 12px;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .action-btn {
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s ease;
+        }
+
+        .action-btn.primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .action-btn.primary:hover {
+            background: #4338CA;
+        }
+
+        .action-btn.secondary {
+            background: white;
+            color: var(--gray-700);
+            border: 1px solid var(--gray-200);
+        }
+
+        .action-btn.secondary:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .action-btn.danger {
+            background: #FEE2E2;
+            color: var(--danger);
+        }
+
+        .action-btn.danger:hover {
+            background: #FECACA;
+        }
+
+        /* 评估信息 */
+        .evaluation-info {
+            background: var(--gray-50);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .evaluation-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--gray-100);
+        }
+
+        .evaluation-item:last-child {
+            border-bottom: none;
+        }
+
+        .evaluation-label {
+            font-size: 13px;
+            color: var(--gray-500);
+        }
+
+        .evaluation-value {
+            font-size: 13px;
+            color: var(--gray-800);
+            font-weight: 500;
+        }
+
+        .evaluation-value.success {
+            color: var(--success);
+        }
+
+        .evaluation-value.warning {
+            color: var(--warning);
+        }
+
+        .evaluation-value.danger {
+            color: var(--danger);
+        }
+
+        /* 设计工作 */
+        .design-works {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .design-work-item {
+            background: var(--gray-50);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .design-work-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .design-work-type {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--gray-800);
+        }
+
+        .design-work-meta {
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+
+        .design-work-status {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .design-work-status.pending {
+            background: var(--gray-100);
+            color: var(--gray-600);
+        }
+
+        .design-work-status.in-progress {
+            background: #DBEAFE;
+            color: #1D4ED8;
+        }
+
+        .design-work-status.done {
+            background: #D1FAE5;
+            color: #047857;
+        }
+
+        /* 任务列表 */
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            background: var(--gray-50);
+            border-radius: var(--radius-sm);
+        }
+
+        .task-checkbox {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border: 2px solid var(--gray-300);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .task-checkbox.done {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+
+        .task-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .task-title {
+            font-size: 13px;
+            color: var(--gray-800);
+        }
+
+        .task-title.done {
+            text-decoration: line-through;
+            color: var(--gray-400);
+        }
+
+        .task-meta {
+            font-size: 11px;
+            color: var(--gray-400);
+        }
+
+        .task-assignee {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary-light);
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        /* 双击提示 */
+        .dblclick-hint {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--gray-800);
+            color: white;
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            z-index: 1001;
+        }
+
+        .dblclick-hint.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="layout">
+            <!-- 侧边栏 -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <a href="index.html" class="sidebar-logo">
+                        <div class="sidebar-logo-icon">📋</div>
+                        <span class="sidebar-logo-text">BU管理系统</span>
+                    </a>
+                </div>
+
+                <div class="sidebar-user">
+                    <div class="user-avatar">张</div>
+                    <div class="user-info">
+                        <div class="user-name">张明</div>
+                        <div class="user-role">产品经理</div>
+                    </div>
+                </div>
+
+                <nav class="sidebar-nav">
+                    <div class="nav-section">
+                        <div class="nav-section-title">工作台</div>
+                        <a class="nav-item" href="index.html">
+                            <span class="nav-item-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                </svg>
+                            </span>
+                            <span class="nav-item-text">首页</span>
+                        </a>
+                        <a class="nav-item active" href="requirements.html">
+                            <span class="nav-item-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+                                    <rect x="9" y="3" width="6" height="4" rx="1"/>
+                                </svg>
+                            </span>
+                            <span class="nav-item-text">需求管理</span>
+                            <span class="nav-item-badge">12</span>
+                        </a>
+                        <a class="nav-item" href="tasks.html">
+                            <span class="nav-item-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                            </span>
+                            <span class="nav-item-text">任务管理</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-title">数据分析</div>
+                        <a class="nav-item" href="statistics.html">
+                            <span class="nav-item-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="20" x2="18" y2="10"/>
+                                    <line x1="12" y1="20" x2="12" y2="4"/>
+                                    <line x1="6" y1="20" x2="6" y2="14"/>
+                                </svg>
+                            </span>
+                            <span class="nav-item-text">数据统计</span>
+                        </a>
+                    </div>
+
+                    <div class="nav-section">
+                        <div class="nav-section-title">系统</div>
+                        <a class="nav-item" href="organization.html">
+                            <span class="nav-item-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                            </span>
+                            <span class="nav-item-text">组织架构</span>
+                        </a>
+                    </div>
+                </nav>
+            </aside>
+
+            <!-- 主内容区 -->
+            <main class="main" @scroll="onScroll">
+                <!-- 顶部导航 -->
+                <header class="top-header">
+                    <div class="header-left">
+                        <h1 class="header-title">需求管理</h1>
+                    </div>
+                    <div class="header-right">
+                        <button class="header-action">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                            </svg>
+                            <span class="badge"></span>
+                        </button>
+                        <div class="user-avatar sm">张</div>
+                    </div>
+                </header>
+
+                <!-- 内容 -->
+                <div class="content">
+                    <!-- 页面标题 + 统计概览 -->
+                    <div class="content-header">
+                        <div class="title-with-stats">
+                            <h2 class="page-title">需求列表</h2>
+                            <div class="inline-stats">
+                                <span class="inline-stat">
+                                    <span class="stat-num">{{ filteredData.length }}</span>
+                                    <span class="stat-text">条</span>
+                                </span>
+                                <span class="stat-divider">|</span>
+                                <span class="inline-stat">
+                                    <span class="stat-num green">{{ inProgressCount }}</span>
+                                    <span class="stat-text">进行中</span>
+                                </span>
+                                <span class="stat-divider">|</span>
+                                <span class="inline-stat">
+                                    <span class="stat-num yellow">{{ pendingCount }}</span>
+                                    <span class="stat-text">待评估</span>
+                                </span>
+                                <span class="stat-divider" v-if="riskCount > 0">|</span>
+                                <span class="inline-stat" v-if="riskCount > 0">
+                                    <span class="stat-num red">{{ riskCount }}</span>
+                                    <span class="stat-text">逾期</span>
+                                </span>
+                            </div>
+                        </div>
+                        <div class="page-actions">
+                            <div class="view-toggle">
+                                <button class="view-btn" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                        <path d="M3 9h18M9 21V9"/>
+                                    </svg>
+                                    列表
+                                </button>
+                                <button class="view-btn" :class="{ active: viewMode === 'kanban' }" @click="viewMode = 'kanban'">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="5" height="18" rx="1"/>
+                                        <rect x="10" y="3" width="5" height="12" rx="1"/>
+                                        <rect x="17" y="3" width="5" height="15" rx="1"/>
+                                    </svg>
+                                    看板
+                                </button>
+                            </div>
+                            <button class="btn btn-default">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                导出
+                            </button>
+                            <button class="btn btn-primary" @click="showCreateModal = true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"/>
+                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                </svg>
+                                新建需求
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 新建需求弹窗 -->
+                    <div class="modal-overlay" v-if="showCreateModal" @click.self="showCreateModal = false">
+                        <div class="modal create-modal">
+                            <div class="modal-header">
+                                <h3 class="modal-title">新建需求</h3>
+                                <button class="modal-close" @click="showCreateModal = false">×</button>
+                            </div>
+                            <div class="modal-body">
+                                <!-- 左侧表单 -->
+                                <div class="form-left">
+                                    <!-- 需求标题 -->
+                                    <div class="form-group">
+                                        <label class="form-label">需求标题 <span class="required">*</span></label>
+                                        <input type="text" class="form-input" v-model="newRequirement.title" placeholder="请输入需求标题">
+                                    </div>
+
+                                    <!-- 项目选择 -->
+                                    <div class="form-group">
+                                        <label class="form-label">所属项目 <span class="required">*</span></label>
+                                        <div class="project-selector-modal">
+                                            <div class="business-tabs-modal">
+                                                <button
+                                                    class="business-tab-modal"
+                                                    :class="{ active: newRequirement.businessLine === '' }"
+                                                    @click="newRequirement.businessLine = ''; newRequirement.project = ''; newRequirement.subProject = ''"
+                                                >全部</button>
+                                                <button
+                                                    v-for="bl in businessLines"
+                                                    :key="bl.name"
+                                                    class="business-tab-modal"
+                                                    :class="{ active: newRequirement.businessLine === bl.name }"
+                                                    @click="newRequirement.businessLine = bl.name; newRequirement.project = ''; newRequirement.subProject = ''"
+                                                >{{ bl.name }}</button>
+                                            </div>
+                                            <div class="project-cards-modal">
+                                                <div
+                                                    v-for="project in modalProjects"
+                                                    :key="project.name"
+                                                    class="project-card-modal"
+                                                    :class="{ selected: newRequirement.project === project.name }"
+                                                    @click="newRequirement.project = project.name; newRequirement.subProject = ''"
+                                                >
+                                                    <span class="project-name">{{ project.name }}</span>
+                                                    <span v-if="project.subProjects && project.subProjects.length" class="sub-count">{{ project.subProjects.length }}个子项目</span>
+                                                    <div v-if="project.subProjects && project.subProjects.length && newRequirement.project === project.name" class="sub-tags-modal">
+                                                        <span
+                                                            v-for="sub in project.subProjects"
+                                                            :key="sub"
+                                                            class="sub-tag-modal"
+                                                            :class="{ selected: newRequirement.subProject === sub }"
+                                                            @click.stop="newRequirement.subProject = newRequirement.subProject === sub ? '' : sub"
+                                                        >{{ sub }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 需求描述 -->
+                                    <div class="form-group">
+                                        <label class="form-label">需求描述</label>
+                                        <div class="rich-editor">
+                                            <div class="editor-toolbar">
+                                                <button type="button" @click="execCommand('bold')" title="加粗"><b>B</b></button>
+                                                <button type="button" @click="execCommand('italic')" title="斜体"><i>I</i></button>
+                                                <button type="button" @click="execCommand('underline')" title="下划线"><u>U</u></button>
+                                                <span class="toolbar-divider"></span>
+                                                <button type="button" @click="execCommand('insertUnorderedList')" title="无序列表">• 列表</button>
+                                                <button type="button" @click="execCommand('insertOrderedList')" title="有序列表">1. 列表</button>
+                                            </div>
+                                            <div
+                                                class="editor-content"
+                                                contenteditable="true"
+                                                ref="editorRef"
+                                                @input="newRequirement.description = $event.target.innerHTML"
+                                            ></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 右侧属性 -->
+                                <div class="form-right">
+                                    <div class="form-group">
+                                        <label class="form-label">需求来源</label>
+                                        <div class="radio-group">
+                                            <label class="radio-item" :class="{ active: newRequirement.source === '内部' }">
+                                                <input type="radio" v-model="newRequirement.source" value="内部">
+                                                <span>内部</span>
+                                            </label>
+                                            <label class="radio-item" :class="{ active: newRequirement.source === '外部' }">
+                                                <input type="radio" v-model="newRequirement.source" value="外部">
+                                                <span>外部</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">提出人</label>
+                                        <input type="text" class="form-input" v-model="newRequirement.requester" placeholder="请输入提出人">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">需求类型 <span class="required">*</span></label>
+                                        <div class="radio-group vertical">
+                                            <label class="radio-item" :class="{ active: newRequirement.type === '产品需求' }">
+                                                <input type="radio" v-model="newRequirement.type" value="产品需求">
+                                                <span>产品需求</span>
+                                            </label>
+                                            <label class="radio-item" :class="{ active: newRequirement.type === '项目需求' }">
+                                                <input type="radio" v-model="newRequirement.type" value="项目需求">
+                                                <span>项目需求</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">优先级</label>
+                                        <div class="radio-group">
+                                            <label class="radio-item priority-high" :class="{ active: newRequirement.priority === '高' }">
+                                                <input type="radio" v-model="newRequirement.priority" value="高">
+                                                <span>高</span>
+                                            </label>
+                                            <label class="radio-item priority-medium" :class="{ active: newRequirement.priority === '中' }">
+                                                <input type="radio" v-model="newRequirement.priority" value="中">
+                                                <span>中</span>
+                                            </label>
+                                            <label class="radio-item priority-low" :class="{ active: newRequirement.priority === '低' }">
+                                                <input type="radio" v-model="newRequirement.priority" value="低">
+                                                <span>低</span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">期望上线时间</label>
+                                        <input type="date" class="form-input" v-model="newRequirement.expectDate">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">负责人</label>
+                                        <select class="form-select" v-model="newRequirement.owner">
+                                            <option value="">请选择</option>
+                                            <option value="张三">张三</option>
+                                            <option value="李四">李四</option>
+                                            <option value="王五">王五</option>
+                                            <option value="赵六">赵六</option>
+                                            <option value="钱七">钱七</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label">附件</label>
+                                        <div class="upload-area-sm">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                                <polyline points="17 8 12 3 7 8"/>
+                                                <line x1="12" y1="3" x2="12" y2="15"/>
+                                            </svg>
+                                            <span>上传附件</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-default" @click="showCreateModal = false">取消</button>
+                                <button class="btn btn-primary" @click="createRequirement">创建需求</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 需求详情抽屉 -->
+                    <div class="detail-drawer" v-if="showDetailDrawer" @click.self="showDetailDrawer = false">
+                        <div class="drawer-panel">
+                            <div class="drawer-header">
+                                <div class="drawer-title">
+                                    <span class="req-no">{{ currentRequirement?.reqNo }}</span>
+                                    <span :class="'status-badge ' + currentRequirement?.statusClass">{{ currentRequirement?.status }}</span>
+                                </div>
+                                <div class="drawer-actions">
+                                    <button class="btn btn-sm btn-default" @click="openInNewPage">新窗口打开</button>
+                                    <button class="drawer-close" @click="showDetailDrawer = false">×</button>
+                                </div>
+                            </div>
+                            <div class="drawer-body">
+                                <!-- 状态流转进度 -->
+                                <div class="status-flow">
+                                    <div v-for="(step, index) in statusFlowSteps" :key="step.status"
+                                        class="status-flow-item"
+                                        :class="{
+                                            completed: isStepCompleted(step.status),
+                                            current: currentRequirement?.status === step.status,
+                                            rejected: step.status === '已拒绝' && currentRequirement?.status === '已拒绝'
+                                        }"
+                                    >
+                                        <div class="status-dot">{{ index + 1 }}</div>
+                                        <div class="status-label">{{ step.label }}</div>
+                                    </div>
+                                </div>
+
+                                <!-- 操作面板 - 根据状态显示不同操作 -->
+                                <div class="action-panel" v-if="getCurrentActions().length > 0">
+                                    <div class="action-panel-title">可执行操作</div>
+                                    <div class="action-buttons">
+                                        <button
+                                            v-for="action in getCurrentActions()"
+                                            :key="action.type"
+                                            :class="'action-btn ' + action.class"
+                                            @click="executeAction(action.type)"
+                                        >
+                                            {{ action.label }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- 基本信息 -->
+                                <div class="detail-section">
+                                    <h3 class="detail-section-title">基本信息</h3>
+                                    <div class="detail-row">
+                                        <div class="detail-item full">
+                                            <label>需求标题</label>
+                                            <div class="detail-value">{{ currentRequirement?.title }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="detail-row two-cols">
+                                        <div class="detail-item">
+                                            <label>所属业务线</label>
+                                            <div class="detail-value">{{ currentRequirement?.businessLine }}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <label>所属项目</label>
+                                            <div class="detail-value">
+                                                {{ currentRequirement?.project }}
+                                                <span v-if="currentRequirement?.subProject" class="sub-name"> - {{ currentRequirement?.subProject }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="detail-row two-cols">
+                                        <div class="detail-item">
+                                            <label>需求类型</label>
+                                            <div class="detail-value">{{ currentRequirement?.type }}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <label>优先级</label>
+                                            <div class="detail-value">
+                                                <span :class="'priority-text priority-text.' + currentRequirement?.priorityClass">{{ currentRequirement?.priority }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="detail-row two-cols">
+                                        <div class="detail-item">
+                                            <label>需求来源</label>
+                                            <div class="detail-value">{{ currentRequirement?.source || '内部' }}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <label>提出人</label>
+                                            <div class="detail-value">{{ currentRequirement?.requester || '-' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="detail-row two-cols">
+                                        <div class="detail-item">
+                                            <label>负责人</label>
+                                            <div class="detail-value">{{ currentRequirement?.owner }}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <label>期望上线</label>
+                                            <div class="detail-value">{{ currentRequirement?.expectDate || '-' }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 评估信息 - 评估中/待设计/设计中等状态显示 -->
+                                <div class="detail-section" v-if="showEvaluation">
+                                    <h3 class="detail-section-title">评估信息</h3>
+                                    <div class="evaluation-info">
+                                        <div class="evaluation-item">
+                                            <span class="evaluation-label">技术可行性</span>
+                                            <span class="evaluation-value" :class="currentRequirement?.evaluation?.isFeasible ? 'success' : 'danger'">
+                                                {{ currentRequirement?.evaluation?.isFeasible ? '可行' : '不可行' }}
+                                            </span>
+                                        </div>
+                                        <div class="evaluation-item">
+                                            <span class="evaluation-label">预估工时</span>
+                                            <span class="evaluation-value">{{ currentRequirement?.evaluation?.estimatedWorkload || '-' }}</span>
+                                        </div>
+                                        <div class="evaluation-item" v-if="currentRequirement?.type === '项目需求'">
+                                            <span class="evaluation-label">预估报价</span>
+                                            <span class="evaluation-value">{{ currentRequirement?.evaluation?.estimatedCost || '-' }}</span>
+                                        </div>
+                                        <div class="evaluation-item">
+                                            <span class="evaluation-label">预估上线</span>
+                                            <span class="evaluation-value">{{ currentRequirement?.evaluation?.estimatedOnlineDate || '-' }}</span>
+                                        </div>
+                                        <div class="evaluation-item">
+                                            <span class="evaluation-label">评估人</span>
+                                            <span class="evaluation-value">{{ currentRequirement?.evaluation?.evaluator || '-' }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 设计工作 - 设计中状态显示 -->
+                                <div class="detail-section" v-if="showDesign">
+                                    <h3 class="detail-section-title">设计工作</h3>
+                                    <div class="design-works">
+                                        <div class="design-work-item" v-for="work in currentRequirement?.designWorks" :key="work.type">
+                                            <div class="design-work-info">
+                                                <div class="design-work-type">{{ work.type }}</div>
+                                                <div class="design-work-meta">
+                                                    预估: {{ work.estimatedHours || '-' }}h | 实际: {{ work.actualHours || '-' }}h
+                                                    <span v-if="work.designer"> | 设计人: {{ work.designer }}</span>
+                                                </div>
+                                            </div>
+                                            <span :class="'design-work-status ' + work.statusClass">{{ work.statusText }}</span>
+                                        </div>
+                                        <div v-if="!currentRequirement?.designWorks?.length" class="no-data">暂无设计工作</div>
+                                    </div>
+                                </div>
+
+                                <!-- 任务列表 - 开发中/测试中状态显示 -->
+                                <div class="detail-section" v-if="showTasks">
+                                    <h3 class="detail-section-title">开发任务</h3>
+                                    <div class="task-list">
+                                        <div class="task-item" v-for="task in currentRequirement?.tasks" :key="task.id">
+                                            <div class="task-checkbox" :class="{ done: task.status === '已完成' }">
+                                                <svg v-if="task.status === '已完成'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                                    <polyline points="20 6 9 17 4 12"/>
+                                                </svg>
+                                            </div>
+                                            <div class="task-info">
+                                                <div class="task-title" :class="{ done: task.status === '已完成' }">{{ task.title }}</div>
+                                                <div class="task-meta">{{ task.type }} | {{ task.estimatedHours || '-' }}h</div>
+                                            </div>
+                                            <div class="task-assignee">{{ task.assignee?.charAt(0) }}</div>
+                                        </div>
+                                        <div v-if="!currentRequirement?.tasks?.length" class="no-data">暂无任务</div>
+                                    </div>
+                                </div>
+
+                                <!-- 需求描述 -->
+                                <div class="detail-section">
+                                    <h3 class="detail-section-title">需求描述</h3>
+                                    <div class="detail-description" v-html="currentRequirement?.description || '暂无描述'"></div>
+                                </div>
+
+                                <!-- 附件 -->
+                                <div class="detail-section">
+                                    <h3 class="detail-section-title">附件</h3>
+                                    <div class="detail-attachments">
+                                        <div class="attachment-item" v-for="att in currentRequirement?.attachments" :key="att.name">
+                                            <span class="attachment-icon">{{ att.type === 'image' ? '🖼️' : '📄' }}</span>
+                                            <span class="attachment-name">{{ att.name }}</span>
+                                            <span class="attachment-size">{{ att.size }}</span>
+                                        </div>
+                                        <div v-if="!currentRequirement?.attachments?.length" class="no-data">暂无附件</div>
+                                    </div>
+                                </div>
+
+                                <!-- 活动日志 -->
+                                <div class="detail-section">
+                                    <h3 class="detail-section-title">活动日志</h3>
+                                    <div class="timeline">
+                                        <div class="timeline-item" v-for="log in currentRequirement?.logs" :key="log.id">
+                                            <div class="timeline-dot"></div>
+                                            <div class="timeline-content">
+                                                <div class="timeline-text">{{ log.action }}</div>
+                                                <div class="timeline-meta">
+                                                    <span class="timeline-user">{{ log.user }}</span>
+                                                    <span class="timeline-time">{{ log.time }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 评估表单弹窗 -->
+                    <div class="modal-overlay" v-if="showEvaluationModal" @click.self="showEvaluationModal = false">
+                        <div class="modal" style="width: 480px;">
+                            <div class="modal-header">
+                                <h3 class="modal-title">提交评估</h3>
+                                <button class="modal-close" @click="showEvaluationModal = false">×</button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="form-group">
+                                    <label class="form-label">技术可行性 <span class="required">*</span></label>
+                                    <div class="radio-group">
+                                        <label class="radio-item" :class="{ active: evaluationForm.isFeasible }">
+                                            <input type="radio" v-model="evaluationForm.isFeasible" :value="true">
+                                            <span>可行</span>
+                                        </label>
+                                        <label class="radio-item" :class="{ active: !evaluationForm.isFeasible }">
+                                            <input type="radio" v-model="evaluationForm.isFeasible" :value="false">
+                                            <span>不可行</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">预估工时 <span class="required">*</span></label>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <input type="number" class="form-input" v-model="evaluationForm.estimatedWorkload" placeholder="请输入" min="1" style="flex: 1;">
+                                        <span style="color: var(--gray-500); font-size: 13px;">人天</span>
+                                    </div>
+                                </div>
+                                <div class="form-group" v-if="currentRequirement?.type === '项目需求'">
+                                    <label class="form-label">预估报价 <span class="required">*</span></label>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="color: var(--gray-500); font-size: 13px;">¥</span>
+                                        <input type="number" class="form-input" v-model="evaluationForm.estimatedCost" placeholder="请输入" min="0" style="flex: 1;">
+                                        <span style="color: var(--gray-500); font-size: 13px;">元</span>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">预估上线时间 <span class="required">*</span></label>
+                                    <input type="date" class="form-input" v-model="evaluationForm.estimatedOnlineDate">
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-default" @click="showEvaluationModal = false">取消</button>
+                                <button class="btn btn-primary" @click="submitEvaluation">提交评估</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 项目选择器 -->
+                    <div class="project-selector">
+                        <!-- 业务线 + 搜索 -->
+                        <div class="business-line-row">
+                            <div class="business-tabs">
+                                <button
+                                    class="business-tab"
+                                    :class="{ active: selectedBusiness === '' && selectedProjects.length === 0 }"
+                                    @click="selectAll"
+                                >
+                                    全部
+                                </button>
+                                <button
+                                    v-for="bl in businessLines"
+                                    :key="bl.name"
+                                    class="business-tab"
+                                    :class="{ active: selectedBusiness === bl.name }"
+                                    @click="selectBusiness(bl.name)"
+                                >
+                                    {{ bl.name }}
+                                    <span style="color: var(--gray-400); margin-left: 4px;">({{ bl.totalCount }})</span>
+                                </button>
+                            </div>
+                            <input type="text" class="search-input" v-model="filters.search" placeholder="搜索需求...">
+                        </div>
+
+                        <!-- 筛选 + 项目网格 -->
+                        <div class="filter-row-wrapper" :class="{ scrolled: isScrolled }">
+                            <!-- 滚动时显示的紧凑选中状态 -->
+                            <div class="filter-compact" v-show="isScrolled && activeFilterCount > 0">
+                                <button v-if="filters.status" class="filter-compact-tag status" @click="toggleFilter('status', filters.status)">
+                                    {{ filters.status }} ×
+                                </button>
+                                <button v-if="filters.type" class="filter-compact-tag type" @click="toggleFilter('type', filters.type)">
+                                    {{ filters.type }} ×
+                                </button>
+                                <button v-if="filters.priority" class="filter-compact-tag priority" @click="toggleFilter('priority', filters.priority)">
+                                    {{ filters.priority }}优先 ×
+                                </button>
+                                <button class="filter-compact-clear" @click="clearAllFilters">清除全部</button>
+                            </div>
+
+                            <!-- 完整筛选栏 -->
+                            <div class="filter-row" v-show="!isScrolled || activeFilterCount === 0">
+                                <div class="filter-pills">
+                                    <button
+                                        class="filter-pill"
+                                        :class="{ active: filters.status === '' && filters.type === '' && filters.priority === '' }"
+                                        @click="clearAllFilters"
+                                    >
+                                        所有需求
+                                    </button>
+                                </div>
+                                <div class="filter-pills">
+                                    <span class="filter-label">状态</span>
+                                    <button
+                                        v-for="s in statusOptions"
+                                        :key="s.value"
+                                        class="filter-pill"
+                                        :class="{ active: filters.status === s.value, [s.class]: true }"
+                                        @click="toggleFilter('status', s.value)"
+                                    >
+                                        {{ s.label }}
+                                    </button>
+                                </div>
+                                <div class="filter-pills">
+                                    <span class="filter-label">类型</span>
+                                    <button
+                                        v-for="t in typeOptions"
+                                        :key="t.value"
+                                        class="filter-pill"
+                                        :class="{ active: filters.type === t.value, [t.class]: true }"
+                                        @click="toggleFilter('type', t.value)"
+                                    >
+                                        {{ t.label }}
+                                    </button>
+                                </div>
+                                <div class="filter-pills">
+                                    <span class="filter-label">优先级</span>
+                                    <button
+                                        v-for="p in priorityOptions"
+                                        :key="p.value"
+                                        class="filter-pill"
+                                        :class="{ active: filters.priority === p.value, [p.class]: true }"
+                                        @click="toggleFilter('priority', p.value)"
+                                    >
+                                        {{ p.label }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 项目网格 -->
+                        <div class="project-grid">
+                            <div
+                                v-for="project in visibleProjects"
+                                :key="project.name"
+                                class="project-card"
+                                :class="{ selected: selectedProjects.includes(project.name) }"
+                                @click="toggleProject(project.name)"
+                            >
+                                <div class="project-logo" :style="{ background: getLogoBg(project.name) }">
+                                    {{ project.logo }}
+                                </div>
+                                <div class="project-info">
+                                    <span class="project-card-name">
+                                        {{ project.name }}
+                                        <span class="project-card-count">({{ project.count }})</span>
+                                    </span>
+                                    <div class="project-card-sub" v-if="project.subProjects && project.subProjects.length">
+                                        <span
+                                            v-for="sub in project.subProjects"
+                                            :key="sub"
+                                            class="sub-tag"
+                                            :class="{ selected: selectedSubProjects.includes(sub) }"
+                                            @click.stop="toggleSubProject(sub)"
+                                        >
+                                            {{ sub }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 表格视图 -->
+                    <div class="table-card" v-if="viewMode === 'table'">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 100px">需求编号</th>
+                                    <th>需求标题</th>
+                                    <th style="width: 140px">所属项目</th>
+                                    <th style="width: 80px">类型</th>
+                                    <th style="width: 100px">状态</th>
+                                    <th style="width: 70px">优先级</th>
+                                    <th style="width: 80px">负责人</th>
+                                    <th style="width: 100px">更新时间</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in filteredData" :key="item.id"
+                                    @click="handleRowClick(item.id)"
+                                    @dblclick="handleRowDoubleClick(item.id)"
+                                    style="cursor:pointer"
+                                >
+                                    <td><span class="req-no">{{ item.reqNo }}</span></td>
+                                    <td class="highlight">{{ item.title }}</td>
+                                    <td>
+                                        <span class="project-tag">{{ item.project }}</span>
+                                        <span v-if="item.subProject" style="color: var(--gray-400);"> - {{ item.subProject }}</span>
+                                    </td>
+                                    <td style="font-size: 13px;">{{ item.type }}</td>
+                                    <td><span :class="'status-badge ' + item.statusClass">{{ item.status }}</span></td>
+                                    <td>
+                                        <span :class="'priority-text ' + item.priorityClass">{{ item.priority }}</span>
+                                    </td>
+                                    <td style="font-size: 13px;">{{ item.owner }}</td>
+                                    <td style="font-size: 13px;">{{ item.createdAt }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="pagination">
+                            <button class="page-btn">‹</button>
+                            <button class="page-btn active">1</button>
+                            <button class="page-btn">2</button>
+                            <button class="page-btn">›</button>
+                        </div>
+                    </div>
+
+                    <!-- 看板视图 -->
+                    <div class="kanban-board" v-if="viewMode === 'kanban'">
+                        <div class="kanban-column" v-for="column in kanbanColumns" :key="column.status">
+                            <div class="kanban-header">
+                                <div class="kanban-title">{{ column.name }}</div>
+                                <div class="kanban-count">{{ column.cards.length }}</div>
+                            </div>
+                            <div class="kanban-cards">
+                                <div class="kanban-card" v-for="card in column.cards" :key="card.id"
+                                    @click="handleRowClick(card.id)"
+                                    @dblclick="handleRowDoubleClick(card.id)"
+                                >
+                                    <div class="kanban-card-no">{{ card.reqNo }}</div>
+                                    <div class="kanban-card-title">{{ card.title }}</div>
+                                    <div class="kanban-card-footer">
+                                        <span class="kanban-card-project">{{ card.project }}</span>
+                                        <span class="kanban-card-sub" v-if="card.subProject">{{ card.subProject }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, reactive } = Vue
+
+        const app = createApp({
+            setup() {
+                const viewMode = ref('table')
+                const isScrolled = ref(false)
+                const showCreateModal = ref(false)
+                const showDetailDrawer = ref(false)
+                const showEvaluationModal = ref(false)
+                const currentRequirement = ref(null)
+                const editorRef = ref(null)
+
+                const evaluationForm = reactive({
+                    isFeasible: true,
+                    estimatedWorkload: '',
+                    estimatedCost: '',
+                    estimatedOnlineDate: ''
+                })
+
+                const newRequirement = reactive({
+                    title: '',
+                    businessLine: '',
+                    project: '',
+                    subProject: '',
+                    source: '内部',
+                    requester: '',
+                    type: '产品需求',
+                    priority: '中',
+                    expectDate: '',
+                    owner: '',
+                    description: ''
+                })
+
+                const modalProjects = computed(() => {
+                    if (!newRequirement.businessLine) {
+                        return businessLines.value.flatMap(bl => bl.projects)
+                    }
+                    const bl = businessLines.value.find(b => b.name === newRequirement.businessLine)
+                    return bl ? bl.projects : []
+                })
+
+                const execCommand = (command) => {
+                    document.execCommand(command, false, null)
+                    editorRef.value?.focus()
+                }
+
+                const createRequirement = () => {
+                    if (!newRequirement.title || !newRequirement.project) {
+                        ElMessage.warning('请填写必填项')
+                        return
+                    }
+                    // 实际项目中这里会调用 API
+                    console.log('创建需求:', newRequirement)
+                    ElMessage.success('需求创建成功')
+                    showCreateModal.value = false
+                    // 重置表单
+                    Object.assign(newRequirement, {
+                        title: '',
+                        businessLine: '',
+                        project: '',
+                        subProject: '',
+                        source: '内部',
+                        requester: '',
+                        type: '产品需求',
+                        priority: '中',
+                        expectDate: '',
+                        owner: '',
+                        description: ''
+                    })
+                    // 清空富文本编辑器
+                    if (editorRef.value) {
+                        editorRef.value.innerHTML = ''
+                    }
+                }
+
+                const filters = reactive({
+                    status: '',
+                    type: '',
+                    priority: '',
+                    search: ''
+                })
+
+                const statusOptions = [
+                    { label: '全部', value: '' },
+                    { label: '待评估', value: '待评估', class: 'yellow' },
+                    { label: '评估中', value: '评估中', class: 'blue' },
+                    { label: '已拒绝', value: '已拒绝', class: 'gray' },
+                    { label: '待设计', value: '待设计', class: 'yellow' },
+                    { label: '设计中', value: '设计中', class: 'green' },
+                    { label: '待确认', value: '待确认', class: 'yellow' },
+                    { label: '开发中', value: '开发中', class: 'red' },
+                    { label: '测试中', value: '测试中', class: 'purple' },
+                    { label: '待上线', value: '待上线', class: 'cyan' },
+                    { label: '已上线', value: '已上线', class: 'green' },
+                    { label: '已交付', value: '已交付', class: 'green' },
+                    { label: '已验收', value: '已验收', class: 'green' },
+                ]
+
+                const onScroll = (e) => {
+                    isScrolled.value = e.target.scrollTop > 100
+                }
+
+                const activeFilterCount = computed(() => {
+                    let count = 0
+                    if (filters.status) count++
+                    if (filters.type) count++
+                    if (filters.priority) count++
+                    return count
+                })
+
+                const selectedFilterSummary = computed(() => {
+                    const parts = []
+                    if (filters.status) parts.push(filters.status)
+                    if (filters.type) parts.push(filters.type)
+                    if (filters.priority) parts.push(filters.priority + '优先级')
+                    return parts.join(' · ')
+                })
+
+                const typeOptions = [
+                    { label: '产品需求', value: '产品需求', class: 'type-product' },
+                    { label: '项目需求', value: '项目需求', class: 'type-project' },
+                ]
+
+                const priorityOptions = [
+                    { label: '全部', value: '' },
+                    { label: '高', value: '高', class: 'red' },
+                    { label: '中', value: '中', class: 'yellow' },
+                    { label: '低', value: '低', class: 'gray' },
+                ]
+
+                const toggleFilter = (key, value) => {
+                    filters[key] = filters[key] === value ? '' : value
+                }
+
+                const businessLines = ref([
+                    {
+                        name: '全渠道云鹿定制',
+                        totalCount: 9,
+                        projects: [
+                            { name: '皇家宠物', logo: '🐾', count: 5, subProjects: ['数据看板', 'PMS', 'RC新体系', 'EC小程序'] },
+                            { name: '飞鹤', logo: '🐄', count: 2, subProjects: [] },
+                            { name: 'speedo', logo: '🏊', count: 1, subProjects: [] },
+                            { name: '佳贝艾特', logo: '🐑', count: 1, subProjects: [] }
+                        ]
+                    },
+                    {
+                        name: '全渠道云鹿SAAS',
+                        totalCount: 3,
+                        projects: [
+                            { name: '逢时', logo: '🌊', count: 2, subProjects: [] },
+                            { name: '黄天鹅', logo: '🥚', count: 1, subProjects: [] }
+                        ]
+                    },
+                    {
+                        name: '会员通',
+                        totalCount: 0,
+                        projects: []
+                    }
+                ])
+
+                const selectedBusiness = ref('')
+                const selectedProjects = ref([])
+                const selectedSubProjects = ref([])
+
+                const hasFilters = computed(() => {
+                    return selectedBusiness.value || selectedProjects.value.length > 0 || selectedSubProjects.value.length > 0
+                })
+
+                const visibleProjects = computed(() => {
+                    if (!selectedBusiness.value) {
+                        return businessLines.value.flatMap(bl => bl.projects)
+                    }
+                    const bl = businessLines.value.find(b => b.name === selectedBusiness.value)
+                    return bl ? bl.projects : []
+                })
+
+                const tableData = ref([
+                    // 待评估
+                    { id: 2, reqNo: 'REQ20260401002', title: 'PMS - 库存预警规则配置', project: '皇家宠物', subProject: 'PMS', businessLine: '全渠道云鹿定制', type: '项目需求', status: '待评估', statusClass: 'pending', priority: '高', priorityClass: 'high', owner: '李四', createdAt: '2026-04-01', source: '外部', requester: '张客户', expectDate: '2026-05-15', description: '<p>需要实现库存预警规则配置功能，包括：</p><ul><li>设置库存阈值</li><li>配置预警通知规则</li><li>查看预警历史</li></ul>', attachments: [{ name: '需求文档.pdf', size: '1.2MB', type: 'doc' }], logs: [{ id: 1, action: '需求创建', user: '张三', time: '2026-04-01 10:30' }], evaluation: null, designWorks: [], tasks: [] },
+                    { id: 7, reqNo: 'REQ20260402003', title: '飞鹤 - 订单物流实时查询', project: '飞鹤', subProject: '', businessLine: '全渠道云鹿定制', type: '产品需求', status: '待评估', statusClass: 'pending', priority: '中', priorityClass: 'medium', owner: '周九', createdAt: '2026-04-02', description: '<p>需要实现订单物流实时查询功能</p>', attachments: [], logs: [{ id: 1, action: '需求创建', user: '周九', time: '2026-04-02 09:00' }], evaluation: null, designWorks: [], tasks: [] },
+                    // 评估中
+                    { id: 1, reqNo: 'REQ20260401001', title: '数据看板 - 用户分析模块优化', project: '皇家宠物', subProject: '数据看板', businessLine: '全渠道云鹿定制', type: '产品需求', status: '评估中', statusClass: 'evaluating', priority: '高', priorityClass: 'high', owner: '张三', createdAt: '2026-04-01', source: '内部', requester: '李经理', expectDate: '2026-04-30', description: '<p>需要优化数据看板的用户分析模块，包括：</p><ul><li>新增用户留存分析图表</li><li>优化TOP10用户排名展示</li><li>添加实时数据刷新功能</li></ul>', attachments: [{ name: '需求文档.pdf', size: '2.3MB', type: 'doc' }, { name: '原型图.png', size: '5.1MB', type: 'image' }], logs: [{ id: 1, action: '需求状态变更为 评估中', user: '系统', time: '2026-04-02 10:00' }, { id: 2, action: '评估信息已更新 - 预估工时：16人天', user: '李四', time: '2026-04-02 14:30' }, { id: 3, action: '需求创建', user: '张三', time: '2026-04-01 10:30' }], evaluation: { isFeasible: true, estimatedWorkload: '16人天', estimatedCost: null, estimatedOnlineDate: '2026-04-30', evaluator: '李四' }, designWorks: [], tasks: [] },
+                    { id: 8, reqNo: 'REQ20260401004', title: 'speedo - SKU库存同步优化', project: 'speedo', subProject: '', businessLine: '全渠道云鹿定制', type: '项目需求', status: '评估中', statusClass: 'evaluating', priority: '高', priorityClass: 'high', owner: '吴十', createdAt: '2026-04-01', source: '外部', requester: 'speedo业务', expectDate: '2026-05-01', description: '<p>优化SKU库存同步逻辑</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 评估中', user: '系统', time: '2026-04-02 10:00' }, { id: 2, action: '开始评估', user: '吴十', time: '2026-04-02 11:00' }], evaluation: { isFeasible: true, estimatedWorkload: '8人天', estimatedCost: '¥32,000', estimatedOnlineDate: '2026-05-01', evaluator: '吴十' }, designWorks: [], tasks: [] },
+                    { id: 12, reqNo: 'REQ20260401006', title: '黄天鹅 - 批次追溯系统', project: '黄天鹅', subProject: '', businessLine: '全渠道云鹿SAAS', type: '项目需求', status: '评估中', statusClass: 'evaluating', priority: '高', priorityClass: 'high', owner: '钱七', createdAt: '2026-04-01', source: '外部', requester: '黄天鹅', expectDate: '2026-05-10', description: '<p>建立批次追溯体系</p>', attachments: [{ name: '需求文档.pdf', size: '3.1MB', type: 'doc' }], logs: [{ id: 1, action: '需求状态变更为 评估中', user: '系统', time: '2026-04-02 10:00' }], evaluation: { isFeasible: true, estimatedWorkload: '24人天', estimatedCost: '¥96,000', estimatedOnlineDate: '2026-05-10', evaluator: '钱七' }, designWorks: [], tasks: [] },
+                    // 已拒绝
+                    { id: 13, reqNo: 'REQ20260401007', title: 'PMS - 智能推荐功能（已拒绝）', project: '皇家宠物', subProject: 'PMS', businessLine: '全渠道云鹿定制', type: '产品需求', status: '已拒绝', statusClass: 'rejected', priority: '中', priorityClass: 'medium', owner: '李四', createdAt: '2026-03-28', source: '内部', requester: '李经理', expectDate: '2026-04-20', description: '<p>智能推荐功能需求</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 已拒绝', user: 'BU负责人', time: '2026-03-30 14:00' }, { id: 2, action: '需求创建', user: '李四', time: '2026-03-28 10:00' }], evaluation: { isFeasible: false, estimatedWorkload: '-', estimatedCost: '-', estimatedOnlineDate: '-', evaluator: '李四' }, designWorks: [], tasks: [] },
+                    // 待设计
+                    { id: 14, reqNo: 'REQ20260401008', title: '皇家宠物 - CRM系统升级', project: '皇家宠物', subProject: '', businessLine: '全渠道云鹿定制', type: '项目需求', status: '待设计', statusClass: 'pending_design', priority: '高', priorityClass: 'high', owner: '张三', createdAt: '2026-04-01', source: '外部', requester: '皇家宠物', expectDate: '2026-06-01', description: '<p>CRM系统升级项目需求</p>', attachments: [], logs: [{ id: 1, action: 'BU决策通过', user: 'BU负责人', time: '2026-04-02 16:00' }, { id: 2, action: '评估完成', user: '李四', time: '2026-04-02 15:30' }], evaluation: { isFeasible: true, estimatedWorkload: '40人天', estimatedCost: '¥160,000', estimatedOnlineDate: '2026-06-01', evaluator: '李四' }, designWorks: [], tasks: [] },
+                    // 设计中
+                    { id: 6, reqNo: 'REQ20260401003', title: '飞鹤 - 会员积分体系对接', project: '飞鹤', subProject: '', businessLine: '全渠道云鹿定制', type: '项目需求', status: '设计中', statusClass: 'designing', priority: '中', priorityClass: 'medium', owner: '孙八', createdAt: '2026-04-01', source: '外部', requester: '飞鹤', expectDate: '2026-05-20', description: '<p>飞鹤会员积分体系对接需求</p>', attachments: [{ name: '需求确认书.pdf', size: '1.5MB', type: 'doc' }], logs: [{ id: 1, action: '需求状态变更为 设计中', user: '系统', time: '2026-04-03 09:00' }, { id: 2, action: '开始设计工作', user: '孙八', time: '2026-04-03 09:30' }], evaluation: { isFeasible: true, estimatedWorkload: '20人天', estimatedCost: '¥80,000', estimatedOnlineDate: '2026-05-20', evaluator: '孙八' }, designWorks: [{ type: '原型设计', estimatedHours: 4, actualHours: 3, designer: '孙八', status: 'done', statusText: '已完成', statusClass: 'done' }, { type: 'UI设计', estimatedHours: 8, actualHours: 5, designer: 'UI设计员', status: 'in-progress', statusText: '进行中', statusClass: 'in-progress' }, { type: '技术方案', estimatedHours: 6, actualHours: null, designer: '后端负责人', status: 'pending', statusText: '未开始', statusClass: 'pending' }], tasks: [] },
+                    // 待确认
+                    { id: 15, reqNo: 'REQ20260401009', title: '皇家宠物 - 促销模块优化', project: '皇家宠物', subProject: 'PMS', businessLine: '全渠道云鹿定制', type: '项目需求', status: '待确认', statusClass: 'pending_confirm', priority: '高', priorityClass: 'high', owner: '张三', createdAt: '2026-03-25', source: '外部', requester: '皇家宠物', expectDate: '2026-04-25', description: '<p>促销模块优化设计已完成，等待客户确认</p>', attachments: [{ name: '设计稿.vsdx', size: '8.2MB', type: 'doc' }], logs: [{ id: 1, action: '所有设计工作已完成', user: '系统', time: '2026-04-02 18:00' }, { id: 2, action: 'UI设计完成', user: 'UI设计员', time: '2026-04-02 17:30' }], evaluation: { isFeasible: true, estimatedWorkload: '30人天', estimatedCost: '¥120,000', estimatedOnlineDate: '2026-04-25', evaluator: '张三' }, designWorks: [{ type: '原型设计', estimatedHours: 5, actualHours: 5, designer: '张三', status: 'done', statusText: '已完成', statusClass: 'done' }, { type: 'UI设计', estimatedHours: 10, actualHours: 10, designer: 'UI设计员', status: 'done', statusText: '已完成', statusClass: 'done' }, { type: '技术方案', estimatedHours: 8, actualHours: 7, designer: '后端负责人', status: 'done', statusText: '已完成', statusClass: 'done' }], tasks: [] },
+                    // 开发中
+                    { id: 3, reqNo: 'REQ20260402001', title: 'RC新体系 - 订单自动分单逻辑', project: '皇家宠物', subProject: 'RC新体系', businessLine: '全渠道云鹿定制', type: '项目需求', status: '开发中', statusClass: 'developing', priority: '高', priorityClass: 'high', owner: '王五', createdAt: '2026-04-02', source: '内部', requester: '产品经理', expectDate: '2026-04-20', description: '<p>RC新体系订单自动分单逻辑开发</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 开发中', user: '系统', time: '2026-04-03 10:00' }, { id: 2, action: '客户确认完成', user: '张客户', time: '2026-04-03 09:00' }], evaluation: { isFeasible: true, estimatedWorkload: '15人天', estimatedCost: '¥60,000', estimatedOnlineDate: '2026-04-20', evaluator: '王五' }, designWorks: [{ type: '原型设计', estimatedHours: 3, actualHours: 3, designer: '王五', status: 'done', statusText: '已完成', statusClass: 'done' }, { type: 'UI设计', estimatedHours: 4, actualHours: 4, designer: 'UI设计员', status: 'done', statusText: '已完成', statusClass: 'done' }], tasks: [{ id: 1, title: '订单分单算法实现', type: '后端开发', assignee: '王五', estimatedHours: 8, status: '已完成' }, { id: 2, title: '订单状态同步', type: '后端开发', assignee: '后端研发A', estimatedHours: 4, status: '进行中' }, { id: 3, title: '前端分单界面开发', type: '前端开发', assignee: '前端研发B', estimatedHours: 3, status: '待开始' }] },
+                    { id: 9, reqNo: 'REQ20260402004', title: '佳贝艾特 - 促销活动的随机码发放', project: '佳贝艾特', subProject: '', businessLine: '全渠道云鹿定制', type: '产品需求', status: '开发中', statusClass: 'developing', priority: '中', priorityClass: 'medium', owner: '郑十一', createdAt: '2026-04-02', source: '内部', requester: '产品经理', expectDate: '2026-04-25', description: '<p>随机码发放功能开发</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 开发中', user: '系统', time: '2026-04-04 10:00' }], evaluation: { isFeasible: true, estimatedWorkload: '6人天', estimatedCost: null, estimatedOnlineDate: '2026-04-25', evaluator: '郑十一' }, designWorks: [], tasks: [{ id: 1, title: '随机码生成算法', type: '后端开发', assignee: '郑十一', estimatedHours: 3, status: '已完成' }, { id: 2, title: '发放接口开发', type: '后端开发', assignee: '郑十一', estimatedHours: 3, status: '进行中' }] },
+                    // 测试中
+                    { id: 4, reqNo: 'REQ20260402002', title: 'EC小程序 - 首页UI改版', project: '皇家宠物', subProject: 'EC小程序', businessLine: '全渠道云鹿定制', type: '产品需求', status: '测试中', statusClass: 'testing', priority: '中', priorityClass: 'medium', owner: '赵六', createdAt: '2026-04-02', source: '内部', requester: '产品经理', expectDate: '2026-04-15', description: '<p>EC小程序首页UI改版</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 测试中', user: '系统', time: '2026-04-03 16:00' }, { id: 2, action: '提测', user: '前端研发', time: '2026-04-03 15:30' }], evaluation: { isFeasible: true, estimatedWorkload: '5人天', estimatedCost: null, estimatedOnlineDate: '2026-04-15', evaluator: '赵六' }, designWorks: [], tasks: [{ id: 1, title: '首页UI重构', type: '前端开发', assignee: '前端研发', estimatedHours: 3, status: '已完成' }, { id: 2, title: '首页功能测试', type: '测试', assignee: '测试人员A', estimatedHours: 2, status: '进行中' }] },
+                    { id: 10, reqNo: 'REQ20260401005', title: '逢时 - VMI库存管理模块', project: '逢时', subProject: '', businessLine: '全渠道云鹿SAAS', type: '项目需求', status: '测试中', statusClass: 'testing', priority: '高', priorityClass: 'high', owner: '王五', createdAt: '2026-04-01', source: '外部', requester: '逢时', expectDate: '2026-04-18', description: '<p>VMI库存管理模块开发测试</p>', attachments: [{ name: '测试用例.xlsx', size: '0.5MB', type: 'doc' }], logs: [{ id: 1, action: '需求状态变更为 测试中', user: '系统', time: '2026-04-03 14:00' }], evaluation: { isFeasible: true, estimatedWorkload: '18人天', estimatedCost: '¥72,000', estimatedOnlineDate: '2026-04-18', evaluator: '王五' }, designWorks: [], tasks: [{ id: 1, title: 'VMI核心功能', type: '后端开发', assignee: '王五', estimatedHours: 10, status: '已完成' }, { id: 2, title: 'VMI前端界面', type: '前端开发', assignee: '前端研发', estimatedHours: 5, status: '已完成' }, { id: 3, title: '功能测试', type: '测试', assignee: '测试人员B', estimatedHours: 3, status: '进行中' }] },
+                    // 待上线
+                    { id: 5, reqNo: 'REQ20260403001', title: '数据看板 - 销售报表导出功能', project: '皇家宠物', subProject: '数据看板', businessLine: '全渠道云鹿定制', type: '产品需求', status: '待上线', statusClass: 'online', priority: '低', priorityClass: 'low', owner: '钱七', createdAt: '2026-04-03', source: '内部', requester: '产品经理', expectDate: '2026-04-10', description: '<p>数据看板销售报表导出功能</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 待上线', user: '系统', time: '2026-04-04 10:00' }, { id: 2, action: '测试通过', user: '测试人员', time: '2026-04-04 09:30' }], evaluation: { isFeasible: true, estimatedWorkload: '3人天', estimatedCost: null, estimatedOnlineDate: '2026-04-10', evaluator: '钱七' }, designWorks: [], tasks: [{ id: 1, title: '报表导出功能', type: '前端开发', assignee: '钱七', estimatedHours: 2, status: '已完成' }, { id: 2, title: '后端导出接口', type: '后端开发', assignee: '后端研发', estimatedHours: 1, status: '已完成' }] },
+                    { id: 11, reqNo: 'REQ20260402005', title: '逢时 - 采购订单自动审批流', project: '逢时', subProject: '', businessLine: '全渠道云鹿SAAS', type: '产品需求', status: '待上线', statusClass: 'online', priority: '中', priorityClass: 'medium', owner: '赵六', createdAt: '2026-04-02', source: '内部', requester: '产品经理', expectDate: '2026-04-12', description: '<p>采购订单自动审批流</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 待上线', user: '系统', time: '2026-04-04 11:00' }], evaluation: { isFeasible: true, estimatedWorkload: '8人天', estimatedCost: null, estimatedOnlineDate: '2026-04-12', evaluator: '赵六' }, designWorks: [], tasks: [{ id: 1, title: '审批流配置', type: '后端开发', assignee: '赵六', estimatedHours: 5, status: '已完成' }, { id: 2, title: '审批通知', type: '前端开发', assignee: '前端研发', estimatedHours: 3, status: '已完成' }] },
+                    // 已上线
+                    { id: 16, reqNo: 'REQ20260328001', title: '皇家宠物 - 会员积分商城上线', project: '皇家宠物', subProject: 'PMS', businessLine: '全渠道云鹿定制', type: '项目需求', status: '已上线', statusClass: 'online', priority: '高', priorityClass: 'high', owner: '张三', createdAt: '2026-03-20', source: '外部', requester: '皇家宠物', expectDate: '2026-03-31', description: '<p>会员积分商城已成功上线</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 已上线', user: '系统', time: '2026-03-31 18:00' }], evaluation: { isFeasible: true, estimatedWorkload: '25人天', estimatedCost: '¥100,000', estimatedOnlineDate: '2026-03-31', evaluator: '张三' }, designWorks: [], tasks: [] },
+                    // 已交付
+                    { id: 17, reqNo: 'REQ20260315001', title: '飞鹤 - 订单管理系统', project: '飞鹤', subProject: '', businessLine: '全渠道云鹿定制', type: '项目需求', status: '已交付', statusClass: 'delivered', priority: '高', priorityClass: 'high', owner: '王五', createdAt: '2026-03-10', source: '外部', requester: '飞鹤', expectDate: '2026-03-28', description: '<p>订单管理系统已完成交付</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 已交付', user: '系统', time: '2026-03-30 12:00' }], evaluation: { isFeasible: true, estimatedWorkload: '35人天', estimatedCost: '¥140,000', estimatedOnlineDate: '2026-03-28', evaluator: '王五' }, designWorks: [], tasks: [] },
+                    // 已验收
+                    { id: 18, reqNo: 'REQ20260301001', title: '逢时 - 仓储管理系统', project: '逢时', subProject: '', businessLine: '全渠道云鹿SAAS', type: '项目需求', status: '已验收', statusClass: 'accepted', priority: '高', priorityClass: 'high', owner: '钱七', createdAt: '2026-02-20', source: '外部', requester: '逢时', expectDate: '2026-03-15', description: '<p>仓储管理系统已验收完成</p>', attachments: [], logs: [{ id: 1, action: '需求状态变更为 已验收', user: '系统', time: '2026-03-20 16:00' }], evaluation: { isFeasible: true, estimatedWorkload: '50人天', estimatedCost: '¥200,000', estimatedOnlineDate: '2026-03-15', evaluator: '钱七' }, designWorks: [], tasks: [] },
+                ])
+
+                const filteredData = computed(() => {
+                    return tableData.value.filter(item => {
+                        if (filters.status && item.status !== filters.status) return false
+                        if (filters.type && item.type !== filters.type) return false
+                        if (filters.priority && item.priority !== filters.priority) return false
+                        if (filters.search && !item.title.toLowerCase().includes(filters.search.toLowerCase())) return false
+
+                        if (selectedBusiness.value && item.businessLine !== selectedBusiness.value) return false
+                        if (selectedProjects.value.length > 0 && !selectedProjects.value.includes(item.project)) return false
+                        if (selectedSubProjects.value.length > 0 && item.subProject && !selectedSubProjects.value.includes(item.subProject)) return false
+
+                        return true
+                    })
+                })
+
+                const kanbanColumns = computed(() => {
+                    const filtered = filteredData.value
+                    return [
+                        { name: '待评估', status: '待评估', cards: filtered.filter(i => i.status === '待评估') },
+                        { name: '评估中', status: '评估中', cards: filtered.filter(i => i.status === '评估中') },
+                        { name: '已拒绝', status: '已拒绝', cards: filtered.filter(i => i.status === '已拒绝') },
+                        { name: '待设计', status: '待设计', cards: filtered.filter(i => i.status === '待设计') },
+                        { name: '设计中', status: '设计中', cards: filtered.filter(i => i.status === '设计中') },
+                        { name: '待确认', status: '待确认', cards: filtered.filter(i => i.status === '待确认') },
+                        { name: '开发中', status: '开发中', cards: filtered.filter(i => i.status === '开发中') },
+                        { name: '测试中', status: '测试中', cards: filtered.filter(i => i.status === '测试中') },
+                        { name: '待上线', status: '待上线', cards: filtered.filter(i => i.status === '待上线') },
+                        { name: '已上线', status: '已上线', cards: filtered.filter(i => i.status === '已上线') },
+                        { name: '已交付', status: '已交付', cards: filtered.filter(i => i.status === '已交付') },
+                        { name: '已验收', status: '已验收', cards: filtered.filter(i => i.status === '已验收') },
+                    ]
+                })
+
+                const inProgressCount = computed(() => {
+                    return filteredData.value.filter(i => ['评估中', '设计中', '开发中', '测试中'].includes(i.status)).length
+                })
+
+                const pendingCount = computed(() => {
+                    return filteredData.value.filter(i => i.status === '待评估').length
+                })
+
+                const riskCount = computed(() => {
+                    return filteredData.value.filter(i => i.priority === '高' && ['待评估', '评估中'].includes(i.status)).length
+                })
+
+                const logoColors = {
+                    '皇家宠物': '#FEF3C7',
+                    '飞鹤': '#FEE2E2',
+                    'speedo': '#DBEAFE',
+                    '佳贝艾特': '#D1FAE5',
+                    '逢时': '#E0E7FF',
+                    '黄天鹅': '#FEF9C3'
+                }
+
+                const getLogoBg = (name) => {
+                    return logoColors[name] || '#F1F5F9'
+                }
+
+                const selectAll = () => {
+                    selectedBusiness.value = ''
+                    selectedProjects.value = []
+                    selectedSubProjects.value = []
+                }
+
+                const selectBusiness = (name) => {
+                    if (selectedBusiness.value === name) {
+                        selectedBusiness.value = ''
+                    } else {
+                        selectedBusiness.value = name
+                        selectedProjects.value = []
+                    }
+                    selectedSubProjects.value = []
+                }
+
+                const toggleProject = (name) => {
+                    const idx = selectedProjects.value.indexOf(name)
+                    if (idx > -1) {
+                        selectedProjects.value.splice(idx, 1)
+                    } else {
+                        selectedProjects.value.push(name)
+                    }
+                }
+
+                const toggleSubProject = (name) => {
+                    const idx = selectedSubProjects.value.indexOf(name)
+                    if (idx > -1) {
+                        selectedSubProjects.value.splice(idx, 1)
+                    } else {
+                        selectedSubProjects.value.push(name)
+                    }
+                }
+
+                const removeBusiness = () => {
+                    selectedBusiness.value = ''
+                }
+
+                const removeProject = (name) => {
+                    const idx = selectedProjects.value.indexOf(name)
+                    if (idx > -1) selectedProjects.value.splice(idx, 1)
+                }
+
+                const removeSubProject = (name) => {
+                    const idx = selectedSubProjects.value.indexOf(name)
+                    if (idx > -1) selectedSubProjects.value.splice(idx, 1)
+                }
+
+                const clearAllFilters = () => {
+                    selectedBusiness.value = ''
+                    selectedProjects.value = []
+                    selectedSubProjects.value = []
+                    filters.status = ''
+                    filters.type = ''
+                    filters.priority = ''
+                    filters.search = ''
+                }
+
+                const goToDetail = (id) => {
+                    // 从列表数据中找到对应的需求
+                    const req = tableData.value.find(item => item.id === id)
+                    if (req) {
+                        currentRequirement.value = req
+                        showDetailDrawer.value = true
+                    }
+                }
+
+                const openInNewPage = () => {
+                    if (currentRequirement.value) {
+                        window.open(`requirement-detail.html?id=${currentRequirement.value.id}`, '_blank')
+                    }
+                }
+
+                // 单双击处理
+                let clickTimer = null
+                let clickId = null
+
+                const handleRowClick = (id) => {
+                    if (clickTimer && clickId === id) {
+                        // 双击
+                        clearTimeout(clickTimer)
+                        clickTimer = null
+                        clickId = null
+                        handleRowDoubleClick(id)
+                    } else {
+                        clickId = id
+                        clickTimer = setTimeout(() => {
+                            // 单击 - 打开抽屉
+                            goToDetail(id)
+                            clickTimer = null
+                            clickId = null
+                        }, 250)
+                    }
+                }
+
+                const handleRowDoubleClick = (id) => {
+                    // 双击 - 打开新窗口
+                    window.open(`requirement-detail.html?id=${id}`, '_blank')
+                }
+
+                // 完整生命周期状态流转
+                const statusFlowSteps = [
+                    { status: '待评估', label: '待评估' },
+                    { status: '评估中', label: '评估中' },
+                    { status: '待设计', label: '待设计' },
+                    { status: '设计中', label: '设计中' },
+                    { status: '待确认', label: '待确认' },
+                    { status: '开发中', label: '开发中' },
+                    { status: '测试中', label: '测试中' },
+                    { status: '待上线', label: '待上线' },
+                    { status: '已上线', label: '已上线' },
+                    { status: '已交付', label: '已交付' },
+                    { status: '已验收', label: '已验收' }
+                ]
+
+                const lifecycleOrder = [
+                    '待评估', '评估中', '待设计', '设计中', '待确认',
+                    '开发中', '测试中', '待上线', '已上线', '已交付', '已验收'
+                ]
+
+                const isStepCompleted = (stepStatus) => {
+                    const currentStatus = currentRequirement.value?.status
+                    if (currentStatus === '已拒绝') {
+                        // 已拒绝状态，只有点击"已拒绝"之前的步骤完成
+                        return lifecycleOrder.indexOf(stepStatus) < lifecycleOrder.indexOf('评估中')
+                    }
+                    const currentIndex = lifecycleOrder.indexOf(currentStatus)
+                    const stepIndex = lifecycleOrder.indexOf(stepStatus)
+                    return stepIndex < currentIndex
+                }
+
+                // 不同状态的展示和操作
+                const showEvaluation = computed(() => {
+                    return ['待评估', '评估中', '已拒绝'].includes(currentRequirement.value?.status)
+                })
+
+                const showDesign = computed(() => {
+                    return ['待设计', '设计中', '待确认'].includes(currentRequirement.value?.status)
+                })
+
+                const showTasks = computed(() => {
+                    return ['开发中', '测试中', '待上线', '已上线'].includes(currentRequirement.value?.status)
+                })
+
+                // 获取当前状态可执行的操作
+                const getCurrentActions = () => {
+                    const status = currentRequirement.value?.status
+                    const type = currentRequirement.value?.type
+                    const actions = []
+
+                    switch (status) {
+                        case '待评估':
+                            actions.push(
+                                { type: 'start_eval', label: '开始评估', class: 'primary' },
+                                { type: 'reject', label: '标记已拒绝', class: 'danger' }
+                            )
+                            break
+                        case '评估中':
+                            actions.push(
+                                { type: 'submit_eval', label: '提交评估', class: 'primary' },
+                                { type: 'reject', label: '标记已拒绝', class: 'danger' }
+                            )
+                            break
+                        case '待设计':
+                            if (type === '项目需求') {
+                                actions.push(
+                                    { type: 'start_design', label: '开始设计', class: 'primary' },
+                                    { type: 'convert', label: '转为产品需求', class: 'secondary' }
+                                )
+                            } else {
+                                actions.push(
+                                    { type: 'start_design', label: '开始设计', class: 'primary' }
+                                )
+                            }
+                            break
+                        case '设计中':
+                            actions.push(
+                                { type: 'add_design', label: '添设计工作', class: 'secondary' },
+                                { type: 'confirm', label: '确认完成', class: 'primary' }
+                            )
+                            break
+                        case '待确认':
+                            actions.push(
+                                { type: 'customer_confirm', label: '客户确认', class: 'primary' },
+                                { type: 'internal_confirm', label: '内部确认', class: 'secondary' }
+                            )
+                            break
+                        case '开发中':
+                            actions.push(
+                                { type: 'add_task', label: '添加任务', class: 'secondary' },
+                                { type: 'start_test', label: '提测', class: 'primary' }
+                            )
+                            break
+                        case '测试中':
+                            actions.push(
+                                { type: 'test_pass', label: '测试通过', class: 'primary' },
+                                { type: 'test_fail', label: '测试失败', class: 'danger' }
+                            )
+                            break
+                        case '待上线':
+                            actions.push(
+                                { type: 'go_online', label: '确认上线', class: 'primary' }
+                            )
+                            break
+                        case '已上线':
+                            if (type === '项目需求') {
+                                actions.push(
+                                    { type: 'deliver', label: '确认交付', class: 'primary' }
+                                )
+                            }
+                            break
+                        case '已交付':
+                            if (type === '项目需求') {
+                                actions.push(
+                                    { type: 'accept', label: '确认验收', class: 'primary' }
+                                )
+                            }
+                            break
+                    }
+                    return actions
+                }
+
+                const executeAction = (type) => {
+                    if (type === 'submit_eval') {
+                        // 打开评估表单弹窗
+                        evaluationForm.isFeasible = true
+                        evaluationForm.estimatedWorkload = ''
+                        evaluationForm.estimatedCost = ''
+                        evaluationForm.estimatedOnlineDate = ''
+                        showEvaluationModal.value = true
+                        return
+                    }
+                    ElMessage.info(`执行操作: ${type}`)
+                    // 实际项目中这里会调用 API
+                }
+
+                const submitEvaluation = () => {
+                    if (!evaluationForm.estimatedWorkload) {
+                        ElMessage.warning('请输入预估工时')
+                        return
+                    }
+                    if (!evaluationForm.estimatedOnlineDate) {
+                        ElMessage.warning('请选择预估上线时间')
+                        return
+                    }
+                    if (currentRequirement.value.type === '项目需求' && !evaluationForm.estimatedCost) {
+                        ElMessage.warning('项目需求请输入预估报价')
+                        return
+                    }
+
+                    // 更新评估信息
+                    currentRequirement.value.evaluation = {
+                        isFeasible: evaluationForm.isFeasible,
+                        estimatedWorkload: evaluationForm.estimatedWorkload + '人天',
+                        estimatedCost: evaluationForm.estimatedCost ? '¥' + evaluationForm.estimatedCost : null,
+                        estimatedOnlineDate: evaluationForm.estimatedOnlineDate,
+                        evaluator: '当前用户' // 实际从登录用户获取
+                    }
+
+                    // 添加日志
+                    const newLog = {
+                        id: currentRequirement.value.logs.length + 1,
+                        action: `评估信息已更新 - 预估工时：${evaluationForm.estimatedWorkload}人天`,
+                        user: '当前用户',
+                        time: new Date().toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-')
+                    }
+                    currentRequirement.value.logs.unshift(newLog)
+
+                    showEvaluationModal.value = false
+                    ElMessage.success('评估信息已提交')
+                }
+
+                return {
+                    viewMode,
+                    isScrolled,
+                    showCreateModal,
+                    showDetailDrawer,
+                    showEvaluationModal,
+                    evaluationForm,
+                    currentRequirement,
+                    editorRef,
+                    newRequirement,
+                    modalProjects,
+                    execCommand,
+                    createRequirement,
+                    filters,
+                    statusOptions,
+                    typeOptions,
+                    priorityOptions,
+                    toggleFilter,
+                    businessLines,
+                    selectedBusiness,
+                    selectedProjects,
+                    selectedSubProjects,
+                    hasFilters,
+                    visibleProjects,
+                    tableData,
+                    filteredData,
+                    kanbanColumns,
+                    inProgressCount,
+                    pendingCount,
+                    riskCount,
+                    getLogoBg,
+                    selectAll,
+                    selectBusiness,
+                    toggleProject,
+                    toggleSubProject,
+                    removeBusiness,
+                    removeProject,
+                    removeSubProject,
+                    clearAllFilters,
+                    goToDetail,
+                    openInNewPage,
+                    onScroll,
+                    activeFilterCount,
+                    selectedFilterSummary,
+                    handleRowClick,
+                    handleRowDoubleClick,
+                    statusFlowSteps,
+                    isStepCompleted,
+                    showEvaluation,
+                    showDesign,
+                    showTasks,
+                    getCurrentActions,
+                    executeAction,
+                    submitEvaluation
+                }
+            }
+        })
+
+        app.use(ElementPlus)
+        app.mount('#app')
+    </script>
+</body>
+</html>

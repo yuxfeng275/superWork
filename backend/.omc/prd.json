@@ -1,0 +1,33 @@
+{
+  "task": "修复所有接口403错误（权限数据缺失导致）",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "移除 RequirementController 类级别冗余 @RequirePermission 注解",
+      "acceptanceCriteria": [
+        "RequirementController 类上无 @RequirePermission 注解",
+        "各方法的方法级注解保持不变"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "创建 V6 迁移脚本：分配测试用户角色和权限",
+      "acceptanceCriteria": [
+        "V6__init_user_role_permissions.sql 存在于 db/migration 目录",
+        "包含 sys_user_role 的 INSERT IGNORE 语句覆盖 user_id 2-8",
+        "包含各角色的 sys_role_permission 分配",
+        "使用 INSERT IGNORE 防止重复执行报错"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "后端编译无错误",
+      "acceptanceCriteria": [
+        "mvn compile 成功，无编译错误"
+      ],
+      "passes": true
+    }
+  ]
+}

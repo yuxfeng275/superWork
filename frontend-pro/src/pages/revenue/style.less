@@ -1,0 +1,310 @@
+.sw-revenue {
+  .ant-card {
+    border-radius: 18px;
+  }
+}
+
+/* 营收矩阵（工时 & 成本）：业务线 / 类型 / 项目合并单元格 + 按月双行数值 */
+.sw-revenue {
+  .sw-matrix-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px 16px;
+    margin-bottom: 14px;
+  }
+
+  .sw-matrix-pills {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-inline-size: 0;
+
+    button {
+      padding: 3px 10px;
+      border: 1px solid #d4d9e3;
+      border-radius: 14px;
+      background: #fff;
+      color: #4d5a70;
+      font-size: 12px;
+      line-height: 18px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s;
+
+      &:hover {
+        border-color: #1677ff;
+        color: #1677ff;
+      }
+
+      &.active {
+        border-color: #1677ff;
+        background: #1677ff;
+        color: #fff;
+      }
+
+      &.reset {
+        border-style: dashed;
+        color: #8a94a6;
+      }
+    }
+  }
+
+  .sw-matrix-switch {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .sw-matrix-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .sw-matrix-overview-cell {
+    display: grid;
+    gap: 4px;
+    padding: 12px 16px;
+    border: 1px solid #e8edf4;
+    border-radius: 12px;
+    background: #fff;
+
+    span {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    strong {
+      color: #0f172a;
+      font-size: 22px;
+      font-weight: 650;
+      line-height: 1.2;
+    }
+
+    small {
+      color: #94a3b8;
+      font-size: 11px;
+    }
+  }
+
+  .sw-matrix-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .sw-matrix-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #64748b;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .sw-matrix-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-left: 10px;
+    border-radius: 3px;
+
+    &.actual {
+      border: 1px solid #86efac;
+      background: #f0fdf4;
+    }
+
+    &.estimate {
+      border: 1px solid #93c5fd;
+      background: #eff6ff;
+    }
+  }
+
+  .ant-table-wrapper .ant-table {
+    font-size: 13px;
+  }
+
+  .ant-table-wrapper .ant-table-thead > tr > th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .sw-matrix-col-line,
+  .sw-matrix-col-total {
+    background: #fafcff;
+    font-weight: 700;
+  }
+
+  .sw-matrix-col-type {
+    color: #64748b;
+  }
+
+  .sw-matrix-col-project {
+    white-space: normal;
+  }
+
+  .sw-matrix-col-price {
+    color: #64748b;
+    text-align: center;
+  }
+
+  .sw-matrix-col-price small {
+    display: block;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .sw-matrix-month {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+
+    em {
+      padding: 0 3px;
+      border: 1px solid #86efac;
+      border-radius: 4px;
+      color: #15803d;
+      font-size: 10px;
+      font-style: normal;
+    }
+  }
+
+  .sw-matrix-cell {
+    color: #1f2937;
+    text-align: center;
+    white-space: nowrap;
+
+    &.clickable {
+      cursor: pointer;
+
+      &:hover {
+        background: #f1f5f9;
+      }
+    }
+
+    &.actual {
+      background: #f0fdf4;
+    }
+
+    &.estimate {
+      background: #eff6ff;
+    }
+
+    &.sw-matrix-sum {
+      font-weight: 700;
+    }
+  }
+
+  .sw-matrix-cost {
+    display: block;
+    font-weight: 650;
+  }
+
+  .sw-matrix-hours {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+  }
+
+  .sw-matrix-empty {
+    color: #cbd5e1;
+  }
+
+  .sw-matrix-estimate {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 3px;
+    border: 1px solid #93c5fd;
+    border-radius: 4px;
+    color: #1d4ed8;
+    font-size: 10px;
+    font-style: normal;
+  }
+
+  .sw-matrix-opp {
+    display: block;
+    color: #8b5cf6;
+    font-size: 11px;
+  }
+
+  /* 小计 / 合计行：!important 覆盖固定列与合计列底色 */
+  .sw-matrix-line-total > td {
+    background: #f8fafc !important;
+    font-weight: 700;
+  }
+
+  .sw-matrix-grand-total > td {
+    background: #f1f5f9 !important;
+    font-weight: 700;
+  }
+
+  /* 单元格下钻抽屉：预估 vs 实际 */
+  .sw-matrix-estimate-note {
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .sw-matrix-deviation {
+    padding: 12px 14px;
+    border: 1px solid #e8edf4;
+    border-radius: 12px;
+    background: #f8fafc;
+
+    h4 {
+      margin: 0 0 8px;
+    }
+  }
+
+  .sw-matrix-deviation-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .sw-matrix-deviation-item {
+    display: grid;
+    gap: 4px;
+
+    span {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    p {
+      margin: 0;
+      color: #0f172a;
+    }
+
+    strong {
+      font-size: 14px;
+
+      &.tone-over {
+        color: #b91c1c;
+      }
+
+      &.tone-under {
+        color: #15803d;
+      }
+
+      &.tone-flat {
+        color: #475569;
+      }
+    }
+  }
+}

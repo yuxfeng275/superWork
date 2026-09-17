@@ -1,0 +1,7 @@
+{
+  "tool_name": "Agent",
+  "tool_input_preview": "{\"description\":\"Explore business line and project management\",\"prompt\":\"I need to understand the current state of business line and project management in this system. Please explore:\\n\\n1. Read `front...",
+  "error": "undefined is not an object (evaluating 'H.input_tokens')",
+  "timestamp": "2026-04-07T05:34:13.790Z",
+  "retry_count": 1
+}

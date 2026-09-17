@@ -1,0 +1,45 @@
+# 生产环境配置
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 50
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+
+  flyway:
+    enabled: true
+    clean-disabled: true  # 生产环境禁止清理数据库
+
+# MyBatis Plus 配置
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 生产环境使用 SLF4J
+
+# MinIO 配置
+minio:
+  endpoint: ${MINIO_ENDPOINT}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET}  # 生产环境必须通过环境变量设置
+
+# 日志配置
+logging:
+  level:
+    root: WARN
+    com.bu.management: INFO
+    org.springframework.security: INFO
+  file:
+    name: /var/log/bu-management/application.log
+    max-size: 100MB
+    max-history: 30

@@ -1,0 +1,24 @@
+[     367ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://localhost:5175/@vite/client:509
+[     551ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-evaluations/by-requirement/777:0
+[     567ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5175/api/requirements/777:0
+[     567ms] [ERROR] 加载需求详情失败: Error: 需求不存在
+    at ApiService.request (http://localhost:5175/src/utils/api.ts?t=1776437655276:39:10)
+    at async Promise.all (index 0)
+    at async loadRequirement (http://localhost:5175/src/views/RequirementDetailView.vue?t=1776438370452:302:127) @ http://localhost:5175/@vite/client:509
+[     570ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-deliveries/777:0
+[     570ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-confirmations/777:0
+[  589226ms] [WARNING] [Vue Router warn]: The `next()` callback in navigation guards is deprecated. Return the value instead of calling `next(value)`. @ http://localhost:5175/@vite/client:509
+[  589724ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-evaluations/by-requirement/777:0
+[  589792ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-deliveries/777:0
+[  589793ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5175/api/requirements/777:0
+[  589793ms] [ERROR] 加载需求详情失败: Error: 需求不存在
+    at ApiService.request (http://localhost:5175/src/utils/api.ts?t=1776439195005:39:10)
+    at async Promise.all (index 0)
+    at async loadRequirement (http://localhost:5175/src/views/RequirementDetailView.vue?t=1776439195005:302:127) @ http://localhost:5175/@vite/client:509
+[  597299ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5175/api/requirements/777:0
+[  597299ms] [ERROR] 加载需求详情失败: Error: 需求不存在
+    at ApiService.request (http://localhost:5175/src/utils/api.ts?t=1776439195005:39:10)
+    at async Promise.all (index 0)
+    at async loadRequirement (http://localhost:5175/src/views/RequirementDetailView.vue?t=1776439203290:302:127) @ http://localhost:5175/@vite/client:509
+[  597311ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-evaluations/by-requirement/777:0
+[  597318ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5175/api/requirement-deliveries/777:0

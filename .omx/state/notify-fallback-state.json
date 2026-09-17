@@ -1,0 +1,90 @@
+{
+  "pid": 63394,
+  "parent_pid": 63346,
+  "started_at": "2026-04-17T13:48:29.506Z",
+  "cwd": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp",
+  "notify_script": "/Users/yufeng/.nvm/versions/node/v24.14.0/lib/node_modules/oh-my-codex/dist/scripts/notify-hook.js",
+  "authority_only": false,
+  "poll_ms": 250,
+  "effective_poll_ms": 250,
+  "idle_max_poll_ms": 1000,
+  "pid_file": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/.omx/state/notify-fallback.pid",
+  "max_lifetime_ms": 21600000,
+  "tracked_files": 5,
+  "seen_turns": 0,
+  "dispatch_drain": {
+    "enabled": true,
+    "max_per_tick": 5,
+    "run_count": 24783,
+    "leader_only": true,
+    "last_tick_at": "2026-04-17T15:46:03.354Z",
+    "last_result": {
+      "processed": 0,
+      "skipped": 0,
+      "failed": 0
+    },
+    "last_error": null
+  },
+  "leader_nudge": {
+    "enabled": true,
+    "leader_only": true,
+    "stale_threshold_ms": 180000,
+    "precomputed_leader_stale": true,
+    "last_tick_at": "2026-04-17T15:46:03.356Z",
+    "last_error": null,
+    "run_count": 24783
+  },
+  "ralph_continue_steer": {
+    "enabled": true,
+    "cadence_ms": 60000,
+    "message": "Ralph loop active continue",
+    "active": false,
+    "last_state_check_at": "2026-04-17T15:46:03.364Z",
+    "last_sent_at": "2026-04-09T09:05:54.153Z",
+    "cooldown_anchor_at": "2026-04-09T09:05:54.153Z",
+    "last_reason": "stale_current_session",
+    "last_error": null,
+    "state_path": "",
+    "pane_id": "",
+    "pane_current_command": "",
+    "current_phase": "",
+    "subagent_session_id": "",
+    "active_subagent_thread_ids": [],
+    "shared_timestamp_path": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/.omx/state/ralph-last-steer-at",
+    "shared_last_sent_at": "2026-04-09T09:05:54.153Z",
+    "singleton_lock_path": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/.omx/state/ralph-continue-steer.lock"
+  },
+  "fallback_auto_nudge": {
+    "enabled": true,
+    "stall_ms": 5000,
+    "last_tick_at": "2026-04-17T15:46:03.360Z",
+    "last_turn_at": "2026-04-11T15:37:24.352Z",
+    "last_turn_count": 34,
+    "last_message": "autopilot 残留状态已经清掉了。\n\n最新证据：\n- `GET /api/workflow-configs/meta/status-options` 真实返回 `HTTP 200`\n- `act",
+    "last_reason": "eligible_but_not_sent",
+    "last_error": null,
+    "last_nudged_signature": "",
+    "last_nudged_at": ""
+  },
+  "authority_backoff": {
+    "active": false,
+    "reason": "",
+    "primary_pid": null,
+    "primary_last_tick_at": "",
+    "freshness_ms": null,
+    "threshold_ms": null
+  },
+  "adaptive_poll": {
+    "enabled": true,
+    "base_ms": 250,
+    "max_ms": 1000,
+    "current_ms": 250,
+    "idle_streak": 0,
+    "last_tick_at": "2026-04-17T15:46:03.365Z",
+    "last_activity_at": "2026-04-17T15:46:03.365Z",
+    "last_activity_reason": "leader_nudge"
+  },
+  "stop_reason": "signal",
+  "stop_signal": "SIGTERM",
+  "stopping": true
+}

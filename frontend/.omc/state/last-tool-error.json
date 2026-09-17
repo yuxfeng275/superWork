@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend/src/views/ProjectView.vue\"}",
+  "error": "File content (10049 tokens) exceeds maximum allowed tokens (10000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-04-09T07:02:50.084Z",
+  "retry_count": 1
+}
