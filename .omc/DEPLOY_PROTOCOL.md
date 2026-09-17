@@ -72,6 +72,7 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-17 | f1acc66 | frontend-pro：周报中心概览进行中为 0 停止转圈，已确认/已发布按状态拆分计数；仅前端，含 80075d9。备份 deploy-backups/20260917-084024，已重启 nginx 并核对 :18080=旧 Vue / :18084=frontend-pro | ui-fix agent |
 | 2026-09-17 | 67ea82b | 241 默认入口切换：frontend-pro 改 :18080，旧 Vue 改 :18088，废弃 :18084；同步 nginx/compose 与部署文档。备份 deploy-backups/20260917-085229，已 recreate nginx 并核对 :18080=frontend-pro / :18088=旧 Vue / :18084 关闭 | ui-fix agent |
 | 2026-09-17 | 17ec31f | frontend-pro：侧栏工作台改 Appstore 图标与首页房子区分；新建/编辑大事儿关联项目必填；仅前端，含 19ce95b。备份 deploy-backups/20260917-090403，已重启 nginx 并核对 :18080=frontend-pro / :18088=旧 Vue | ui-fix agent |
+| 2026-09-17 | 3e03959 | frontend-pro：停止从 app.tsx 导出 mapServerMenu，修复 Umi `invalid key mapServerMenu` 白屏；仅前端，含 47b812c。备份 deploy-backups/20260917-091316，已重启 nginx 并核对 :18080=frontend-pro / umi.4e2731a9.js 200 | ui-fix agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
