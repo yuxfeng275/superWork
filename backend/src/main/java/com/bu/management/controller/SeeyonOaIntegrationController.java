@@ -75,6 +75,31 @@ public class SeeyonOaIntegrationController {
             @RequestBody SessionAuthRequest request) {
         return Result.success(integrationService.authorize(request == null ? null : request.cookie()));
     }
+    /** 获取验证码挑战（图片 base64 + challengeId），用于「账号密码 + 验证码」自助授权。 */
+    @GetMapping("/session/captcha")
+    @Operation(summary = "获取 OA 登录验证码（自助授权）")
+    public Result<com.bu.management.integration.SeeyonOaWebChannel.CaptchaChallenge> captcha() {
+        return Result.success(integrationService.captchaChallenge());
+    }
+
+    public record SessionLoginRequest(String challengeId, String captcha) {}
+
+    /** 账号密码 + 验证码自助授权（challengeId 可选；不需要验证码时传空即可）。 */
+    @PostMapping("/session/login")
+    @Operation(summary = "OA 账号密码 + 验证码自助授权")
+    public Result<com.bu.management.integration.SeeyonOaWebChannel.SessionStatus> login(
+            @RequestBody SessionLoginRequest request) {
+        return Result.success(integrationService.loginWithPassword(
+                request == null ? null : request.challengeId(),
+                request == null ? null : request.captcha()));
+    }
+
+    /** 自动授权：OA 不强制验证码时直接登录成功。 */
+    @PostMapping("/session/auto")
+    @Operation(summary = "OA 自动授权（无需验证码时）")
+    public Result<com.bu.management.integration.SeeyonOaWebChannel.SessionStatus> autoLogin() {
+        return Result.success(integrationService.tryAutoLogin());
+    }
 
     @DeleteMapping("/session")
     @Operation(summary = "清除 OA 网页会话授权")

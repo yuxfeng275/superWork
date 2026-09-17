@@ -70,9 +70,183 @@ public class SeeyonOaWebChannel {
     public SessionStatus sessionStatus() {
         String cookie = sessionCookie();
         if (!StringUtils.hasText(cookie)) {
-            return new SessionStatus(false, "未授权：请在连接器管理 → OA（致远）粘贴 JSESSIONID 完成授权");
+            return new SessionStatus(false, "未授权：请在连接器管理 → OA（致远）完成授权（自动登录 / 验证码 / 粘贴 JSESSIONID 均可）");
         }
         return new SessionStatus(true, "已授权（网页会话）");
+    }
+
+    /** 验证码挑战：挑战 ID + 验证码图片（base64 PNG）+ 过期时间戳。 */
+    public record CaptchaChallenge(String challengeId, String imageBase64, long expireAt) {}
+
+    private record Challenge(String cookies, long expireAt) {}
+
+    /** 短期内存中的预登录会话（challengeId → cookies + 过期时间）。 */
+    private final Map<String, Challenge> challenges = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long CHALLENGE_TTL_MS = 5 * 60 * 1000L;
+
+    /** 拉取一张验证码（同时建立预登录会话），用于授权弹窗。 */
+    public CaptchaChallenge captchaChallenge() {
+        String preSession = fetchLoginPageSession();
+        String id = java.util.UUID.randomUUID().toString();
+        long expireAt = System.currentTimeMillis() + CHALLENGE_TTL_MS;
+        byte[] image = getWithCookie(baseUrl() + "/seeyon/verifyCodeImage.jpg?v=" + System.currentTimeMillis(), preSession);
+        challenges.put(id, new Challenge(preSession, expireAt));
+        return new CaptchaChallenge(id, java.util.Base64.getEncoder().encodeToString(image), expireAt);
+    }
+
+    /** 账号密码表单登录（可选验证码）；登录成功后立即用最小调用验证会话，并持久化。 */
+    public SessionStatus loginWithPassword(String captchaChallengeId, String captcha) {
+        SeeyonOaRuntimeConfig config = configService.getRuntimeConfig();
+        if (!config.isConfigured() || !StringUtils.hasText(config.username()) || !StringUtils.hasText(config.password())) {
+            throw new IllegalStateException("OA 集成未配置账号密码，请先在连接器管理补全");
+        }
+        String cookies = captchaChallengeId == null ? null : challengeCookies(captchaChallengeId);
+        if (cookies == null && captchaChallengeId != null) {
+            throw new IllegalStateException("验证码已过期，请重新获取");
+        }
+        String body = "loginType=usernamePwd"
+                + "&login_username=" + URLEncoder.encode(config.username(), StandardCharsets.UTF_8)
+                + "&login_password1=" + URLEncoder.encode(config.password(), StandardCharsets.UTF_8)
+                + (StringUtils.hasText(captcha) ? "&login.VerifyCode=" + URLEncoder.encode(captcha.trim(), StandardCharsets.UTF_8) : "");
+        String session = formLogin(cookies, body);
+        if (session == null) {
+            throw new IllegalStateException("登录失败：账号密码错误或验证码错误（错误码见 OA 返回）");
+        }
+        sessionCookieCache = session;
+        try {
+            ajaxAction("sectionManager", "doProjection",
+                    Map.of("sectionBeanId", "pendingSection", "spaceType", "personal"));
+        } catch (IllegalStateException e) {
+            sessionCookieCache = null;
+            throw new IllegalStateException("登录成功但会话不可用，请改用粘贴 JSESSIONID 方式授权");
+        }
+        persistSessionCookie(session);
+        return new SessionStatus(true, "授权成功，OA 网页会话已生效");
+    }
+
+    /** 自动登录：不交互尝试一次表单登录（OA 不强制验证码时直接成功）。 */
+    public SessionStatus tryAutoLogin() {
+        try {
+            return loginWithPassword(null, null);
+        } catch (IllegalStateException e) {
+            String message = e.getMessage();
+            if (message != null && message.contains("验证码")) {
+                return new SessionStatus(false, "OA 需要验证码登录，请在授权弹窗输入验证码（或粘贴 JSESSIONID）");
+            }
+            return new SessionStatus(false, "自动登录失败：" + message + "；可在授权弹窗输验证码或粘贴 JSESSIONID");
+        }
+    }
+
+    private String challengeCookies(String challengeId) {
+        Challenge challenge = challenges.remove(challengeId);
+        if (challenge == null || System.currentTimeMillis() > challenge.expireAt()) return null;
+        return challenge.cookies();
+    }
+
+    private String fetchLoginPageSession() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl() + "/seeyon/main.do?method=index"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("User-Agent", "Java-http-client/17.0.7")
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            return cookiesFrom(response);
+        } catch (Exception e) {
+            throw new IllegalStateException("OA 登录页不可达，请检查服务地址");
+        }
+    }
+
+    /** 会话保活（由定时任务每 10 分钟调用）：有会话就 ping 一下，失效则清除并等待人工重新授权。 */
+    public void keepAlive() {
+        String cookie = sessionCookie();
+        if (!StringUtils.hasText(cookie)) return;
+        try {
+            ajaxAction("sectionManager", "doProjection",
+                    Map.of("sectionBeanId", "pendingSection", "spaceType", "personal"));
+        } catch (IllegalStateException e) {
+            log.warn("OA 会话保活失败，会话已失效：{}", e.getMessage());
+            sessionCookieCache = null;
+            persistSessionCookie(null);
+        }
+    }
+    private String cookiesFrom(HttpResponse<?> response) {
+        List<String> setCookies = response.headers().allValues("Set-Cookie");
+        List<String> cookies = new ArrayList<>();
+        for (String setCookie : setCookies) {
+            int semi = setCookie.indexOf(';');
+            cookies.add(semi > 0 ? setCookie.substring(0, semi) : setCookie);
+        }
+        return String.join("; ", cookies);
+    }
+
+    private byte[] getWithCookie(String url, String cookie) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("User-Agent", "Java-http-client/17.0.7")
+                    .header("Cookie", cookie)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() != 200 || response.body() == null) {
+                throw new IllegalStateException("验证码获取失败");
+            }
+            return response.body();
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("验证码获取失败，请稍后重试");
+        }
+    }
+
+    /**
+     * 表单登录：302 + JSESSIONID + 无 LoginError 即成功；LoginError=9 视为验证码问题。
+     * 返回合并后的会话 Cookie 串（登录前的 JSESSIONID + 登录后的），失败返回 null。
+     */
+    private String formLogin(String existingCookies, String body) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl() + "/seeyon/main.do?method=login"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("User-Agent", "Java-http-client/17.0.7")
+                    .header("Referer", baseUrl() + "/seeyon/main.do?method=index")
+                    .header("Origin", baseUrl())
+                    .header("Cookie", existingCookies == null ? "" : existingCookies)
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            boolean loginError = !response.headers().allValues("LoginError").isEmpty()
+                    || !response.headers().allValues("loginerror").isEmpty();
+            if (loginError) return null;
+            String merged = mergeCookies(existingCookies, cookiesFrom(response));
+            if (!StringUtils.hasText(merged) || !merged.contains("JSESSIONID")) return null;
+            return merged;
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    private String mergeCookies(String existing, String fresh) {
+        Map<String, String> merged = new LinkedHashMap<>();
+        for (String part : List.of(existing == null ? "" : existing, fresh == null ? "" : fresh)) {
+            for (String pair : part.split(";")) {
+                String trimmed = pair.trim();
+                int eq = trimmed.indexOf('=');
+                if (eq > 0) merged.put(trimmed.substring(0, eq), trimmed.substring(eq + 1));
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : merged.entrySet()) {
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+        }
+        return sb.toString();
     }
 
     /** 保存管理员粘贴的 JSESSIONID（校验后持久化到连接器扩展参数）。 */
