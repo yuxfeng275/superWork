@@ -9,7 +9,7 @@
    禁止直接从 feature/worktree 分支构建部署。241 上的 jar/dist 必须与 origin/master 一致。
 
 2. **master 是唯一部署源**：部署产物（jar/dist）只从 `master` 分支的 `backend/target/management-1.0.0.jar`
-   与 `frontend/dist/` 构建。worktree（bigwork/aiagent 等）只负责开发与自测。
+   、`frontend/dist/`、`frontend-pro/dist/` 构建。worktree（bigwork/aiagent 等）只负责开发与自测。
 
 3. **合并前必须同步**：merge 到 master 前先 `git fetch`，确认没有其他 agent 刚推过提交；
    merge 后 `git push origin master` 成功才算完成合并。
@@ -31,7 +31,8 @@ git merge <branch> --no-edit        # 或直接在 master 上提交
 git push origin master
 # 3. 构建 + 同步 + 重建容器（参照 docs/deployment.md）：
 rsync jar/dist → server-241
-ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --build backend frontend'
+ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --build frontend-pro && docker restart superwork-bu-nginx'
+# 241 入口：frontend-pro :18080，旧 Vue :18088，backend :18081
 # 4. 登记部署
 ```
 
@@ -68,8 +69,13 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 ### ⚠️ 部署操作提醒（2026-09-17）
 
 重建 `frontend` / `frontend-pro` 容器后**必须同时 `docker restart superwork-bu-nginx`**：
-nginx upstream 用 `server frontend:80` 形式在启动时解析一次，容器重建换 IP 后仍指向旧地址，
-会出现「:18080 显示 frontend-pro、:18084 显示旧 Vue 前端」的端口互换（本次部署已遇并修复）。
+nginx upstream 用 `server frontend:80` 形式在启动时解析一次，容器重建换 IP 后仍指向旧地址。
+
+当前入口（2026-09-17 起）：
+- `:18080` = frontend-pro（Ant Design Pro，默认入口）
+- `:18088` = 旧 Vue 前端（兜底）
+- `:18081` = backend
+- `:18084` 已废弃，不再映射
 
 
 ## 回滚

@@ -1,6 +1,6 @@
 # 部署文档 — 电商BU内部管理系统
 
-> 更新时间：2026-04-24
+> 更新时间：2026-09-17
 
 ---
 
@@ -30,14 +30,18 @@
 
 ## 服务架构
 
+241 生产（`docker/docker-compose.241.yml`）通过 Nginx 同时托管两套前端，共用同一后端：
+
 ```
 浏览器
   │
   ▼
-Nginx :80          ← 统一入口，反向代理
-  ├── /            → Frontend :80  (Vue 3 静态页面)
-  ├── /api/        → Backend  :8081 (Spring Boot)
-  └── /doc.html    → Backend  :8081 (Knife4j API 文档)
+Nginx
+  ├── :18080 /          → frontend-pro :80   （Ant Design Pro，当前默认入口）
+  ├── :18080 /api/      → backend :8081
+  ├── :18088 /          → frontend :80       （旧 Vue，兜底）
+  ├── :18088 /api/      → backend :8081
+  └── :18081            → backend :8081      （直连）
 
 Backend :8081
   ├── MySQL  :3306
@@ -45,16 +49,19 @@ Backend :8081
   └── MinIO  :9000
 ```
 
-### 容器列表
+本地开发仍可用 `docker/docker-compose.yml`（Nginx :8000 / 旧前端 :8080 / 后端 :8081）。
+
+### 241 容器列表
 
 | 容器名 | 镜像 | 端口映射 | 说明 |
 |--------|------|---------|------|
-| bu-management-nginx | nginx:alpine | 80:80 | 统一入口 |
-| bu-management-backend | 本地构建 | 8081:8081 | Spring Boot API |
-| bu-management-frontend | 本地构建 | 8080:80 | Vue 3 前端 |
-| bu-management-mysql | mysql:8.0 | 3306:3306 | 数据库 |
-| bu-management-redis | redis:7-alpine | 6379:6379 | 缓存 |
-| bu-management-minio | minio/minio | 9000-9001 | 对象存储 |
+| superwork-bu-nginx | nginx:alpine | 18080:80、18088:8088 | 统一入口：新前端 :18080，旧前端 :18088 |
+| superwork-bu-backend | 本地构建 | 18081:8081 | Spring Boot API |
+| superwork-bu-frontend-pro | 本地构建 | 内部 80 | Ant Design Pro 前端 |
+| superwork-bu-frontend | 本地构建 | 内部 80 | 旧 Vue 前端（兜底） |
+| superwork-bu-mysql | mysql:8.0 | 127.0.0.1:13306:3306 | 数据库 |
+| superwork-bu-redis | redis:7-alpine | 内部 6379 | 缓存 |
+| superwork-bu-minio | minio/minio | 127.0.0.1:19000-19001 | 对象存储 |
 
 ---
 
@@ -73,15 +80,23 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-### 更新部署
+### 更新部署（241）
+
+先合入 `master`，再从 master 构建产物。frontend-pro 只发 dist，不要带上旧 Vue / 后端。
 
 ```bash
 cd docker
 
-# 重新构建并启动（仅重建有变更的服务）
-docker compose up -d --build backend    # 仅更新后端
-docker compose up -d --build frontend   # 仅更新前端
-docker compose up -d --build           # 更新所有服务
+# 仅更新新前端（常用）
+docker compose -f docker-compose.241.yml up -d --build frontend-pro
+docker restart superwork-bu-nginx   # 必须：upstream IP 在 nginx 启动时解析一次
+
+# 仅更新旧前端兜底
+docker compose -f docker-compose.241.yml up -d --build frontend
+docker restart superwork-bu-nginx
+
+# 仅更新后端
+docker compose -f docker-compose.241.yml up -d --build backend
 ```
 
 ### 停止服务
@@ -103,6 +118,19 @@ docker compose down -v
 
 ## 访问地址
 
+### 241 生产
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| **新前端（推荐）** | http://192.168.1.241:18080 | frontend-pro，Nginx 同时代理 `/api` |
+| 旧前端（兜底） | http://192.168.1.241:18088 | 旧 Vue 工程 |
+| 后端 API | http://192.168.1.241:18081 | Spring Boot 直连 |
+| API 文档 | http://192.168.1.241:18081/doc.html | Knife4j |
+
+> 家中网络也可走 `http://100.85.67.82:18080`。旧入口 `:18084` 已废弃，请改用 `:18080` / `:18088`。
+
+### 本地开发
+
 | 服务 | 地址 | 说明 |
 |------|------|------|
 | **前端应用（推荐）** | http://localhost:8000 | 通过 Nginx 访问，含 API 代理 |
@@ -111,7 +139,7 @@ docker compose down -v
 | **API 文档** | http://localhost:8081/doc.html | Knife4j 接口文档 |
 | MinIO 控制台 | http://localhost:9001 | 对象存储管理 |
 
-> 推荐使用 **http://localhost:8000** 访问，通过 Nginx 统一代理前后端。
+> 本地推荐使用 **http://localhost:8000** 访问，通过 Nginx 统一代理前后端。
 
 ---
 
