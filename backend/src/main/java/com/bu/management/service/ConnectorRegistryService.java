@@ -173,8 +173,7 @@ public class ConnectorRegistryService {
             message = switch (entity.getAuthType()) {
                 case AUTH_BASIC -> { testBasic(entity); yield "连接成功"; }
                 case AUTH_TOKEN -> { testToken(entity); yield "连接成功"; }
-                case AUTH_MCP -> testMcp(entity);
-                case AUTH_SEEYON -> { testSeeyon(entity); yield "连接成功"; }
+                case AUTH_SEEYON -> testSeeyon(entity);
                 default -> throw new IllegalStateException("不支持的认证类型：" + entity.getAuthType());
             };
             success = true;
@@ -493,15 +492,32 @@ public class ConnectorRegistryService {
     }
 
     /**
-     * 致远 OA REST 登录探活：POST base_url/seeyon/rest/token {userName,password} → {id}。
-     * 网关层 HTML 401 时给出可操作提示。
+     * 致远 OA 探活：先 REST（POST /seeyon/rest/token {userName,password} → {id}）；
+     * REST 被网关拦截时降级网页表单登录（main.do?method=login）验证账号可用性
+     * —— vReport 采集与 RPA 方案均走这条网页通道。
      */
-    private void testSeeyon(Connector entity) {
+    private String testSeeyon(Connector entity) {
         String username = credential(entity, "username");
         String password = credential(entity, "password");
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             throw new IllegalStateException("请先配置 OA 账号与密码");
         }
+        try {
+            testSeeyonRest(entity, username, password);
+            return "连接成功";
+        } catch (IllegalStateException e) {
+            // REST 不通（网关拦截/服务未开通）→ 降级网页表单登录验证账号
+            String restError = e.getMessage();
+            try {
+                testSeeyonWebLogin(entity, username, password);
+                return "连接成功（网页会话通道；REST 接口待 OA 管理员放行后启用）";
+            } catch (IllegalStateException webError) {
+                throw new IllegalStateException(webError.getMessage() + "；" + restError);
+            }
+        }
+    }
+
+    private void testSeeyonRest(Connector entity, String username, String password) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("userName", username);
         body.put("password", password);
@@ -534,6 +550,30 @@ public class ConnectorRegistryService {
         } catch (java.io.IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new IllegalStateException(entity.getName() + "暂时不可用，请稍后重试");
+        }
+    }
+
+    /** 网页表单登录探活：POST /seeyon/main.do?method=login（form）；成功 = 拿到 JSESSIONID 且无 loginerror。 */
+    private void testSeeyonWebLogin(Connector entity, String username, String password) {
+        try {
+            String form = "login_username=" + java.net.URLEncoder.encode(username, java.nio.charset.StandardCharsets.UTF_8)
+                    + "&login_password=" + java.net.URLEncoder.encode(password, java.nio.charset.StandardCharsets.UTF_8);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(trimSlash(entity.getBaseUrl()) + "/seeyon/main.do?method=login"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(form))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            boolean loginError = response.headers().allValues("loginerror").stream().anyMatch("1"::equals);
+            boolean hasSession = response.headers().allValues("Set-Cookie").stream()
+                    .anyMatch(cookie -> cookie.contains("JSESSIONID"));
+            if (loginError || !hasSession) {
+                throw new IllegalStateException(entity.getName() + "网页登录失败，请检查 OA 账号密码（若正确，请确认账号未被停用）");
+            }
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException(entity.getName() + "网页登录请求失败，请稍后重试");
         }
     }
 
