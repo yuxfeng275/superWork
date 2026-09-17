@@ -2056,289 +2056,285 @@ export default function KeyMattersPage() {
               );
             })}
           </aside>
-          <section className="sw-presentation-stage" aria-label="周会演示模式">
-            {presentationMatter ? (
-              <>
-                <Space
-                  style={{ width: '100%', justifyContent: 'space-between' }}
-                >
-                  <Tag color="blue">
-                    {presentationIndex + 1} / {presentationItems.length}
-                  </Tag>
-                  <Space>
-                    <Button
-                      onClick={() =>
-                        navigatePresentation(presentationIndex - 1)
-                      }
-                    >
-                      上一项
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        navigatePresentation(presentationIndex + 1)
-                      }
-                    >
-                      下一项
-                    </Button>
-                    {!isStandaloneMeeting && (
-                      <Button onClick={exitPresentation}>退出演示</Button>
-                    )}
-                  </Space>
-                </Space>
-                <div className="sw-presentation-title-row">
-                  <Typography.Title level={1}>
-                    {presentationMatter.title}
-                  </Typography.Title>
-                  <Typography.Text
-                    type="secondary"
-                    className="sw-presentation-owner"
+          <div className="sw-presentation-main">
+            <section
+              className="sw-presentation-stage"
+              aria-label="周会演示模式"
+            >
+              {presentationMatter ? (
+                <>
+                  <Space
+                    style={{ width: '100%', justifyContent: 'space-between' }}
                   >
-                    <FolderOpenOutlined />{' '}
-                    {presentationMatter.projectName || 'BU 内部事项'}
-                    <span className="sw-presentation-owner-divider" />
-                    <UserOutlined />{' '}
-                    {presentationMatter.ownerName || '未指定负责人'}
-                  </Typography.Text>
-                </div>
-                <Row gutter={[12, 12]} className="sw-presentation-cards">
-                  <Col xs={24}>
-                    <Card size="small" className="sw-presentation-brief">
-                      <header className="sw-presentation-brief-head">
-                        <strong>本周进展</strong>
-                        <Tag color={presentationStatusTone}>
-                          {presentationStatus || '未设置'}
-                        </Tag>
-                        <div className="sw-presentation-brief-progress">
-                          <Progress
-                            percent={presentationProgress}
-                            size={{ height: 8 }}
-                            showInfo={false}
-                            status={
-                              presentationStatus === '已阻塞'
-                                ? 'exception'
-                                : presentationStatus === '已完成'
-                                  ? 'success'
-                                  : 'active'
-                            }
-                          />
-                          <Typography.Text
-                            strong
-                            className="sw-presentation-brief-percent"
-                          >
-                            {presentationProgress}%
-                          </Typography.Text>
-                        </div>
-                      </header>
-                      {presentationEditing ? (
-                        <Input.TextArea
-                          rows={3}
-                          value={presentationDraft?.progressSummary}
-                          onChange={(event) =>
-                            setPresentationDraft((draft) => ({
-                              ...draft,
-                              progressSummary: event.target.value,
-                            }))
-                          }
-                          placeholder="逐条说明本周完成了什么、形成了什么结果"
-                        />
-                      ) : (
-                        presentationMatter.currentWeekUpdate?.progressSummary ||
-                        '尚未填写'
-                      )}
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Card size="small" title="问题 / 风险">
-                      {presentationEditing ? (
-                        <Input.TextArea
-                          rows={2}
-                          value={presentationDraft?.issues}
-                          onChange={(event) =>
-                            setPresentationDraft((draft) => ({
-                              ...draft,
-                              issues: event.target.value,
-                            }))
-                          }
-                          placeholder="没有可留空"
-                        />
-                      ) : (
-                        presentationMatter.currentWeekUpdate?.issues ||
-                        '本周暂无风险'
-                      )}
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Card size="small" title="需协调 / 决策">
-                      {presentationEditing ? (
-                        <Input.TextArea
-                          rows={2}
-                          value={presentationDraft?.supportNeeded}
-                          onChange={(event) =>
-                            setPresentationDraft((draft) => ({
-                              ...draft,
-                              supportNeeded: event.target.value,
-                            }))
-                          }
-                          placeholder="明确需要谁推动什么"
-                        />
-                      ) : (
-                        presentationMatter.currentWeekUpdate?.supportNeeded ||
-                        '暂无待协调事项'
-                      )}
-                    </Card>
-                  </Col>
-                  <Col xs={24}>
-                    <Card size="small" title="下一步行动">
-                      {presentationEditing ? (
-                        <Input.TextArea
-                          rows={2}
-                          value={presentationDraft?.nextWeekPlan}
-                          onChange={(event) =>
-                            setPresentationDraft((draft) => ({
-                              ...draft,
-                              nextWeekPlan: event.target.value,
-                            }))
-                          }
-                          placeholder="说明下一周期的关键动作"
-                        />
-                      ) : (
-                        presentationMatter.currentWeekUpdate?.nextWeekPlan ||
-                        '待补充'
-                      )}
-                    </Card>
-                  </Col>
-                </Row>
-                <Space style={{ marginTop: 20 }} wrap>
-                  {presentationEditing ? (
-                    <>
-                      <Select
-                        value={presentationDraft?.status}
-                        onChange={(value) =>
-                          setPresentationDraft((draft) => ({
-                            ...draft,
-                            status: value,
-                            progress:
-                              value === '已完成' ? 100 : draft?.progress,
-                          }))
+                    <Tag color="blue">
+                      {presentationIndex + 1} / {presentationItems.length}
+                    </Tag>
+                    <Space>
+                      <Button
+                        onClick={() =>
+                          navigatePresentation(presentationIndex - 1)
                         }
-                        options={statusOptions.map((value) => ({
-                          value,
-                          label: value,
-                        }))}
-                        style={{ width: 130 }}
-                      />
-                      <InputNumber
-                        min={0}
-                        max={100}
-                        value={presentationDraft?.progress}
-                        onChange={(value) =>
-                          setPresentationDraft((draft) => {
-                            const progress = Math.max(
-                              0,
-                              Math.min(100, Math.round(Number(value) || 0)),
-                            );
-                            return {
-                              ...draft,
-                              progress,
-                              status:
-                                progress === 100
-                                  ? '已完成'
-                                  : draft?.status === '已完成'
-                                    ? '推进中'
-                                    : draft?.status,
-                            };
-                          })
+                      >
+                        上一项
+                      </Button>
+                      <Button
+                        onClick={() =>
+                          navigatePresentation(presentationIndex + 1)
                         }
-                        suffix="%"
-                      />
-                      <Space size={4} wrap>
-                        {progressPresets.map((preset) => (
-                          <Button
-                            key={preset}
-                            size="small"
-                            type={
-                              presentationDraft?.progress === preset
-                                ? 'primary'
-                                : 'default'
-                            }
-                            onClick={() =>
+                      >
+                        下一项
+                      </Button>
+                      {!isStandaloneMeeting && (
+                        <Button onClick={exitPresentation}>退出演示</Button>
+                      )}
+                    </Space>
+                  </Space>
+                  <div className="sw-presentation-title-row">
+                    <Typography.Title level={1}>
+                      {presentationMatter.title}
+                    </Typography.Title>
+                    <Typography.Text
+                      type="secondary"
+                      className="sw-presentation-owner"
+                    >
+                      <FolderOpenOutlined />{' '}
+                      {presentationMatter.projectName || 'BU 内部事项'}
+                      <span className="sw-presentation-owner-divider" />
+                      <UserOutlined />{' '}
+                      {presentationMatter.ownerName || '未指定负责人'}
+                    </Typography.Text>
+                  </div>
+                  <Row gutter={[12, 12]} className="sw-presentation-cards">
+                    <Col xs={24}>
+                      <Card size="small" className="sw-presentation-brief">
+                        <header className="sw-presentation-brief-head">
+                          <strong>本周进展</strong>
+                          {presentationEditing ? (
+                            <Select
+                              className="sw-presentation-brief-status"
+                              value={presentationDraft?.status}
+                              popupMatchSelectWidth={false}
+                              onChange={(value) =>
+                                setPresentationDraft((draft) => ({
+                                  ...draft,
+                                  status: value,
+                                  progress:
+                                    value === '已完成' ? 100 : draft?.progress,
+                                }))
+                              }
+                              options={statusOptions.map((value) => ({
+                                value,
+                                label: value,
+                              }))}
+                            />
+                          ) : (
+                            <Tag color={presentationStatusTone}>
+                              {presentationStatus || '未设置'}
+                            </Tag>
+                          )}
+                          <div className="sw-presentation-brief-progress">
+                            <Progress
+                              percent={presentationProgress}
+                              size={{ height: 8 }}
+                              showInfo={false}
+                              status={
+                                presentationStatus === '已阻塞'
+                                  ? 'exception'
+                                  : presentationStatus === '已完成'
+                                    ? 'success'
+                                    : 'active'
+                              }
+                            />
+                            {presentationEditing ? (
+                              <InputNumber
+                                className="sw-presentation-brief-input"
+                                min={0}
+                                max={100}
+                                suffix="%"
+                                value={presentationDraft?.progress}
+                                onChange={(value) =>
+                                  setPresentationDraft((draft) => {
+                                    const progress = Math.max(
+                                      0,
+                                      Math.min(
+                                        100,
+                                        Math.round(Number(value) || 0),
+                                      ),
+                                    );
+                                    return {
+                                      ...draft,
+                                      progress,
+                                      status:
+                                        progress === 100
+                                          ? '已完成'
+                                          : draft?.status === '已完成'
+                                            ? '推进中'
+                                            : draft?.status,
+                                    };
+                                  })
+                                }
+                              />
+                            ) : (
+                              <Typography.Text
+                                strong
+                                className="sw-presentation-brief-percent"
+                              >
+                                {presentationProgress}%
+                              </Typography.Text>
+                            )}
+                          </div>
+                        </header>
+                        {presentationEditing ? (
+                          <Input.TextArea
+                            rows={3}
+                            value={presentationDraft?.progressSummary}
+                            onChange={(event) =>
                               setPresentationDraft((draft) => ({
                                 ...draft,
-                                progress: preset,
-                                status:
-                                  preset === 100
-                                    ? '已完成'
-                                    : draft?.status === '已完成'
-                                      ? '推进中'
-                                      : draft?.status,
+                                progressSummary: event.target.value,
                               }))
                             }
-                          >
-                            {preset}%
-                          </Button>
-                        ))}
-                      </Space>
-                      <Button onClick={stashPresentationDraft}>暂存草稿</Button>
-                      <Button
-                        loading={presentationSaving}
-                        type="primary"
-                        onClick={() => void savePresentationAndNext()}
-                      >
-                        保存并下一项
-                      </Button>
-                      <Button onClick={() => setPresentationEditing(false)}>
-                        取消
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        onClick={() => void openDetail(presentationMatter)}
-                      >
-                        查看详情
-                      </Button>
-                      {canFeedback(presentationMatter) && (
-                        <Button type="primary" onClick={startPresentationEdit}>
-                          更新周报
+                            placeholder="逐条说明本周完成了什么、形成了什么结果"
+                          />
+                        ) : (
+                          presentationMatter.currentWeekUpdate
+                            ?.progressSummary || '尚未填写'
+                        )}
+                      </Card>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Card size="small" title="问题 / 风险">
+                        {presentationEditing ? (
+                          <Input.TextArea
+                            rows={2}
+                            value={presentationDraft?.issues}
+                            onChange={(event) =>
+                              setPresentationDraft((draft) => ({
+                                ...draft,
+                                issues: event.target.value,
+                              }))
+                            }
+                            placeholder="没有可留空"
+                          />
+                        ) : (
+                          presentationMatter.currentWeekUpdate?.issues ||
+                          '本周暂无风险'
+                        )}
+                      </Card>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Card size="small" title="需协调 / 决策">
+                        {presentationEditing ? (
+                          <Input.TextArea
+                            rows={2}
+                            value={presentationDraft?.supportNeeded}
+                            onChange={(event) =>
+                              setPresentationDraft((draft) => ({
+                                ...draft,
+                                supportNeeded: event.target.value,
+                              }))
+                            }
+                            placeholder="明确需要谁推动什么"
+                          />
+                        ) : (
+                          presentationMatter.currentWeekUpdate?.supportNeeded ||
+                          '暂无待协调事项'
+                        )}
+                      </Card>
+                    </Col>
+                    <Col xs={24}>
+                      <Card size="small" title="下一步行动">
+                        {presentationEditing ? (
+                          <Input.TextArea
+                            rows={2}
+                            value={presentationDraft?.nextWeekPlan}
+                            onChange={(event) =>
+                              setPresentationDraft((draft) => ({
+                                ...draft,
+                                nextWeekPlan: event.target.value,
+                              }))
+                            }
+                            placeholder="说明下一周期的关键动作"
+                          />
+                        ) : (
+                          presentationMatter.currentWeekUpdate?.nextWeekPlan ||
+                          '待补充'
+                        )}
+                      </Card>
+                    </Col>
+                  </Row>
+                  <Space style={{ marginTop: 20 }} wrap>
+                    {presentationEditing ? (
+                      <>
+                        <Button onClick={stashPresentationDraft}>
+                          暂存草稿
                         </Button>
-                      )}
-                    </>
-                  )}
-                </Space>
-                <nav
-                  className="sw-presentation-thumbs"
-                  aria-label="演示事项快速导航"
-                >
-                  {presentationItems.map((matter, index) => {
-                    const requiresUpdate = effectiveStatus(matter) !== '已完成';
-                    const complete =
-                      !requiresUpdate || Boolean(matter.currentWeekUpdate);
-                    const stateClass =
-                      index === presentationIndex
-                        ? 'active'
-                        : complete
-                          ? 'complete'
-                          : canFeedback(matter)
-                            ? 'pending'
-                            : 'waiting';
-                    return (
-                      <button
-                        key={matter.id}
-                        type="button"
-                        className={stateClass}
-                        aria-label={`跳转到第 ${index + 1} 项`}
-                        onClick={() => navigatePresentation(index)}
-                      >
-                        {index + 1}
-                      </button>
-                    );
-                  })}
-                </nav>
-              </>
-            ) : (
-              <Empty description="本周暂无可演示事项" />
+                        <Button
+                          loading={presentationSaving}
+                          type="primary"
+                          onClick={() => void savePresentationAndNext()}
+                        >
+                          保存并下一项
+                        </Button>
+                        <Button onClick={() => setPresentationEditing(false)}>
+                          取消
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          onClick={() => void openDetail(presentationMatter)}
+                        >
+                          查看详情
+                        </Button>
+                        {canFeedback(presentationMatter) && (
+                          <Button
+                            type="primary"
+                            onClick={startPresentationEdit}
+                          >
+                            更新周报
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </Space>
+                </>
+              ) : (
+                <Empty description="本周暂无可演示事项" />
+              )}
+            </section>
+            {presentationMatter && (
+              <nav
+                className="sw-presentation-thumbs"
+                aria-label="演示事项快速导航"
+              >
+                {presentationItems.map((matter, index) => {
+                  const requiresUpdate = effectiveStatus(matter) !== '已完成';
+                  const complete =
+                    !requiresUpdate || Boolean(matter.currentWeekUpdate);
+                  const stateClass =
+                    index === presentationIndex
+                      ? 'active'
+                      : complete
+                        ? 'complete'
+                        : canFeedback(matter)
+                          ? 'pending'
+                          : 'waiting';
+                  return (
+                    <button
+                      key={matter.id}
+                      type="button"
+                      className={stateClass}
+                      aria-label={`跳转到第 ${index + 1} 项`}
+                      onClick={() => navigatePresentation(index)}
+                    >
+                      {index + 1}
+                    </button>
+                  );
+                })}
+              </nav>
             )}
-          </section>
+          </div>
           {presentationMatter && (
             <aside
               className="sw-presentation-history"

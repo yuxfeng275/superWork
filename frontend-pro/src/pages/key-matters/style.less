@@ -549,11 +549,17 @@
     }
   }
 }
+.sw-presentation-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
 .sw-presentation-stage {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
   padding: 18px 22px;
   background: #fff;
   border: 1px solid #e8edf5;
@@ -631,17 +637,25 @@
     > .ant-tag {
       margin-inline-end: 0;
     }
+    .sw-presentation-brief-status {
+      width: 116px;
+      flex: 0 0 auto;
+    }
   }
   .sw-presentation-brief-progress {
     display: flex;
     align-items: center;
     gap: 10px;
     flex: 1 1 auto;
-    min-width: 140px;
+    min-width: 160px;
     .ant-progress {
       flex: 1 1 auto;
       min-width: 0;
       margin: 0;
+    }
+    .sw-presentation-brief-input {
+      width: 96px;
+      flex: 0 0 auto;
     }
   }
   .sw-presentation-brief-percent {
@@ -652,12 +666,16 @@
 }
 .sw-presentation-thumbs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 22px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 2px 2px 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
   button {
-    width: 30px;
-    height: 30px;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
     border: 1px solid #dbe3ee;
     border-radius: 50%;
     background: #fff;
@@ -694,9 +712,11 @@
 }
 .sw-presentation-group-avatar {
   flex-shrink: 0;
-  border-radius: 8px;
   color: #fff;
   font-weight: 600;
+  &.ant-avatar-square {
+    border-radius: 8px;
+  }
 }
 .sw-presentation-history-head {
   display: flex;
@@ -766,10 +786,6 @@ body.key-matters-standalone {
   }
   .sw-presentation-stage h1 {
     font-size: 24px;
-  }
-  .sw-presentation-thumbs {
-    gap: 6px;
-    margin-top: 14px;
   }
   .sw-presentation-thumbs button {
     width: 26px;
