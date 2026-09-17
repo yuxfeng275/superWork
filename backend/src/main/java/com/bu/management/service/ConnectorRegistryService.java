@@ -170,15 +170,14 @@ public class ConnectorRegistryService {
         String message;
         boolean success;
         try {
-            switch (entity.getAuthType()) {
-                case AUTH_BASIC -> testBasic(entity);
-                case AUTH_TOKEN -> testToken(entity);
+            message = switch (entity.getAuthType()) {
+                case AUTH_BASIC -> { testBasic(entity); yield "连接成功"; }
+                case AUTH_TOKEN -> { testToken(entity); yield "连接成功"; }
                 case AUTH_MCP -> testMcp(entity);
-                case AUTH_SEEYON -> testSeeyon(entity);
+                case AUTH_SEEYON -> { testSeeyon(entity); yield "连接成功"; }
                 default -> throw new IllegalStateException("不支持的认证类型：" + entity.getAuthType());
-            }
+            };
             success = true;
-            message = "连接成功";
         } catch (RuntimeException e) {
             success = false;
             message = sanitize(e.getMessage());
@@ -546,7 +545,8 @@ public class ConnectorRegistryService {
         getJson(entity, StringUtils.hasText(entity.getTestPath()) ? entity.getTestPath() : "/", token);
     }
 
-    private void testMcp(Connector entity) {
+    /** MCP 探活，返回成功文案；语雀在 MCP 网关受限（401/403）时降级 REST v2 验证 Token（官方 server 同链路）。 */
+    private String testMcp(Connector entity) {
         String token = credential(entity, "token");
         if (!StringUtils.hasText(entity.getMcpUrl())) {
             throw new IllegalStateException("请先配置 MCP 服务地址");
@@ -570,12 +570,14 @@ public class ConnectorRegistryService {
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 401 || response.statusCode() == 403) {
-                // MCP 网关 403（Token 有效但未开通 MCP / 网关限制）→ 降级 REST v2 验证 Token 本身
+            if ((response.statusCode() == 401 || response.statusCode() == 403)
+                    && CODE_YUQUE.equals(entity.getCode())) {
+                // 语雀 MCP 网关 403：Token 有效但网关受限 → 降级 REST v2（官方 yuque-mcp-server 同一条链路）
                 restUserProbe(entity);
-                throw new IllegalStateException(entity.getName()
-                        + " Token 有效（REST 已验证），但 MCP 网关拒绝(403)：该账号未在语雀「设置→MCP 服务」开通或网关受限；"
-                        + "AI 查询已自动降级为 REST v2 通道");
+                return "连接成功（REST v2 通道；语雀 MCP 网关受限，AI 查询与周报发布自动走 REST v2）";
+            }
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                throw new IllegalStateException(entity.getName() + " MCP 认证失败(403/401)：请检查 Token 与 MCP 开通情况");
             }
             if (response.statusCode() == 404) {
                 throw new IllegalStateException(entity.getName() + " MCP 端点不存在(404)：请检查 MCP 服务地址");
@@ -586,6 +588,7 @@ public class ConnectorRegistryService {
             if (!StringUtils.hasText(response.body())) {
                 throw new IllegalStateException(entity.getName() + " MCP 响应为空");
             }
+            return "连接成功";
         } catch (java.io.IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new IllegalStateException(entity.getName() + " 服务暂时不可用，请稍后重试");
@@ -615,26 +618,34 @@ public class ConnectorRegistryService {
         }
     }
 
-    /** 语雀 REST v2 Token 校验（MCP 被网关拒绝时的降级验证）。 */
+    /** 语雀 REST v2 Token 校验（MCP 被网关拒绝时的降级验证）：先站点地址，再回退公共站点。 */
     private void restUserProbe(Connector entity) {
         String token = credential(entity, "token");
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://www.yuque.com/api/v2/user"))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Accept", "application/json")
-                    .header("X-Auth-Token", token)
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            JsonNode root = objectMapper.readTree(response.body() == null ? "{}" : response.body());
-            if (response.statusCode() != 200 || root.path("data").path("id").asLong(0) <= 0) {
-                throw new IllegalStateException(entity.getName() + " Token 无效或已过期");
+        List<String> bases = new ArrayList<>();
+        if (StringUtils.hasText(entity.getBaseUrl())) bases.add(trimSlash(entity.getBaseUrl()));
+        if (!bases.contains("https://www.yuque.com")) bases.add("https://www.yuque.com");
+        IllegalStateException last = null;
+        for (String base : bases) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(base + "/api/v2/user"))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Accept", "application/json")
+                        .header("X-Auth-Token", token)
+                        .GET()
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                JsonNode root = objectMapper.readTree(response.body() == null ? "{}" : response.body());
+                if (response.statusCode() == 200 && root.path("data").path("id").asLong(0) > 0) {
+                    return;
+                }
+                last = new IllegalStateException(entity.getName() + " Token 无效或已过期");
+            } catch (java.io.IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                last = new IllegalStateException(entity.getName() + " Token 校验请求失败");
             }
-        } catch (java.io.IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new IllegalStateException(entity.getName() + " Token 校验请求失败");
         }
+        throw last == null ? new IllegalStateException(entity.getName() + " Token 无效或已过期") : last;
     }
 
     private void validate(ConnectorSaveRequest request) {
