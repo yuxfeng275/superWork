@@ -168,7 +168,7 @@ describe('OaAffairsPage smoke', () => {
     });
     mocks.loginOaSession.mockRejectedValue(
       new ApiRequestError(
-        '登录失败：账号密码错误或验证码错误（错误码见 OA 返回）',
+        'OA 登录失败（loginerror=11）：登录参数不完整（账号/密码字段未按网页表单提交）',
         400,
       ),
     );
@@ -181,7 +181,7 @@ describe('OaAffairsPage smoke', () => {
 
     expect(
       await screen.findByText(
-        '登录失败：账号密码错误或验证码错误（错误码见 OA 返回）',
+        'OA 登录失败（loginerror=11）：登录参数不完整（账号/密码字段未按网页表单提交）',
       ),
     ).toBeInTheDocument();
     await waitFor(() => expect(mocks.getOaCaptcha).toHaveBeenCalledTimes(2));
