@@ -55,6 +55,20 @@ class SeeyonOaWebChannelTest {
         assertThat(invokeNormalize(channel, null)).isNull();
     }
 
+    @Test
+    void mapsSeeyonLoginErrorsAndBuildsV9FormBody() {
+        SeeyonOaWebChannel channel = new SeeyonOaWebChannel(null, null, null, new ObjectMapper());
+        assertThat(invokeHint(channel, "1")).contains("账号或密码错误");
+        assertThat(invokeHint(channel, "9")).contains("验证码错误");
+        assertThat(invokeHint(channel, "11")).contains("登录参数不完整");
+        String body = invokeFormBody(channel, "alice", "secret", "AB12");
+        assertThat(body).contains("login_username=alice");
+        assertThat(body).contains("login_password=secret");
+        assertThat(body).contains("login_validatePwdStrength=1");
+        assertThat(body).contains("login.VerifyCode=AB12");
+        assertThat(body).doesNotContain("login_password1=");
+    }
+
     private List<SeeyonOaWebChannel.WebAffair> invokeParse(SeeyonOaWebChannel channel, JsonNode row) {
         try {
             var method = SeeyonOaWebChannel.class.getDeclaredMethod("parseRow", JsonNode.class);
@@ -81,6 +95,27 @@ class SeeyonOaWebChannelTest {
             var method = SeeyonOaWebChannel.class.getDeclaredMethod("normalizeCookie", String.class);
             method.setAccessible(true);
             return (String) method.invoke(channel, raw);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private String invokeHint(SeeyonOaWebChannel channel, String code) {
+        try {
+            var method = SeeyonOaWebChannel.class.getDeclaredMethod("loginErrorHint", String.class);
+            method.setAccessible(true);
+            return (String) method.invoke(channel, code);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private String invokeFormBody(SeeyonOaWebChannel channel, String username, String password, String captcha) {
+        try {
+            var method = SeeyonOaWebChannel.class.getDeclaredMethod(
+                    "loginFormBody", String.class, String.class, String.class);
+            method.setAccessible(true);
+            return (String) method.invoke(channel, username, password, captcha);
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }

@@ -241,6 +241,7 @@ export default function OaAffairsPage() {
       setAuthHint(status.hint || '登录未通过，请重试');
     } catch (e) {
       setAuthError(errorText(e, '登录失败：账号密码或验证码错误'));
+      setPasteOpen(true);
     } finally {
       setLogging(false);
     }
@@ -260,7 +261,12 @@ export default function OaAffairsPage() {
     try {
       await completeAuth(await superworkApi.authorizeOaSession(value));
     } catch (e) {
-      setAuthError(errorText(e, '授权失败：JSESSIONID 无效或已过期'));
+      setAuthError(
+        errorText(
+          e,
+          '授权失败：JSESSIONID 无效或已过期。请复制 Application → Cookies 里 OA 域名下的整行 Cookie（含 JSESSIONID 与 ts），不要只贴一个值。',
+        ),
+      );
     } finally {
       setAuthorizing(false);
     }

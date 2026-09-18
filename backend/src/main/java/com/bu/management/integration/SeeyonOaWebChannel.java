@@ -108,10 +108,7 @@ public class SeeyonOaWebChannel {
         if (cookies == null && captchaChallengeId != null) {
             throw new IllegalStateException("验证码已过期，请重新获取");
         }
-        String body = "loginType=usernamePwd"
-                + "&login_username=" + URLEncoder.encode(config.username(), StandardCharsets.UTF_8)
-                + "&login_password1=" + URLEncoder.encode(config.password(), StandardCharsets.UTF_8)
-                + (StringUtils.hasText(captcha) ? "&login.VerifyCode=" + URLEncoder.encode(captcha.trim(), StandardCharsets.UTF_8) : "");
+        String body = loginFormBody(config.username(), config.password(), captcha);
         String session = formLogin(cookies, body);
         if (session == null) {
             throw new IllegalStateException("登录失败：账号密码错误或验证码错误（错误码见 OA 返回）");
@@ -239,8 +236,8 @@ public class SeeyonOaWebChannel {
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             String loginError = firstHeader(response, "LoginError", "loginerror");
             if (loginError != null) {
-                String hint = "9".equals(loginError) ? "验证码错误" : ("1".equals(loginError) ? "账号或密码错误" : "登录失败");
-                throw new IllegalStateException("OA 登录失败（loginerror=" + loginError + "）：" + hint);
+                throw new IllegalStateException(
+                        "OA 登录失败（loginerror=" + loginError + "）：" + loginErrorHint(loginError));
             }
             String merged = mergeCookies(existingCookies, cookiesFrom(response));
             if (!StringUtils.hasText(merged) || !merged.contains("JSESSIONID")) return null;
@@ -251,6 +248,27 @@ public class SeeyonOaWebChannel {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    /** A8 V9 网页登录表单：login_password 才是真实密码字段；login_password1 是确认密码，漏传会 loginerror=11。 */
+    private String loginFormBody(String username, String password, String captcha) {
+        String body = "login_username=" + URLEncoder.encode(username, StandardCharsets.UTF_8)
+                + "&login_password=" + URLEncoder.encode(password, StandardCharsets.UTF_8)
+                + "&login_validatePwdStrength=1"
+                + "&loginType=usernamePwd";
+        if (StringUtils.hasText(captcha)) {
+            body += "&login.VerifyCode=" + URLEncoder.encode(captcha.trim(), StandardCharsets.UTF_8);
+        }
+        return body;
+    }
+
+    private String loginErrorHint(String loginError) {
+        return switch (loginError == null ? "" : loginError.trim()) {
+            case "1" -> "账号或密码错误";
+            case "9" -> "验证码错误，请刷新后重试";
+            case "11" -> "登录参数不完整（账号/密码字段未按网页表单提交）";
+            default -> "登录失败";
+        };
     }
 
     private String firstHeader(HttpResponse<?> response, String... names) {
