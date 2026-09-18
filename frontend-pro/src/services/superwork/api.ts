@@ -1023,6 +1023,53 @@ export interface MeetingTodoConvertPayload {
   taskType?: string;
 }
 
+/** 日程来源：本地会议 / 企微日程 / 企微会议。 */
+export type ScheduleEventSource =
+  | "MEETING"
+  | "WECOM_SCHEDULE"
+  | "WECOM_MEETING";
+
+/**
+ * 统一日历事件（本地会议 + 企微日程合并流）。
+ * start/end 为墙上时间字符串（yyyy-MM-dd HH:mm:ss），禁用 new Date 直接解析。
+ */
+export interface ScheduleEvent {
+  /** "meeting:12" / "schedule:xxx@2026-09-01 09:30:00" / "wemeeting:yyy" */
+  id: string;
+  source: ScheduleEventSource;
+  title: string;
+  start: string;
+  end: string;
+  /** 本地会议只有日期粒度 → true */
+  allDay: boolean;
+  location?: string | null;
+  /** 本地会议为 null */
+  organizer?: string | null;
+  calendarName?: string | null;
+  participants: string[];
+  /** 本地会议状态（UPLOADED/TRANSCRIBING/...） */
+  status?: MeetingStatus | null;
+  /** 本地会议 id → 可跳会议详情 */
+  meetingId?: number | null;
+  scheduleId?: string | null;
+  /** 线上会议号（企微日程内嵌会议） */
+  meetingCode?: string | null;
+  /** 入会链接 */
+  meetingLink?: string | null;
+  /** 周期日程的展开场次 */
+  recurring: boolean;
+  description?: string | null;
+}
+
+/** 日程聚合响应；hints 为企微侧提示（未授权/窗口越界），可能内嵌 markdown 链接。 */
+export interface ScheduleEventsResponse {
+  events: ScheduleEvent[];
+  hints: string[];
+  /** 闭区间（按天） */
+  rangeStart: string;
+  rangeEnd: string;
+}
+
 /** 致远 OA 网页会话授权状态（REST 被网关拦截时的取数通道）。 */
 export interface OaSessionStatus {
   authorized: boolean;
@@ -3047,6 +3094,22 @@ export const superworkApi = {
         response.status
       );
     return response.blob();
+  },
+  // ==================== 日程（本地会议 + 企微日程） ====================
+  getScheduleEvents(params: {
+    /** 闭区间起始日（yyyy-MM-dd） */
+    from: string;
+    /** 闭区间结束日（yyyy-MM-dd） */
+    to: string;
+    sources?: ScheduleEventSource[];
+  }) {
+    return requestJson<ScheduleEventsResponse>(
+      `/api/schedule/events${query({
+        from: params.from,
+        to: params.to,
+        sources: params.sources?.length ? params.sources.join(",") : undefined,
+      })}`
+    );
   },
   // ==================== 致远 OA 待办（网页会话通道 + 审批） ====================
   getOaSessionStatus() {

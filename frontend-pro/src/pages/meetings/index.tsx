@@ -1,5 +1,6 @@
 import {
   ArrowLeftOutlined,
+  CalendarOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
   PlusOutlined,
@@ -337,6 +338,12 @@ function MeetingListPanel() {
           </Typography.Paragraph>
         </div>
         <Space>
+          <Button
+            icon={<CalendarOutlined />}
+            onClick={() => history.push("/schedule")}
+          >
+            日历视图
+          </Button>
           <Button
             icon={<ReloadOutlined />}
             loading={loading}

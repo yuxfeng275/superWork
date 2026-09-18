@@ -48,6 +48,7 @@ import type {
   WecomCliStatus
 } from '@/types/wecom-cli'
 import type { WeeklyReportFacts, WeeklyReportVO } from '@/types/weekly-report'
+import type { ScheduleEventsPayload, ScheduleEventsQuery } from '@/types/schedule'
 import type { BizLineProfitReport } from '@/types/businessLineProfit'
 import type {
   SeeyonOaAffair,
@@ -2182,6 +2183,15 @@ class ApiService {
 
   async getWeeklyHistory(): Promise<WeeklyReportVO[]> {
     return this.request<WeeklyReportVO[]>('/api/weekly-reports/history')
+  }
+
+  // ==================== 日程中心（本地会议 + 企微日程） ====================
+
+  /** 聚合日程事件：from/to 为闭区间（按天）；企微侧窗口越界只回 hint 不报错。 */
+  async getScheduleEvents(params: ScheduleEventsQuery): Promise<ScheduleEventsPayload> {
+    const query = new URLSearchParams({ from: params.from, to: params.to })
+    if (params.sources && params.sources.length > 0) query.set('sources', params.sources.join(','))
+    return this.request<ScheduleEventsPayload>(`/api/schedule/events?${query.toString()}`)
   }
 }
 

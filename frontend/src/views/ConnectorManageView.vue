@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Document, Plus, Refresh, Tickets } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
+import { splitHintLinks } from '@/utils/hint-links'
 import type { AiConnectorAuthType, AiConnectorSavePayload, AiConnectorStatus, AiConnectorView } from '@/types/ai-agent'
 import type { WecomCliAuthState, WecomCliCapability, WecomCliCapabilityState, WecomCliStatus } from '@/types/wecom-cli'
 
@@ -139,12 +140,6 @@ const QR_STATE_TAG: Record<'loading' | WecomCliAuthState, 'info' | 'warning' | '
   expired: 'warning',
   failed: 'danger'
 }
-
-/**
- * 续期文案里的链接：Markdown 形式优先，裸链兜底（CLI help_message 两种都可能出现）。
- * 裸链在 CJK 字符 / 全角标点处收口，避免把紧跟其后的中文吞进链接目标。
- */
-const HINT_LINK_PATTERN = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s\u3000-\u303f\uff00-\uffef\u4e00-\u9fff]+)/g
 
 const statusSummary = computed(() => {
   const counts: Record<ConnectorStatus, number> = { READY: 0, NOT_CONFIGURED: 0, DISABLED: 0 }
@@ -412,31 +407,8 @@ const capabilitySummary = computed(() => {
   return counts
 })
 
-/** 续期文案片段：href 存在即为可点外链 */
-interface HintSegment {
-  text: string
-  href?: string
-}
-
-/** 续期文案切成文本/链接片段（Markdown 链接与裸链都可点，不经过 v-html） */
-function hintSegments(message: string): HintSegment[] {
-  const segments: HintSegment[] = []
-  let cursor = 0
-  for (const match of message.matchAll(HINT_LINK_PATTERN)) {
-    const start = match.index ?? 0
-    const [raw, label, markdownHref, bareHref] = match
-    // 裸链常把句末 ASCII 标点一起吞掉，回退到标点前
-    const href = markdownHref ?? bareHref.replace(/[.,;:!?]+$/, '')
-    if (start > cursor) segments.push({ text: message.slice(cursor, start) })
-    segments.push({ text: label ?? href, href })
-    cursor = start + (markdownHref ? raw.length : href.length)
-  }
-  if (cursor < message.length) segments.push({ text: message.slice(cursor) })
-  return segments
-}
-
 const capabilityRows = computed(() =>
-  capabilities.value.map(capability => ({ ...capability, segments: hintSegments(capability.message) }))
+  capabilities.value.map(capability => ({ ...capability, segments: splitHintLinks(capability.message) }))
 )
 
 /** 矩阵为空时的提示：未授权先引导授权，已授权/未知则引导体检 */
