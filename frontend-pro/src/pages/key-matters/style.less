@@ -486,6 +486,32 @@
   gap: 8px;
   padding: 4px 2px;
 }
+.sw-presentation-update-filter {
+  .ant-segmented-item-label {
+    min-height: 26px;
+    line-height: 26px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+}
+.sw-presentation-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sw-presentation-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  font-size: 28px;
+  line-height: 1;
+  &.is-ok {
+    color: #52c41a;
+  }
+  &.is-muted {
+    color: #c0c8d4;
+  }
+}
 .sw-presentation-group {
   border: 1px solid #e5eaf2;
   border-radius: 14px;
@@ -619,6 +645,8 @@
     padding-bottom: 6px;
     font-size: 13px;
     white-space: nowrap;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .sw-presentation-owner-divider {
     width: 1px;
@@ -648,7 +676,7 @@
       padding: 0 12px;
       .ant-card-head-title {
         padding: 8px 0;
-        font-size: 13px;
+        font-size: 15px;
       }
     }
     .ant-card-body {
@@ -657,8 +685,8 @@
       display: flex;
       flex-direction: column;
       padding: 10px 12px;
-      font-size: 13px;
-      line-height: 1.55;
+      font-size: 18px;
+      line-height: 1.65;
       > textarea.ant-input,
       > .ant-input-textarea {
         flex: 1 1 auto;

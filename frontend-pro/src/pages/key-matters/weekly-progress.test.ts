@@ -63,6 +63,28 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/aria-label=\{`\$\{group\.label\}汇总进度/);
   });
 
+  it("filters weekly meeting nav by update status across group modes", () => {
+    expect(source).toMatch(/presentationUpdateFilter/);
+    expect(source).toMatch(/className="sw-presentation-update-filter"/);
+    expect(source).toMatch(/\{ value: "all", label: "全部" \}/);
+    expect(source).toMatch(/\{ value: "updated", label: "已更新" \}/);
+    expect(source).toMatch(/\{ value: "pending", label: "未更新" \}/);
+    expect(source).toMatch(/changePresentationUpdateFilter/);
+  });
+
+  it("shows planned completion date on weekly meeting cards", () => {
+    expect(source).toMatch(/截止 \$\{dayjs\(/);
+    expect(source).toMatch(/未设置截止日期/);
+  });
+
+  it("uses large card copy and icon empty states in weekly meeting", () => {
+    expect(source).toMatch(/className="sw-presentation-body"/);
+    expect(source).toMatch(/className=\{`sw-presentation-empty is-\$\{empty\.tone/);
+    expect(source).toMatch(/label: "本周暂无风险"/);
+    expect(source).toMatch(/label: "暂无待协调事项"/);
+    expect(source).not.toMatch(/"本周暂无风险"\s*\)/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);

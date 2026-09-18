@@ -1,10 +1,13 @@
 import {
   CalendarOutlined,
+  CheckCircleFilled,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   FilterOutlined,
+  FlagOutlined,
   FolderOpenOutlined,
+  FormOutlined,
   MonitorOutlined,
   MoreOutlined,
   PlusOutlined,
@@ -42,7 +45,14 @@ import {
   Typography,
 } from "antd";
 import dayjs from "dayjs";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { superworkApi } from "@/services/superwork/api";
 import "../workbench/style.less";
 import "./style.less";
@@ -100,6 +110,9 @@ export default function KeyMattersPage() {
   const [presentationGroupBy, setPresentationGroupBy] = useState<
     "owner" | "project"
   >("project");
+  const [presentationUpdateFilter, setPresentationUpdateFilter] = useState<
+    "all" | "updated" | "pending"
+  >("all");
   const [presentationOpen, setPresentationOpen] = useState(false);
   const [presentationIndex, setPresentationIndex] = useState(0);
   const [presentationEditing, setPresentationEditing] = useState(false);
@@ -548,9 +561,33 @@ export default function KeyMattersPage() {
     currentUpdate(matter)?.status || matter.status || "未开始";
   const effectiveProgress = (matter: Matter) =>
     Number(currentUpdate(matter)?.progress ?? matter.progress ?? 0);
+  const renderPresentationBody = (
+    value: string | undefined,
+    empty: { icon: ReactNode; label: string; tone?: "ok" | "muted" }
+  ) => {
+    const text = String(value || "").trim();
+    if (text) return <div className="sw-presentation-body">{text}</div>;
+    return (
+      <div
+        className={`sw-presentation-empty is-${empty.tone || "ok"}`}
+        aria-label={empty.label}
+      >
+        {empty.icon}
+      </div>
+    );
+  };
+  const matterNeedsUpdate = (matter: Matter) =>
+    effectiveStatus(matter) !== "已完成" && !matter.currentWeekUpdate;
+  const matterMatchesUpdateFilter = (matter: Matter) => {
+    if (presentationUpdateFilter === "updated")
+      return Boolean(matter.currentWeekUpdate);
+    if (presentationUpdateFilter === "pending") return matterNeedsUpdate(matter);
+    return true;
+  };
   const presentationGroups = useMemo(() => {
     const groups = new Map<string, Matter[]>();
     meeting.forEach((item) => {
+      if (!matterMatchesUpdateFilter(item)) return;
       const key =
         presentationGroupBy === "owner"
           ? String(item.ownerId || "unassigned")
@@ -580,7 +617,7 @@ export default function KeyMattersPage() {
         ),
       };
     });
-  }, [meeting, presentationGroupBy, projects]);
+  }, [meeting, presentationGroupBy, presentationUpdateFilter, projects]);
   const presentationItems = useMemo(
     () => presentationGroups.flatMap((group) => group.items),
     [presentationGroups]
@@ -1050,28 +1087,47 @@ export default function KeyMattersPage() {
     const exit = document.exitFullscreen?.();
     if (exit) void exit.catch(() => undefined);
   };
-  // 切换分组方式时保持当前事项定位（对齐旧版 setPresentationGroupBy）
-  const changePresentationGroupBy = (value: "project" | "owner") => {
-    const currentId = presentationMatter?.id;
-    cachePresentationDraft();
-    setPresentationGroupBy(value);
+  const locatePresentationItems = (
+    groupBy: "project" | "owner",
+    updateFilter: "all" | "updated" | "pending",
+    currentId?: number
+  ) => {
     const groups = new Map<string, Matter[]>();
     meeting.forEach((item) => {
+      if (updateFilter === "updated" && !item.currentWeekUpdate) return;
+      if (
+        updateFilter === "pending" &&
+        (effectiveStatus(item) === "已完成" || item.currentWeekUpdate)
+      )
+        return;
       const key =
-        value === "owner"
+        groupBy === "owner"
           ? String(item.ownerId || "unassigned")
           : String(projectPresentation(item).rootId || "internal");
       groups.set(key, [...(groups.get(key) || []), item]);
     });
     const items = Array.from(groups.values()).flat();
-    const nextIndex = Math.max(
-      items.findIndex((item) => item.id === currentId),
-      0
-    );
+    const found = items.findIndex((item) => item.id === currentId);
+    const nextIndex = found >= 0 ? found : 0;
     const matter = items[nextIndex];
     setPresentationIndex(nextIndex);
     setPresentationDraft(draftForMatter(matter));
     setPresentationEditing(shouldAutoEditPresentation(matter));
+  };
+  // 切换分组方式时保持当前事项定位（对齐旧版 setPresentationGroupBy）
+  const changePresentationGroupBy = (value: "project" | "owner") => {
+    const currentId = presentationMatter?.id;
+    cachePresentationDraft();
+    setPresentationGroupBy(value);
+    locatePresentationItems(value, presentationUpdateFilter, currentId);
+  };
+  const changePresentationUpdateFilter = (
+    value: "all" | "updated" | "pending"
+  ) => {
+    const currentId = presentationMatter?.id;
+    cachePresentationDraft();
+    setPresentationUpdateFilter(value);
+    locatePresentationItems(presentationGroupBy, value, currentId);
   };
   const currentPresentationGroupKey = presentationGroups.find((group) =>
     group.items.some((item) => item.id === presentationMatter?.id)
@@ -1986,6 +2042,22 @@ export default function KeyMattersPage() {
                   changePresentationGroupBy(value as "project" | "owner")
                 }
               />
+              <Segmented
+                block
+                size="small"
+                className="sw-presentation-update-filter"
+                value={presentationUpdateFilter}
+                options={[
+                  { value: "all", label: "全部" },
+                  { value: "updated", label: "已更新" },
+                  { value: "pending", label: "未更新" },
+                ]}
+                onChange={(value) =>
+                  changePresentationUpdateFilter(
+                    value as "all" | "updated" | "pending"
+                  )
+                }
+              />
             </div>
             {presentationGroups.map((group) => {
               const isActiveGroup = group.key === currentPresentationGroupKey;
@@ -2090,6 +2162,18 @@ export default function KeyMattersPage() {
                 </div>
               );
             })}
+            {!presentationGroups.length && (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  presentationUpdateFilter === "updated"
+                    ? "暂无已更新事项"
+                    : presentationUpdateFilter === "pending"
+                    ? "暂无未更新事项"
+                    : "本周暂无可演示事项"
+                }
+              />
+            )}
           </aside>
           <div className="sw-presentation-main">
             <section
@@ -2137,6 +2221,15 @@ export default function KeyMattersPage() {
                       <span className="sw-presentation-owner-divider" />
                       <UserOutlined />{" "}
                       {presentationMatter.ownerName || "未指定负责人"}
+                      <span className="sw-presentation-owner-divider" />
+                      <CalendarOutlined />{" "}
+                      {presentationMatter.plannedCompletionDate
+                        ? `截止 ${dayjs(
+                            presentationMatter.plannedCompletionDate
+                          ).format("MM/DD")} · ${milestoneTiming(
+                            presentationMatter
+                          ).label}`
+                        : "未设置截止日期"}
                     </Typography.Text>
                   </div>
                   <Row gutter={[12, 12]} className="sw-presentation-cards">
@@ -2274,8 +2367,15 @@ export default function KeyMattersPage() {
                             placeholder="逐条说明本周完成了什么、形成了什么结果"
                           />
                         ) : (
-                          presentationMatter.currentWeekUpdate
-                            ?.progressSummary || "尚未填写"
+                          renderPresentationBody(
+                            presentationMatter.currentWeekUpdate
+                              ?.progressSummary,
+                            {
+                              icon: <FormOutlined />,
+                              label: "尚未填写本周进展",
+                              tone: "muted",
+                            }
+                          )
                         )}
                       </Card>
                     </Col>
@@ -2294,8 +2394,13 @@ export default function KeyMattersPage() {
                             placeholder="没有可留空"
                           />
                         ) : (
-                          presentationMatter.currentWeekUpdate?.issues ||
-                          "本周暂无风险"
+                          renderPresentationBody(
+                            presentationMatter.currentWeekUpdate?.issues,
+                            {
+                              icon: <CheckCircleFilled />,
+                              label: "本周暂无风险",
+                            }
+                          )
                         )}
                       </Card>
                     </Col>
@@ -2314,8 +2419,13 @@ export default function KeyMattersPage() {
                             placeholder="明确需要谁推动什么"
                           />
                         ) : (
-                          presentationMatter.currentWeekUpdate?.supportNeeded ||
-                          "暂无待协调事项"
+                          renderPresentationBody(
+                            presentationMatter.currentWeekUpdate?.supportNeeded,
+                            {
+                              icon: <CheckCircleFilled />,
+                              label: "暂无待协调事项",
+                            }
+                          )
                         )}
                       </Card>
                     </Col>
@@ -2334,8 +2444,14 @@ export default function KeyMattersPage() {
                             placeholder="说明下一周期的关键动作"
                           />
                         ) : (
-                          presentationMatter.currentWeekUpdate?.nextWeekPlan ||
-                          "待补充"
+                          renderPresentationBody(
+                            presentationMatter.currentWeekUpdate?.nextWeekPlan,
+                            {
+                              icon: <FlagOutlined />,
+                              label: "下一步待补充",
+                              tone: "muted",
+                            }
+                          )
                         )}
                       </Card>
                     </Col>
@@ -2377,7 +2493,15 @@ export default function KeyMattersPage() {
                   </Space>
                 </>
               ) : (
-                <Empty description="本周暂无可演示事项" />
+                <Empty
+                  description={
+                    presentationUpdateFilter === "updated"
+                      ? "暂无已更新事项"
+                      : presentationUpdateFilter === "pending"
+                      ? "暂无未更新事项"
+                      : "本周暂无可演示事项"
+                  }
+                />
               )}
             </section>
             {presentationMatter && (
