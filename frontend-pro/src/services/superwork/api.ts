@@ -1837,8 +1837,14 @@ export const superworkApi = {
   deleteAiModel(id: number) {
     return requestJson<void>(`/api/ai/models/${id}`, { method: "DELETE" });
   },
-  getTodos(status?: string) {
-    return requestJson<UserTodo[]>(`/api/todos${query({ status })}`);
+  getTodos(params: { status?: string; userId?: number; user?: string } = {}) {
+    return requestJson<UserTodo[]>(
+      `/api/todos${query({
+        status: params.status,
+        userIdFilter: params.userId,
+        user: params.user,
+      })}`
+    );
   },
   completeTodo(id: number) {
     return requestJson<UserTodo>(`/api/todos/${id}/complete`, { method: "POST" });

@@ -24,8 +24,21 @@ public class UserTodoController {
     @GetMapping
     public Result<List<UserTodo>> list(
             @RequestAttribute("userId") Long userId,
+            @RequestParam(required = false) Long userIdFilter,
+            @RequestParam(required = false) String user,
             @RequestParam(required = false) String status) {
-        return Result.success(userTodoService.listMine(userId, status));
+        Long assigneeId = userIdFilter;
+        if (assigneeId == null && user != null && !user.isBlank()) {
+            var matched = userTodoService.resolveMentionUser(user);
+            if (matched == null) {
+                return Result.success(List.of());
+            }
+            assigneeId = matched.getId();
+        }
+        if (assigneeId == null) {
+            assigneeId = userId;
+        }
+        return Result.success(userTodoService.listForAssignee(assigneeId, status));
     }
 
     @GetMapping("/open-count")

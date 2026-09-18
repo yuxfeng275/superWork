@@ -10,8 +10,8 @@ import {
   Typography,
 } from "antd";
 import dayjs from "dayjs";
-import { useCallback, useEffect, useState } from "react";
-import { history } from "@umijs/max";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { history, useLocation, useModel } from "@umijs/max";
 import {
   superworkApi,
   type UserTodo,
@@ -24,7 +24,15 @@ const statusLabel: Record<string, { text: string; color: string }> = {
   DONE: { text: "已完成", color: "green" },
 };
 
+const searchParams = (search: string) => new URLSearchParams(search);
+
 export default function TodosPage() {
+  const location = useLocation();
+  const { initialState } = useModel("@@initialState");
+  const params = useMemo(() => searchParams(location.search), [location.search]);
+  const userId = Number(params.get("userId") || "") || undefined;
+  const userToken = params.get("user") || undefined;
+  const viewingOthers = Boolean(userId || userToken);
   const [rows, setRows] = useState<UserTodo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,14 +42,19 @@ export default function TodosPage() {
     setLoading(true);
     setError("");
     try {
-      setRows((await superworkApi.getTodos()) || []);
+      setRows(
+        (await superworkApi.getTodos({
+          userId,
+          user: userId ? undefined : userToken,
+        })) || []
+      );
     } catch (e) {
       setRows([]);
       setError(e instanceof Error ? e.message : "待办加载失败");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId, userToken]);
 
   useEffect(() => {
     void load();
@@ -59,19 +72,31 @@ export default function TodosPage() {
     }
   };
 
+  const currentUserId = Number(initialState?.currentUser?.id);
+  const title = viewingOthers
+    ? `${userToken || "该同事"}的待办`
+    : "待办";
+
   return (
     <div className="sw-page sw-todos">
       <div className="sw-page-header">
         <div>
           <Typography.Text className="sw-eyebrow">WORK / TODOS</Typography.Text>
-          <Typography.Title level={2}>待办</Typography.Title>
+          <Typography.Title level={2}>{title}</Typography.Title>
           <Typography.Paragraph type="secondary">
-            周进展和周会里被 @ 到的事项会汇到这里，处理后可标记完成。
+            {viewingOthers
+              ? "来自周进展 / 周会中的 @ 提及。"
+              : "周进展和周会里被 @ 到的事项会汇到这里，处理后可标记完成。"}
           </Typography.Paragraph>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-          刷新
-        </Button>
+        <Space>
+          {viewingOthers && (
+            <Button onClick={() => history.push("/todos")}>我的待办</Button>
+          )}
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+            刷新
+          </Button>
+        </Space>
       </div>
       {error && (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
@@ -83,7 +108,11 @@ export default function TodosPage() {
           dataSource={rows}
           pagination={false}
           locale={{
-            emptyText: <Empty description="暂无被 @ 的待办" />,
+            emptyText: (
+              <Empty
+                description={viewingOthers ? "该同事暂无待办" : "暂无被 @ 的待办"}
+              />
+            ),
           }}
           columns={[
             {
@@ -125,7 +154,9 @@ export default function TodosPage() {
                       查看
                     </Button>
                   )}
-                  {row.status !== "DONE" && (
+                  {row.status !== "DONE" &&
+                    !viewingOthers &&
+                    row.assigneeId === currentUserId && (
                     <Button
                       type="link"
                       icon={<CheckOutlined />}

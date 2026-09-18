@@ -76,13 +76,33 @@ public class UserTodoService {
     }
 
     public List<UserTodo> listMine(Long userId, String status) {
+        return listForAssignee(userId, status);
+    }
+
+    public List<UserTodo> listForAssignee(Long assigneeId, String status) {
         LambdaQueryWrapper<UserTodo> query = new LambdaQueryWrapper<UserTodo>()
-                .eq(UserTodo::getAssigneeId, userId)
+                .eq(UserTodo::getAssigneeId, assigneeId)
                 .orderByDesc(UserTodo::getCreatedAt);
         if (StringUtils.hasText(status)) {
             query.eq(UserTodo::getStatus, status);
         }
         return todoMapper.selectList(query);
+    }
+
+    public User resolveMentionUser(String token) {
+        if (!StringUtils.hasText(token)) {
+            return null;
+        }
+        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getStatus, 1));
+        List<MentionParser.Mention> mentions = MentionParser.resolve("@" + token.trim(), users);
+        if (mentions.isEmpty()) {
+            return null;
+        }
+        return users.stream()
+                .filter(user -> Objects.equals(user.getId(), mentions.get(0).userId()))
+                .findFirst()
+                .orElse(null);
     }
 
     public long openCount(Long userId) {

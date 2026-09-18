@@ -85,6 +85,14 @@ class UserTodoServiceTest {
     }
 
     @Test
+    void resolveMentionUserMatchesRealName() {
+        when(userMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                user(8L, "lisi", "李四")));
+
+        assertThat(service.resolveMentionUser("李四").getId()).isEqualTo(8L);
+    }
+
+    @Test
     void completeMarksTodoDoneForOwner() {
         UserTodo todo = new UserTodo();
         todo.setId(9L);

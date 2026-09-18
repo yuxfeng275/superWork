@@ -10,7 +10,9 @@ const source = readFileSync(
 
 describe("SimpleMarkdown", () => {
   it("renders bold, lists and @mentions as simple html", () => {
-    expect(source).toMatch(/sw-md-mention/);
+    expect(source).toMatch(/class="sw-md-mention"/);
+    expect(source).toMatch(/\/todos\?userId=/);
+    expect(source).toMatch(/history.push\(href\)/);
     expect(source).toMatch(/dangerouslySetInnerHTML/);
     expect(source).toMatch(/<strong>\$1<\/strong>/);
   });

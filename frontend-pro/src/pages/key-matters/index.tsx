@@ -562,7 +562,11 @@ export default function KeyMattersPage() {
     const text = String(value || "").trim();
     if (text)
       return (
-        <SimpleMarkdown className="sw-presentation-body" value={text} />
+        <SimpleMarkdown
+          className="sw-presentation-body"
+          value={text}
+          users={users}
+        />
       );
     return (
       <div className="sw-presentation-empty" aria-label={emptyLabel}>
