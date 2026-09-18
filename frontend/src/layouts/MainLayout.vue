@@ -205,6 +205,32 @@ const dynamicNavItems = computed<NavSection[]>(() =>
     .filter(section => section.items.length > 0)
 )
 
+/** 本前端已注册的路由 path（精确匹配，避免 /schedule 与 /schedule-x 互误判）。 */
+const registeredPaths = computed(() => new Set(router.getRoutes().map(record => record.path)))
+
+/**
+ * 无子菜单的顶级菜单（日程这类单页入口）：仅当本前端已注册该路由时渲染为一级入口；
+ * 未注册路由的顶级菜单（如本前端没有页面承载的 /meetings）保持不渲染，避免死链。
+ */
+const directNavItems = computed<NavItem[]>(() =>
+  menuTree.value.length === 0
+    ? []
+    : menuTree.value
+      .filter(node => {
+        const path = node.path || ''
+        return Boolean(path)
+          && path !== '/' && path !== '/home'
+          && (node.children ?? []).length === 0
+          && registeredPaths.value.has(path)
+      })
+      .map(mapMenuNode)
+)
+
+/** 命中的一级入口（高亮该入口，且不抢占二级面板）。 */
+const activeDirectItem = computed<NavItem | null>(() =>
+  directNavItems.value.find(item => isNavItemActive(item)) || null
+)
+
 const loadMenuAuth = async () => {
   try {
     const payload = await api.getMyMenus()
@@ -317,6 +343,8 @@ const homePinned = ref(true)
 
 const selectedSection = computed<NavSection | null>(() => {
   if (isHomeActive.value && homePinned.value) return null
+  // 一级入口命中当前路由且用户未显式选择分区时，不展示二级面板（与首页同为单页入口语义）
+  if (activeDirectItem.value && selectedSectionName.value === null) return null
   const sections = visibleNavItems.value
   return sections.find(section => section.section === selectedSectionName.value)
     || sections.find(section => hasActiveRoute(section.items))
@@ -451,6 +479,21 @@ onMounted(() => {
             <span class="primary-nav-label">{{ homeNavItem.label }}</span>
           </button>
           <div v-if="homeNavItem" class="primary-nav-divider" aria-hidden="true"></div>
+          <button
+            v-for="item in directNavItems"
+            :key="item.key || item.path"
+            type="button"
+            class="primary-nav-item"
+            :class="{ active: isNavItemActive(item) }"
+            :aria-current="isNavItemActive(item) ? 'page' : undefined"
+            :title="item.label"
+            @click="navigateTo(item)"
+          >
+            <span class="primary-nav-icon" aria-hidden="true">
+              <el-icon><component :is="item.icon" /></el-icon>
+            </span>
+            <span class="primary-nav-label">{{ item.label }}</span>
+          </button>
           <button
             v-for="section in visibleNavItems"
             :key="section.section"

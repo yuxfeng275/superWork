@@ -49,6 +49,12 @@ export default [
     component: './meetings',
   },
   {
+    path: '/schedule',
+    name: '日程',
+    icon: 'Calendar',
+    component: './schedule',
+  },
+  {
     path: '/tasks',
     name: '任务管理',
     icon: 'checkSquare',

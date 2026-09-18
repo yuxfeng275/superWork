@@ -87,6 +87,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '周报中心', requiresAuth: true }
       },
       {
+        path: 'schedule',
+        name: 'Schedule',
+        component: () => import('@/views/ScheduleView.vue'),
+        meta: { title: '日程' }
+      },
+      {
         path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/StatisticsView.vue'),
