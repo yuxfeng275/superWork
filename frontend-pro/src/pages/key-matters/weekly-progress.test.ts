@@ -14,6 +14,11 @@ const mondayOf = (value?: dayjs.ConfigType) => {
   const weekday = date.day() || 7;
   return date.startOf("day").subtract(weekday - 1, "day");
 };
+const weekRangeLabel = (value?: dayjs.ConfigType) => {
+  const start = mondayOf(value);
+  const end = start.add(6, "day");
+  return `${start.format("MM/DD")} - ${end.format("MM/DD")}`;
+};
 
 describe("key-matter weekly progress", () => {
   it("always sends ISO Monday as weekStartDate", () => {
@@ -29,6 +34,13 @@ describe("key-matter weekly progress", () => {
     );
     expect(source).toMatch(
       /await superworkApi\.getKeyMatterMeeting\([\s\S]*?mondayOf\(\)\.format\(["']YYYY-MM-DD["']\)/
+    );
+  });
+
+  it("titles the weekly modal with the current week range", () => {
+    expect(weekRangeLabel("2026-09-17")).toBe("09/14 - 09/20");
+    expect(source).toMatch(
+      /title=\{`\$\{weekRangeLabel\(weeklyFormWeekStart\)\} 周进展`\}/
     );
   });
 
