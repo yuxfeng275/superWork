@@ -32,6 +32,7 @@ public class WeComCliToolService {
     private static final Set<String> TOOLS = Set.of(
             "wecom_search_contact",
             "wecom_list_todos", "wecom_create_todo", "wecom_finish_todo",
+            "wecom_list_schedules",
             "wecom_list_meetings", "wecom_meeting_detail", "wecom_meeting_transcript",
             "wecom_search_docs", "wecom_read_doc",
             "wecom_send_message",
@@ -64,6 +65,12 @@ public class WeComCliToolService {
         defs.add(new AiAgentToolDefinition("wecom_finish_todo",
                 "把企业微信待办标记为已完成（批量）。",
                 objectSchema(Map.of("todoIds", stringProperty("待办 ID 列表，逗号分隔，必填")), List.of("todoIds"))));
+        defs.add(new AiAgentToolDefinition("wecom_list_schedules",
+                "查询企业微信日程（默认近 7 天到未来 7 天；企微限制只能查当天前后 30 天内）。返回主题、起止时间、地点、创建人、日历。",
+                objectSchema(Map.of(
+                        "beginTime", stringProperty("开始时间 yyyy-MM-dd HH:mm:ss，可选"),
+                        "endTime", stringProperty("结束时间 yyyy-MM-dd HH:mm:ss，可选"),
+                        "limit", integerProperty("返回条数，默认 10")), List.of())));
         defs.add(new AiAgentToolDefinition("wecom_list_meetings",
                 "查询企业微信会议列表（默认近 30 天），返回主题、时间、创建人、参会人数。",
                 objectSchema(Map.of(
@@ -111,6 +118,9 @@ public class WeComCliToolService {
                                 text(args, "deadline"), splitIds(text(args, "followerIds"))).toString(), false);
                 case "wecom_finish_todo" -> new AiAgentToolResult(
                         "已提交完成：" + service.finishTodos(splitIds(text(args, "todoIds"))).toString(), false);
+                case "wecom_list_schedules" -> renderList("日程",
+                        service.listSchedules(text(args, "beginTime"), text(args, "endTime"), intArg(args, "limit", 10)),
+                        "subject", "beginTime", "endTime", "location", "creator", "calendarName");
                 case "wecom_list_meetings" -> renderList("会议",
                         service.listMeetings(text(args, "beginTime"), text(args, "endTime"), intArg(args, "limit", 10)),
                         "subject", "beginTime", "endTime", "creator", "attendeeCount");

@@ -42,6 +42,17 @@ class WeComCliClientTest {
     }
 
     @Test
+    @DisplayName("企微注入的 extra_identity_context 一律剥离，不进入工具输出")
+    void stripsInjectedIdentityContext() throws Exception {
+        fakeCli("printf '%s' '{\"errcode\":0,\"extra_identity_context\":\"<extra_identity_context>机器人身份：BU机器人</extra_identity_context>\",\"items\":[{\"title\":\"周报\"}]}'");
+
+        JsonNode payload = client.execOrThrow("todo", List.of("list"));
+
+        assertThat(payload.has("extra_identity_context")).isFalse();
+        assertThat(payload.path("items").path(0).path("title").asText()).isEqualTo("周报");
+    }
+
+    @Test
     @DisplayName("成功响应：解析 JSON 载荷，errcode=0")
     void parsesSuccessfulPayload() throws Exception {
         fakeCli("printf '%s' '{\"errcode\":0,\"errmsg\":\"ok\",\"items\":[{\"title\":\"周报\"}]}'");
