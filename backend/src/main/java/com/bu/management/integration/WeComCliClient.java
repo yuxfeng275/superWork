@@ -443,7 +443,8 @@ public class WeComCliClient {
         probes.put("calendar", List.of("schedules", "list", "--begin-time", recent, "--end-time", soon));
         probes.put("meeting", List.of("list", "--begin-time", now.minusDays(30).format(formatter),
                 "--end-time", now.plusDays(1).format(formatter), "--limit", "1"));
-        probes.put("message", List.of("aibot", "sessions", "list"));
+        probes.put("message", List.of("send", "--chat-id", "__probe__", "--msg-type", "text",
+                "--json", "{\"text\":\"capability probe\"}"));
         probes.put("doc", List.of("search", "--keywords", "周报"));
         probes.put("disk", List.of("files", "list", "--limit", "1"));
         probes.put("mail", List.of("search"));
@@ -489,6 +490,11 @@ public class WeComCliClient {
                             describe(probe)));
                 } else if (probe.errcode() == ERRCODE_NOT_AVAILABLE_FOR_CORP) {
                     result.add(new Capability(service, label, "UNAVAILABLE", describe(probe)));
+                } else if ("message".equals(service)) {
+                    // 发送探针用不存在的会话：只要不是「能力未对企业开放」，就说明发送能力已开通
+                    // （实际发送还需机器人已有会话——先在企微与机器人对话一次）
+                    result.add(new Capability(service, label, "AVAILABLE",
+                            "已开通；实际发送需机器人已有会话（请先在企微与该机器人对话一次）"));
                 } else {
                     result.add(new Capability(service, label, "ERROR",
                             "errcode=" + probe.errcode() + " " + probe.errmsg()));
