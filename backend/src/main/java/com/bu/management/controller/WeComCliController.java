@@ -94,6 +94,15 @@ public class WeComCliController {
         return Result.success(service.finishTodos(ids));
     }
 
+    @GetMapping("/schedules")
+    @Operation(summary = "日程列表（企微限制只能查当天前后 30 天内）")
+    public Result<List<Map<String, Object>>> schedules(
+            @RequestParam(required = false) String beginTime,
+            @RequestParam(required = false) String endTime,
+            @RequestParam(defaultValue = "10") int limit) {
+        return Result.success(service.listSchedules(beginTime, endTime, limit));
+    }
+
     @GetMapping("/contacts")
     @Operation(summary = "通讯录搜索")
     public Result<List<Map<String, Object>>> contacts(@RequestParam String keyword) {
