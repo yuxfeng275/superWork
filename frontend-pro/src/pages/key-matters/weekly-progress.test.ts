@@ -44,6 +44,18 @@ describe("key-matter weekly progress", () => {
     );
   });
 
+  it("uses a draggable progress slider instead of preset buttons", () => {
+    const weeklyModal = source.slice(
+      source.indexOf('className="sw-weekly-modal"')
+    );
+    expect(weeklyModal).toMatch(/className="sw-presentation-brief-slider"/);
+    expect(weeklyModal).toMatch(
+      /className="sw-presentation-brief-input"[\s\S]*?suffix="%"/
+    );
+    expect(weeklyModal).not.toMatch(/sw-presentation-brief-presets/);
+    expect(weeklyModal).not.toMatch(/progressPresets\.map/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);

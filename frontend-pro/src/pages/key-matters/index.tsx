@@ -36,6 +36,7 @@ import {
   Row,
   Segmented,
   Select,
+  Slider,
   Space,
   Tag,
   Typography,
@@ -2522,18 +2523,16 @@ export default function KeyMattersPage() {
                           />
                         </Form.Item>
                         <div className="sw-presentation-brief-progress">
-                          <Progress
-                            percent={Number(weeklyFormProgress || 0)}
-                            size={{ height: 8 }}
-                            showInfo={false}
-                            status={
-                              weeklyFormStatus === "已阻塞"
-                                ? "exception"
-                                : weeklyFormStatus === "已完成"
-                                ? "success"
-                                : "active"
-                            }
-                          />
+                          <Form.Item name="progress" noStyle>
+                            <Slider
+                              className="sw-presentation-brief-slider"
+                              min={0}
+                              max={100}
+                              tooltip={{
+                                formatter: (value) => `${value ?? 0}%`,
+                              }}
+                            />
+                          </Form.Item>
                           <Form.Item name="progress" noStyle>
                             <InputNumber
                               className="sw-presentation-brief-input"
@@ -2543,35 +2542,6 @@ export default function KeyMattersPage() {
                             />
                           </Form.Item>
                         </div>
-                        <Space
-                          size={4}
-                          wrap
-                          className="sw-presentation-brief-presets"
-                        >
-                          {progressPresets.map((preset) => (
-                            <Button
-                              key={preset}
-                              size="small"
-                              type={
-                                Number(weeklyFormProgress) === preset
-                                  ? "primary"
-                                  : "default"
-                              }
-                              onClick={() => {
-                                weeklyForm.setFieldValue("progress", preset);
-                                if (preset === 100)
-                                  weeklyForm.setFieldValue("status", "已完成");
-                                else if (
-                                  weeklyForm.getFieldValue("status") ===
-                                  "已完成"
-                                )
-                                  weeklyForm.setFieldValue("status", "推进中");
-                              }}
-                            >
-                              {preset}%
-                            </Button>
-                          ))}
-                        </Space>
                       </header>
                       <Form.Item
                         name="progressSummary"
