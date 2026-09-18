@@ -131,7 +131,7 @@ public class WeComCliService {
         return rows;
     }
 
-    /** 创建待办（单条便捷入口）。 */
+    /** 创建待办（单条便捷入口）。deadline 需为对象 {type,value}（企微要求，非字符串）。 */
     public JsonNode createTodo(String title, String description, String deadline, List<String> followerIds) {
         if (!StringUtils.hasText(title)) {
             throw new IllegalArgumentException("待办标题不能为空");
@@ -139,7 +139,13 @@ public class WeComCliService {
         ObjectNode item = objectMapper.createObjectNode();
         item.put("title", title.trim());
         if (StringUtils.hasText(description)) item.put("description", description.trim());
-        if (StringUtils.hasText(deadline)) item.put("deadline", deadline.trim());
+        if (StringUtils.hasText(deadline)) {
+            String value = deadline.trim();
+            ObjectNode deadlineNode = item.putObject("deadline");
+            // 只给日期按 date 类型，含时刻按 datetime（与企微枚举一致）
+            deadlineNode.put("type", value.length() <= 10 ? "date" : "datetime");
+            deadlineNode.put("value", value);
+        }
         if (followerIds != null && !followerIds.isEmpty()) {
             ArrayNode ids = item.putArray("follower_ids");
             followerIds.stream().filter(StringUtils::hasText).forEach(ids::add);
