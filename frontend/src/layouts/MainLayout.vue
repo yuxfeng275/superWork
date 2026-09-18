@@ -97,6 +97,7 @@ const defaultNavItems: NavSection[] = [
       { path: '/defects', icon: 'CircleCloseFilled', label: '缺陷管理' },
       { path: '/emails', icon: 'Message', label: '邮件管理' },
       { path: '/ai-assistant', icon: 'ChatDotRound', label: 'AI 助手' },
+      { path: '/todos', icon: 'Finished', label: '待办' },
       {
         path: '/key-matters',
         icon: 'Flag',

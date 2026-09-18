@@ -2015,6 +2015,22 @@ class ApiService {
     })
   }
 
+  async getTodos(status?: string) {
+    const query = status ? `?status=${encodeURIComponent(status)}` : ''
+    return this.request<Array<{
+      id: number
+      title: string
+      excerpt?: string | null
+      link?: string | null
+      status: string
+      createdAt?: string
+    }>>(`/api/todos${query}`)
+  }
+
+  async completeTodo(id: number) {
+    return this.request(`/api/todos/${id}/complete`, { method: 'POST' })
+  }
+
   // 站内通知
   async getAiNotices(): Promise<AiNotice[]> {
     return this.request<AiNotice[]>('/api/ai/notices')

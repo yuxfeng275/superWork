@@ -44,7 +44,10 @@ import {
 } from "antd";
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MentionsField } from "@/components/MentionsField";
+import { SimpleMarkdown } from "@/components/SimpleMarkdown";
 import { superworkApi } from "@/services/superwork/api";
+import "../todos/style.less";
 import "../workbench/style.less";
 import "./style.less";
 
@@ -557,7 +560,10 @@ export default function KeyMattersPage() {
     emptyLabel: string
   ) => {
     const text = String(value || "").trim();
-    if (text) return <div className="sw-presentation-body">{text}</div>;
+    if (text)
+      return (
+        <SimpleMarkdown className="sw-presentation-body" value={text} />
+      );
     return (
       <div className="sw-presentation-empty" aria-label={emptyLabel}>
         <InboxOutlined />
@@ -2343,16 +2349,17 @@ export default function KeyMattersPage() {
                           )}
                         </header>
                         {presentationEditing ? (
-                          <Input.TextArea
+                          <MentionsField
                             rows={3}
+                            users={users}
                             value={presentationDraft?.progressSummary}
-                            onChange={(event) =>
+                            onChange={(next) =>
                               setPresentationDraft((draft) => ({
                                 ...draft,
-                                progressSummary: event.target.value,
+                                progressSummary: next,
                               }))
                             }
-                            placeholder="逐条说明本周完成了什么、形成了什么结果"
+                            placeholder="支持简单 Markdown，可用 @姓名 提醒同事"
                           />
                         ) : (
                           renderPresentationBody(
@@ -2366,16 +2373,17 @@ export default function KeyMattersPage() {
                     <Col xs={24} md={12}>
                       <Card size="small" title="问题 / 风险">
                         {presentationEditing ? (
-                          <Input.TextArea
+                          <MentionsField
                             rows={2}
+                            users={users}
                             value={presentationDraft?.issues}
-                            onChange={(event) =>
+                            onChange={(next) =>
                               setPresentationDraft((draft) => ({
                                 ...draft,
-                                issues: event.target.value,
+                                issues: next,
                               }))
                             }
-                            placeholder="没有可留空"
+                            placeholder="没有可留空，可用 @姓名 提醒相关人"
                           />
                         ) : (
                           renderPresentationBody(
@@ -2388,16 +2396,17 @@ export default function KeyMattersPage() {
                     <Col xs={24} md={12}>
                       <Card size="small" title="需协调 / 决策">
                         {presentationEditing ? (
-                          <Input.TextArea
+                          <MentionsField
                             rows={2}
+                            users={users}
                             value={presentationDraft?.supportNeeded}
-                            onChange={(event) =>
+                            onChange={(next) =>
                               setPresentationDraft((draft) => ({
                                 ...draft,
-                                supportNeeded: event.target.value,
+                                supportNeeded: next,
                               }))
                             }
-                            placeholder="明确需要谁推动什么"
+                            placeholder="明确需要谁推动什么，可用 @姓名"
                           />
                         ) : (
                           renderPresentationBody(
@@ -2410,16 +2419,17 @@ export default function KeyMattersPage() {
                     <Col xs={24}>
                       <Card size="small" title="下一步行动">
                         {presentationEditing ? (
-                          <Input.TextArea
+                          <MentionsField
                             rows={2}
+                            users={users}
                             value={presentationDraft?.nextWeekPlan}
-                            onChange={(event) =>
+                            onChange={(next) =>
                               setPresentationDraft((draft) => ({
                                 ...draft,
-                                nextWeekPlan: event.target.value,
+                                nextWeekPlan: next,
                               }))
                             }
-                            placeholder="说明下一周期的关键动作"
+                            placeholder="说明下一周期的关键动作，可用 @姓名"
                           />
                         ) : (
                           renderPresentationBody(
@@ -2661,9 +2671,10 @@ export default function KeyMattersPage() {
                         name="progressSummary"
                         rules={[{ required: true, message: "请输入本周进展" }]}
                       >
-                        <Input.TextArea
+                        <MentionsField
                           rows={3}
-                          placeholder="逐条说明本周完成了什么、形成了什么结果"
+                          users={users}
+                          placeholder="支持简单 Markdown，可用 @姓名 提醒同事"
                         />
                       </Form.Item>
                     </Card>
@@ -2671,16 +2682,21 @@ export default function KeyMattersPage() {
                   <Col xs={24} md={12}>
                     <Card size="small" title="问题 / 风险">
                       <Form.Item name="issues">
-                        <Input.TextArea rows={2} placeholder="没有可留空" />
+                        <MentionsField
+                          rows={2}
+                          users={users}
+                          placeholder="没有可留空，可用 @姓名 提醒相关人"
+                        />
                       </Form.Item>
                     </Card>
                   </Col>
                   <Col xs={24} md={12}>
                     <Card size="small" title="需协调 / 决策">
                       <Form.Item name="supportNeeded">
-                        <Input.TextArea
+                        <MentionsField
                           rows={2}
-                          placeholder="明确需要谁推动什么"
+                          users={users}
+                          placeholder="明确需要谁推动什么，可用 @姓名"
                         />
                       </Form.Item>
                     </Card>
@@ -2688,9 +2704,10 @@ export default function KeyMattersPage() {
                   <Col xs={24}>
                     <Card size="small" title="下一步行动">
                       <Form.Item name="nextWeekPlan">
-                        <Input.TextArea
+                        <MentionsField
                           rows={2}
-                          placeholder="说明下一周期的关键动作"
+                          users={users}
+                          placeholder="说明下一周期的关键动作，可用 @姓名"
                         />
                       </Form.Item>
                     </Card>

@@ -85,6 +85,12 @@ describe("key-matter weekly progress", () => {
     expect(source).not.toMatch(/"本周暂无风险"\s*\|\|/);
   });
 
+  it("uses markdown rendering and mention fields in weekly copy", () => {
+    expect(source).toMatch(/<SimpleMarkdown className="sw-presentation-body"/);
+    expect(source).toMatch(/<MentionsField/);
+    expect(source).toMatch(/placeholder="支持简单 Markdown，可用 @姓名 提醒同事"/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);

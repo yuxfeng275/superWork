@@ -958,6 +958,22 @@ export interface MeetingSummary {
 
 export type MeetingTodoStatus = "DRAFT" | "CREATED" | "DISMISSED";
 
+export interface UserTodo {
+  id: number;
+  assigneeId: number;
+  actorId?: number | null;
+  sourceType: string;
+  sourceId: number;
+  mentionToken: string;
+  title: string;
+  excerpt?: string | null;
+  link?: string | null;
+  sourceDate?: string | null;
+  status: "OPEN" | "DONE" | string;
+  createdAt?: string;
+  completedAt?: string | null;
+}
+
 export interface MeetingTodo {
   id: number;
   title: string;
@@ -1820,6 +1836,12 @@ export const superworkApi = {
   },
   deleteAiModel(id: number) {
     return requestJson<void>(`/api/ai/models/${id}`, { method: "DELETE" });
+  },
+  getTodos(status?: string) {
+    return requestJson<UserTodo[]>(`/api/todos${query({ status })}`);
+  },
+  completeTodo(id: number) {
+    return requestJson<UserTodo>(`/api/todos/${id}/complete`, { method: "POST" });
   },
   getAiNotices() {
     return requestJson<AiNotice[]>('/api/ai/notices');

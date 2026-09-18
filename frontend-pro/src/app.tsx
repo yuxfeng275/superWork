@@ -97,6 +97,7 @@ const menuIconByServerName: Record<string, React.ReactNode> = {
   Document: <FileTextOutlined />,
   Finished: <CheckCircleOutlined />,
   checkCircle: <CheckCircleOutlined />,
+  CheckSquare: <CheckCircleOutlined />,
   CircleCloseFilled: <CloseCircleOutlined />,
   Message: <MessageOutlined />,
   ChatDotRound: <RobotOutlined />,

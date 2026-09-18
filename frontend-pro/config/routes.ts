@@ -67,6 +67,12 @@ export default [
     component: './defects',
   },
   {
+    path: '/todos',
+    name: '待办',
+    icon: 'checkCircle',
+    component: './todos',
+  },
+  {
     path: '/weekly-report',
     name: '周报中心',
     icon: 'profile',

@@ -33,6 +33,7 @@ public class AiNoticeService {
     private final MailNoticeSource mailSource;
     private final MailArrivalNoticeSource mailArrivalSource;
     private final WorktimeSyncNoticeSource worktimeSyncSource;
+    private final MentionTodoNoticeSource mentionTodoSource;
 
     /** 当前用户的通知列表（已读的也返回，前端可折叠展示）。 */
     public List<Notice> list(Long userId) {
@@ -42,6 +43,7 @@ public class AiNoticeService {
         collect(notices, oaSource.compute(userId, today));
         collect(notices, mailArrivalSource.compute(userId, today));
         collect(notices, worktimeSyncSource.compute(userId, today));
+        collect(notices, mentionTodoSource.compute(userId, today));
         markRead(notices, userId);
         return notices;
     }
@@ -66,6 +68,12 @@ public class AiNoticeService {
     private void collect(List<Notice> target, Notice notice) {
         if (notice != null) {
             target.add(notice);
+        }
+    }
+
+    private void collect(List<Notice> target, List<Notice> notices) {
+        if (notices != null && !notices.isEmpty()) {
+            target.addAll(notices);
         }
     }
 

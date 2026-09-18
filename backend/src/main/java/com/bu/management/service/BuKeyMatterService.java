@@ -50,6 +50,7 @@ public class BuKeyMatterService {
     private final BuKeyMatterParticipantMapper participantMapper;
     private final BuKeyMatterAccessService accessService;
     private final EmailActionLinkService emailActionLinkService;
+    private final UserTodoService userTodoService;
 
     @Transactional
     public BuKeyMatter create(BuKeyMatterRequest request, Long userId, String username) {
@@ -184,7 +185,32 @@ public class BuKeyMatterService {
                 matterMapper.updateById(matter);
             }
         }
+        syncWeeklyMentions(matter, update, userId, username);
         return update;
+    }
+
+    private void syncWeeklyMentions(BuKeyMatter matter, BuKeyMatterWeeklyUpdate update,
+                                    Long userId, String username) {
+        if (update.getId() == null) {
+            return;
+        }
+        User actor = userId == null ? null : userMapper.selectById(userId);
+        String actorName = actor != null && StringUtils.hasText(actor.getRealName())
+                ? actor.getRealName()
+                : username;
+        userTodoService.syncMentions(
+                UserTodoService.SOURCE_KEY_MATTER_WEEKLY,
+                update.getId(),
+                userId,
+                actorName,
+                matter.getTitle(),
+                "/key-matters?matterId=" + matter.getId(),
+                update.getWeekStartDate(),
+                List.of(
+                        update.getProgressSummary(),
+                        update.getIssues(),
+                        update.getSupportNeeded(),
+                        update.getNextWeekPlan()));
     }
 
     @Transactional

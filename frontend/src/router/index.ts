@@ -75,6 +75,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '大事儿管理', requiresKeyMatterAccess: true }
       },
       {
+        path: 'todos',
+        name: 'Todos',
+        component: () => import('@/views/TodosView.vue'),
+        meta: { title: '待办' }
+      },
+      {
         path: 'oa-affairs',
         name: 'OaAffairs',
         component: () => import('@/views/OaAffairsView.vue'),

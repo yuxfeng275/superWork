@@ -41,6 +41,7 @@ class BuKeyMatterServiceTest {
     @Mock private BuKeyMatterParticipantMapper participantMapper;
     @Mock private BuKeyMatterAccessService accessService;
     @Mock private EmailActionLinkService emailActionLinkService;
+    @Mock private UserTodoService userTodoService;
 
     private BuKeyMatterService service;
 
@@ -48,7 +49,7 @@ class BuKeyMatterServiceTest {
     void setUp() {
         service = new BuKeyMatterService(
                 matterMapper, weeklyUpdateMapper, userMapper, projectMapper,
-                participantMapper, accessService, emailActionLinkService);
+                participantMapper, accessService, emailActionLinkService, userTodoService);
     }
 
     @Test
@@ -159,6 +160,15 @@ class BuKeyMatterServiceTest {
         assertThat(matter.getProgress()).isEqualTo(60);
         verify(weeklyUpdateMapper).updateById(existing);
         verify(matterMapper).updateById(matter);
+        verify(userTodoService).syncMentions(
+                org.mockito.ArgumentMatchers.eq("KEY_MATTER_WEEKLY"),
+                org.mockito.ArgumentMatchers.eq(21L),
+                org.mockito.ArgumentMatchers.eq(16L),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("事项11"),
+                org.mockito.ArgumentMatchers.eq("/key-matters?matterId=11"),
+                org.mockito.ArgumentMatchers.eq(week),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
