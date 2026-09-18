@@ -2027,6 +2027,16 @@ export default function KeyMattersPage() {
                         {group.items.length} 项事项 · {group.averageProgress}
                         %完成
                       </small>
+                      <span
+                        className="sw-presentation-group-meter"
+                        role="progressbar"
+                        aria-label={`${group.label}汇总进度 ${group.averageProgress}%`}
+                        aria-valuenow={group.averageProgress}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <i style={{ width: `${group.averageProgress}%` }} />
+                      </span>
                     </span>
                   </button>
                   <div className="sw-presentation-group-stats">
@@ -2064,6 +2074,12 @@ export default function KeyMattersPage() {
                           }`}
                           onClick={() => navigatePresentation(matterIndex)}
                         >
+                          {Boolean(matter.currentWeekUpdate) && (
+                            <i
+                              className="sw-presentation-matter-dot"
+                              aria-label="本周已更新"
+                            />
+                          )}
                           <Typography.Text ellipsis>
                             {matter.title}
                           </Typography.Text>

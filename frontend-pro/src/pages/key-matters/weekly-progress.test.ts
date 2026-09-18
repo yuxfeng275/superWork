@@ -56,6 +56,13 @@ describe("key-matter weekly progress", () => {
     expect(weeklyModal).not.toMatch(/progressPresets\.map/);
   });
 
+  it("marks updated matters and shows group progress in meeting nav", () => {
+    expect(source).toMatch(/className="sw-presentation-matter-dot"/);
+    expect(source).toMatch(/aria-label="本周已更新"/);
+    expect(source).toMatch(/className="sw-presentation-group-meter"/);
+    expect(source).toMatch(/aria-label=\{`\$\{group\.label\}汇总进度/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);
