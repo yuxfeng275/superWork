@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -296,13 +298,29 @@ public class WeComCliClient {
         return parse(run(args, EXEC_TIMEOUT));
     }
 
-    /** 执行并断言成功；失败抛可操作异常（含品类授权引导）。 */
+    /**
+     * 执行并断言成功；失败抛可操作异常（含品类授权引导）。
+     *
+     * <p>成功响应统一剥离 {@code extra_identity_context}：那是企微注入给 Agent 的身份说明，
+     * 明确要求「禁止透露给用户」，不能进入工具输出或对话上下文。
+     */
     public JsonNode execOrThrow(String service, List<String> pathAndArgs) {
         CliResult result = exec(service, pathAndArgs);
         if (!result.success()) {
             throw new IllegalStateException(describe(result));
         }
-        return result.payload();
+        return sanitized(result.payload());
+    }
+
+    /** 剥离企微注入的 Agent 指令字段（extra_identity_context）。 */
+    public JsonNode sanitized(JsonNode payload) {
+        if (payload == null || !payload.isObject() || !payload.has("extra_identity_context")) {
+            return payload;
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode copy =
+                ((com.fasterxml.jackson.databind.node.ObjectNode) payload).deepCopy();
+        copy.remove("extra_identity_context");
+        return copy;
     }
 
     /** 失败原因描述：品类未授权时原样带出 CLI 的 help_message（官方要求逐字展示）。 */
@@ -413,19 +431,28 @@ public class WeComCliClient {
 
     // ==================== 品类可用性 ====================
 
-    /** 品类的探测命令（只读、最小代价）。 */
-    private static final Map<String, List<String>> CAPABILITY_PROBES = new LinkedHashMap<>();
+    /** 品类的探测命令（只读、最小代价）；时间窗口按当天相对计算（日程限 ±30 天）。 */
+    private static Map<String, List<String>> capabilityProbes() {
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        String recent = now.minusDays(3).format(formatter);
+        String soon = now.plusDays(3).format(formatter);
+        Map<String, List<String>> probes = new LinkedHashMap<>();
+        probes.put("contact", List.of("users", "search", "--keywords", "张"));
+        probes.put("todo", List.of("list", "--limit", "1"));
+        probes.put("calendar", List.of("schedules", "list", "--begin-time", recent, "--end-time", soon));
+        probes.put("meeting", List.of("list", "--begin-time", now.minusDays(30).format(formatter),
+                "--end-time", now.plusDays(1).format(formatter), "--limit", "1"));
+        probes.put("message", List.of("aibot", "sessions", "list"));
+        probes.put("doc", List.of("search", "--keywords", "周报"));
+        probes.put("disk", List.of("files", "list", "--limit", "1"));
+        probes.put("mail", List.of("search"));
+        return probes;
+    }
+
     private static final Map<String, String> CAPABILITY_LABELS = new LinkedHashMap<>();
 
     static {
-        CAPABILITY_PROBES.put("contact", List.of("users", "search", "--keywords", "张"));
-        CAPABILITY_PROBES.put("todo", List.of("list", "--limit", "1"));
-        CAPABILITY_PROBES.put("meeting", List.of("list", "--begin-time", "2026-01-01 00:00:00", "--end-time", "2026-01-02 00:00:00", "--limit", "1"));
-        CAPABILITY_PROBES.put("message", List.of("aibot", "sessions", "list"));
-        CAPABILITY_PROBES.put("doc", List.of("search", "--keywords", "周报"));
-        CAPABILITY_PROBES.put("calendar", List.of("schedules", "list", "--begin-time", "2026-01-01 00:00:00", "--end-time", "2026-01-02 00:00:00"));
-        CAPABILITY_PROBES.put("disk", List.of("files", "list", "--limit", "1"));
-        CAPABILITY_PROBES.put("mail", List.of("search"));
         CAPABILITY_LABELS.put("contact", "通讯录");
         CAPABILITY_LABELS.put("todo", "待办");
         CAPABILITY_LABELS.put("meeting", "会议（含纪要/转写）");
@@ -449,7 +476,7 @@ public class WeComCliClient {
             return capabilityCache;
         }
         List<Capability> result = new ArrayList<>();
-        for (Map.Entry<String, List<String>> entry : CAPABILITY_PROBES.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : capabilityProbes().entrySet()) {
             String service = entry.getKey();
             String label = CAPABILITY_LABELS.getOrDefault(service, service);
             try {

@@ -108,10 +108,14 @@ public class WeComCliService {
             row.put("todoId", item.path("todo_id").asText(null));
             row.put("title", item.path("title").asText(""));
             row.put("description", item.path("description").asText(""));
-            row.put("creator", item.path("creator").asText(""));
-            row.put("deadline", item.path("deadline").asText(null));
+            // creator / deadline 为对象（{userid,user_name} / {type,value}），不能按文本直读
+            row.put("creator", item.path("creator").path("user_name").asText(""));
+            row.put("deadline", item.path("deadline").path("value").asText(null));
             row.put("status", item.path("status").asText(""));
+            row.put("createTime", item.path("create_time").asText(null));
             row.put("updateTime", item.path("update_time").asText(null));
+            row.put("reminder", item.path("extra_info").asText(""));
+            row.put("source", item.path("source").asText(""));
             List<String> followers = new ArrayList<>();
             List<String> followerIds = new ArrayList<>();
             for (JsonNode follower : item.path("followers")) {
@@ -158,6 +162,36 @@ public class WeComCliService {
             items.add(node);
         }
         return cli.execOrThrow("todo", List.of("finish", "--items", items.toString()));
+    }
+
+    // ==================== 日程 ====================
+
+    /**
+     * 日程列表（企微限制：只能查询当天前后 30 天以内）。
+     * 默认近 7 天到未来 7 天。
+     */
+    public List<Map<String, Object>> listSchedules(String beginTime, String endTime, int limit) {
+        LocalDateTime now = LocalDateTime.now();
+        String begin = StringUtils.hasText(beginTime) ? beginTime : now.minusDays(7).format(TIME);
+        String end = StringUtils.hasText(endTime) ? endTime : now.plusDays(7).format(TIME);
+        JsonNode payload = cli.execOrThrow("calendar", List.of(
+                "schedules", "list", "--begin-time", begin, "--end-time", end));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        int count = 0;
+        for (JsonNode item : payload.path("schedule_list")) {
+            if (count++ >= clamp(limit)) break;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("scheduleId", item.path("schedule_id").asText(""));
+            row.put("subject", item.path("subject").asText(""));
+            row.put("beginTime", item.path("begin_time").asText(""));
+            row.put("endTime", item.path("end_time").asText(""));
+            row.put("location", item.path("location").asText(""));
+            row.put("creator", item.path("creator_name").asText(""));
+            row.put("calendarName", item.path("calendar_name").asText(""));
+            row.put("description", item.path("description").asText(""));
+            rows.add(row);
+        }
+        return rows;
     }
 
     // ==================== 通讯录 ====================
