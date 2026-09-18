@@ -143,8 +143,9 @@ public class ScheduleCalendarService {
 
     private WecomResult wecomSchedules(LocalDateTime windowStart, LocalDateTime windowEnd) {
         LocalDate today = LocalDate.now();
-        LocalDate minDate = today.minusDays(WECOM_WINDOW_DAYS);
-        LocalDate maxDate = today.plusDays(WECOM_WINDOW_DAYS);
+        // 企微限制「当天前后 30 天」，末端再留一天余量，避免边界被拒（90747）
+        LocalDate minDate = today.minusDays(WECOM_WINDOW_DAYS - 1);
+        LocalDate maxDate = today.plusDays(WECOM_WINDOW_DAYS - 1);
         LocalDate queryStart = windowStart.toLocalDate().isBefore(minDate) ? minDate : windowStart.toLocalDate();
         LocalDate queryEnd = windowEnd.toLocalDate().isAfter(maxDate) ? maxDate : windowEnd.toLocalDate();
         String hint = null;
@@ -166,7 +167,7 @@ public class ScheduleCalendarService {
             JsonNode payload = cli.execOrThrow("calendar", List.of(
                     "schedules", "list",
                     "--begin-time", queryStart.atStartOfDay().format(TIME),
-                    "--end-time", queryEnd.plusDays(1).atStartOfDay().format(TIME)));
+                    "--end-time", queryEnd.atTime(23, 59, 59).format(TIME)));
             for (JsonNode item : payload.path("schedule_list")) {
                 LocalDateTime begin = ScheduleRecurrence.parse(item.path("begin_time").asText(null));
                 LocalDateTime end = ScheduleRecurrence.parse(item.path("end_time").asText(null));
