@@ -77,12 +77,12 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/未设置截止日期/);
   });
 
-  it("uses large card copy and icon empty states in weekly meeting", () => {
+  it("uses large card copy and empty inbox icons in weekly meeting", () => {
     expect(source).toMatch(/className="sw-presentation-body"/);
-    expect(source).toMatch(/className=\{`sw-presentation-empty is-\$\{empty\.tone/);
-    expect(source).toMatch(/label: "本周暂无风险"/);
-    expect(source).toMatch(/label: "暂无待协调事项"/);
-    expect(source).not.toMatch(/"本周暂无风险"\s*\)/);
+    expect(source).toMatch(/className="sw-presentation-empty"/);
+    expect(source).toMatch(/<InboxOutlined \/>/);
+    expect(source).not.toMatch(/CheckCircleFilled/);
+    expect(source).not.toMatch(/"本周暂无风险"\s*\|\|/);
   });
 
   it("uses the weekly-meeting presentation cards while keeping history", () => {

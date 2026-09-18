@@ -1,13 +1,11 @@
 import {
   CalendarOutlined,
-  CheckCircleFilled,
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   FilterOutlined,
-  FlagOutlined,
   FolderOpenOutlined,
-  FormOutlined,
+  InboxOutlined,
   MonitorOutlined,
   MoreOutlined,
   PlusOutlined,
@@ -45,14 +43,7 @@ import {
   Typography,
 } from "antd";
 import dayjs from "dayjs";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { superworkApi } from "@/services/superwork/api";
 import "../workbench/style.less";
 import "./style.less";
@@ -563,16 +554,13 @@ export default function KeyMattersPage() {
     Number(currentUpdate(matter)?.progress ?? matter.progress ?? 0);
   const renderPresentationBody = (
     value: string | undefined,
-    empty: { icon: ReactNode; label: string; tone?: "ok" | "muted" }
+    emptyLabel: string
   ) => {
     const text = String(value || "").trim();
     if (text) return <div className="sw-presentation-body">{text}</div>;
     return (
-      <div
-        className={`sw-presentation-empty is-${empty.tone || "ok"}`}
-        aria-label={empty.label}
-      >
-        {empty.icon}
+      <div className="sw-presentation-empty" aria-label={emptyLabel}>
+        <InboxOutlined />
       </div>
     );
   };
@@ -2370,11 +2358,7 @@ export default function KeyMattersPage() {
                           renderPresentationBody(
                             presentationMatter.currentWeekUpdate
                               ?.progressSummary,
-                            {
-                              icon: <FormOutlined />,
-                              label: "尚未填写本周进展",
-                              tone: "muted",
-                            }
+                            "尚未填写本周进展"
                           )
                         )}
                       </Card>
@@ -2396,10 +2380,7 @@ export default function KeyMattersPage() {
                         ) : (
                           renderPresentationBody(
                             presentationMatter.currentWeekUpdate?.issues,
-                            {
-                              icon: <CheckCircleFilled />,
-                              label: "本周暂无风险",
-                            }
+                            "本周暂无风险"
                           )
                         )}
                       </Card>
@@ -2421,10 +2402,7 @@ export default function KeyMattersPage() {
                         ) : (
                           renderPresentationBody(
                             presentationMatter.currentWeekUpdate?.supportNeeded,
-                            {
-                              icon: <CheckCircleFilled />,
-                              label: "暂无待协调事项",
-                            }
+                            "暂无待协调事项"
                           )
                         )}
                       </Card>
@@ -2446,11 +2424,7 @@ export default function KeyMattersPage() {
                         ) : (
                           renderPresentationBody(
                             presentationMatter.currentWeekUpdate?.nextWeekPlan,
-                            {
-                              icon: <FlagOutlined />,
-                              label: "下一步待补充",
-                              tone: "muted",
-                            }
+                            "下一步待补充"
                           )
                         )}
                       </Card>
