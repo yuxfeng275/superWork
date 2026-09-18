@@ -68,6 +68,11 @@ const mondayOf = (value?: dayjs.ConfigType) => {
   const weekday = date.day() || 7;
   return date.startOf("day").subtract(weekday - 1, "day");
 };
+const weekRangeLabel = (value?: dayjs.ConfigType) => {
+  const start = mondayOf(value);
+  const end = start.add(6, "day");
+  return `${start.format("MM/DD")} - ${end.format("MM/DD")}`;
+};
 // 周会导航分组头像配色：按分组键散列取色，避免 antd 默认灰色让人误以为禁用
 const GROUP_AVATAR_TONES = [
   "linear-gradient(135deg, #1677ff 0%, #5b5ce2 100%)",
@@ -160,6 +165,7 @@ export default function KeyMattersPage() {
   const [weeklyForm] = Form.useForm();
   const weeklyFormProgress = Form.useWatch("progress", weeklyForm);
   const weeklyFormStatus = Form.useWatch("status", weeklyForm);
+  const weeklyFormWeekStart = Form.useWatch("weekStartDate", weeklyForm);
   const [users, setUsers] = useState<
     Array<{ id: number; realName?: string; username?: string }>
   >([]);
@@ -2451,7 +2457,7 @@ export default function KeyMattersPage() {
       )}
       <Modal
         className="sw-weekly-modal"
-        title={weeklyMatter?.title || "填写周进展"}
+        title={`${weekRangeLabel(weeklyFormWeekStart)} 周进展`}
         open={weeklyOpen}
         onCancel={() => setWeeklyOpen(false)}
         onOk={() => void weeklyForm.submit()}
