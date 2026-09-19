@@ -1,14 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WeeklyReportVO } from '@/services/superwork/api';
 
 const mocks = vi.hoisted(() => ({
   getWeeklyHistory: vi.fn(),
+  getWeeklyReport: vi.fn(),
+  publishWeeklySheet: vi.fn(),
 }));
 
 vi.mock('@/services/superwork/api', () => ({
   superworkApi: {
     getWeeklyHistory: mocks.getWeeklyHistory,
+    getWeeklyReport: mocks.getWeeklyReport,
+    publishWeeklySheet: mocks.publishWeeklySheet,
   },
 }));
 
@@ -83,5 +87,23 @@ describe('WeeklyReportPage overview', () => {
 
     expect(await screen.findByText('进行中')).toBeInTheDocument();
     expect(document.querySelector('.anticon-loading')).not.toBeNull();
+  });
+
+  it('opens publish drawer from 同步 without opening the report editor', async () => {
+    const published = report({
+      id: 6,
+      status: 'PUBLISHED',
+      yuqueDocUrl: 'https://yuque.example/1',
+      minutesMarkdown: '# 电商业务BU周会会议纪要',
+    });
+    mocks.getWeeklyHistory.mockResolvedValue([published]);
+    mocks.getWeeklyReport.mockResolvedValue(published);
+
+    render(<WeeklyReportPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '同步' }));
+
+    expect(await screen.findByText('发布与同步')).toBeTruthy();
+    expect(screen.queryByText('正在加载周报...')).toBeNull();
+    expect(mocks.getWeeklyReport).toHaveBeenCalledWith('2026-09-08');
   });
 });

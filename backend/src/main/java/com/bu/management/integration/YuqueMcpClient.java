@@ -2,6 +2,7 @@ package com.bu.management.integration;
 
 import com.bu.management.entity.Connector;
 import com.bu.management.service.ConnectorRegistryService;
+import com.bu.management.service.WeeklyReportSheetPatcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -266,17 +267,80 @@ public class YuqueMcpClient {
     public record SheetWriteResult(boolean success, String message) {}
 
     /**
-     * 汇总表回填（占位实现）。
-     * sheet.mode=MANUAL（默认）→ 抛错提示人工回填；sheet.mode=API → 走配置端点（占位）。
+     * 读取汇总表文档，把纪要链接写入目标周次行的 K 列后写回语雀。
      */
     public SheetWriteResult writeSheetRow(String mode, String apiBaseUrl, String apiToken,
                                           String docSlug, String sheetName, String dateRangeLabel,
                                           String teamName, String cellValue) {
-        if (!"API".equalsIgnoreCase(mode)) {
-            throw new IllegalStateException("汇总表模式为 MANUAL，请手动回填");
+        String[] slugs = parseSheetDoc(docSlug);
+        Map<String, String> current = fetchDoc(slugs[0], slugs[1]);
+        String body = current.getOrDefault("body", "");
+        String patched = WeeklyReportSheetPatcher.patch(
+                body, sheetName, dateRangeLabel, teamName, cellValue);
+        if (patched.equals(body)) {
+            throw new IllegalStateException("汇总表内容未变化，请核对目标行");
         }
-        // TODO: 语雀表格公开 API 可用后按 spec 实现（apiBaseUrl + apiToken）。
-        throw new IllegalStateException("汇总表 API 模式尚未实现，请切换 MANUAL 模式人工回填");
+        String docKey = StringUtils.hasText(current.get("id")) ? current.get("id") : slugs[1];
+        updateDoc(slugs[0], docKey, current.get("title"), patched, "markdown");
+        return new SheetWriteResult(true, "已写入 " + dateRangeLabel + " / K 列");
+    }
+
+    private String[] parseSheetDoc(String docSlug) {
+        String cleaned = docSlug == null ? "" : docSlug.trim().replaceAll("/+$", "");
+        String[] parts = cleaned.split("/");
+        if (parts.length >= 3) {
+            return new String[]{parts[parts.length - 3] + "/" + parts[parts.length - 2], parts[parts.length - 1]};
+        }
+        if (parts.length == 2) {
+            return new String[]{parts[0], parts[1]};
+        }
+        throw new IllegalStateException("汇总表文档标识无效，应为 空间/知识库/文档slug");
+    }
+
+    private Map<String, String> fetchDoc(String repoId, String docIdOrSlug) {
+        if (!restFallback) {
+            try {
+                JsonNode content = callTool("yuque_get_doc", Map.of(
+                        "repo_id", repoId,
+                        "doc_id", docIdOrSlug,
+                        "format", "markdown"));
+                Map<String, Object> doc = firstObject(content);
+                if (doc != null && StringUtils.hasText(String.valueOf(doc.getOrDefault("body", "")))) {
+                    Map<String, String> out = new LinkedHashMap<>();
+                    out.put("id", String.valueOf(doc.getOrDefault("id", "")));
+                    out.put("title", String.valueOf(doc.getOrDefault("title", "")));
+                    out.put("body", String.valueOf(doc.get("body")));
+                    return out;
+                }
+            } catch (IllegalStateException e) {
+                if (!isAuthError(e) && !String.valueOf(e.getMessage()).contains("工具不可用")) {
+                    throw e;
+                }
+                restFallback = true;
+            }
+        }
+        return restFetchDoc(repoId, docIdOrSlug);
+    }
+
+    public void updateDoc(String repoId, String docIdOrSlug, String title, String body, String format) {
+        if (!restFallback) {
+            try {
+                Map<String, Object> args = new LinkedHashMap<>();
+                args.put("repo_id", repoId);
+                args.put("doc_id", docIdOrSlug);
+                if (StringUtils.hasText(title)) args.put("title", title);
+                args.put("body", body == null ? "" : body);
+                args.put("format", format == null ? "markdown" : format);
+                callTool("yuque_update_doc", args);
+                return;
+            } catch (IllegalStateException e) {
+                if (!isAuthError(e) && !String.valueOf(e.getMessage()).contains("工具不可用")) {
+                    throw e;
+                }
+                restFallback = true;
+            }
+        }
+        restUpdateDoc(repoId, docIdOrSlug, title, body, format);
     }
 
     private boolean isAuthError(IllegalStateException e) {
@@ -325,7 +389,7 @@ public class YuqueMcpClient {
             payload.put("format", format == null ? "markdown" : format);
             payload.put("public", isPublic);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(YUQUE_API_BASE + "/repos/" + repoId + "/docs"))
+                    .uri(URI.create(restApiBase() + "/repos/" + repoId + "/docs"))
                     .timeout(Duration.ofSeconds(timeoutSeconds()))
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
@@ -392,7 +456,11 @@ public class YuqueMcpClient {
      * 按语义（search/read）发现 MCP 工具名，缓存 10 分钟。
      */
     private String resolveToolName(String semantic) {
-        for (String name : listToolNames()) {
+        List<String> names = listToolNames();
+        for (String name : names) {
+            if (name.equals(semantic) || name.equalsIgnoreCase(semantic)) return name;
+        }
+        for (String name : names) {
             String normalized = name.toLowerCase();
             if (semantic.equals("search") && normalized.contains("search")) return name;
             if (semantic.equals("read") && (normalized.contains("read") || normalized.contains("get"))) {
@@ -528,11 +596,65 @@ public class YuqueMcpClient {
 
     // ==================== REST v2 降级（MCP 网关 403 时） ====================
 
+    private String restApiBase() {
+        Connector connector = connector();
+        String base = connector == null ? null : connector.getBaseUrl();
+        if (StringUtils.hasText(base)) {
+            return base.replaceAll("/+$", "") + "/api/v2";
+        }
+        return YUQUE_API_BASE;
+    }
+
+    private Map<String, String> restFetchDoc(String repoId, String docIdOrSlug) {
+        JsonNode data = restGet("/repos/" + repoId + "/docs/" + docIdOrSlug).path("data");
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("id", data.path("id").asText(""));
+        out.put("title", data.path("title").asText(""));
+        String body = data.path("body").asText("");
+        if (!StringUtils.hasText(body)) {
+            body = data.path("body_html").asText("");
+        }
+        out.put("body", body);
+        if (!StringUtils.hasText(body)) {
+            throw new IllegalStateException("汇总表文档内容为空");
+        }
+        return out;
+    }
+
+    private void restUpdateDoc(String repoId, String docIdOrSlug, String title, String body, String format) {
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            if (StringUtils.hasText(title)) payload.put("title", title);
+            payload.put("body", body == null ? "" : body);
+            payload.put("format", format == null ? "markdown" : format);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(restApiBase() + "/repos/" + repoId + "/docs/" + docIdOrSlug))
+                    .timeout(Duration.ofSeconds(timeoutSeconds()))
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .header("X-Auth-Token", token())
+                    .PUT(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                throw new IllegalStateException("语雀认证失败，请检查访问 Token 配置");
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("语雀更新汇总表失败(" + response.statusCode() + ")");
+            }
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new IllegalStateException("语雀服务暂时不可用，请稍后重试", e);
+        }
+    }
+
     /** GET 语雀 REST v2（同一 Token，X-Auth-Token 头）。 */
     private JsonNode restGet(String path) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(YUQUE_API_BASE + path))
+                    .uri(URI.create(restApiBase() + path))
                     .timeout(Duration.ofSeconds(timeoutSeconds()))
                     .header("Accept", "application/json")
                     .header("X-Auth-Token", token())

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
   Refresh, MagicStick, CircleCheck, Promotion, CopyDocument, Plus,
   Document, Loading, Checked, Coin
@@ -290,24 +290,13 @@ const publishYuque = async () => {
 const markingSheet = ref(false)
 const markSheet = async () => {
   if (!publishTarget.value) return
-  const info = publishTarget.value.sheetTargetInfo
-  try {
-    await ElMessageBox.confirm(
-      `请在汇总表「${info?.sheetName ?? ''}」中找到 ${info?.dateRangeLabel ?? ''} 行、` +
-      `${info?.teamName ?? ''} 团队，将周会纪要链接粘贴至 K 列后确认。`,
-      '人工回填汇总表',
-      { confirmButtonText: '已回填', cancelButtonText: '取消', type: 'info' }
-    )
-  } catch {
-    return
-  }
   markingSheet.value = true
   try {
     publishTarget.value = await api.publishWeeklySheet(publishTarget.value.id)
-    ElMessage.success('已标记回填完成')
+    ElMessage.success('已回填汇总表')
     loadList()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '标记失败')
+    ElMessage.error(e instanceof Error ? e.message : '回填失败')
   } finally {
     markingSheet.value = false
   }
@@ -670,7 +659,7 @@ const editable = computed(() => current.value?.editable ?? true)
             </el-link>
           </div>
           <el-button size="small" :loading="markingSheet" :disabled="!publishTarget.yuqueDocUrl" @click="markSheet">
-            标记已回填
+            回填汇总表
           </el-button>
         </section>
 

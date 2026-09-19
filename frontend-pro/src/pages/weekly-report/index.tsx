@@ -317,32 +317,18 @@ export default function WeeklyReportPage() {
       setPublishing(false);
     }
   };
-  const markSheet = () => {
+  const markSheet = async () => {
     if (!publishTarget) return;
-    Modal.confirm({
-      title: '确认已回填汇总表？',
-      content: `请在「${
-        publishTarget.sheetTargetInfo?.sheetName || ''
-      }」中找到 ${
-        publishTarget.sheetTargetInfo?.dateRangeLabel || ''
-      } 行，将周会纪要链接粘贴至 K 列后确认。`,
-      okText: '已回填',
-      cancelText: '取消',
-      onOk: async () => {
-        setMarkingSheet(true);
-        try {
-          setPublishTarget(
-            await superworkApi.publishWeeklySheet(publishTarget.id),
-          );
-          message.success('已标记回填完成');
-          await loadList();
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '标记失败');
-        } finally {
-          setMarkingSheet(false);
-        }
-      },
-    });
+    setMarkingSheet(true);
+    try {
+      setPublishTarget(await superworkApi.publishWeeklySheet(publishTarget.id));
+      message.success('已回填汇总表');
+      await loadList();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '回填失败');
+    } finally {
+      setMarkingSheet(false);
+    }
   };
   const pushWecom = async () => {
     if (!publishTarget) return;
@@ -416,7 +402,10 @@ export default function WeeklyReportPage() {
       title: '操作',
       width: 130,
       render: (_: unknown, row: WeeklyReportVO) => (
-        <Space>
+        <Space
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <Button
             type="link"
             size="small"
@@ -536,7 +525,11 @@ export default function WeeklyReportPage() {
           columns={columns}
           dataSource={list}
           onRow={(row) => ({
-            onClick: () => void openEditor(row.weekStartDate),
+            onClick: (event) => {
+              const target = event.target as HTMLElement | null;
+              if (target?.closest('button, a, .ant-btn, .ant-space')) return;
+              void openEditor(row.weekStartDate);
+            },
             style: { cursor: 'pointer' },
           })}
           locale={{
@@ -921,9 +914,9 @@ export default function WeeklyReportPage() {
                 size="small"
                 loading={markingSheet}
                 disabled={!publishTarget.yuqueDocUrl}
-                onClick={markSheet}
+                onClick={() => void markSheet()}
               >
-                标记已回填
+                回填汇总表
               </Button>
             </Card>
             <Card title="企微推送" size="small" className="sw-publish-card">

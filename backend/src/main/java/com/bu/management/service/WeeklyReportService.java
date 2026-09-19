@@ -252,7 +252,7 @@ public class WeeklyReportService {
                 throw new IllegalStateException("DeepSeek 未配置");
             }
             String userInput = buildUserInput(report, factsJson);
-            JsonNode result = deepSeekClient.chatCompletion(config, systemPrompt(), userInput);
+            JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
             validateResult(result);
 
             report.setCoreWork(result.path("coreWork").asText());
@@ -300,36 +300,26 @@ public class WeeklyReportService {
         }
     }
 
-    private String systemPrompt() {
-        return "你是陆泽科技电商业务BU的周报与周会纪要撰写助手。基于以下事实，按规则生成两份输出 (JSON)。\n"
+    /** 生成提示词：短句、禁套话，供测试锁定精简口径。 */
+    public String generationSystemPrompt() {
+        return "你是陆泽科技电商业务BU的周报与周会纪要撰写助手。只根据事实写短句，禁止套话、背景铺垫和重复复述。\n"
                 + "\n== 周报规则 ==\n"
-                + "1. 四段固定标题：本周核心工作完成情况(按优先级)、KPI相关情况(财务、业务、提效、品质等)、问题/风险与解决办法、下周工作计划(含时间节点及预期结果)。\n"
-                + "2. 第一段拆分为\"项目\"和\"产品\"两个子块；项目优先皇家项目、标品客户交付；产品优先全渠道云鹿、AI产品。\n"
-                + "3. KPI 顺序：财务 → 业务 → 提效 → 品质；没有事实的维度可省略，财务不可省略。\n"
-                + "4. 财务必须给出：本月新增合同金额（合同日期口径）、本月交付口径金额；有具体万元/元数值。\n"
-                + "5. 风险和问题不超过3条，每条写清事项、影响和解决路径。\n"
-                + "6. 下周计划3-4条，含明确日期和可验收结果。\n"
-                + "7. 只使用提供的事实；不臆造。宁可留白不凑字。\n"
-                + "8. 删除内部技术细节、个人排班、无状态变化的持续事项、不适合BG展示的敏感信息。\n"
-                + "9. 周报四段（coreWork/kpiSection/risks/nextWeekPlan）必须是纯文本：禁止使用 Markdown 语法"
-                + "（不要用 **、#、表格）；分项用「- 」开头，编号用「1. 」，子块标题单独一行（如\"项目：\"）。\n"
+                + "1. 四段纯文本：coreWork / kpiSection / risks / nextWeekPlan。禁止 Markdown（不要用 **、#、表格）。\n"
+                + "2. coreWork 分两块，子块标题单独一行：项目： / 产品：。项目优先皇家、标品交付；产品优先云鹿、AI。\n"
+                + "3. 每条一行：「- 事项（负责人）：结果或进度。下一步+日期」。每条不超过 40 字；项目、产品各最多 4 条。\n"
+                + "4. KPI 顺序 财务→业务→提效→品质；无事实则省略；财务不可省，必须写本月新增合同金额、本月交付口径金额（万元）。\n"
+                + "5. 风险最多 2 条，格式「事项 / 影响 / 对策」，每条不超过 30 字。\n"
+                + "6. 下周计划 3 条，含日期和可验收结果，每条不超过 30 字。\n"
+                + "7. 只用提供的事实，不臆造；不写顺利推进、持续赋能、本周继续、整体推进等空话。\n"
+                + "8. 删除内部技术细节、排班、无状态变化事项。四段合计不超过 800 字。\n"
                 + "\n== 周会纪要规则 ==\n"
-                + "1. 文档第一行固定为一级标题 \"# 电商业务BU周会会议纪要\"。\n"
-                + "2. 下一行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日（取本周周一和周五）。\n"
-                + "3. 按项目/产品线分组（皇家宠物 → 全渠道云鹿 → 千人千面 → Oversea中台 → 飞鹤 → 逢时 → Speedo → 黄天鹅 → 短信渠道 → CDP系统优化 → 产品能力 → 团队交接 → 其他工作），本周无内容的线不留空章节。\n"
-                + "4. 每个事项：已完成的动作与结果 + 当前进度/风险/依赖 + 下一步动作/负责人/日期。\n"
-                + "5. 不写\"顺利推进\"\"持续赋能\"等无信息量表达。\n"
-                + "6. 保留精确产品名、平台名、百分比、日期及错误现象。\n"
-                + "7. 末尾：\"## 下周重点工作计划\"，用 HTML <table> 列出序号、工作项、预计时间。\n"
+                + "1. 首行固定：# 电商业务BU周会会议纪要\n"
+                + "2. 次行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日（本周周一至周五）。\n"
+                + "3. 只写本周有事实的项目/产品，无内容不建章节。每条一行：结果 + 卡点 + 下一步/负责人/日期，不超过 40 字。\n"
+                + "4. 末尾 ## 下周重点工作计划，用 HTML <table> 三列：序号、工作项、预计时间，最多 5 行。\n"
+                + "5. 纪要正文不超过 1500 字。\n"
                 + "\n== 输出 ==\n"
-                + "严格的 JSON：\n"
-                + "{\n"
-                + "  \"coreWork\": \"...(项目/产品分块，纯文本)...\",\n"
-                + "  \"kpiSection\": \"...(纯文本)...\",\n"
-                + "  \"risks\": \"...(纯文本)...\",\n"
-                + "  \"nextWeekPlan\": \"...(纯文本)...\",\n"
-                + "  \"minutesMarkdown\": \"...(# 电商业务BU周会会议纪要，Markdown)...\"\n"
-                + "}";
+                + "严格 JSON：{\"coreWork\":\"...\",\"kpiSection\":\"...\",\"risks\":\"...\",\"nextWeekPlan\":\"...\",\"minutesMarkdown\":\"...\"}";
     }
 
     // ==================== 发布：语雀 ====================
@@ -500,13 +490,33 @@ public class WeeklyReportService {
         return info;
     }
 
-    /** 人工确认汇总表已回填。 */
-    public WeeklyReport markSheetSynced(Long reportId) {
+    /** 把周会纪要链接写入汇总表目标行 K 列，成功后标记已回填。 */
+    public WeeklyReport fillSheet(Long reportId) {
         WeeklyReport report = getById(reportId);
-        report.setSheetSyncStatus("MANUAL_DONE");
-        report.setSheetSyncedAt(LocalDateTime.now());
-        reportMapper.updateById(report);
-        return report;
+        if (!StringUtils.hasText(report.getYuqueDocUrl())) {
+            throw new IllegalStateException("请先发布语雀纪要，再回填汇总表");
+        }
+        LocalDate start = report.getWeekStartDate();
+        LocalDate end = report.getPeriodEndDate() != null ? report.getPeriodEndDate() : start.plusDays(4);
+        String dateRange = String.format("%02d.%02d-%02d.%02d",
+                start.getMonthValue(), start.getDayOfMonth(),
+                end.getMonthValue(), end.getDayOfMonth());
+        String teamName = configService.getValue(CONFIG_GROUP, "sheet.team-name", "电商业务BU");
+        String sheetName = configService.getValue(CONFIG_GROUP, "sheet.sheet-name", "电商业务");
+        String slug = configService.getValue(CONFIG_GROUP, "sheet.doc-slug", "staff-qvc012/mghdgg/tyavbayo9ir7tyrk");
+        String mode = configService.getValue(CONFIG_GROUP, "sheet.mode", "MANUAL");
+        try {
+            yuqueClient.writeSheetRow(
+                    mode, null, null, slug, sheetName, dateRange, teamName, report.getYuqueDocUrl());
+            report.setSheetSyncStatus("MANUAL_DONE");
+            report.setSheetSyncedAt(LocalDateTime.now());
+            reportMapper.updateById(report);
+            return report;
+        } catch (RuntimeException e) {
+            report.setSheetSyncStatus("API_FAILED");
+            reportMapper.updateById(report);
+            throw e;
+        }
     }
 
     // ==================== 企微推送 ====================
