@@ -40,12 +40,40 @@ class WeeklyReportServiceTest {
     }
 
     @Test
-    void generationPromptCapsLengthAndBansFiller() {
+    void generationPromptAsksForHighlightsNotCatalog() {
         String prompt = service.generationSystemPrompt();
-        assertThat(prompt).contains("禁止套话");
-        assertThat(prompt).contains("不超过 40 字");
-        assertThat(prompt).contains("1500 字");
+        assertThat(prompt).contains("不是工作流水账");
+        assertThat(prompt).contains("全篇最多 5 条");
+        assertThat(prompt).contains("600 字");
         assertThat(prompt).doesNotContain("千人千面");
+        assertThat(prompt).doesNotContain("各最多 4 条");
+    }
+
+    @Test
+    void distillFactsKeepsRisksAndDropsRoutine() {
+        java.util.Map<String, Object> facts = new java.util.LinkedHashMap<>();
+        facts.put("finance", java.util.Map.of("newContractAmount", 1));
+        facts.put("lastWeekReport", java.util.Map.of("exists", false));
+        facts.put("keyMatters", java.util.List.of(
+                java.util.Map.of(
+                        "title", "皇家积分切换",
+                        "priority", "P0",
+                        "status", "有风险",
+                        "currentWeek", true,
+                        "progressSummary", "订单总数不一致，差额较大"),
+                java.util.Map.of(
+                        "title", "日常巡检",
+                        "priority", "P2",
+                        "status", "推进中",
+                        "currentWeek", false,
+                        "progressSummary", "按原计划继续")));
+
+        java.util.Map<String, Object> distilled = service.distillFactsForGeneration(facts);
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Object>> matters =
+                (java.util.List<java.util.Map<String, Object>>) distilled.get("keyMatters");
+        assertThat(matters).hasSize(1);
+        assertThat(matters.get(0).get("title")).isEqualTo("皇家积分切换");
     }
 
     @Test

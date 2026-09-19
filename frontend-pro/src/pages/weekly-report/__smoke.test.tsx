@@ -1,4 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WeeklyReportVO } from '@/services/superwork/api';
 
@@ -105,5 +108,15 @@ describe('WeeklyReportPage overview', () => {
     expect(await screen.findByText('发布与同步')).toBeTruthy();
     expect(screen.queryByText('正在加载周报...')).toBeNull();
     expect(mocks.getWeeklyReport).toHaveBeenCalledWith('2026-09-08');
+  });
+
+  it('applies generated report into editor draft while polling', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'index.tsx'),
+      'utf8',
+    );
+    expect(source).toMatch(/const applyReport = useCallback\(\(report: WeeklyReportVO\)/);
+    expect(source).toMatch(/applyReport\(latest\)/);
+    expect(source).toMatch(/applyReport\(report\)/);
   });
 });

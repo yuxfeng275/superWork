@@ -102,6 +102,21 @@ export default function WeeklyReportPage() {
   });
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
+  const applyReport = useCallback((report: WeeklyReportVO) => {
+    setCurrent(report);
+    setDraft({
+      coreWork: report.coreWork || '',
+      kpiSection: report.kpiSection || '',
+      risks: report.risks || '',
+      nextWeekPlan: report.nextWeekPlan || '',
+      minutesMarkdown: report.minutesMarkdown || '',
+    });
+    setInputDraft({
+      wecomSummary: report.wecomSummary || '',
+      manualNotes: report.manualNotes || '',
+    });
+  }, []);
+
   const loadList = useCallback(async () => {
     setListLoading(true);
     setError('');
@@ -147,7 +162,7 @@ export default function WeeklyReportPage() {
       pollRef.current = setInterval(async () => {
         try {
           const latest = await superworkApi.getWeeklyReport(weekStartDate);
-          setCurrent(latest);
+          applyReport(latest);
           if (latest.status !== 'GENERATING') {
             stopPolling();
             if (latest.status === 'DRAFT') message.success('周报草稿已生成');
@@ -162,7 +177,7 @@ export default function WeeklyReportPage() {
         }
       }, 3000);
     },
-    [loadList],
+    [applyReport, loadList],
   );
 
   const loadFacts = async (weekStartDate: string) => {
@@ -184,18 +199,7 @@ export default function WeeklyReportPage() {
     stopPolling();
     try {
       const report = await superworkApi.getWeeklyReport(weekStartDate);
-      setCurrent(report);
-      setDraft({
-        coreWork: report.coreWork || '',
-        kpiSection: report.kpiSection || '',
-        risks: report.risks || '',
-        nextWeekPlan: report.nextWeekPlan || '',
-        minutesMarkdown: report.minutesMarkdown || '',
-      });
-      setInputDraft({
-        wecomSummary: report.wecomSummary || '',
-        manualNotes: report.manualNotes || '',
-      });
+      applyReport(report);
       if (report.status === 'GENERATING') startPolling(report.weekStartDate);
       void loadFacts(weekStartDate);
     } catch (e) {

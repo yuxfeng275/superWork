@@ -170,13 +170,14 @@ public class WeeklyReportService {
             row.put("priority", matter.getPriority());
             row.put("status", matter.getStatus());
             row.put("progress", matter.getProgress());
+            row.put("currentWeek", matter.getCurrentWeekUpdate() != null);
             BuKeyMatterWeeklyUpdateView update = matter.getCurrentWeekUpdate() != null
                     ? matter.getCurrentWeekUpdate() : matter.getLatestUpdate();
             if (update != null) {
-                row.put("progressSummary", update.getProgressSummary());
-                row.put("issues", update.getIssues());
-                row.put("nextWeekPlan", update.getNextWeekPlan());
-                row.put("supportNeeded", update.getSupportNeeded());
+                row.put("progressSummary", clip(update.getProgressSummary(), 80));
+                row.put("issues", clip(update.getIssues(), 60));
+                row.put("nextWeekPlan", clip(update.getNextWeekPlan(), 60));
+                row.put("supportNeeded", clip(update.getSupportNeeded(), 40));
             }
             return row;
         }).toList();
@@ -244,8 +245,8 @@ public class WeeklyReportService {
         WeeklyReport report = getOrCreate(weekStart);
         try {
             Map<String, Object> facts = collectFacts(weekStart);
-            String factsJson = objectMapper.writeValueAsString(facts);
-            report.setAutoFactsJson(factsJson);
+            report.setAutoFactsJson(objectMapper.writeValueAsString(facts));
+            String factsJson = objectMapper.writeValueAsString(distillFactsForGeneration(facts));
 
             EmailIntegrationRuntimeConfig config = integrationConfigService.getRuntimeConfig();
             if (!config.isDeepSeekConfigured()) {
@@ -300,24 +301,91 @@ public class WeeklyReportService {
         }
     }
 
-    /** 生成提示词：短句、禁套话，供测试锁定精简口径。 */
+    /** 生成前提炼：只保留本周有结果、风险或需协调的大事儿，最多 6 条。 */
+    public Map<String, Object> distillFactsForGeneration(Map<String, Object> facts) {
+        Map<String, Object> distilled = new LinkedHashMap<>(facts);
+        Object raw = facts.get("keyMatters");
+        if (!(raw instanceof List<?> list)) {
+            return distilled;
+        }
+        List<Map<String, Object>> ranked = list.stream()
+                .filter(item -> item instanceof Map<?, ?>)
+                .map(item -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> row = (Map<String, Object>) item;
+                    return row;
+                })
+                .filter(this::isHighlightMatter)
+                .sorted((a, b) -> Integer.compare(highlightScore(b), highlightScore(a)))
+                .limit(6)
+                .toList();
+        distilled.put("keyMatters", ranked);
+        distilled.put("omittedMatterCount", Math.max(0, list.size() - ranked.size()));
+        distilled.put("instruction", "只写 highlights，不要复述被省略的事项");
+        return distilled;
+    }
+
+    private boolean isHighlightMatter(Map<String, Object> matter) {
+        String status = str(matter.get("status"));
+        String issues = str(matter.get("issues"));
+        String support = str(matter.get("supportNeeded"));
+        String summary = str(matter.get("progressSummary"));
+        boolean currentWeek = Boolean.TRUE.equals(matter.get("currentWeek"));
+        if (status.contains("风险") || status.contains("阻塞") || status.contains("完成")) return true;
+        if (StringUtils.hasText(issues) || StringUtils.hasText(support)) return true;
+        if (currentWeek && StringUtils.hasText(summary) && !isRoutine(summary)) return true;
+        String priority = str(matter.get("priority")).toUpperCase();
+        return currentWeek && (priority.contains("P0") || priority.contains("高"));
+    }
+
+    private int highlightScore(Map<String, Object> matter) {
+        int score = 0;
+        String status = str(matter.get("status"));
+        if (status.contains("阻塞")) score += 8;
+        if (status.contains("风险")) score += 6;
+        if (status.contains("完成")) score += 4;
+        if (Boolean.TRUE.equals(matter.get("currentWeek"))) score += 3;
+        String priority = str(matter.get("priority")).toUpperCase();
+        if (priority.contains("P0") || priority.contains("高")) score += 3;
+        if (priority.contains("P1")) score += 1;
+        if (StringUtils.hasText(str(matter.get("issues")))) score += 2;
+        return score;
+    }
+
+    private boolean isRoutine(String text) {
+        return text.contains("按原计划") || text.contains("持续推进") || text.contains("正常推进")
+                || text.contains("无变化") || text.contains("本周继续");
+    }
+
+    private String str(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String clip(String value, int max) {
+        if (!StringUtils.hasText(value)) return value;
+        String compact = value.replaceAll("\\s+", " ").trim();
+        return compact.length() <= max ? compact : compact.substring(0, max);
+    }
+
+    /** 生成提示词：只提炼管理层该看的重点，不是工作流水账。 */
     public String generationSystemPrompt() {
-        return "你是陆泽科技电商业务BU的周报与周会纪要撰写助手。只根据事实写短句，禁止套话、背景铺垫和重复复述。\n"
-                + "\n== 周报规则 ==\n"
-                + "1. 四段纯文本：coreWork / kpiSection / risks / nextWeekPlan。禁止 Markdown（不要用 **、#、表格）。\n"
-                + "2. coreWork 分两块，子块标题单独一行：项目： / 产品：。项目优先皇家、标品交付；产品优先云鹿、AI。\n"
-                + "3. 每条一行：「- 事项（负责人）：结果或进度。下一步+日期」。每条不超过 40 字；项目、产品各最多 4 条。\n"
-                + "4. KPI 顺序 财务→业务→提效→品质；无事实则省略；财务不可省，必须写本月新增合同金额、本月交付口径金额（万元）。\n"
-                + "5. 风险最多 2 条，格式「事项 / 影响 / 对策」，每条不超过 30 字。\n"
-                + "6. 下周计划 3 条，含日期和可验收结果，每条不超过 30 字。\n"
-                + "7. 只用提供的事实，不臆造；不写顺利推进、持续赋能、本周继续、整体推进等空话。\n"
-                + "8. 删除内部技术细节、排班、无状态变化事项。四段合计不超过 800 字。\n"
-                + "\n== 周会纪要规则 ==\n"
-                + "1. 首行固定：# 电商业务BU周会会议纪要\n"
-                + "2. 次行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日（本周周一至周五）。\n"
-                + "3. 只写本周有事实的项目/产品，无内容不建章节。每条一行：结果 + 卡点 + 下一步/负责人/日期，不超过 40 字。\n"
-                + "4. 末尾 ## 下周重点工作计划，用 HTML <table> 三列：序号、工作项、预计时间，最多 5 行。\n"
-                + "5. 纪要正文不超过 1500 字。\n"
+        return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，不是工作流水账。只提炼本周真正变化的重点。\n"
+                + "\n== 取舍 ==\n"
+                + "1. 只写：本周有结果、有风险/阻塞、需协调、或下周必须拍板的事项。\n"
+                + "2. 不写：日常推进、无状态变化、排班、内部技术细节、被省略的事项。\n"
+                + "3. 事实里 omittedMatterCount 表示已丢弃的日常项，禁止补回去。\n"
+                + "\n== 周报 ==\n"
+                + "四段纯文本，禁止 Markdown。coreWork 分两行标题：项目： / 产品：。\n"
+                + "coreWork 全篇最多 5 条；项目优先皇家/标品，产品优先云鹿/AI。\n"
+                + "每条一行：「- 事项：结果或卡点。下一步+日期」，不超过 28 字。\n"
+                + "KPI 只写财务两个数：本月新增合同、本月交付口径（万元）；其它维度无数字就省略。\n"
+                + "风险最多 2 条；下周计划最多 3 条。四段合计不超过 450 字。\n"
+                + "\n== 纪要 ==\n"
+                + "首行：# 电商业务BU周会会议纪要\n"
+                + "次行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日\n"
+                + "只保留与周报同一批重点，按项目/产品分组，无内容不建章节。每组最多 2 条，每条不超过 28 字。\n"
+                + "末尾 ## 下周重点工作计划，HTML <table> 三列：序号、工作项、预计时间，最多 3 行。\n"
+                + "纪要正文不超过 600 字。\n"
                 + "\n== 输出 ==\n"
                 + "严格 JSON：{\"coreWork\":\"...\",\"kpiSection\":\"...\",\"risks\":\"...\",\"nextWeekPlan\":\"...\",\"minutesMarkdown\":\"...\"}";
     }
