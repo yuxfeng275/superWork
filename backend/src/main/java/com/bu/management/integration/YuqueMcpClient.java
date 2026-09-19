@@ -273,7 +273,13 @@ public class YuqueMcpClient {
                                           String docSlug, String sheetName, String dateRangeLabel,
                                           String teamName, String cellValue) {
         String[] slugs = parseSheetDoc(docSlug);
-        Map<String, String> current = fetchDoc(slugs[0], slugs[1]);
+        Map<String, String> current;
+        try {
+            current = fetchDoc(slugs[0], slugs[1]);
+        } catch (IllegalStateException e) {
+            throw new IllegalStateException(
+                    "读取汇总表失败（" + slugs[0] + " / " + slugs[1] + "）：" + e.getMessage(), e);
+        }
         String body = current.getOrDefault("body", "");
         String patched = WeeklyReportSheetPatcher.patch(
                 body, sheetName, dateRangeLabel, teamName, cellValue);
@@ -285,7 +291,7 @@ public class YuqueMcpClient {
         return new SheetWriteResult(true, "已写入 " + dateRangeLabel + " / K 列");
     }
 
-    private String[] parseSheetDoc(String docSlug) {
+    public static String[] parseSheetDoc(String docSlug) {
         String cleaned = docSlug == null ? "" : docSlug.trim().replaceAll("/+$", "");
         String[] parts = cleaned.split("/");
         if (parts.length >= 3) {
@@ -606,19 +612,67 @@ public class YuqueMcpClient {
     }
 
     private Map<String, String> restFetchDoc(String repoId, String docIdOrSlug) {
-        JsonNode data = restGet("/repos/" + repoId + "/docs/" + docIdOrSlug).path("data");
+        JsonNode data = restGetDocData(repoId, docIdOrSlug);
         Map<String, String> out = new LinkedHashMap<>();
         out.put("id", data.path("id").asText(""));
         out.put("title", data.path("title").asText(""));
-        String body = data.path("body").asText("");
-        if (!StringUtils.hasText(body)) {
-            body = data.path("body_html").asText("");
+        String type = data.path("type").asText("");
+        String format = data.path("format").asText("");
+        String body = firstText(data, "body", "body_draft", "body_asl", "body_html");
+        if (!StringUtils.hasText(body) && looksLikeSheet(type, format)) {
+            body = restFetchSheetBody(repoId, firstText(data, "id", "slug", "book_id"));
         }
         out.put("body", body);
         if (!StringUtils.hasText(body)) {
-            throw new IllegalStateException("汇总表文档内容为空");
+            throw new IllegalStateException("汇总表文档内容为空（format=" + format + ", type=" + type + "）");
         }
         return out;
+    }
+
+    private JsonNode restGetDocData(String repoId, String docIdOrSlug) {
+        try {
+            return restGet("/repos/" + repoId + "/docs/" + docIdOrSlug).path("data");
+        } catch (IllegalStateException e) {
+            if (String.valueOf(e.getMessage()).contains("(404)") && repoId.contains("/")) {
+                String book = repoId.substring(repoId.indexOf('/') + 1);
+                return restGet("/repos/" + book + "/docs/" + docIdOrSlug).path("data");
+            }
+            throw e;
+        }
+    }
+
+    private boolean looksLikeSheet(String type, String format) {
+        String blob = (type + " " + format).toLowerCase();
+        return blob.contains("sheet") || blob.contains("table") || blob.contains("spreadsheet") || blob.contains("lake");
+    }
+
+    private String restFetchSheetBody(String repoId, String docId) {
+        if (!StringUtils.hasText(docId)) return "";
+        String[] candidates = {
+                "/docs/" + docId + "/sheet",
+                "/repos/" + repoId + "/docs/" + docId + "/sheet",
+                "/sheets/" + docId
+        };
+        for (String path : candidates) {
+            try {
+                JsonNode data = restGet(path);
+                String asText = data.toString();
+                if (StringUtils.hasText(asText) && !"{}".equals(asText) && !"null".equals(asText)) {
+                    return asText;
+                }
+            } catch (IllegalStateException ignored) {
+                // 尝试下一个表格接口
+            }
+        }
+        return "";
+    }
+
+    private String firstText(JsonNode data, String... keys) {
+        for (String key : keys) {
+            String value = data.path(key).asText("");
+            if (StringUtils.hasText(value) && !"null".equals(value)) return value;
+        }
+        return "";
     }
 
     private void restUpdateDoc(String repoId, String docIdOrSlug, String title, String body, String format) {
@@ -665,7 +719,7 @@ public class YuqueMcpClient {
                 throw new IllegalStateException("语雀认证失败，请检查访问 Token 配置");
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("语雀接口调用失败(" + response.statusCode() + ")");
+                throw new IllegalStateException("语雀接口调用失败(" + response.statusCode() + ") " + path);
             }
             return objectMapper.readTree(response.body() == null ? "{}" : response.body());
         } catch (java.io.IOException | InterruptedException e) {
