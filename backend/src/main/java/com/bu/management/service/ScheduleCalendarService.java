@@ -28,6 +28,8 @@ import org.springframework.util.StringUtils;
  * <p>数据边界：本地会议按上传人（本人）可见，与会议模块 v1 口径一致；企微日程取机器人授权身份可见范围
  * （含共享日历）。企微侧失败（未授权/超时）不阻断本地会议展示，只在响应里给出 hint。
  *
+ * <p>企微「会议」品类授权已确认无法获取，故不接入企微会议数据源（原 WECOM_MEETING 已移除）。
+ *
  * @author BU Team
  * @since 2026-09-18
  */
@@ -44,7 +46,6 @@ public class ScheduleCalendarService {
     /** 事件来源。 */
     public static final String SOURCE_MEETING = "MEETING";
     public static final String SOURCE_WECOM_SCHEDULE = "WECOM_SCHEDULE";
-    public static final String SOURCE_WECOM_MEETING = "WECOM_MEETING";
 
     private final MeetingMapper meetingMapper;
     private final WeComCliClient cli;
@@ -87,7 +88,7 @@ public class ScheduleCalendarService {
         LocalDate end = to == null ? start.plusMonths(1).minusDays(1) : to;
         if (end.isBefore(start)) end = start;
         Set<String> wanted = sources == null || sources.isEmpty()
-                ? Set.of(SOURCE_MEETING, SOURCE_WECOM_SCHEDULE, SOURCE_WECOM_MEETING) : sources;
+                ? Set.of(SOURCE_MEETING, SOURCE_WECOM_SCHEDULE) : sources;
 
         List<CalendarEvent> events = new ArrayList<>();
         List<String> hints = new ArrayList<>();
@@ -95,19 +96,10 @@ public class ScheduleCalendarService {
         if (wanted.contains(SOURCE_MEETING)) {
             events.addAll(localMeetings(start, end, userId));
         }
-        if (wanted.contains(SOURCE_WECOM_SCHEDULE) || wanted.contains(SOURCE_WECOM_MEETING)) {
-            LocalDateTime windowStart = start.atStartOfDay();
-            LocalDateTime windowEnd = end.plusDays(1).atStartOfDay();
-            if (wanted.contains(SOURCE_WECOM_SCHEDULE)) {
-                WecomResult result = wecomSchedules(windowStart, windowEnd);
-                events.addAll(result.events());
-                if (result.hint() != null) hints.add(result.hint());
-            }
-            if (wanted.contains(SOURCE_WECOM_MEETING)) {
-                WecomResult result = wecomMeetings(windowStart, windowEnd);
-                events.addAll(result.events());
-                if (result.hint() != null) hints.add(result.hint());
-            }
+        if (wanted.contains(SOURCE_WECOM_SCHEDULE)) {
+            WecomResult result = wecomSchedules(start.atStartOfDay(), end.plusDays(1).atStartOfDay());
+            events.addAll(result.events());
+            if (result.hint() != null) hints.add(result.hint());
         }
         events.sort((a, b) -> a.start().compareTo(b.start()));
         return new CalendarResponse(events, hints, start.toString(), end.toString());
@@ -220,46 +212,6 @@ public class ScheduleCalendarService {
                 StringUtils.hasText(meetingLink) ? meetingLink : null,
                 recurring,
                 truncate(item.path("description").asText("")));
-    }
-
-    // ==================== 企微会议（含纪要/录制，需「会议」品类授权） ====================
-
-    private WecomResult wecomMeetings(LocalDateTime windowStart, LocalDateTime windowEnd) {
-        try {
-            JsonNode payload = cli.execOrThrow("meeting", List.of(
-                    "list",
-                    "--begin-time", windowStart.format(TIME),
-                    "--end-time", windowEnd.format(TIME),
-                    "--limit", "50"));
-            List<CalendarEvent> events = new ArrayList<>();
-            for (String field : List.of("attended_meetings", "created_meetings")) {
-                for (JsonNode item : payload.path(field)) {
-                    LocalDateTime begin = ScheduleRecurrence.parse(item.path("begin_time").asText(null));
-                    LocalDateTime end = ScheduleRecurrence.parse(item.path("end_time").asText(null));
-                    if (begin == null) continue;
-                    if (begin.isBefore(windowStart) || begin.isAfter(windowEnd)) continue;
-                    String meetingId = item.path("meeting_id").asText("");
-                    events.add(new CalendarEvent(
-                            "wemeeting:" + meetingId + (item.path("sub_meeting_id").asText("").isEmpty()
-                                    ? "" : "-" + item.path("sub_meeting_id").asText("")),
-                            SOURCE_WECOM_MEETING,
-                            item.path("subject").asText(""),
-                            begin.format(TIME),
-                            (end == null ? begin.plusHours(1) : end).format(TIME),
-                            false,
-                            StringUtils.hasText(item.path("location").asText(""))
-                                    ? item.path("location").asText("") : null,
-                            item.path("creator_name").asText(null),
-                            "企微会议",
-                            List.of(),
-                            null, null, null, null, null, false, null));
-                }
-            }
-            return new WecomResult(events, null);
-        } catch (Exception e) {
-            log.info("企微会议读取失败：{}", e.getMessage());
-            return new WecomResult(List.of(), "企微会议未读取：" + e.getMessage());
-        }
     }
 
     private String truncate(String text) {

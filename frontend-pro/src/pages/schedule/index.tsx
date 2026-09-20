@@ -57,7 +57,6 @@ const SOURCE_META: Record<
 > = {
   MEETING: { label: '本地会议', color: 'blue', tone: 'meeting' },
   WECOM_SCHEDULE: { label: '企微日程', color: 'green', tone: 'schedule' },
-  WECOM_MEETING: { label: '企微会议', color: 'purple', tone: 'wemeeting' },
 };
 
 const ALL_SOURCES = Object.keys(SOURCE_META) as ScheduleEventSource[];
