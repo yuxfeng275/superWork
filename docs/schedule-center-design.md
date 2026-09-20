@@ -8,14 +8,13 @@
 | --- | --- | --- |
 | `MEETING` 本地会议 | 会议模块的录音/转写/纪要记录（`meeting` 表） | 按**上传人**（本人）过滤，与会议模块 v1 口径一致 |
 | `WECOM_SCHEDULE` 企微日程 | wecom-cli `calendar schedules list`（机器人授权身份可见，含共享日历） | 授权身份可见范围 |
-| `WECOM_MEETING` 企微会议 | wecom-cli `meeting list`（含智能纪要/录制地址） | 需「会议」品类授权；未授权时**只出提示不阻断** |
 
 **本地会议只有日期粒度**（`meeting_date` 无起始时刻）→ 日历中作为**全天事件**渲染，点击跳 `/meetings/{id}` 查看转写与纪要。
 
 ## 二、接口
 
 ```
-GET /api/schedule/events?from=YYYY-MM-DD&to=YYYY-MM-DD&sources=MEETING,WECOM_SCHEDULE,WECOM_MEETING
+GET /api/schedule/events?from=YYYY-MM-DD&to=YYYY-MM-DD&sources=MEETING,WECOM_SCHEDULE
 权限：schedule:view（V84 授权 DIRECTOR / DEPUTY_DIRECTOR / BUSINESS_OWNER / EFFECTIVENESS_OWNER / BU_ADMIN）
 → data: { events: [...], hints: string[], rangeStart, rangeEnd }
 ```
@@ -65,7 +64,10 @@ GET /api/schedule/events?from=YYYY-MM-DD&to=YYYY-MM-DD&sources=MEETING,WECOM_SCH
 | 交互 | 两套前端模式切换/来源筛选/月份导航/刷新/空月份提示；Pro 本地会议跳 `/meetings/{id}`；企微抽屉展示会议号与入会链接；hints 链接 `target=_blank rel=noopener noreferrer` |
 | 边界 | 越界窗口（10/15–11/15）→ 钳制到 10/15–10/17 并在 hints 说明，返回 10 条；空区间返回 0 条 |
 
-## 七、待办
+## 七、已移除的能力
 
-- 「会议」品类授权后，`WECOM_MEETING` 会自动出现（含智能纪要/录制地址），无需改代码。
+**企微会议（原 `WECOM_MEETING` 数据源）**：企微「会议」品类授权已确认无法获取，故整条线移除——后端不再请求 `meeting list`、日程页不再有该来源与筛选、相关 AI 工具（`wecom_list_meetings` / `wecom_meeting_detail` / `wecom_meeting_transcript`）与 REST 端点、品类探针一并删除。如需恢复，参考 git 历史 `fb5cd59^`。
+
+## 八、待办
+
 - 如需**团队日历**（看他人会议），需放开本地会议的可见范围（当前为本人）——属产品决策。
