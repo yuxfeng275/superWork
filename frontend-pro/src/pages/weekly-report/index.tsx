@@ -321,18 +321,41 @@ export default function WeeklyReportPage() {
       setPublishing(false);
     }
   };
-  const markSheet = async () => {
-    if (!publishTarget) return;
-    setMarkingSheet(true);
-    try {
-      setPublishTarget(await superworkApi.publishWeeklySheet(publishTarget.id));
-      message.success('已回填汇总表');
-      await loadList();
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '回填失败');
-    } finally {
-      setMarkingSheet(false);
+  const copyMinutesLink = async () => {
+    const url = publishTarget?.yuqueDocUrl;
+    if (!url) {
+      message.warning('请先发布语雀纪要');
+      return;
     }
+    await navigator.clipboard.writeText(url);
+    message.success('纪要链接已复制');
+  };
+  const markSheet = () => {
+    if (!publishTarget) return;
+    const info = publishTarget.sheetTargetInfo;
+    Modal.confirm({
+      title: '确认已粘贴到汇总表？',
+      content: `当前语雀 Token 写不进公司汇总表。请把纪要链接粘贴到「${
+        info?.sheetName || '汇总表'
+      }」${info?.dateRangeLabel || ''} 行、${info?.teamName || ''}、K 列后确认。`,
+      okText: '已粘贴，标记完成',
+      cancelText: '取消',
+      onOk: async () => {
+        setMarkingSheet(true);
+        try {
+          setPublishTarget(
+            await superworkApi.publishWeeklySheet(publishTarget.id),
+          );
+          message.success('已标记回填完成');
+          await loadList();
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '标记失败');
+          throw e;
+        } finally {
+          setMarkingSheet(false);
+        }
+      },
+    });
   };
   const pushWecom = async () => {
     if (!publishTarget) return;
@@ -900,28 +923,38 @@ export default function WeeklyReportPage() {
             </Card>
             <Card title="汇总表回填" size="small" className="sw-publish-card">
               <Typography.Paragraph type="secondary">
+                公司汇总表不在当前语雀 Token 权限内，需人工粘贴。目标：
                 {publishTarget.sheetTargetInfo?.dateRangeLabel || ''} ·{' '}
                 {publishTarget.sheetTargetInfo?.teamName || ''} · K 列
               </Typography.Paragraph>
-              {publishTarget.sheetTargetInfo?.sheetUrl && (
-                <Typography.Paragraph>
-                  <a
-                    href={publishTarget.sheetTargetInfo.sheetUrl}
+              <Space wrap>
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  disabled={!publishTarget.yuqueDocUrl}
+                  onClick={() => void copyMinutesLink()}
+                >
+                  复制纪要链接
+                </Button>
+                {publishTarget.sheetTargetInfo?.sheetUrl && (
+                  <Button
+                    size="small"
+                    href={String(publishTarget.sheetTargetInfo.sheetUrl)}
                     target="_blank"
-                    rel="noreferrer"
                   >
-                    打开「{publishTarget.sheetTargetInfo.sheetName}」汇总表
-                  </a>
-                </Typography.Paragraph>
-              )}
-              <Button
-                size="small"
-                loading={markingSheet}
-                disabled={!publishTarget.yuqueDocUrl}
-                onClick={() => void markSheet()}
-              >
-                回填汇总表
-              </Button>
+                    打开汇总表
+                  </Button>
+                )}
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={markingSheet}
+                  disabled={!publishTarget.yuqueDocUrl}
+                  onClick={markSheet}
+                >
+                  标记已回填
+                </Button>
+              </Space>
             </Card>
             <Card title="企微推送" size="small" className="sw-publish-card">
               <Typography.Paragraph type="secondary">

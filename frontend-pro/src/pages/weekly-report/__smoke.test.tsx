@@ -119,4 +119,14 @@ describe('WeeklyReportPage overview', () => {
     expect(source).toMatch(/applyReport\(latest\)/);
     expect(source).toMatch(/applyReport\(report\)/);
   });
+
+  it('guides manual sheet fill instead of auto-writing Yuque', () => {
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'index.tsx'),
+      'utf8',
+    );
+    expect(source).toMatch(/复制纪要链接/);
+    expect(source).toMatch(/标记已回填/);
+    expect(source).toMatch(/当前语雀 Token 写不进公司汇总表/);
+  });
 });

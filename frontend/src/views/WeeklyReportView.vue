@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh, MagicStick, CircleCheck, Promotion, CopyDocument, Plus,
   Document, Loading, Checked, Coin
@@ -288,15 +288,34 @@ const publishYuque = async () => {
 }
 
 const markingSheet = ref(false)
+const copyMinutesLink = async () => {
+  const url = publishTarget.value?.yuqueDocUrl
+  if (!url) {
+    ElMessage.warning('请先发布语雀纪要')
+    return
+  }
+  await navigator.clipboard.writeText(url)
+  ElMessage.success('纪要链接已复制')
+}
 const markSheet = async () => {
   if (!publishTarget.value) return
+  const info = publishTarget.value.sheetTargetInfo
+  try {
+    await ElMessageBox.confirm(
+      `当前语雀 Token 写不进公司汇总表。请把纪要链接粘贴到「${info?.sheetName ?? '汇总表'}」${info?.dateRangeLabel ?? ''} 行、${info?.teamName ?? ''}、K 列后确认。`,
+      '确认已粘贴到汇总表？',
+      { confirmButtonText: '已粘贴，标记完成', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
   markingSheet.value = true
   try {
     publishTarget.value = await api.publishWeeklySheet(publishTarget.value.id)
-    ElMessage.success('已回填汇总表')
+    ElMessage.success('已标记回填完成')
     loadList()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '回填失败')
+    ElMessage.error(e instanceof Error ? e.message : '标记失败')
   } finally {
     markingSheet.value = false
   }
@@ -653,13 +672,15 @@ const editable = computed(() => current.value?.editable ?? true)
               {{ publishTarget.sheetSyncStatus === 'MANUAL_DONE' ? '已回填' : '待回填' }}
             </span>
           </header>
+          <p class="publish-hint">公司汇总表不在当前语雀 Token 权限内，需人工粘贴到 K 列。</p>
           <div class="publish-row">
+            <el-button size="small" :disabled="!publishTarget.yuqueDocUrl" @click="copyMinutesLink">复制纪要链接</el-button>
             <el-link :href="publishTarget.sheetTargetInfo?.sheetUrl" target="_blank" type="primary">
-              打开「{{ publishTarget.sheetTargetInfo?.sheetName }}」汇总表
+              打开汇总表
             </el-link>
           </div>
-          <el-button size="small" :loading="markingSheet" :disabled="!publishTarget.yuqueDocUrl" @click="markSheet">
-            回填汇总表
+          <el-button size="small" type="primary" :loading="markingSheet" :disabled="!publishTarget.yuqueDocUrl" @click="markSheet">
+            标记已回填
           </el-button>
         </section>
 

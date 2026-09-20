@@ -94,10 +94,10 @@ public class WeeklyReportController {
 
     @PostMapping("/{id}/publish-sheet")
     @RequirePermission({"weekly:manage"})
-    @Operation(summary = "回填汇总表 K 列（周会纪要链接）")
+    @Operation(summary = "确认汇总表已回填（MANUAL 标记完成；API 模式才自动写入）")
     public Result<WeeklyReportVO> publishSheet(@PathVariable Long id) {
         WeeklyReportVO vo = toVO(reportService.fillSheet(id));
-        return Result.success("已回填汇总表", vo);
+        return Result.success("已标记回填", vo);
     }
 
     @PostMapping("/{id}/push-wecom")

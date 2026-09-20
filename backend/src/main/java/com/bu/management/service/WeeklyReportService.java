@@ -558,11 +558,18 @@ public class WeeklyReportService {
         return info;
     }
 
-    /** 把周会纪要链接写入汇总表目标行 K 列，成功后标记已回填。 */
+    /** MANUAL：确认人工已粘贴纪要链接；API：尝试写入语雀表格后再标记。 */
     public WeeklyReport fillSheet(Long reportId) {
         WeeklyReport report = getById(reportId);
         if (!StringUtils.hasText(report.getYuqueDocUrl())) {
             throw new IllegalStateException("请先发布语雀纪要，再回填汇总表");
+        }
+        String mode = configService.getValue(CONFIG_GROUP, "sheet.mode", "MANUAL");
+        if (!"API".equalsIgnoreCase(mode)) {
+            report.setSheetSyncStatus("MANUAL_DONE");
+            report.setSheetSyncedAt(LocalDateTime.now());
+            reportMapper.updateById(report);
+            return report;
         }
         LocalDate start = report.getWeekStartDate();
         LocalDate end = report.getPeriodEndDate() != null ? report.getPeriodEndDate() : start.plusDays(4);
@@ -572,7 +579,6 @@ public class WeeklyReportService {
         String teamName = configService.getValue(CONFIG_GROUP, "sheet.team-name", "电商业务BU");
         String sheetName = configService.getValue(CONFIG_GROUP, "sheet.sheet-name", "电商业务");
         String slug = configService.getValue(CONFIG_GROUP, "sheet.doc-slug", "staff-qvc012/mghdgg/tyavbayo9ir7tyrk");
-        String mode = configService.getValue(CONFIG_GROUP, "sheet.mode", "MANUAL");
         try {
             yuqueClient.writeSheetRow(
                     mode, null, null, slug, sheetName, dateRange, teamName, report.getYuqueDocUrl());

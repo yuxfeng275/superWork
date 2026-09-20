@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -77,7 +78,21 @@ class WeeklyReportServiceTest {
     }
 
     @Test
-    void fillSheetWritesMinutesLinkThenMarksDone() {
+    void fillSheetMarksDoneWithoutWritingWhenManual() {
+        when(reportMapper.selectById(3L)).thenReturn(report);
+        when(configService.getValue(eq("weekly-report"), eq("sheet.mode"), any()))
+                .thenReturn("MANUAL");
+
+        WeeklyReport updated = service.fillSheet(3L);
+
+        assertThat(updated.getSheetSyncStatus()).isEqualTo("MANUAL_DONE");
+        assertThat(updated.getSheetSyncedAt()).isNotNull();
+        verify(yuqueClient, never()).writeSheetRow(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(reportMapper).updateById(report);
+    }
+
+    @Test
+    void fillSheetWritesMinutesLinkWhenApiMode() {
         when(reportMapper.selectById(3L)).thenReturn(report);
         when(configService.getValue(eq("weekly-report"), eq("sheet.team-name"), any()))
                 .thenReturn("电商业务BU");
@@ -86,16 +101,15 @@ class WeeklyReportServiceTest {
         when(configService.getValue(eq("weekly-report"), eq("sheet.doc-slug"), any()))
                 .thenReturn("staff-qvc012/mghdgg/tyavbayo9ir7tyrk");
         when(configService.getValue(eq("weekly-report"), eq("sheet.mode"), any()))
-                .thenReturn("MANUAL");
+                .thenReturn("API");
         when(yuqueClient.writeSheetRow(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new YuqueMcpClient.SheetWriteResult(true, "ok"));
 
         WeeklyReport updated = service.fillSheet(3L);
 
         assertThat(updated.getSheetSyncStatus()).isEqualTo("MANUAL_DONE");
-        assertThat(updated.getSheetSyncedAt()).isNotNull();
         verify(yuqueClient).writeSheetRow(
-                eq("MANUAL"),
+                eq("API"),
                 any(),
                 any(),
                 eq("staff-qvc012/mghdgg/tyavbayo9ir7tyrk"),
@@ -103,7 +117,6 @@ class WeeklyReportServiceTest {
                 eq("09.14-09.18"),
                 eq("电商业务BU"),
                 eq("https://lucidata.yuque.com/vuntcs/cf_records/abc"));
-        verify(reportMapper).updateById(report);
     }
 
     @Test
