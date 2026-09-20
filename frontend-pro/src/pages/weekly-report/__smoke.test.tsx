@@ -8,6 +8,7 @@ import type { WeeklyReportVO } from '@/services/superwork/api';
 const mocks = vi.hoisted(() => ({
   getWeeklyHistory: vi.fn(),
   getWeeklyReport: vi.fn(),
+  getWeeklyFacts: vi.fn(),
   publishWeeklySheet: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('@/services/superwork/api', () => ({
   superworkApi: {
     getWeeklyHistory: mocks.getWeeklyHistory,
     getWeeklyReport: mocks.getWeeklyReport,
+    getWeeklyFacts: mocks.getWeeklyFacts,
     publishWeeklySheet: mocks.publishWeeklySheet,
   },
 }));
@@ -118,6 +120,50 @@ describe('WeeklyReportPage overview', () => {
     expect(source).toMatch(/const applyReport = useCallback\(\(report: WeeklyReportVO\)/);
     expect(source).toMatch(/applyReport\(latest\)/);
     expect(source).toMatch(/applyReport\(report\)/);
+  });
+
+  it('opens a readable detail view instead of the editor', async () => {
+    const published = report({
+      id: 7,
+      status: 'PUBLISHED',
+      coreWork: '项目：皇家积分切换完成对账',
+      kpiSection: '新增合同 120 万',
+      risks: '无重大风险',
+      nextWeekPlan: '推进二期',
+      minutesMarkdown: '# 电商业务BU周会会议纪要',
+    });
+    mocks.getWeeklyHistory.mockResolvedValue([published]);
+    mocks.getWeeklyReport.mockResolvedValue(published);
+    mocks.getWeeklyFacts.mockResolvedValue({
+      weekStart: '2026-09-08',
+      periodEnd: '2026-09-12',
+      keyMatters: [],
+      opportunities: [
+        {
+          id: 21,
+          opportunityName: '飞鹤-SCRM系统采购',
+          customer: '飞鹤乳业',
+          follower: '姜涛',
+          status: '商务谈判',
+          content: '客户确认一期预算',
+        },
+      ],
+      finance: {
+        month: '2026-09',
+        newContractAmount: 0,
+        deliveredAmount: 0,
+        cumulativeReceivable: 0,
+      },
+      lastWeekReport: { exists: false },
+    });
+
+    render(<WeeklyReportPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '查看' }));
+
+    expect(await screen.findByText(/周报详情/)).toBeTruthy();
+    expect(await screen.findByText('本周核心工作')).toBeInTheDocument();
+    expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('粘贴企微智能总结…')).toBeNull();
   });
 
   it('guides manual sheet fill instead of auto-writing Yuque', () => {

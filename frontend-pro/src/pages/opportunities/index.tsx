@@ -513,7 +513,12 @@ export default function OpportunitiesPage() {
       setFollowSaving(false);
     }
   };
+  const canLogHours = (row?: SalesOpportunity | null) => row?.status !== '已成交';
   const openWorklog = async (row: SalesOpportunity) => {
+    if (!canLogHours(row)) {
+      message.warning('已成交商机不可再维护售前工时');
+      return;
+    }
     setDetail(row);
     setWorklogDraft({
       supportDate: dayjs(),
@@ -696,6 +701,7 @@ export default function OpportunitiesPage() {
                 <Button
                   type="link"
                   icon={<FieldTimeOutlined />}
+                  disabled={!canLogHours(row)}
                   onClick={() => void openWorklog(row)}
                 >
                   工时
@@ -1258,6 +1264,7 @@ export default function OpportunitiesPage() {
               </Button>
               <Button
                 icon={<FieldTimeOutlined />}
+                disabled={!canLogHours(detail)}
                 onClick={() => void openWorklog(detail)}
               >
                 登记工时

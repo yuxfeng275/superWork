@@ -8,10 +8,17 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.entity.SalesOpportunity;
+import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.YuqueMcpClient;
+import com.bu.management.mapper.RevenueContractEntryMapper;
+import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
+import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.mapper.WeeklyReportMapper;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +32,10 @@ class WeeklyReportServiceTest {
     @Mock private WeeklyReportMapper reportMapper;
     @Mock private YuqueMcpClient yuqueClient;
     @Mock private SystemConfigService configService;
+    @Mock private BuKeyMatterService keyMatterService;
+    @Mock private RevenueContractEntryMapper contractEntryMapper;
+    @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
+    @Mock private SalesOpportunityMapper salesOpportunityMapper;
 
     @InjectMocks private WeeklyReportService service;
 
@@ -48,6 +59,8 @@ class WeeklyReportServiceTest {
         assertThat(prompt).contains("600 字");
         assertThat(prompt).doesNotContain("千人千面");
         assertThat(prompt).doesNotContain("各最多 4 条");
+        assertThat(prompt).contains("商机");
+        assertThat(prompt).contains("opportunities");
     }
 
     @Test
@@ -75,6 +88,36 @@ class WeeklyReportServiceTest {
                 (java.util.List<java.util.Map<String, Object>>) distilled.get("keyMatters");
         assertThat(matters).hasSize(1);
         assertThat(matters.get(0).get("title")).isEqualTo("皇家积分切换");
+    }
+
+    @Test
+    void collectFactsIncludesOpportunityFollowUps() {
+        when(keyMatterService.meeting(any())).thenReturn(List.of());
+        SalesOpportunityFollowUp followUp = new SalesOpportunityFollowUp();
+        followUp.setId(21L);
+        followUp.setOpportunityId(12L);
+        followUp.setFollower("姜涛");
+        followUp.setContent("客户确认一期预算，准备出商务条款");
+        followUp.setStatus("商务谈判");
+        followUp.setProbability(70);
+        followUp.setFollowUpAt(LocalDateTime.of(2026, 9, 16, 10, 0));
+        followUp.setNextFollowUp("周五评审");
+        when(opportunityFollowUpMapper.selectList(any())).thenReturn(List.of(followUp));
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(12L);
+        opportunity.setName("飞鹤-SCRM系统采购");
+        opportunity.setCustomer("飞鹤乳业");
+        opportunity.setOwner("姜涛");
+        when(salesOpportunityMapper.selectBatchIds(any())).thenReturn(List.of(opportunity));
+
+        java.util.Map<String, Object> facts = service.collectFacts(LocalDate.of(2026, 9, 14));
+
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Object>> opportunities =
+                (java.util.List<java.util.Map<String, Object>>) facts.get("opportunities");
+        assertThat(opportunities).hasSize(1);
+        assertThat(opportunities.get(0).get("opportunityName")).isEqualTo("飞鹤-SCRM系统采购");
+        assertThat(opportunities.get(0).get("content")).asString().contains("一期预算");
     }
 
     @Test

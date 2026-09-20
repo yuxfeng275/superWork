@@ -836,6 +836,19 @@ export interface WeeklyReportFacts {
     nextWeekPlan?: string | null;
     risks?: string | null;
   };
+  opportunities?: Array<{
+    id: number;
+    opportunityId?: number | null;
+    opportunityName?: string | null;
+    customer?: string | null;
+    owner?: string | null;
+    follower?: string | null;
+    status?: string | null;
+    probability?: number | null;
+    content?: string | null;
+    nextFollowUp?: string | null;
+    followUpAt?: string | null;
+  }>;
 }
 
 export interface WorktimeSyncLog {

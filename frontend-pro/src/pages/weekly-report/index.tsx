@@ -31,6 +31,7 @@ import {
 } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SimpleMarkdown } from '@/components/SimpleMarkdown';
 import {
   superworkApi,
   type WeeklyReportFacts,
@@ -70,6 +71,7 @@ export default function WeeklyReportPage() {
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<'view' | 'edit'>('view');
   const [current, setCurrent] = useState<WeeklyReportVO | null>(null);
   const [facts, setFacts] = useState<WeeklyReportFacts | null>(null);
   const [factsLoading, setFactsLoading] = useState(false);
@@ -191,7 +193,11 @@ export default function WeeklyReportPage() {
     }
   };
 
-  const openEditor = async (weekStartDate: string) => {
+  const openReport = async (
+    weekStartDate: string,
+    mode: 'view' | 'edit' = 'view',
+  ) => {
+    setPanelMode(mode);
     setEditorOpen(true);
     setDetailLoading(true);
     setFacts(null);
@@ -207,6 +213,12 @@ export default function WeeklyReportPage() {
     } finally {
       setDetailLoading(false);
     }
+  };
+  const openEditor = async (weekStartDate: string) => {
+    await openReport(weekStartDate, 'edit');
+  };
+  const openDetail = async (weekStartDate: string) => {
+    await openReport(weekStartDate, 'view');
   };
 
   const closeEditor = () => {
@@ -427,7 +439,7 @@ export default function WeeklyReportPage() {
     },
     {
       title: '操作',
-      width: 130,
+      width: 180,
       render: (_: unknown, row: WeeklyReportVO) => (
         <Space
           onClick={(event) => event.stopPropagation()}
@@ -436,10 +448,19 @@ export default function WeeklyReportPage() {
           <Button
             type="link"
             size="small"
-            onClick={() => void openEditor(row.weekStartDate)}
+            onClick={() => void openDetail(row.weekStartDate)}
           >
-            {row.editable ? '编辑' : '查看'}
+            查看
           </Button>
+          {row.editable && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => void openEditor(row.weekStartDate)}
+            >
+              编辑
+            </Button>
+          )}
           <Button
             type="link"
             size="small"
@@ -555,7 +576,7 @@ export default function WeeklyReportPage() {
             onClick: (event) => {
               const target = event.target as HTMLElement | null;
               if (target?.closest('button, a, .ant-btn, .ant-space')) return;
-              void openEditor(row.weekStartDate);
+              void openDetail(row.weekStartDate);
             },
             style: { cursor: 'pointer' },
           })}
@@ -596,39 +617,57 @@ export default function WeeklyReportPage() {
       </Modal>
 
       <Drawer
-        title={current ? `${rangeText(current)} 周报` : '周报'}
-        size={Math.min(900, window.innerWidth - 24)}
+        title={
+          current
+            ? `${rangeText(current)} ${panelMode === 'edit' ? '编辑周报' : '周报详情'}`
+            : '周报'
+        }
+        size={Math.min(panelMode === 'view' ? 1040 : 900, (typeof window === 'undefined' ? 1040 : window.innerWidth) - 24)}
         open={editorOpen}
         onClose={closeEditor}
         extra={
           current && (
             <Space>
-              <Button
-                type="primary"
-                icon={<ThunderboltOutlined />}
-                loading={generating || current.status === 'GENERATING'}
-                disabled={!editable}
-                onClick={() => void generate()}
-              >
-                生成 / 重新生成
-              </Button>
-              <Button
-                loading={savingContent}
-                disabled={!editable}
-                onClick={() => void saveContent()}
-              >
-                保存
-              </Button>
-              <Button
-                type="primary"
-                ghost
-                icon={<CheckCircleOutlined />}
-                loading={confirming}
-                disabled={!editable || current.status === 'CONFIRMED'}
-                onClick={() => void confirmReport()}
-              >
-                确认
-              </Button>
+              {panelMode === 'view' ? (
+                editable && (
+                  <Button
+                    type="primary"
+                    onClick={() => setPanelMode('edit')}
+                  >
+                    编辑
+                  </Button>
+                )
+              ) : (
+                <>
+                  <Button onClick={() => setPanelMode('view')}>预览</Button>
+                  <Button
+                    type="primary"
+                    icon={<ThunderboltOutlined />}
+                    loading={generating || current.status === 'GENERATING'}
+                    disabled={!editable}
+                    onClick={() => void generate()}
+                  >
+                    生成 / 重新生成
+                  </Button>
+                  <Button
+                    loading={savingContent}
+                    disabled={!editable}
+                    onClick={() => void saveContent()}
+                  >
+                    保存
+                  </Button>
+                  <Button
+                    type="primary"
+                    ghost
+                    icon={<CheckCircleOutlined />}
+                    loading={confirming}
+                    disabled={!editable || current.status === 'CONFIRMED'}
+                    onClick={() => void confirmReport()}
+                  >
+                    确认
+                  </Button>
+                </>
+              )}
               <Button icon={<CopyOutlined />} onClick={() => void copyReport()}>
                 复制全文
               </Button>
@@ -642,7 +681,7 @@ export default function WeeklyReportPage() {
           </div>
         ) : (
           current && (
-            <div className="sw-report-editor">
+            <div className={panelMode === 'view' ? 'sw-report-detail' : 'sw-report-editor'}>
               <div className="sw-editor-meta">
                 <Tag color={statusOf(current.status).color}>
                   {statusOf(current.status).label}
@@ -662,13 +701,114 @@ export default function WeeklyReportPage() {
                     message={current.generationError}
                   />
                 )}
+              {panelMode === 'view' ? (
+                <>
+                  <div className="sw-detail-sections">
+                    {[
+                      ['本周核心工作', current.coreWork],
+                      ['KPI', current.kpiSection],
+                      ['问题 / 风险', current.risks],
+                      ['下周计划', current.nextWeekPlan],
+                    ].map(([title, body]) => (
+                      <section className="sw-detail-block" key={String(title)}>
+                        <h3>{title}</h3>
+                        <SimpleMarkdown
+                          value={String(body || '')}
+                          empty={
+                            <Typography.Text type="secondary">暂无内容</Typography.Text>
+                          }
+                        />
+                      </section>
+                    ))}
+                  </div>
+                  <section className="sw-detail-minutes">
+                    <h3>周会纪要</h3>
+                    <SimpleMarkdown
+                      value={current.minutesMarkdown || ''}
+                      empty={
+                        <Typography.Text type="secondary">暂无纪要</Typography.Text>
+                      }
+                    />
+                  </section>
+                  <Card
+                    title="本周事实"
+                    loading={factsLoading}
+                    className="sw-editor-card"
+                  >
+                    <Row gutter={[10, 10]}>
+                      {[
+                        ['大事儿', facts?.keyMatters.length ?? 0, '项'],
+                        ['商机跟进', facts?.opportunities?.length ?? 0, '条'],
+                        [
+                          '新增合同',
+                          fmtWan(facts?.finance.newContractAmount),
+                          '万元',
+                        ],
+                        [
+                          '交付口径',
+                          fmtWan(facts?.finance.deliveredAmount),
+                          '万元',
+                        ],
+                      ].map(([label, value, suffix]) => (
+                        <Col xs={12} md={6} key={String(label)}>
+                          <div className="sw-fact-metric">
+                            <Typography.Text type="secondary">
+                              {label}
+                            </Typography.Text>
+                            <strong>{value}</strong>
+                            <small>{suffix}</small>
+                          </div>
+                        </Col>
+                      ))}
+                    </Row>
+                    {!!facts?.opportunities?.length && (
+                      <div className="sw-detail-followups">
+                        <Typography.Title level={5}>商机跟进</Typography.Title>
+                        {facts.opportunities.map((item) => (
+                          <article key={item.id} className="sw-detail-follow">
+                            <strong>
+                              {item.opportunityName || '未命名商机'}
+                            </strong>
+                            <span>
+                              {item.customer || '—'} · {item.follower || item.owner || '—'}
+                              {item.status ? ` · ${item.status}` : ''}
+                            </span>
+                            <p>{item.content || '—'}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                    {!!facts?.keyMatters.length && (
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        pagination={false}
+                        className="sw-detail-matters"
+                        dataSource={facts.keyMatters}
+                        columns={[
+                          { title: '大事儿', dataIndex: 'title', ellipsis: true },
+                          { title: '负责人', dataIndex: 'ownerName', width: 90 },
+                          { title: '状态', dataIndex: 'status', width: 90 },
+                          {
+                            title: '进度',
+                            dataIndex: 'progress',
+                            width: 70,
+                            render: (value?: number) => `${value ?? '—'}%`,
+                          },
+                        ]}
+                      />
+                    )}
+                  </Card>
+                </>
+              ) : (
+                <>
               <Card
                 title={
                   <span>
                     自动采集事实{' '}
                     <Typography.Text type="secondary">
                       {facts
-                        ? `大事儿 ${facts.keyMatters.length} 项 · ${facts.finance.month}`
+                        ? `大事儿 ${facts.keyMatters.length} 项 · 商机 ${facts.opportunities?.length ?? 0} 条 · ${facts.finance.month}`
                         : ''}
                     </Typography.Text>
                   </span>
@@ -689,6 +829,7 @@ export default function WeeklyReportPage() {
                 <Row gutter={[10, 10]}>
                   {[
                     ['大事儿跟踪', facts?.keyMatters.length ?? 0, '项'],
+                    ['商机跟进', facts?.opportunities?.length ?? 0, '条'],
                     [
                       '新增合同',
                       fmtWan(facts?.finance.newContractAmount),
@@ -697,11 +838,6 @@ export default function WeeklyReportPage() {
                     [
                       '交付口径',
                       fmtWan(facts?.finance.deliveredAmount),
-                      '万元',
-                    ],
-                    [
-                      '累计应收',
-                      fmtWan(facts?.finance.cumulativeReceivable),
                       '万元',
                     ],
                   ].map(([label, value, suffix]) => (
@@ -735,6 +871,29 @@ export default function WeeklyReportPage() {
                         },
                       ]}
                     />
+                    {!!facts.opportunities?.length && (
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        pagination={false}
+                        className="sw-detail-matters"
+                        dataSource={facts.opportunities}
+                        columns={[
+                          {
+                            title: '商机',
+                            dataIndex: 'opportunityName',
+                            ellipsis: true,
+                          },
+                          { title: '跟进人', dataIndex: 'follower', width: 90 },
+                          { title: '阶段', dataIndex: 'status', width: 90 },
+                          {
+                            title: '跟进内容',
+                            dataIndex: 'content',
+                            ellipsis: true,
+                          },
+                        ]}
+                      />
+                    )}
                     <Typography.Paragraph
                       type="secondary"
                       className="sw-last-week"
@@ -847,6 +1006,8 @@ export default function WeeklyReportPage() {
                   disabled={!editable}
                 />
               </Card>
+                </>
+              )}
             </div>
           )
         )}

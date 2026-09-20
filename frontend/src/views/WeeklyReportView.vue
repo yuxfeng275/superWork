@@ -90,6 +90,7 @@ const createReport = async () => {
 // ==================== 编辑器抽屉 ====================
 
 const editorVisible = ref(false)
+const panelMode = ref<'view' | 'edit'>('view')
 const current = ref<WeeklyReportVO | null>(null)
 const detailLoading = ref(false)
 const facts = ref<WeeklyReportFacts | null>(null)
@@ -104,7 +105,8 @@ const draft = ref({
   minutesMarkdown: ''
 })
 
-const openEditor = async (weekStartDate: string) => {
+const openReport = async (weekStartDate: string, mode: 'view' | 'edit' = 'view') => {
+  panelMode.value = mode
   editorVisible.value = true
   detailLoading.value = true
   facts.value = null
@@ -126,6 +128,8 @@ const openEditor = async (weekStartDate: string) => {
     detailLoading.value = false
   }
 }
+const openEditor = async (weekStartDate: string) => openReport(weekStartDate, 'edit')
+const openDetail = async (weekStartDate: string) => openReport(weekStartDate, 'view')
 
 const closeEditor = () => {
   stopPolling()
@@ -398,7 +402,7 @@ const editable = computed(() => current.value?.editable ?? true)
         row-key="id"
         class="report-table"
         empty-text="暂无周报记录，点击右上角「新建周报」开始"
-        @row-click="(row: WeeklyReportVO) => openEditor(row.weekStartDate)"
+        @row-click="(row: WeeklyReportVO) => openDetail(row.weekStartDate)"
       >
         <el-table-column label="周" min-width="200">
           <template #default="{ row }">
@@ -436,12 +440,11 @@ const editable = computed(() => current.value?.editable ?? true)
             <span class="matter-subline">{{ row.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <div class="row-actions" @click.stop>
-              <el-button size="small" link type="primary" @click="openEditor(row.weekStartDate)">
-                {{ row.editable ? '编辑' : '查看' }}
-              </el-button>
+              <el-button size="small" link type="primary" @click="openDetail(row.weekStartDate)">查看</el-button>
+              <el-button v-if="row.editable" size="small" link type="primary" @click="openEditor(row.weekStartDate)">编辑</el-button>
               <el-button size="small" link type="primary" @click="openPublish(row)">同步</el-button>
             </div>
           </template>
@@ -477,7 +480,7 @@ const editable = computed(() => current.value?.editable ?? true)
         <section v-if="current" class="editor-toolbar">
           <div class="register-titlebar">
             <h1>
-              {{ shortRange(current) }} 周报
+              {{ shortRange(current) }} {{ panelMode === 'edit' ? '编辑周报' : '周报详情' }}
               <el-tag class="list-status-tag" :class="`status-${statusOf(current.status).tone}`" effect="light">
                 {{ statusOf(current.status).label }}
               </el-tag>
@@ -485,21 +488,27 @@ const editable = computed(() => current.value?.editable ?? true)
             <p>{{ current.weekStartDate }} ~ {{ current.periodEndDate }}<template v-if="current.generationModel"> · {{ current.generationModel }}</template></p>
           </div>
           <div class="toolbar-actions">
-            <el-button
-              type="primary"
-              :icon="MagicStick"
-              :loading="generating || current.status === 'GENERATING'"
-              :disabled="!editable"
-              @click="generate"
-            >生成 / 重新生成</el-button>
-            <el-button :loading="savingContent" :disabled="!editable" @click="saveContent">保存</el-button>
-            <el-button
-              type="success"
-              :icon="CircleCheck"
-              :loading="confirming"
-              :disabled="!editable || current.status === 'CONFIRMED'"
-              @click="confirmReport"
-            >确认</el-button>
+            <template v-if="panelMode === 'view'">
+              <el-button v-if="editable" type="primary" @click="panelMode = 'edit'">编辑</el-button>
+            </template>
+            <template v-else>
+              <el-button @click="panelMode = 'view'">预览</el-button>
+              <el-button
+                type="primary"
+                :icon="MagicStick"
+                :loading="generating || current.status === 'GENERATING'"
+                :disabled="!editable"
+                @click="generate"
+              >生成 / 重新生成</el-button>
+              <el-button :loading="savingContent" :disabled="!editable" @click="saveContent">保存</el-button>
+              <el-button
+                type="success"
+                :icon="CircleCheck"
+                :loading="confirming"
+                :disabled="!editable || current.status === 'CONFIRMED'"
+                @click="confirmReport"
+              >确认</el-button>
+            </template>
             <el-button :icon="CopyDocument" aria-label="复制全文" @click="copyReport" />
           </div>
         </section>
@@ -514,12 +523,50 @@ const editable = computed(() => current.value?.editable ?? true)
             :closable="false"
           />
 
+          <template v-if="panelMode === 'view'">
+            <section class="detail-grid">
+              <article class="detail-block">
+                <h3>本周核心工作</h3>
+                <pre>{{ current.coreWork || '暂无内容' }}</pre>
+              </article>
+              <article class="detail-block">
+                <h3>KPI</h3>
+                <pre>{{ current.kpiSection || '暂无内容' }}</pre>
+              </article>
+              <article class="detail-block">
+                <h3>问题 / 风险</h3>
+                <pre>{{ current.risks || '暂无内容' }}</pre>
+              </article>
+              <article class="detail-block">
+                <h3>下周计划</h3>
+                <pre>{{ current.nextWeekPlan || '暂无内容' }}</pre>
+              </article>
+            </section>
+            <section class="editor-section">
+              <header class="section-header"><div><span>周会纪要</span></div></header>
+              <pre class="minutes-preview">{{ current.minutesMarkdown || '暂无纪要' }}</pre>
+            </section>
+            <section class="editor-section" v-loading="factsLoading">
+              <header class="section-header">
+                <div>
+                  <span>本周事实</span>
+                  <small>大事儿 {{ facts?.keyMatters.length ?? 0 }} 项 · 商机 {{ facts?.opportunities?.length ?? 0 }} 条</small>
+                </div>
+              </header>
+              <article v-for="item in facts?.opportunities || []" :key="item.id" class="opp-follow">
+                <strong>{{ item.opportunityName || '未命名商机' }}</strong>
+                <span>{{ item.customer || '—' }} · {{ item.follower || item.owner || '—' }} · {{ item.status || '—' }}</span>
+                <p>{{ item.content || '—' }}</p>
+              </article>
+            </section>
+          </template>
+          <template v-else>
           <!-- 事实概览 -->
           <section class="editor-section" v-loading="factsLoading" aria-label="自动采集事实">
             <header class="section-header">
               <div>
                 <span>自动采集事实</span>
-                <small v-if="facts">大事儿 {{ facts.keyMatters.length }} 项 · {{ facts.finance.month }}</small>
+                <small v-if="facts">大事儿 {{ facts.keyMatters.length }} 项 · 商机 {{ facts.opportunities?.length ?? 0 }} 条 · {{ facts.finance.month }}</small>
               </div>
               <button v-if="facts" type="button" class="section-toggle" @click="factsExpanded = !factsExpanded">
                 {{ factsExpanded ? '收起明细' : '展开明细' }}
@@ -532,8 +579,8 @@ const editable = computed(() => current.value?.editable ?? true)
                 <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
               </div>
               <div class="summary-cell progressing">
-                <div class="summary-label"><span><el-icon><Coin /></el-icon></span>新增合同</div>
-                <div class="summary-value"><strong>{{ fmtWan(facts.finance.newContractAmount) }}</strong><small>万元</small></div>
+                <div class="summary-label"><span><el-icon><Coin /></el-icon></span>商机跟进</div>
+                <div class="summary-value"><strong>{{ facts.opportunities?.length ?? 0 }}</strong><small>条</small></div>
                 <div class="summary-meter"><i :style="{ width: '100%' }" /></div>
               </div>
               <div class="summary-cell confirmed">
@@ -555,6 +602,12 @@ const editable = computed(() => current.value?.editable ?? true)
                 <el-table-column prop="progress" label="进度" width="70">
                   <template #default="{ row }">{{ row.progress ?? '—' }}%</template>
                 </el-table-column>
+              </el-table>
+              <el-table v-if="facts.opportunities?.length" :data="facts.opportunities" size="small" class="facts-table">
+                <el-table-column prop="opportunityName" label="商机" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="follower" label="跟进人" width="90" />
+                <el-table-column prop="status" label="阶段" width="90" />
+                <el-table-column prop="content" label="跟进内容" min-width="180" show-overflow-tooltip />
               </el-table>
               <div v-if="facts.lastWeekReport.exists" class="last-week">
                 <div class="fact-title">上周计划（{{ facts.lastWeekReport.weekStart }} · {{ statusOf(facts.lastWeekReport.status).label }}）</div>
@@ -626,6 +679,7 @@ const editable = computed(() => current.value?.editable ?? true)
             </header>
             <el-input v-model="draft.minutesMarkdown" type="textarea" :rows="16" :disabled="!editable" />
           </section>
+          </template>
         </template>
       </div>
     </el-drawer>
@@ -1108,6 +1162,30 @@ const editable = computed(() => current.value?.editable ?? true)
   margin-bottom: 6px;
   color: var(--km-ink);
 }
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.detail-block, .minutes-preview {
+  padding: 16px;
+  border: 1px solid var(--km-line, #e9edf4);
+  border-radius: 12px;
+  background: #fff;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+.detail-block h3 { margin: 0 0 10px; font-size: 15px; }
+.detail-block pre, .minutes-preview { margin: 0; font-family: inherit; font-size: 15px; }
+.opp-follow {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid #dbe5ff;
+  background: #f8faff;
+}
+.opp-follow span, .opp-follow p { display: block; margin: 4px 0 0; color: var(--km-muted, #667085); }
+@media (max-width: 768px) { .detail-grid { grid-template-columns: 1fr; } }
 
 .publish-row {
   margin-bottom: 10px;

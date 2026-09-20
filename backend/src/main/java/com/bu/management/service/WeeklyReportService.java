@@ -4,11 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.entity.Connector;
 import com.bu.management.entity.RevenueContractEntry;
+import com.bu.management.entity.SalesOpportunity;
+import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.RevenueContractEntryMapper;
+import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
+import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.mapper.WeeklyReportMapper;
 import com.bu.management.vo.BuKeyMatterView;
 import com.bu.management.vo.BuKeyMatterWeeklyUpdateView;
@@ -28,8 +32,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
@@ -50,6 +56,8 @@ public class WeeklyReportService {
     private final WeComClient weComClient;
     private final BuKeyMatterService keyMatterService;
     private final RevenueContractEntryMapper contractEntryMapper;
+    private final SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
+    private final SalesOpportunityMapper salesOpportunityMapper;
     private final SystemConfigService configService;
     private final EmailIntegrationConfigService integrationConfigService;
     private final ConnectorRegistryService registryService;
@@ -142,13 +150,20 @@ public class WeeklyReportService {
 
     // ==================== 事实采集 ====================
 
-    /** 采集自动事实：大事儿进度 + 财务 + 上周闭环。 */
+    /** 采集自动事实：大事儿进度 + 商机跟进 + 财务 + 上周闭环。 */
     public Map<String, Object> collectFacts(LocalDate weekStart) {
         Map<String, Object> facts = new LinkedHashMap<>();
         facts.put("weekStart", weekStart.toString());
         facts.put("periodEnd", weekStart.plusDays(4).toString());
         facts.put("keyMatters", collectKeyMatters(weekStart));
-        facts.put("finance", collectFinance(weekStart));
+        facts.put("opportunities", collectOpportunityFollowUps(weekStart));
+        try {
+            facts.put("finance", collectFinance(weekStart));
+        } catch (Exception e) {
+            log.warn("财务周报数据采集失败: {}", e.getMessage());
+            facts.put("finance", Map.of("month", weekStart.format(MONTH_FMT),
+                    "newContractAmount", 0, "deliveredAmount", 0, "cumulativeReceivable", 0));
+        }
         facts.put("lastWeekReport", collectLastWeek(weekStart));
         return facts;
     }
@@ -179,6 +194,47 @@ public class WeeklyReportService {
                 row.put("nextWeekPlan", clip(update.getNextWeekPlan(), 60));
                 row.put("supportNeeded", clip(update.getSupportNeeded(), 40));
             }
+            return row;
+        }).toList();
+    }
+
+    private List<Map<String, Object>> collectOpportunityFollowUps(LocalDate weekStart) {
+        LocalDateTime from = weekStart.atStartOfDay();
+        LocalDateTime to = weekStart.plusDays(7).atStartOfDay();
+        List<SalesOpportunityFollowUp> followUps;
+        try {
+            followUps = opportunityFollowUpMapper.selectList(new LambdaQueryWrapper<SalesOpportunityFollowUp>()
+                    .ge(SalesOpportunityFollowUp::getFollowUpAt, from)
+                    .lt(SalesOpportunityFollowUp::getFollowUpAt, to)
+                    .orderByDesc(SalesOpportunityFollowUp::getFollowUpAt)
+                    .last("LIMIT 40"));
+        } catch (Exception e) {
+            log.warn("商机跟进周报数据采集失败: {}", e.getMessage());
+            return List.of();
+        }
+        if (followUps.isEmpty()) return List.of();
+        Set<Long> ids = new LinkedHashSet<>();
+        for (SalesOpportunityFollowUp item : followUps) {
+            if (item.getOpportunityId() != null) ids.add(item.getOpportunityId());
+        }
+        Map<Long, SalesOpportunity> opportunities = ids.isEmpty()
+                ? Map.of()
+                : salesOpportunityMapper.selectBatchIds(ids).stream()
+                .collect(java.util.stream.Collectors.toMap(SalesOpportunity::getId, item -> item, (a, b) -> a));
+        return followUps.stream().map(item -> {
+            SalesOpportunity opportunity = opportunities.get(item.getOpportunityId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", item.getId());
+            row.put("opportunityId", item.getOpportunityId());
+            row.put("opportunityName", opportunity != null ? opportunity.getName() : "");
+            row.put("customer", opportunity != null ? opportunity.getCustomer() : "");
+            row.put("owner", opportunity != null ? opportunity.getOwner() : "");
+            row.put("follower", item.getFollower());
+            row.put("status", item.getStatus());
+            row.put("probability", item.getProbability());
+            row.put("content", clip(item.getContent(), 80));
+            row.put("nextFollowUp", clip(item.getNextFollowUp(), 40));
+            row.put("followUpAt", item.getFollowUpAt() != null ? item.getFollowUpAt().toString() : null);
             return row;
         }).toList();
     }
@@ -301,28 +357,51 @@ public class WeeklyReportService {
         }
     }
 
-    /** 生成前提炼：只保留本周有结果、风险或需协调的大事儿，最多 6 条。 */
+    /** 生成前提炼：大事儿 highlights + 本周商机跟进（最多 4 条）。 */
     public Map<String, Object> distillFactsForGeneration(Map<String, Object> facts) {
         Map<String, Object> distilled = new LinkedHashMap<>(facts);
         Object raw = facts.get("keyMatters");
-        if (!(raw instanceof List<?> list)) {
-            return distilled;
+        if (raw instanceof List<?> list) {
+            List<Map<String, Object>> ranked = list.stream()
+                    .filter(item -> item instanceof Map<?, ?>)
+                    .map(item -> {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> row = (Map<String, Object>) item;
+                        return row;
+                    })
+                    .filter(this::isHighlightMatter)
+                    .sorted((a, b) -> Integer.compare(highlightScore(b), highlightScore(a)))
+                    .limit(6)
+                    .toList();
+            distilled.put("keyMatters", ranked);
+            distilled.put("omittedMatterCount", Math.max(0, list.size() - ranked.size()));
         }
-        List<Map<String, Object>> ranked = list.stream()
-                .filter(item -> item instanceof Map<?, ?>)
-                .map(item -> {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> row = (Map<String, Object>) item;
-                    return row;
-                })
-                .filter(this::isHighlightMatter)
-                .sorted((a, b) -> Integer.compare(highlightScore(b), highlightScore(a)))
-                .limit(6)
-                .toList();
-        distilled.put("keyMatters", ranked);
-        distilled.put("omittedMatterCount", Math.max(0, list.size() - ranked.size()));
-        distilled.put("instruction", "只写 highlights，不要复述被省略的事项");
+        Object opportunityRaw = facts.get("opportunities");
+        if (opportunityRaw instanceof List<?> opportunityList) {
+            List<Map<String, Object>> rankedOpps = opportunityList.stream()
+                    .filter(item -> item instanceof Map<?, ?>)
+                    .map(item -> {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> row = (Map<String, Object>) item;
+                        return row;
+                    })
+                    .filter(this::isHighlightOpportunity)
+                    .limit(4)
+                    .toList();
+            distilled.put("opportunities", rankedOpps);
+            distilled.put("omittedOpportunityCount", Math.max(0, opportunityList.size() - rankedOpps.size()));
+        }
+        distilled.put("instruction", "只写 highlights，不要复述被省略的事项或商机");
         return distilled;
+    }
+
+    private boolean isHighlightOpportunity(Map<String, Object> row) {
+        String status = str(row.get("status"));
+        String content = str(row.get("content"));
+        if (status.contains("成交") || status.contains("流失") || status.contains("谈判") || status.contains("报价")) {
+            return true;
+        }
+        return StringUtils.hasText(content) && !isRoutine(content);
     }
 
     private boolean isHighlightMatter(Map<String, Object> matter) {
@@ -371,12 +450,13 @@ public class WeeklyReportService {
     public String generationSystemPrompt() {
         return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，不是工作流水账。只提炼本周真正变化的重点。\n"
                 + "\n== 取舍 ==\n"
-                + "1. 只写：本周有结果、有风险/阻塞、需协调、或下周必须拍板的事项。\n"
+                + "1. 只写：本周有结果、有风险/阻塞、需协调、商机阶段变化、或下周必须拍板的事项。\n"
                 + "2. 不写：日常推进、无状态变化、排班、内部技术细节、被省略的事项。\n"
-                + "3. 事实里 omittedMatterCount 表示已丢弃的日常项，禁止补回去。\n"
+                + "3. 事实里 omittedMatterCount / omittedOpportunityCount 表示已丢弃的日常项，禁止补回去。\n"
+                + "4. opportunities 是本周商机跟进，必须纳入 coreWork 或风险/下周计划，不要只写大事儿。\n"
                 + "\n== 周报 ==\n"
-                + "四段纯文本，禁止 Markdown。coreWork 分两行标题：项目： / 产品：。\n"
-                + "coreWork 全篇最多 5 条；项目优先皇家/标品，产品优先云鹿/AI。\n"
+                + "四段纯文本，禁止 Markdown。coreWork 分两行标题：项目： / 产品：；有商机跟进时再加 商机：。\n"
+                + "coreWork 全篇最多 5 条；项目优先皇家/标品，产品优先云鹿/AI，商机写客户+阶段变化。\n"
                 + "每条一行：「- 事项：结果或卡点。下一步+日期」，不超过 28 字。\n"
                 + "KPI 只写财务两个数：本月新增合同、本月交付口径（万元）；其它维度无数字就省略。\n"
                 + "风险最多 2 条；下周计划最多 3 条。四段合计不超过 450 字。\n"

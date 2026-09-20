@@ -135,6 +135,15 @@ describe('OpportunitiesPage smoke', () => {
     expect(within(dialog).getByText('飞鹤乳业')).toBeInTheDocument();
   });
 
+  it('disables hours logging on won opportunities', async () => {
+    mocks.getSalesOpportunities.mockResolvedValue([
+      { ...opportunity, id: 13, name: '海普诺凯-数据中台', status: '已成交' as const },
+    ]);
+    render(<OpportunitiesPage />);
+    expect(await screen.findByText('海普诺凯-数据中台')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /工时/ })).toBeDisabled();
+  });
+
   it('lists existing quotations in opportunity detail', async () => {
     render(<OpportunitiesPage />);
     fireEvent.click(await screen.findByText('飞鹤-SCRM系统采购'));

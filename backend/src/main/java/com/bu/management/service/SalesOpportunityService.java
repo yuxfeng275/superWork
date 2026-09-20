@@ -88,7 +88,10 @@ public class SalesOpportunityService {
     }
 
     public SalesOpportunitySupportWorkLog createSupportWorkLog(Long opportunityId, SalesOpportunitySupportWorkLogRequest request) {
-        ensureExists(opportunityId);
+        SalesOpportunity opportunity = ensureExists(opportunityId);
+        if ("已成交".equals(opportunity.getStatus())) {
+            throw new RuntimeException("已成交商机不可再维护售前工时");
+        }
         if (!StringUtils.hasText(request.getSupporter())) throw new RuntimeException("支持人员不能为空");
         if (request.getHours() == null || request.getHours().compareTo(BigDecimal.ZERO) <= 0) throw new RuntimeException("工时必须大于0");
         if (!StringUtils.hasText(request.getContent())) throw new RuntimeException("支持内容不能为空");

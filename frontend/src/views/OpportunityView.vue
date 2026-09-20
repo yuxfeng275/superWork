@@ -273,7 +273,12 @@ const saveFollow = async () => {
   }
 }
 
+const canLogHours = (row?: Opportunity | null) => row?.status !== '已成交'
 const openWorklog = async (row: Opportunity) => {
+  if (!canLogHours(row)) {
+    ElMessage.warning('已成交商机不可再维护售前工时')
+    return
+  }
   selectedOpportunity.value = row
   Object.assign(worklogForm, { supportDate: new Date().toISOString().slice(0, 10), supporter: '', hours: 1, supportType: '方案支持', content: '' })
   worklogVisible.value = true
@@ -438,7 +443,7 @@ onMounted(async () => {
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item command="follow">跟进</el-dropdown-item>
-                    <el-dropdown-item command="worklog">登记工时</el-dropdown-item>
+                    <el-dropdown-item command="worklog" :disabled="!canLogHours(row)">登记工时</el-dropdown-item>
                     <el-dropdown-item command="edit">编辑</el-dropdown-item>
                     <el-dropdown-item command="remove" divided>删除</el-dropdown-item>
                   </el-dropdown-menu>
@@ -448,7 +453,7 @@ onMounted(async () => {
             <div v-else class="desktop-row-actions">
               <el-button link type="primary" @click="openDetail(row)">详情</el-button>
               <el-button link type="primary" @click="openFollow(row)">跟进</el-button>
-              <el-button link type="primary" @click="openWorklog(row)">工时</el-button>
+              <el-button link type="primary" :disabled="!canLogHours(row)" @click="openWorklog(row)">工时</el-button>
               <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
               <el-button link type="danger" @click="remove(row)">删除</el-button>
             </div>
@@ -507,7 +512,7 @@ onMounted(async () => {
           <p v-else class="empty-history">暂无跟进记录</p>
         </section>
       </div>
-      <template #footer><el-button v-if="selectedOpportunity" @click="openWorklog(selectedOpportunity)">登记工时</el-button><el-button type="primary" @click="detailVisible=false">关闭</el-button></template>
+      <template #footer><el-button v-if="selectedOpportunity" :disabled="!canLogHours(selectedOpportunity)" @click="openWorklog(selectedOpportunity)">登记工时</el-button><el-button type="primary" @click="detailVisible=false">关闭</el-button></template>
     </el-dialog>
 
     <el-dialog v-model="followVisible" title="商机跟进记录" width="min(680px, 94vw)" class="opportunity-dialog follow-dialog">

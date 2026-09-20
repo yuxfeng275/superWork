@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.bu.management.dto.SalesOpportunityFollowUpRequest;
+import com.bu.management.dto.SalesOpportunitySupportWorkLogRequest;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
@@ -13,6 +14,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,5 +96,23 @@ class SalesOpportunityServiceTest {
                 .hasMessage("跟进内容不能为空");
         verify(followUpMapper, never()).insert(any());
         verify(opportunityMapper, never()).updateById(any());
+    }
+
+    @Test
+    void createSupportWorkLogRejectsWonOpportunity() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setStatus("已成交");
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunitySupportWorkLogRequest request = new SalesOpportunitySupportWorkLogRequest();
+        request.setSupporter("王工");
+        request.setHours(BigDecimal.ONE);
+        request.setContent("方案支持");
+
+        assertThatThrownBy(() -> service.createSupportWorkLog(7L, request))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("已成交");
+        verify(supportWorkLogMapper, never()).insert(any());
     }
 }
