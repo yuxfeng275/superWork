@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * 企业微信机器人通道（wecom-cli）业务层：授权管理 + 待办/通讯录/会议/文档/消息/邮件的真实取数与写入。
+ * 企业微信机器人通道（wecom-cli）业务层：授权管理 + 待办/日程/通讯录/文档/消息/邮件的真实取数与写入。
  *
  * <p>配置全部来自「连接器管理 → 企业微信」卡片（Bot ID 在 extra_config，Bot Secret 在加密列），
  * 本层不引入任何新的配置入口。CLI 二进制与凭据目录由部署环境提供（镜像内置 + 数据卷）。
@@ -225,95 +225,6 @@ public class WeComCliService {
             rows.add(row);
         }
         return rows;
-    }
-
-    // ==================== 会议 ====================
-
-    /** 会议列表（默认近 30 天）。 */
-    public List<Map<String, Object>> listMeetings(String beginTime, String endTime, int limit) {
-        LocalDateTime now = LocalDateTime.now();
-        String begin = StringUtils.hasText(beginTime) ? beginTime : now.minusDays(30).format(TIME);
-        String end = StringUtils.hasText(endTime) ? endTime : now.plusDays(1).format(TIME);
-        JsonNode payload = cli.execOrThrow("meeting", List.of(
-                "list", "--begin-time", begin, "--end-time", end, "--limit", String.valueOf(clamp(limit))));
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (String field : List.of("attended_meetings", "created_meetings")) {
-            for (JsonNode item : payload.path(field)) {
-                rows.add(meetingRow(item));
-            }
-        }
-        return rows;
-    }
-
-    /** 会议详情：含智能纪要内容、待办内容、智能纪要地址、录制文件地址。 */
-    public Map<String, Object> meetingDetail(String meetingId) {
-        if (!StringUtils.hasText(meetingId)) {
-            throw new IllegalArgumentException("会议 ID 不能为空");
-        }
-        JsonNode payload = cli.execOrThrow("meeting", List.of("get", "--meeting-ids", jsonArray(meetingId)));
-        JsonNode item = payload.path("meetings").path(0);
-        if (item.isMissingNode() || item.isNull()) {
-            item = payload;
-        }
-        Map<String, Object> row = meetingRow(item);
-        row.put("noteUrl", item.path("note_url").asText(null));
-        row.put("recordUrl", item.path("record_url").asText(null));
-        row.put("description", item.path("description").asText(""));
-        row.put("status", item.path("meeting_status").asText(""));
-        List<String> attendees = new ArrayList<>();
-        for (JsonNode attendee : item.path("attendees")) {
-            String name = attendee.path("user_name").asText(attendee.path("name").asText(""));
-            if (StringUtils.hasText(name)) attendees.add(name);
-        }
-        row.put("attendees", attendees);
-        StringBuilder notes = new StringBuilder();
-        StringBuilder todos = new StringBuilder();
-        for (JsonNode note : item.path("notes")) {
-            String content = note.path("note_content").asText("");
-            String todoContent = note.path("todo_content").asText("");
-            if (StringUtils.hasText(content)) notes.append(content).append("\n");
-            if (StringUtils.hasText(todoContent)) todos.append(todoContent).append("\n");
-        }
-        row.put("minutes", notes.toString().trim());
-        row.put("minutesTodos", todos.toString().trim());
-        return row;
-    }
-
-    /** 会议转写原文（分段拉取后拼接）。 */
-    public String meetingTranscript(String meetingId, int limit) {
-        if (!StringUtils.hasText(meetingId)) {
-            throw new IllegalArgumentException("会议 ID 不能为空");
-        }
-        StringBuilder text = new StringBuilder();
-        String cursor = null;
-        int pages = 0;
-        do {
-            List<String> args = new ArrayList<>(List.of("original", "get", "--meeting-id", meetingId,
-                    "--limit", String.valueOf(Math.min(Math.max(limit, 1), 500))));
-            if (StringUtils.hasText(cursor)) {
-                args.add("--cursor");
-                args.add(cursor);
-            }
-            JsonNode payload = cli.execOrThrow("meeting", args);
-            text.append(payload.path("original_data").asText(""));
-            cursor = payload.path("next_cursor").asText(null);
-            pages++;
-        } while (StringUtils.hasText(cursor) && pages < 5);
-        return text.toString();
-    }
-
-    private Map<String, Object> meetingRow(JsonNode item) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("meetingId", item.path("meeting_id").asText(""));
-        row.put("subMeetingId", item.path("sub_meeting_id").asText(null));
-        row.put("subject", item.path("subject").asText(""));
-        row.put("beginTime", item.path("begin_time").asText(""));
-        row.put("endTime", item.path("end_time").asText(""));
-        row.put("creator", item.path("creator_name").asText(""));
-        row.put("attendeeCount", item.path("attendee_count").asInt(0));
-        row.put("location", item.path("location").asText(""));
-        row.put("meetingRoom", item.path("meeting_room").asText(""));
-        return row;
     }
 
     // ==================== 文档 ====================

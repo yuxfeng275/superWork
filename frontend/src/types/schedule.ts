@@ -1,7 +1,7 @@
 /** 日程中心（本地会议 + 企微日程聚合）类型。 */
 
 /** 事件来源：本地会议 / 企微日程 / 企微会议（企微会议需「会议」品类授权，未授权时通常为空）。 */
-export type ScheduleSource = 'MEETING' | 'WECOM_SCHEDULE' | 'WECOM_MEETING'
+export type ScheduleSource = 'MEETING' | 'WECOM_SCHEDULE'
 
 /**
  * 统一日历事件。

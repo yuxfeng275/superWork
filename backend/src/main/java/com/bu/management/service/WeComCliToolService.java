@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * AI 助手的企微机器人通道工具（wecom-cli）：待办、通讯录、会议（含智能纪要/转写原文）、文档、消息、邮件。
+ * AI 助手的企微机器人通道工具（wecom-cli）：待办、日程、通讯录、文档、消息、邮件。
  *
  * <p>输出约定（沿用官方 Agent Skills 约束）：给用户的可读信息用姓名/主题/时间，**不暴露 userid/chat_id/docid 等内部标识**；
  * 标识仅在工具返回里用于后续调用（如完成待办、读取文档）。
@@ -33,7 +33,6 @@ public class WeComCliToolService {
             "wecom_search_contact",
             "wecom_list_todos", "wecom_create_todo", "wecom_finish_todo",
             "wecom_list_schedules",
-            "wecom_list_meetings", "wecom_meeting_detail", "wecom_meeting_transcript",
             "wecom_search_docs", "wecom_read_doc",
             "wecom_send_message",
             "wecom_search_mail");
@@ -71,20 +70,6 @@ public class WeComCliToolService {
                         "beginTime", stringProperty("开始时间 yyyy-MM-dd HH:mm:ss，可选"),
                         "endTime", stringProperty("结束时间 yyyy-MM-dd HH:mm:ss，可选"),
                         "limit", integerProperty("返回条数，默认 10")), List.of())));
-        defs.add(new AiAgentToolDefinition("wecom_list_meetings",
-                "查询企业微信会议列表（默认近 30 天），返回主题、时间、创建人、参会人数。",
-                objectSchema(Map.of(
-                        "beginTime", stringProperty("开始时间 yyyy-MM-dd HH:mm:ss，可选"),
-                        "endTime", stringProperty("结束时间 yyyy-MM-dd HH:mm:ss，可选"),
-                        "limit", integerProperty("返回条数，默认 10")), List.of())));
-        defs.add(new AiAgentToolDefinition("wecom_meeting_detail",
-                "获取企业微信会议详情：智能纪要内容、纪要中的待办、参会人、智能纪要地址、录制文件地址。",
-                objectSchema(Map.of("meetingId", stringProperty("会议 ID，必填（来自 wecom_list_meetings）")), List.of("meetingId"))));
-        defs.add(new AiAgentToolDefinition("wecom_meeting_transcript",
-                "拉取企业微信会议的转写原文（分段拼接后的纯文本）。",
-                objectSchema(Map.of(
-                        "meetingId", stringProperty("会议 ID，必填"),
-                        "limit", integerProperty("每页条数，默认 100")), List.of("meetingId"))));
         defs.add(new AiAgentToolDefinition("wecom_search_docs",
                 "在企业微信文档中按关键词搜索（在线文档/表格/智能表格等），返回文档名、类型、创建人、链接。",
                 objectSchema(Map.of(
@@ -121,15 +106,6 @@ public class WeComCliToolService {
                 case "wecom_list_schedules" -> renderList("日程",
                         service.listSchedules(text(args, "beginTime"), text(args, "endTime"), intArg(args, "limit", 10)),
                         "subject", "beginTime", "endTime", "location", "creator", "calendarName");
-                case "wecom_list_meetings" -> renderList("会议",
-                        service.listMeetings(text(args, "beginTime"), text(args, "endTime"), intArg(args, "limit", 10)),
-                        "subject", "beginTime", "endTime", "creator", "attendeeCount");
-                case "wecom_meeting_detail" -> new AiAgentToolResult(
-                        renderMap("会议详情", service.meetingDetail(text(args, "meetingId"))), false);
-                case "wecom_meeting_transcript" -> {
-                    String transcript = service.meetingTranscript(text(args, "meetingId"), intArg(args, "limit", 100));
-                    yield new AiAgentToolResult(StringUtils.hasText(transcript) ? transcript : "该会议暂无转写原文", false);
-                }
                 case "wecom_search_docs" -> renderList("文档",
                         service.searchDocs(text(args, "keyword"), intArg(args, "limit", 10)), "name", "type", "creator", "modifyTime", "url");
                 case "wecom_read_doc" -> new AiAgentToolResult(service.readDoc(text(args, "docId")), false);
@@ -166,19 +142,6 @@ public class WeComCliToolService {
             builder.append(String.join(" | ", parts)).append("\n");
         }
         return new AiAgentToolResult(builder.toString().trim(), false);
-    }
-
-    private String renderMap(String label, Map<String, Object> row) {
-        StringBuilder builder = new StringBuilder(label).append("：\n");
-        for (Map.Entry<String, Object> entry : row.entrySet()) {
-            Object value = entry.getValue();
-            if (value == null) continue;
-            String rendered = value instanceof List<?> list ? String.join("、", list.stream().map(String::valueOf).toList())
-                    : String.valueOf(value);
-            if (!StringUtils.hasText(rendered)) continue;
-            builder.append("- ").append(entry.getKey()).append(": ").append(rendered).append("\n");
-        }
-        return builder.toString().trim();
     }
 
     // ==================== 参数 ====================

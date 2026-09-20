@@ -1023,11 +1023,8 @@ export interface MeetingTodoConvertPayload {
   taskType?: string;
 }
 
-/** 日程来源：本地会议 / 企微日程 / 企微会议。 */
-export type ScheduleEventSource =
-  | "MEETING"
-  | "WECOM_SCHEDULE"
-  | "WECOM_MEETING";
+/** 日程来源：本地会议 / 企微日程（企微「会议」品类授权无法获取，故不接入）。 */
+export type ScheduleEventSource = "MEETING" | "WECOM_SCHEDULE";
 
 /**
  * 统一日历事件（本地会议 + 企微日程合并流）。

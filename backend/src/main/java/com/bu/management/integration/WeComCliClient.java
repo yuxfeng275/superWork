@@ -441,8 +441,6 @@ public class WeComCliClient {
         probes.put("contact", List.of("users", "search", "--keywords", "张"));
         probes.put("todo", List.of("list", "--limit", "1"));
         probes.put("calendar", List.of("schedules", "list", "--begin-time", recent, "--end-time", soon));
-        probes.put("meeting", List.of("list", "--begin-time", now.minusDays(30).format(formatter),
-                "--end-time", now.plusDays(1).format(formatter), "--limit", "1"));
         probes.put("message", List.of("send", "--chat-id", "__probe__", "--msg-type", "text",
                 "--json", "{\"text\":\"capability probe\"}"));
         probes.put("doc", List.of("search", "--keywords", "周报"));
@@ -456,7 +454,6 @@ public class WeComCliClient {
     static {
         CAPABILITY_LABELS.put("contact", "通讯录");
         CAPABILITY_LABELS.put("todo", "待办");
-        CAPABILITY_LABELS.put("meeting", "会议（含纪要/转写）");
         CAPABILITY_LABELS.put("message", "消息推送");
         CAPABILITY_LABELS.put("doc", "文档");
         CAPABILITY_LABELS.put("calendar", "日程");

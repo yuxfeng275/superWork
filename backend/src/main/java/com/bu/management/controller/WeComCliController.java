@@ -109,29 +109,6 @@ public class WeComCliController {
         return Result.success(service.searchContacts(keyword));
     }
 
-    @GetMapping("/meetings")
-    @Operation(summary = "会议列表")
-    public Result<List<Map<String, Object>>> meetings(
-            @RequestParam(required = false) String beginTime,
-            @RequestParam(required = false) String endTime,
-            @RequestParam(defaultValue = "10") int limit) {
-        return Result.success(service.listMeetings(beginTime, endTime, limit));
-    }
-
-    @GetMapping("/meetings/detail")
-    @Operation(summary = "会议详情（含智能纪要与录制地址）")
-    public Result<Map<String, Object>> meetingDetail(@RequestParam String meetingId) {
-        return Result.success(service.meetingDetail(meetingId));
-    }
-
-    @GetMapping("/meetings/transcript")
-    @Operation(summary = "会议转写原文")
-    public Result<Map<String, Object>> meetingTranscript(
-            @RequestParam String meetingId,
-            @RequestParam(defaultValue = "100") int limit) {
-        return Result.success(Map.of("transcript", service.meetingTranscript(meetingId, limit)));
-    }
-
     @GetMapping("/docs")
     @Operation(summary = "文档搜索")
     public Result<List<Map<String, Object>>> docs(
