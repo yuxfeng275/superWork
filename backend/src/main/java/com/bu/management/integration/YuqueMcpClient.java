@@ -277,8 +277,7 @@ public class YuqueMcpClient {
         try {
             current = fetchDoc(slugs[0], slugs[1]);
         } catch (IllegalStateException e) {
-            throw new IllegalStateException(
-                    "读取汇总表失败（" + slugs[0] + " / " + slugs[1] + "）：" + e.getMessage(), e);
+            throw new IllegalStateException(explainSheetReadFailure(slugs[0], slugs[1], e), e);
         }
         String body = current.getOrDefault("body", "");
         String patched = WeeklyReportSheetPatcher.patch(
@@ -289,6 +288,16 @@ public class YuqueMcpClient {
         String docKey = StringUtils.hasText(current.get("id")) ? current.get("id") : slugs[1];
         updateDoc(slugs[0], docKey, current.get("title"), patched, "markdown");
         return new SheetWriteResult(true, "已写入 " + dateRangeLabel + " / K 列");
+    }
+
+    static String explainSheetReadFailure(String repoId, String docId, IllegalStateException cause) {
+        String detail = String.valueOf(cause.getMessage());
+        if (detail.contains("(404)")) {
+            return "读取汇总表失败：语雀文档不存在，或当前语雀 Token 无权访问 "
+                    + repoId + "/" + docId
+                    + "。请到「连接器管理」确认语雀 Token 能打开该知识库，或把 weekly-report / sheet.doc-slug 改成 Token 有权限的文档。";
+        }
+        return "读取汇总表失败（" + repoId + " / " + docId + "）：" + detail;
     }
 
     public static String[] parseSheetDoc(String docSlug) {
@@ -630,15 +639,7 @@ public class YuqueMcpClient {
     }
 
     private JsonNode restGetDocData(String repoId, String docIdOrSlug) {
-        try {
-            return restGet("/repos/" + repoId + "/docs/" + docIdOrSlug).path("data");
-        } catch (IllegalStateException e) {
-            if (String.valueOf(e.getMessage()).contains("(404)") && repoId.contains("/")) {
-                String book = repoId.substring(repoId.indexOf('/') + 1);
-                return restGet("/repos/" + book + "/docs/" + docIdOrSlug).path("data");
-            }
-            throw e;
-        }
+        return restGet("/repos/" + repoId + "/docs/" + docIdOrSlug).path("data");
     }
 
     private boolean looksLikeSheet(String type, String format) {

@@ -20,6 +20,17 @@ class YuqueSheetDocParserTest {
     }
 
     @Test
+    void explain404AsksToFixTokenOrSlug() {
+        String message = YuqueMcpClient.explainSheetReadFailure(
+                "staff-qvc012/mghdgg",
+                "tyavbayo9ir7tyrk",
+                new IllegalStateException("语雀接口调用失败(404) /repos/staff-qvc012/mghdgg/docs/tyavbayo9ir7tyrk"));
+        assertThat(message).contains("无权访问");
+        assertThat(message).contains("sheet.doc-slug");
+        assertThat(message).contains("staff-qvc012/mghdgg/tyavbayo9ir7tyrk");
+    }
+
+    @Test
     void rejectsBlankSlug() {
         assertThatThrownBy(() -> YuqueMcpClient.parseSheetDoc(" "))
                 .isInstanceOf(IllegalStateException.class)
