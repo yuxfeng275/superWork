@@ -7,6 +7,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import {
+  Actions,
   Attachments,
   Bubble,
   Conversations,
@@ -83,6 +84,29 @@ const welcomePrompts = [
     description: '在语雀里搜一下新员工入职指引',
   },
 ];
+const TEXT_ATTACHMENT_TYPES = [
+  'text/',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+];
+const TEXT_ATTACHMENT_EXT =
+  /\.(txt|md|csv|json|xml|log|js|ts|tsx|jsx|java|py|yml|yaml|html|css)$/i;
+const readAttachmentText = async (file: Attachment) => {
+  const origin = file.originFileObj as File | undefined;
+  if (!origin) return '';
+  const type = String(origin.type || '').toLowerCase();
+  const name = String(origin.name || file.name || '');
+  const readable =
+    TEXT_ATTACHMENT_TYPES.some((prefix) => type.startsWith(prefix)) ||
+    TEXT_ATTACHMENT_EXT.test(name);
+  if (!readable) {
+    return `【附件 ${name || '未命名'}】二进制文件，暂无法解析正文`;
+  }
+  const raw = await origin.text();
+  const clipped = raw.length > 8000 ? `${raw.slice(0, 8000)}\n…(已截断)` : raw;
+  return `【附件 ${name || '未命名'}】\n${clipped}`;
+};
 const slashSuggestions = welcomePrompts.map((item) => ({
   label: String(item.label),
   value: String(item.description),
@@ -247,15 +271,14 @@ export default function AiAssistantPage() {
     if (!active || !content || streaming || syncing) return;
     const sessionId = active.id;
     const attached = files.filter((file) => file.status !== 'error');
+    const attachmentBlocks = await Promise.all(attached.map(readAttachmentText));
+    const payload = [content, ...attachmentBlocks.filter(Boolean)].join('\n\n');
     setDraft('');
     setFiles([]);
     setHeaderOpen(false);
-    const fileNote = attached.length
-      ? `\n\n（已选择 ${attached.length} 个附件，当前会话暂未上传到后端）`
-      : '';
     setItems((current) => [
       ...current,
-      { id: `u-${Date.now()}`, role: 'user', text: `${content}${fileNote}` },
+      { id: `u-${Date.now()}`, role: 'user', text: payload },
     ]);
     const abort = new AbortController();
     controller.current = abort;
@@ -265,7 +288,7 @@ export default function AiAssistantPage() {
     try {
       await superworkApi.streamAiAgentRun(
         sessionId,
-        content,
+        payload,
         (event: AiAgentStreamEvent) => {
           if (event.type === 'message_start') {
             assistantId = `a-${Date.now()}`;
@@ -403,6 +426,18 @@ export default function AiAssistantPage() {
       status: streaming && item.role === 'assistant' ? 'updating' : 'success',
     };
     if (item.thinking) bubble.header = <Think>{item.thinking}</Think>;
+    if (item.text) {
+      bubble.footer = (
+        <Actions
+          items={[{ key: 'copy', label: '复制', actionRender: Actions.Copy }]}
+          onClick={({ key }) => {
+            if (key !== 'copy') return;
+            void navigator.clipboard.writeText(item.text);
+            message.success('已复制');
+          }}
+        />
+      );
+    }
     return bubble;
   });
   const roleConfig = {
@@ -573,7 +608,7 @@ export default function AiAssistantPage() {
                             : {
                                 icon: <CloudUploadOutlined />,
                                 title: '上传文件',
-                                description: '点击或拖拽，当前仅本地预览',
+                                description: '文本类附件会随问题发给助手',
                               }
                         }
                       />
