@@ -406,6 +406,13 @@ export interface AiAgentStreamEvent {
   type: string;
   [key: string]: unknown;
 }
+export interface AiAgentAttachmentItem {
+  id: number;
+  fileName: string;
+  contentType?: string;
+  sizeBytes?: number;
+  createdAt?: string;
+}
 export interface AiNotice {
   kind: string;
   date: string;
@@ -1893,18 +1900,39 @@ export const superworkApi = {
       method: "DELETE",
     });
   },
+  uploadAiAgentAttachment(sessionId: number, file: File) {
+    const body = new FormData();
+    body.append("file", file);
+    return requestJson<AiAgentAttachmentItem>(
+      `/api/ai-agent/sessions/${sessionId}/attachments`,
+      { method: "POST", body }
+    );
+  },
+  getAiAgentAttachments(sessionId: number) {
+    return requestJson<AiAgentAttachmentItem[]>(
+      `/api/ai-agent/sessions/${sessionId}/attachments`
+    );
+  },
   async streamAiAgentRun(
     sessionId: number,
     content: string,
     onEvent: (event: AiAgentStreamEvent) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    attachmentIds?: number[]
   ) {
     const headers = new Headers({ "Content-Type": "application/json" });
     const token = localStorage.getItem("token");
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const response = await fetch(
       `/api/ai-agent/sessions/${sessionId}/messages`,
-      { method: "POST", headers, body: JSON.stringify({ content }), signal }
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(
+          attachmentIds?.length ? { content, attachmentIds } : { content }
+        ),
+        signal,
+      }
     );
     if (!response.ok)
       throw new ApiRequestError(

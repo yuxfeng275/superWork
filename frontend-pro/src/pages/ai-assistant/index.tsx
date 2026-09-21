@@ -84,29 +84,6 @@ const welcomePrompts = [
     description: '在语雀里搜一下新员工入职指引',
   },
 ];
-const TEXT_ATTACHMENT_TYPES = [
-  'text/',
-  'application/json',
-  'application/xml',
-  'application/javascript',
-];
-const TEXT_ATTACHMENT_EXT =
-  /\.(txt|md|csv|json|xml|log|js|ts|tsx|jsx|java|py|yml|yaml|html|css)$/i;
-const readAttachmentText = async (file: Attachment) => {
-  const origin = file.originFileObj as File | undefined;
-  if (!origin) return '';
-  const type = String(origin.type || '').toLowerCase();
-  const name = String(origin.name || file.name || '');
-  const readable =
-    TEXT_ATTACHMENT_TYPES.some((prefix) => type.startsWith(prefix)) ||
-    TEXT_ATTACHMENT_EXT.test(name);
-  if (!readable) {
-    return `【附件 ${name || '未命名'}】二进制文件，暂无法解析正文`;
-  }
-  const raw = await origin.text();
-  const clipped = raw.length > 8000 ? `${raw.slice(0, 8000)}\n…(已截断)` : raw;
-  return `【附件 ${name || '未命名'}】\n${clipped}`;
-};
 const slashSuggestions = welcomePrompts.map((item) => ({
   label: String(item.label),
   value: String(item.description),
@@ -271,14 +248,28 @@ export default function AiAssistantPage() {
     if (!active || !content || streaming || syncing) return;
     const sessionId = active.id;
     const attached = files.filter((file) => file.status !== 'error');
-    const attachmentBlocks = await Promise.all(attached.map(readAttachmentText));
-    const payload = [content, ...attachmentBlocks.filter(Boolean)].join('\n\n');
+    const uploadedIds: number[] = [];
+    const uploadedNames: string[] = [];
+    try {
+      for (const file of attached) {
+        const origin = file.originFileObj as File | undefined;
+        if (!origin) continue;
+        const saved = await superworkApi.uploadAiAgentAttachment(sessionId, origin);
+        uploadedIds.push(saved.id);
+        uploadedNames.push(saved.fileName || origin.name);
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '附件上传失败');
+      return;
+    }
+    const markers = uploadedNames.map((name) => `[附件: ${name}]`).join(' ');
+    const displayText = markers ? `${content}\n\n${markers}` : content;
     setDraft('');
     setFiles([]);
     setHeaderOpen(false);
     setItems((current) => [
       ...current,
-      { id: `u-${Date.now()}`, role: 'user', text: payload },
+      { id: `u-${Date.now()}`, role: 'user', text: displayText },
     ]);
     const abort = new AbortController();
     controller.current = abort;
@@ -288,7 +279,7 @@ export default function AiAssistantPage() {
     try {
       await superworkApi.streamAiAgentRun(
         sessionId,
-        payload,
+        content,
         (event: AiAgentStreamEvent) => {
           if (event.type === 'message_start') {
             assistantId = `a-${Date.now()}`;
@@ -368,6 +359,7 @@ export default function AiAssistantPage() {
           }
         },
         abort.signal,
+        uploadedIds.length ? uploadedIds : undefined,
       );
       if (!streamFailed && !abort.signal.aborted)
         await resyncSession(sessionId);
@@ -608,7 +600,7 @@ export default function AiAssistantPage() {
                             : {
                                 icon: <CloudUploadOutlined />,
                                 title: '上传文件',
-                                description: '文本类附件会随问题发给助手',
+                                description: '文本类附件正文会随问题发给助手，文件保留在会话里',
                               }
                         }
                       />

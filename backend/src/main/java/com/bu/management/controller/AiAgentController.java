@@ -5,8 +5,10 @@ import com.bu.management.dto.AiAgentSendMessageRequest;
 import com.bu.management.dto.CreateAiAgentSessionRequest;
 import com.bu.management.service.AiAgentSessionService;
 import com.bu.management.service.AiModelConfigService;
+import com.bu.management.service.AiAgentAttachmentService;
 import com.bu.management.service.AiAgentToolService;
 import com.bu.management.service.ConnectorRegistryService;
+import com.bu.management.vo.AiAgentAttachmentVO;
 import com.bu.management.vo.AiAgentSessionSummary;
 import com.bu.management.vo.AiAgentSessionView;
 import com.bu.management.vo.Result;
@@ -41,7 +43,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -68,6 +72,7 @@ public class AiAgentController {
     private final AiAgentToolService toolService;
     private final AiModelConfigService modelConfigService;
     private final ConnectorRegistryService registryService;
+    private final AiAgentAttachmentService attachmentService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -114,6 +119,21 @@ public class AiAgentController {
         return Result.success();
     }
 
+    /** 上传会话附件（本地落盘，发送时随消息注入文本摘要）。 */
+    @PostMapping("/sessions/{id}/attachments")
+    public Result<AiAgentAttachmentVO> uploadAttachment(@RequestAttribute("userId") Long userId,
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+        return Result.success(attachmentService.upload(userId, id, file));
+    }
+
+    /** 会话附件列表。 */
+    @GetMapping("/sessions/{id}/attachments")
+    public Result<List<AiAgentAttachmentVO>> attachments(@RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        return Result.success(attachmentService.list(userId, id));
+    }
+
     /**
      * 侧车只认 {@code zhipu} / {@code deepseek}；平台内 GLM 的规范编码是 {@code glm}（见 AiModelConfigService）。
      * 这里是唯一出站翻译点，避免两套命名在各处散落。
@@ -136,18 +156,42 @@ public class AiAgentController {
             throw new RuntimeException("消息内容不能为空");
         }
 
-        // 归属校验 + 用户消息先落库（侧车以现有消息数组续跑）
+        // 归属校验；附件：历史里存紧凑标记，侧车 payload 注入文本摘要
         sessionService.get(userId, id);
+        List<Long> attachmentIds = request.getAttachmentIds() == null
+                ? List.of() : request.getAttachmentIds();
+        String persistedContent = content;
+        String sidecarContent = content;
+        if (!attachmentIds.isEmpty()) {
+            String markers = attachmentService.displayMarkers(id, attachmentIds);
+            if (!markers.isBlank()) {
+                persistedContent = content + "\n\n" + markers;
+            }
+            String context = attachmentService.composeContext(id, attachmentIds);
+            if (!context.isBlank()) {
+                sidecarContent = content + "\n\n" + context;
+            }
+        }
+
+        // 用户消息先落库（侧车以现有消息数组续跑）
         ObjectNode userMessage = objectMapper.createObjectNode();
         userMessage.put("role", "user");
-        userMessage.put("content", content);
+        userMessage.put("content", persistedContent);
         userMessage.put("timestamp", AiAgentSessionService.nowEpochMillis());
         ArrayNode appended = objectMapper.createArrayNode();
         appended.add(userMessage);
         sessionService.appendMessages(id, appended.toString());
 
         AiAgentSessionView session = sessionService.get(userId, id);
-        JsonNode existingMessages = (JsonNode) session.messages();
+        ArrayNode sidecarMessages = (ArrayNode) session.messages();
+        if (!sidecarContent.equals(persistedContent) && !sidecarMessages.isEmpty()) {
+            sidecarMessages = sidecarMessages.deepCopy();
+            JsonNode last = sidecarMessages.get(sidecarMessages.size() - 1);
+            if (last instanceof ObjectNode lastNode
+                    && "user".equals(lastNode.path("role").asText())) {
+                lastNode.put("content", sidecarContent);
+            }
+        }
         AiModelConfigService.ModelConfig model =
                 modelConfigService.resolveModelConfig(session.provider(), session.model());
 
@@ -178,7 +222,7 @@ public class AiAgentController {
             body.put("apiKey", model.apiKey());
             body.put("model", model.model());
             body.put("systemPrompt", SYSTEM_PROMPT);
-            body.set("messages", existingMessages);
+            body.set("messages", sidecarMessages);
             body.set("tools", objectMapper.valueToTree(toolService.definitions()));
             body.put("toolCallbackUrl", properties.getToolCallbackUrl());
 

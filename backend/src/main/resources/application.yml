@@ -187,6 +187,9 @@ ai-agent:
     token: ${AI_SIDECAR_TOKEN:}
     run-timeout-seconds: 600
     tool-callback-url: ${AI_SIDECAR_TOOL_CALLBACK_URL:http://localhost:8081/internal/ai-agent/tools}
+  attachments:
+    storage-dir: ${AI_ATTACHMENT_STORAGE_DIR:./data/ai-agent-attachments}
+    max-size-mb: 20
 
 # 会议模块：录音本地存储根目录；ASR 连接参数与模块开关走系统配置组 meeting（连接器管理里配 LLM 凭据）
 meeting:
