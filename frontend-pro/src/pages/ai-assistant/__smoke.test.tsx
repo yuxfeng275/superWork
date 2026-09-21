@@ -45,6 +45,9 @@ describe('AI assistant Ant Design X migration', () => {
     expect(source).toMatch(/<Sender/);
     expect(source).toMatch(/<Welcome/);
     expect(source).toMatch(/<Prompts/);
+    expect(source).toMatch(/<ThoughtChain/);
+    expect(source).toMatch(/<Suggestion/);
+    expect(source).toMatch(/<Attachments/);
     expect(source).not.toMatch(/sw-ai-session-list/);
     expect(source).not.toMatch(/Input.TextArea/);
 

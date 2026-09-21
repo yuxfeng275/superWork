@@ -1,27 +1,31 @@
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  LoadingOutlined,
+  CloudUploadOutlined,
   MailOutlined,
   MessageOutlined,
+  PaperClipOutlined,
   SearchOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import {
+  Attachments,
   Bubble,
   Conversations,
   Prompts,
   Sender,
+  Suggestion,
   Think,
+  ThoughtChain,
   Welcome,
   XProvider,
 } from '@ant-design/x';
+import type { Attachment } from '@ant-design/x/es/attachments';
 import type { BubbleItemType } from '@ant-design/x/es/bubble/interface';
 import XMarkdown from '@ant-design/x-markdown';
 import '@ant-design/x-markdown/es/XMarkdown/index.css';
 import {
   Alert,
   Avatar,
+  Badge,
   Button,
   Modal,
   message,
@@ -79,6 +83,12 @@ const welcomePrompts = [
     description: '在语雀里搜一下新员工入职指引',
   },
 ];
+const slashSuggestions = welcomePrompts.map((item) => ({
+  label: String(item.label),
+  value: String(item.description),
+  icon: item.icon,
+  extra: item.label,
+}));
 const extractText = (content: unknown) => {
   if (typeof content === 'string') return content;
   if (Array.isArray(content))
@@ -105,6 +115,8 @@ export default function AiAssistantPage() {
   const [connectors, setConnectors] = useState<AiConnectorStatus[]>([]);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [headerOpen, setHeaderOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -230,14 +242,20 @@ export default function AiAssistantPage() {
       setSyncing(false);
     }
   };
-  const send = async () => {
-    const content = draft.trim();
+  const send = async (nextContent?: string) => {
+    const content = (nextContent ?? draft).trim();
     if (!active || !content || streaming || syncing) return;
     const sessionId = active.id;
+    const attached = files.filter((file) => file.status !== 'error');
     setDraft('');
+    setFiles([]);
+    setHeaderOpen(false);
+    const fileNote = attached.length
+      ? `\n\n（已选择 ${attached.length} 个附件，当前会话暂未上传到后端）`
+      : '';
     setItems((current) => [
       ...current,
-      { id: `u-${Date.now()}`, role: 'user', text: content },
+      { id: `u-${Date.now()}`, role: 'user', text: `${content}${fileNote}` },
     ]);
     const abort = new AbortController();
     controller.current = abort;
@@ -355,21 +373,16 @@ export default function AiAssistantPage() {
         key: item.id,
         role: 'tool',
         content: item.text,
-        extra: (
-          <Tag
-            icon={
-              item.running ? (
-                <LoadingOutlined />
-              ) : item.error ? (
-                <CloseCircleOutlined />
-              ) : (
-                <CheckCircleOutlined />
-              )
-            }
-            color={item.running ? 'processing' : item.error ? 'error' : 'success'}
-          >
-            {item.text}
-          </Tag>
+        contentRender: () => (
+          <ThoughtChain
+            items={[{
+              key: item.id,
+              title: item.toolName || '工具调用',
+              description: item.text,
+              status: item.running ? 'loading' : item.error ? 'error' : 'success',
+              blink: Boolean(item.running),
+            }]}
+          />
         ),
       };
     }
@@ -417,7 +430,6 @@ export default function AiAssistantPage() {
     tool: {
       placement: 'start' as const,
       variant: 'borderless' as const,
-      contentRender: () => null,
     },
   };
   const connectorTag = (status: string) =>
@@ -516,23 +528,69 @@ export default function AiAssistantPage() {
             )}
           </div>
           <div className="sw-ai-composer">
-            <Sender
-              value={draft}
-              onChange={setDraft}
-              loading={streaming || syncing}
-              disabled={!active || syncing}
-              onSubmit={() => void send()}
-              onCancel={stop}
-              placeholder={
-                active
-                  ? syncing
-                    ? '正在同步会话…'
-                    : '输入你的问题，Enter 发送；Shift + Enter 换行'
-                  : '先新建或选择一个会话'
-              }
-              autoSize={{ minRows: 2, maxRows: 7 }}
-              style={{ width: '100%', maxWidth: 940 }}
-            />
+            <Suggestion
+              items={slashSuggestions}
+              onSelect={(value) => {
+                setDraft(value);
+              }}
+            >
+              {({ onTrigger, onKeyDown }) => (
+                <Sender
+                  value={draft}
+                  onChange={(value) => {
+                    setDraft(value);
+                    if (value === '/') onTrigger();
+                    else if (!value.startsWith('/')) onTrigger(false);
+                  }}
+                  onKeyDown={onKeyDown}
+                  loading={streaming || syncing}
+                  disabled={!active || syncing}
+                  onSubmit={(value) => void send(value)}
+                  onCancel={stop}
+                  placeholder={
+                    active
+                      ? syncing
+                        ? '正在同步会话…'
+                        : '输入问题，/ 唤起快捷指令；Enter 发送'
+                      : '先新建或选择一个会话'
+                  }
+                  autoSize={{ minRows: 2, maxRows: 7 }}
+                  style={{ width: '100%', maxWidth: 940 }}
+                  header={
+                    <Sender.Header
+                      title="附件"
+                      open={headerOpen}
+                      onOpenChange={setHeaderOpen}
+                      styles={{ content: { padding: 0 } }}
+                    >
+                      <Attachments
+                        beforeUpload={() => false}
+                        items={files}
+                        onChange={({ fileList }) => setFiles(fileList)}
+                        placeholder={(type) =>
+                          type === 'drop'
+                            ? { title: '拖拽文件到这里' }
+                            : {
+                                icon: <CloudUploadOutlined />,
+                                title: '上传文件',
+                                description: '点击或拖拽，当前仅本地预览',
+                              }
+                        }
+                      />
+                    </Sender.Header>
+                  }
+                  prefix={
+                    <Badge dot={files.length > 0 && !headerOpen}>
+                      <Button
+                        type="text"
+                        icon={<PaperClipOutlined />}
+                        onClick={() => setHeaderOpen((open) => !open)}
+                      />
+                    </Badge>
+                  }
+                />
+              )}
+            </Suggestion>
           </div>
         </main>
       </div>
