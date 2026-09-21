@@ -1,24 +1,32 @@
 import {
   CheckCircleOutlined,
-  DeleteOutlined,
+  CloseCircleOutlined,
   LoadingOutlined,
+  MailOutlined,
   MessageOutlined,
-  PlusOutlined,
-  SendOutlined,
-  StopOutlined,
+  SearchOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
+import {
+  Bubble,
+  Conversations,
+  Prompts,
+  Sender,
+  Think,
+  Welcome,
+  XProvider,
+} from '@ant-design/x';
+import type { BubbleItemType } from '@ant-design/x/es/bubble/interface';
+import XMarkdown from '@ant-design/x-markdown';
+import '@ant-design/x-markdown/es/XMarkdown/index.css';
 import {
   Alert,
   Avatar,
   Button,
-  Card,
-  Empty,
-  Input,
   Modal,
   message,
   Select,
   Space,
-  Spin,
   Tag,
   Typography,
 } from 'antd';
@@ -45,11 +53,31 @@ type ChatItem = {
   toolName?: string;
   toolCallId?: string;
 };
-const welcomeCards = [
-  { title: '工时填报分析', text: '帮我分析一下我最近三个月的工时填报情况' },
-  { title: '搜索邮件', text: '搜索一下最近关于项目验收的邮件' },
-  { title: '查云效工作项', text: '我名下有哪些进行中的云效工作项？' },
-  { title: '搜语雀文档', text: '在语雀里搜一下新员工入职指引' },
+const welcomePrompts = [
+  {
+    key: 'hours',
+    icon: <SearchOutlined />,
+    label: '工时填报分析',
+    description: '帮我分析一下我最近三个月的工时填报情况',
+  },
+  {
+    key: 'mail',
+    icon: <MailOutlined />,
+    label: '搜索邮件',
+    description: '搜索一下最近关于项目验收的邮件',
+  },
+  {
+    key: 'yunxiao',
+    icon: <MessageOutlined />,
+    label: '查云效工作项',
+    description: '我名下有哪些进行中的云效工作项？',
+  },
+  {
+    key: 'yuque',
+    icon: <SearchOutlined />,
+    label: '搜语雀文档',
+    description: '在语雀里搜一下新员工入职指引',
+  },
 ];
 const extractText = (content: unknown) => {
   if (typeof content === 'string') return content;
@@ -311,7 +339,87 @@ export default function AiAssistantPage() {
     }
   };
   const stop = () => controller.current?.abort();
-  const canSend = Boolean(active && draft.trim() && !streaming && !syncing);
+  const conversationItems = sessions.map((session) => ({
+    key: String(session.id),
+    label: session.title || '新对话',
+    extra: `${session.messageCount || 0} 条`,
+    disabled: streaming || syncing,
+  }));
+  const applyPrompt = (text: string) => {
+    setDraft(text);
+    if (!active) void newChat();
+  };
+  const bubbleItems: BubbleItemType[] = items.map((item) => {
+    if (item.role === 'tool') {
+      return {
+        key: item.id,
+        role: 'tool',
+        content: item.text,
+        extra: (
+          <Tag
+            icon={
+              item.running ? (
+                <LoadingOutlined />
+              ) : item.error ? (
+                <CloseCircleOutlined />
+              ) : (
+                <CheckCircleOutlined />
+              )
+            }
+            color={item.running ? 'processing' : item.error ? 'error' : 'success'}
+          >
+            {item.text}
+          </Tag>
+        ),
+      };
+    }
+    if (item.role === 'error') {
+      return {
+        key: item.id,
+        role: 'ai',
+        content: item.text,
+        status: 'error',
+        footer: <Alert type="error" message={item.text} showIcon />,
+      };
+    }
+    const bubble: BubbleItemType = {
+      key: item.id,
+      role: item.role === 'user' ? 'user' : 'ai',
+      content: item.text,
+      loading: streaming && item.role === 'assistant' && !item.text,
+      status: streaming && item.role === 'assistant' ? 'updating' : 'success',
+    };
+    if (item.thinking) bubble.header = <Think>{item.thinking}</Think>;
+    return bubble;
+  });
+  const roleConfig = {
+    user: {
+      placement: 'end' as const,
+      avatar: <Avatar icon={<UserOutlined />} />,
+    },
+    ai: {
+      placement: 'start' as const,
+      avatar: <Avatar icon={<MessageOutlined />} />,
+      contentRender: (content: string, info: { status?: string; loading?: boolean }) => {
+        if (info?.loading || !content) return undefined;
+        return (
+          <XMarkdown
+            streaming={{
+              hasNextChunk: info?.status === 'updating',
+              enableAnimation: true,
+            }}
+          >
+            {content}
+          </XMarkdown>
+        );
+      },
+    },
+    tool: {
+      placement: 'start' as const,
+      variant: 'borderless' as const,
+      contentRender: () => null,
+    },
+  };
   const connectorTag = (status: string) =>
     status === 'READY'
       ? 'success'
@@ -320,60 +428,33 @@ export default function AiAssistantPage() {
         : 'default';
   return (
     <div className="sw-page sw-ai-assistant">
+      <XProvider>
       <div className="sw-ai-layout">
         <aside className="sw-ai-sidebar">
-          <div className="sw-ai-sidebar-head">
-            <Typography.Text strong>
-              <MessageOutlined /> 对话列表
-            </Typography.Text>
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              disabled={streaming || syncing}
-              onClick={() => void newChat()}
-            >
-              新建
-            </Button>
-          </div>
-          {loading ? (
-            <div className="sw-ai-session-loading">
-              <Spin size="small" />
-            </div>
-          ) : sessions.length ? (
-            <ul className="sw-ai-session-list">
-              {sessions.map((session) => (
-                <li key={session.id} className="sw-ai-session-row">
-                  <Button
-                    type="text"
-                    block
-                    className={`sw-ai-session-select ${active?.id === session.id ? 'is-active' : ''}`}
-                    onClick={() => {
-                      if (!streaming && !syncing) void openSession(session.id);
-                    }}
-                  >
-                    <span className="sw-ai-session-copy">
-                      <strong>{session.title || '新对话'}</strong>
-                      <small>{session.messageCount || 0} 条消息</small>
-                    </span>
-                  </Button>
-                  <Button
-                    type="text"
-                    icon={<DeleteOutlined />}
-                    aria-label={`删除${session.title || '新对话'}`}
-                    danger
-                    disabled={streaming || syncing}
-                    onClick={() => deleteSession(session)}
-                  />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="暂无会话"
-            />
-          )}
+          <Conversations
+            items={conversationItems}
+            activeKey={active ? String(active.id) : undefined}
+            onActiveChange={(key) => {
+              if (streaming || syncing) return;
+              void openSession(Number(key));
+            }}
+            creation={{
+              label: '新建对话',
+              disabled: streaming || syncing,
+              onClick: () => void newChat(),
+            }}
+            menu={(conversation) => ({
+              items: [{ key: 'delete', label: '删除', danger: true }],
+              onClick: ({ key }) => {
+                if (key !== 'delete') return;
+                const summary = sessions.find(
+                  (session) => String(session.id) === conversation.key,
+                );
+                if (summary) deleteSession(summary);
+              },
+            })}
+            styles={{ root: { height: '100%' } }}
+          />
         </aside>
         <main className="sw-ai-main">
           <div className="sw-ai-header">
@@ -408,95 +489,40 @@ export default function AiAssistantPage() {
           </div>
           {error && <Alert type="error" message={error} showIcon />}
           <div className="sw-ai-messages" ref={messageBox}>
-            {!active ? (
+            {!active || !items.length ? (
               <div className="sw-ai-welcome">
-                <Avatar size={56} icon={<MessageOutlined />} />
-                <Typography.Title level={2}>AI 智能助手</Typography.Title>
-                <Typography.Paragraph type="secondary">
-                  选择一个会话，或从常用问题开始。
-                </Typography.Paragraph>
-                <div className="sw-ai-welcome-grid">
-                  {welcomeCards.map((card) => (
-                    <Button
-                      key={card.title}
-                      onClick={() => {
-                        setDraft(card.text);
-                        void newChat();
-                      }}
-                    >
-                      {card.title}
-                      <Typography.Text type="secondary">
-                        {card.text}
-                      </Typography.Text>
-                    </Button>
-                  ))}
-                </div>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  disabled={loading}
-                  onClick={() => void newChat()}
-                >
-                  新建对话
-                </Button>
+                <Welcome
+                  icon={<Avatar size={56} icon={<MessageOutlined />} />}
+                  title="AI 智能助手"
+                  description="梳理需求、分析数据、检索邮件与知识库。选择会话或从常用问题开始。"
+                />
+                <Prompts
+                  title="试试这些问题"
+                  items={welcomePrompts}
+                  wrap
+                  onItemClick={({ data }) =>
+                    applyPrompt(String(data.description || data.label || ''))
+                  }
+                  styles={{ list: { width: 'min(640px, 100%)' } }}
+                />
               </div>
-            ) : !items.length ? (
-              <Empty description="暂无消息，开始提问吧" />
             ) : (
-              items.map((item) => (
-                <div className={`sw-ai-message-row ${item.role}`} key={item.id}>
-                  {item.role === 'assistant' && (
-                    <Avatar icon={<MessageOutlined />} />
-                  )}
-                  {item.role === 'tool' ? (
-                    <Tag
-                      icon={
-                        item.running ? (
-                          <LoadingOutlined />
-                        ) : item.error ? undefined : (
-                          <CheckCircleOutlined />
-                        )
-                      }
-                      color={
-                        item.running
-                          ? 'processing'
-                          : item.error
-                            ? 'error'
-                            : 'success'
-                      }
-                    >
-                      {item.text}
-                    </Tag>
-                  ) : item.role === 'error' ? (
-                    <Alert type="error" message={item.text} />
-                  ) : (
-                    <Card size="small" className="sw-ai-bubble">
-                      {item.thinking && (
-                        <details>
-                          <summary>思考过程</summary>
-                          <Typography.Text type="secondary">
-                            {item.thinking}
-                          </Typography.Text>
-                        </details>
-                      )}
-                      <div>
-                        {item.text ||
-                          (streaming && item.role === 'assistant'
-                            ? '正在生成回复…'
-                            : '')}
-                      </div>
-                    </Card>
-                  )}
-                </div>
-              ))
+              <Bubble.List
+                items={bubbleItems}
+                role={roleConfig}
+                autoScroll
+                styles={{ root: { maxWidth: 940 } }}
+              />
             )}
           </div>
           <div className="sw-ai-composer">
-            <Input.TextArea
+            <Sender
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              autoSize={{ minRows: 2, maxRows: 7 }}
-              disabled={!active || streaming || syncing}
+              onChange={setDraft}
+              loading={streaming || syncing}
+              disabled={!active || syncing}
+              onSubmit={() => void send()}
+              onCancel={stop}
               placeholder={
                 active
                   ? syncing
@@ -504,29 +530,9 @@ export default function AiAssistantPage() {
                     : '输入你的问题，Enter 发送；Shift + Enter 换行'
                   : '先新建或选择一个会话'
               }
-              onPressEnter={(event) => {
-                if (!event.shiftKey) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
+              autoSize={{ minRows: 2, maxRows: 7 }}
+              style={{ width: '100%', maxWidth: 940 }}
             />
-            <Space className="sw-ai-composer-actions">
-              {streaming ? (
-                <Button danger icon={<StopOutlined />} onClick={stop}>
-                  停止生成
-                </Button>
-              ) : (
-                <Button
-                  type="primary"
-                  icon={<SendOutlined />}
-                  disabled={!canSend}
-                  onClick={() => void send()}
-                >
-                  发送
-                </Button>
-              )}
-            </Space>
           </div>
         </main>
       </div>
@@ -552,6 +558,7 @@ export default function AiAssistantPage() {
           </div>
         ))}
       </Modal>
+      </XProvider>
     </div>
   );
 }
