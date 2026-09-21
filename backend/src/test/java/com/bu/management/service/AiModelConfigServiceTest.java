@@ -189,6 +189,38 @@ class AiModelConfigServiceTest {
     }
 
     @Test
+    @DisplayName("决策模型：按排序取第一条勾选决策且提供方就绪的模型")
+    void decisionModelPicksFirstReadyDecisionCandidate() {
+        Connector typesafe = readyConnector("typesafe", "https://api.typesafe.ai");
+        stubConnector(typesafe, "READY");
+        AiModel jev = model(9L, "typesafe", "jev-latest", 0, 0, 0, 1, 5);
+        jev.setDecisionEnabled(1);
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                model(1L, "deepseek", "deepseek-v4-flash", 1, 1, 1, 1, 10),
+                jev));
+
+        AiModelConfigService.DecisionModel decision = service.decisionModel().orElseThrow();
+        assertThat(decision.providerCode()).isEqualTo("typesafe");
+        assertThat(decision.model()).isEqualTo("jev-latest");
+        assertThat(decision.apiKey()).isEqualTo("sk-plain");
+    }
+
+    @Test
+    @DisplayName("助手可选模型：排除 typesafe，即使误勾助手可用")
+    void listAvailableModelsExcludesTypesafe() {
+        Connector typesafe = readyConnector("typesafe", "https://api.typesafe.ai");
+        Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
+        stubConnector(typesafe, "READY");
+        stubConnector(deepseek, "READY");
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                model(1L, "typesafe", "jev-latest", 1, 0, 0, 1, 5),
+                model(2L, "deepseek", "deepseek-v4-flash", 1, 0, 1, 1, 10)));
+
+        assertThat(service.listAvailableModels()).extracting(AiModelConfigService.ModelOption::provider)
+                .containsExactly("deepseek");
+    }
+
+    @Test
     @DisplayName("默认模型：取标记默认且可用的模型")
     void defaultModelReturnsFlaggedRow() {
         Connector glm = readyConnector("glm", "https://open.bigmodel.cn/api/paas/v4");

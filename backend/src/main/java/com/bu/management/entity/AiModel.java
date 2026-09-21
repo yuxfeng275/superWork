@@ -34,6 +34,9 @@ public class AiModel {
     /** 用于邮件摘要 / 周报纪要 */
     private Integer digestEnabled;
 
+    /** 用于 AI 助手意图路由与写操作门禁（System One / Jev） */
+    private Integer decisionEnabled;
+
     /** AI 助手默认模型（全局唯一） */
     private Integer isDefault;
 

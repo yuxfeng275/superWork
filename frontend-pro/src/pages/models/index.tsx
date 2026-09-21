@@ -42,6 +42,7 @@ type ModelForm = {
   displayName?: string;
   assistantEnabled: boolean;
   digestEnabled: boolean;
+  decisionEnabled: boolean;
   isDefault: boolean;
   enabled: boolean;
   sortOrder?: number;
@@ -104,6 +105,7 @@ export default function ModelsPage() {
       displayName: '',
       assistantEnabled: true,
       digestEnabled: false,
+      decisionEnabled: false,
       isDefault: false,
       enabled: true,
       sortOrder: 100,
@@ -119,6 +121,7 @@ export default function ModelsPage() {
       displayName: row.displayName,
       assistantEnabled: row.assistantEnabled,
       digestEnabled: row.digestEnabled,
+      decisionEnabled: row.decisionEnabled,
       isDefault: row.isDefault,
       enabled: row.enabled,
       sortOrder: row.sortOrder,
@@ -139,6 +142,7 @@ export default function ModelsPage() {
       displayName: values.displayName?.trim() || model,
       assistantEnabled: Boolean(values.assistantEnabled),
       digestEnabled: Boolean(values.digestEnabled),
+      decisionEnabled: Boolean(values.decisionEnabled),
       isDefault: Boolean(values.isDefault),
       enabled: Boolean(values.enabled),
       sortOrder: values.sortOrder ?? 0,
@@ -184,7 +188,7 @@ export default function ModelsPage() {
   };
   const renderSwitch = (
     row: AiModelView,
-    key: 'assistantEnabled' | 'digestEnabled' | 'isDefault' | 'enabled',
+    key: 'assistantEnabled' | 'digestEnabled' | 'decisionEnabled' | 'isDefault' | 'enabled',
     onText: string,
     offText: string,
   ) => (
@@ -258,6 +262,22 @@ export default function ModelsPage() {
     },
     {
       title: (
+        <Tooltip title="TypeSafe Jev 等 System One 模型：意图路由与写操作门禁，不会出现在 AI 助手下拉">
+          <span>决策</span>
+        </Tooltip>
+      ),
+      dataIndex: 'decisionEnabled',
+      width: 90,
+      render: (_: unknown, row) =>
+        renderSwitch(
+          row,
+          'decisionEnabled',
+          '已用于意图路由 / 写操作门禁',
+          '已停用决策用途',
+        ),
+    },
+    {
+      title: (
         <Tooltip title="AI 助手默认模型全局唯一，开启后其他行会自动取消默认">
           <span>默认</span>
         </Tooltip>
@@ -320,7 +340,7 @@ export default function ModelsPage() {
           <Typography.Paragraph type="secondary">
             连接参数（地址 / 凭据 / 启停 /
             测试）在「连接器管理」维护，本页只维护模型： 模型名、用途（助手可用
-            / 摘要使用）、默认模型与启停。
+            / 摘要使用 / 决策门禁）、默认模型与启停。TypeSafe Jev 只勾选「决策」，不要进助手下拉。
           </Typography.Paragraph>
         </div>
         <Space>
@@ -447,6 +467,18 @@ export default function ModelsPage() {
                 label="摘要使用"
                 valuePropName="checked"
                 extra="用于邮件摘要与周报纪要"
+              >
+                <Switch />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={14}>
+            <Col span={12}>
+              <Form.Item
+                name="decisionEnabled"
+                label="决策门禁"
+                valuePropName="checked"
+                extra="Jev / System One：意图路由与写操作确认，不进助手下拉"
               >
                 <Switch />
               </Form.Item>

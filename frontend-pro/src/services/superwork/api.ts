@@ -356,6 +356,7 @@ export interface AiModelView {
   displayName: string;
   assistantEnabled: boolean;
   digestEnabled: boolean;
+  decisionEnabled: boolean;
   isDefault: boolean;
   enabled: boolean;
   sortOrder: number;
@@ -366,6 +367,7 @@ export interface AiModelSavePayload {
   displayName?: string;
   assistantEnabled?: boolean;
   digestEnabled?: boolean;
+  decisionEnabled?: boolean;
   isDefault?: boolean;
   enabled?: boolean;
   sortOrder?: number;

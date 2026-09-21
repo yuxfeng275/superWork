@@ -58,6 +58,7 @@ public class ConnectorRegistryService {
     public static final String CODE_MAIL = "mail";
     public static final String CODE_DEEPSEEK = "deepseek";
     public static final String CODE_GLM = "glm";
+    public static final String CODE_TYPESAFE = "typesafe";
     public static final String CODE_WECOM = "wecom";
 
     private static final Set<String> AUTH_TYPES =
@@ -395,7 +396,7 @@ public class ConnectorRegistryService {
             case CODE_YUQUE -> !StringUtils.hasText(entity.getMcpUrl()) ? "缺少 MCP 服务地址"
                     : !hasToken ? "缺少访问 Token" : null;
             case CODE_MAIL -> null;
-            case CODE_DEEPSEEK, CODE_GLM -> !hasBaseUrl ? "缺少服务地址"
+            case CODE_DEEPSEEK, CODE_GLM, CODE_TYPESAFE -> !hasBaseUrl ? "缺少服务地址"
                     : !hasToken ? "缺少 API Key" : null;
             case CODE_WECOM -> {
                 boolean hasBotSecret = StringUtils.hasText(entity.getEncryptedBotSecret());
@@ -437,6 +438,7 @@ public class ConnectorRegistryService {
             case CODE_OA -> "已就绪，可查询待办/已办并同步组织与合同";
             case CODE_YUQUE -> "已就绪，可检索语雀文档";
             case CODE_DEEPSEEK, CODE_GLM -> "已就绪，AI 助手与邮件摘要可用";
+            case CODE_TYPESAFE -> "已就绪，可用于 AI 助手意图路由与写操作门禁";
             case CODE_WECOM -> {
                 boolean appReady = StringUtils.hasText(entity.getEncryptedToken())
                         && StringUtils.hasText(extra(entity, "corpId"))

@@ -110,6 +110,7 @@ const connectorLinks: Record<string, { label: string; path: string }> = {
   mail: { label: '邮箱账号', path: '/emails' },
   deepseek: { label: '模型管理', path: MODELS_PATH },
   glm: { label: '模型管理', path: MODELS_PATH },
+  typesafe: { label: '模型管理', path: MODELS_PATH },
 };
 
 const builtinSpecs: Record<string, BuiltinSpec> = {
@@ -172,6 +173,10 @@ const builtinSpecs: Record<string, BuiltinSpec> = {
   },
   glm: {
     baseUrl: { placeholder: 'https://open.bigmodel.cn/api/paas/v4' },
+    token: 'API Key',
+  },
+  typesafe: {
+    baseUrl: { placeholder: 'https://api.typesafe.ai' },
     token: 'API Key',
   },
   wecom: {

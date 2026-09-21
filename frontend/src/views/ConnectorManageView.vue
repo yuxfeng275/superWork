@@ -76,7 +76,7 @@ const RELATED_PAGES: Record<string, { path: string; label: string }> = {
 }
 
 /** AI 模型提供方：模型名 / 用途 / 默认在「模型管理」维护，这里只指向过去 */
-const MODEL_PROVIDER_CODES = ['deepseek', 'glm']
+const MODEL_PROVIDER_CODES = ['deepseek', 'glm', 'typesafe']
 
 function openModelManage() {
   void router.push('/system/models')

@@ -49,6 +49,7 @@ public class AiAgentToolService {
     private final EmailActionToolService emailActionToolService;
     private final WeComCliToolService weComCliToolService;
     private final WeeklyReportService weeklyReportService;
+    private final JevDecisionService jevDecisionService;
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -63,19 +64,33 @@ public class AiAgentToolService {
      * 运行期 runId→userId 注册表；运行结束/超时后由控制器移除。
      */
     private final ConcurrentHashMap<String, Long> runUsers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> runMessages = new ConcurrentHashMap<>();
 
     public void registerRun(String runId, Long userId) {
+        registerRun(runId, userId, null);
+    }
+
+    public void registerRun(String runId, Long userId, String userMessage) {
         runUsers.put(runId, userId);
+        if (StringUtils.hasText(userMessage)) {
+            runMessages.put(runId, userMessage);
+        }
     }
 
     public void completeRun(String runId) {
         runUsers.remove(runId);
+        runMessages.remove(runId);
     }
 
     /**
      * 工具定义；parameters 为 JSON Schema 对象。
      */
     public List<AiAgentToolDefinition> definitions() {
+        return definitions(null);
+    }
+
+    /** 可按 Jev 意图决策收窄工具集；decision 为空则返回全量。 */
+    public List<AiAgentToolDefinition> definitions(JevDecisionService.IntentDecision decision) {
         List<AiAgentToolDefinition> defs = new ArrayList<>();
         defs.add(new AiAgentToolDefinition("query_my_tasks", "查询当前登录用户的任务列表，可按状态过滤",
                 objectSchema(Map.of(
@@ -106,7 +121,7 @@ public class AiAgentToolService {
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
         defs.addAll(weComCliToolService.definitions());
-        return defs;
+        return jevDecisionService.filterTools(decision, defs);
     }
 
     /**
@@ -122,6 +137,11 @@ public class AiAgentToolService {
                     ? objectMapper.readTree(argsJson) : objectMapper.createObjectNode();
             if (args == null || !args.isObject()) {
                 args = objectMapper.createObjectNode();
+            }
+            JevDecisionService.WriteGate gate = jevDecisionService.gateWrite(
+                    toolName, runMessages.get(runId), args.toString());
+            if (!gate.allow()) {
+                return new AiAgentToolResult(gate.reason(), true);
             }
             return switch (toolName) {
                 case "query_my_tasks" -> queryMyTasks(userId, args);

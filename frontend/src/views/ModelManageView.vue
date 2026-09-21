@@ -17,12 +17,13 @@ const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const router = useRouter()
 
-type FlagField = 'assistantEnabled' | 'digestEnabled' | 'enabled'
+type FlagField = 'assistantEnabled' | 'digestEnabled' | 'decisionEnabled' | 'enabled'
 
 /** 开关改动后的提示文案 */
 const FLAG_SUCCESS: Record<FlagField, { on: string; off: string }> = {
   assistantEnabled: { on: '助手可用已开启', off: '助手可用已关闭' },
   digestEnabled: { on: '摘要使用已开启', off: '摘要使用已关闭' },
+  decisionEnabled: { on: '决策门禁已开启', off: '决策门禁已关闭' },
   enabled: { on: '模型已启用', off: '模型已停用' }
 }
 
@@ -32,6 +33,7 @@ const form = reactive({
   displayName: '',
   assistantEnabled: true,
   digestEnabled: false,
+  decisionEnabled: false,
   isDefault: false,
   enabled: true,
   sortOrder: 100
@@ -57,7 +59,8 @@ const providerOptions = computed(() => {
 const modelSummary = computed(() => {
   const assistant = models.value.filter(item => item.assistantEnabled).length
   const digest = models.value.filter(item => item.digestEnabled).length
-  return `共 ${models.value.length} 个模型 · 助手可用 ${assistant} · 摘要使用 ${digest}`
+  const decision = models.value.filter(item => item.decisionEnabled).length
+  return `共 ${models.value.length} 个模型 · 助手可用 ${assistant} · 摘要使用 ${digest} · 决策 ${decision}`
 })
 
 const notReadyProviders = computed(() => [...new Set(
@@ -137,6 +140,7 @@ function openCreate() {
     displayName: '',
     assistantEnabled: true,
     digestEnabled: false,
+    decisionEnabled: false,
     isDefault: false,
     enabled: true,
     sortOrder: models.value.reduce((max, item) => Math.max(max, item.sortOrder), 0) + 10
@@ -152,6 +156,7 @@ function openEdit(model: AiModelView) {
     displayName: model.displayName,
     assistantEnabled: model.assistantEnabled,
     digestEnabled: model.digestEnabled,
+    decisionEnabled: model.decisionEnabled,
     isDefault: model.isDefault,
     enabled: model.enabled,
     sortOrder: model.sortOrder
@@ -176,6 +181,7 @@ async function save() {
       displayName: form.displayName.trim(),
       assistantEnabled: form.assistantEnabled,
       digestEnabled: form.digestEnabled,
+      decisionEnabled: form.decisionEnabled,
       isDefault: form.isDefault,
       enabled: form.enabled,
       sortOrder: form.sortOrder
@@ -294,6 +300,20 @@ onMounted(loadAll)
             />
           </template>
         </el-table-column>
+        <el-table-column label="决策" width="96" align="center">
+          <template #header>
+            <el-tooltip content="TypeSafe Jev：意图路由与写操作门禁，不进 AI 助手下拉" placement="top">
+              <span class="header-tip">决策</span>
+            </el-tooltip>
+          </template>
+          <template #default="{ row }">
+            <el-switch
+              :model-value="row.decisionEnabled"
+              :loading="updatingId === row.id"
+              @update:model-value="(value: boolean | string | number) => toggleFlag(row, 'decisionEnabled', value)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column label="默认" width="96" align="center">
           <template #header>
             <el-tooltip content="同一时间只有一个默认模型；设为默认会自动取消其他模型" placement="top">
@@ -351,8 +371,9 @@ onMounted(loadAll)
           <div class="switch-grid">
             <span class="switch-item"><el-switch v-model="form.assistantEnabled" /><span>助手可用</span></span>
             <span class="switch-item"><el-switch v-model="form.digestEnabled" /><span>摘要使用</span></span>
+            <span class="switch-item"><el-switch v-model="form.decisionEnabled" /><span>决策门禁</span></span>
           </div>
-          <span class="field-help">助手可用 = AI 助手下拉可选；摘要使用 = 邮件摘要与周报纪要</span>
+          <span class="field-help">助手可用 = AI 助手下拉；摘要使用 = 邮件/周报；决策门禁 = Jev 意图路由与写操作确认</span>
         </el-form-item>
         <el-form-item label="默认模型">
           <el-switch v-model="form.isDefault" />

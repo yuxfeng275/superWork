@@ -51,6 +51,7 @@ describe('AI assistant Ant Design X migration', () => {
     expect(source).toMatch(/<Actions/);
     expect(source).toMatch(/uploadAiAgentAttachment/);
     expect(source).toMatch(/uploadedIds/);
+    expect(source).toMatch(/jev_decision/);
     expect(source).not.toMatch(/暂未上传到后端/);
     expect(source).not.toMatch(/readAttachmentText/);
     expect(source).not.toMatch(/sw-ai-session-list/);

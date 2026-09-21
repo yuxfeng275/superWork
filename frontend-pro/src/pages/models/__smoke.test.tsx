@@ -34,6 +34,7 @@ const models = [
     displayName: 'deepseek-v4-flash',
     assistantEnabled: true,
     digestEnabled: false,
+    decisionEnabled: false,
     isDefault: true,
     enabled: true,
     sortOrder: 10,
@@ -47,6 +48,7 @@ const models = [
     displayName: 'GLM 5.3',
     assistantEnabled: false,
     digestEnabled: true,
+    decisionEnabled: false,
     isDefault: false,
     enabled: true,
     sortOrder: 40,
@@ -94,11 +96,11 @@ describe('ModelsPage smoke', () => {
       .find((row) => row.textContent?.includes('glm-5.3'));
     expect(glmRow).toBeTruthy();
     const glmSwitches = within(glmRow as HTMLElement).getAllByRole('switch');
-    // 列序：助手可用 / 摘要使用 / 默认 / 启用
-    expect(glmSwitches).toHaveLength(4);
+    // 列序：助手可用 / 摘要使用 / 决策 / 默认 / 启用
+    expect(glmSwitches).toHaveLength(5);
     expect(mocks.getAiModels).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(glmSwitches[2]);
+    fireEvent.click(glmSwitches[3]);
     await waitFor(() =>
       expect(mocks.updateAiModel).toHaveBeenCalledWith(2, { isDefault: true }),
     );
@@ -125,6 +127,7 @@ describe('ModelsPage smoke', () => {
         displayName: 'deepseek-v4',
         assistantEnabled: true,
         digestEnabled: false,
+        decisionEnabled: false,
         isDefault: false,
         enabled: true,
         sortOrder: 100,

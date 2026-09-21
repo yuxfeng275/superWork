@@ -50,7 +50,7 @@ import './style.less';
 
 type ChatItem = {
   id: string;
-  role: 'user' | 'assistant' | 'tool' | 'error';
+  role: 'user' | 'assistant' | 'tool' | 'error' | 'jev';
   text: string;
   thinking?: string;
   running?: boolean;
@@ -314,6 +314,17 @@ export default function AiAssistantPage() {
                 item.id === assistantId ? { ...item, running: false } : item,
               ),
             );
+          } else if (event.type === 'jev_decision') {
+            const summary = String(event.summary || 'Jev 已判定本轮意图');
+            setItems((current) => [
+              ...current,
+              {
+                id: `jev-${Date.now()}`,
+                role: 'jev',
+                text: summary,
+                toolName: 'Jev 决策',
+              },
+            ]);
           } else if (event.type === 'tool_execution_start') {
             const toolCallId = String(event.toolCallId || `tool-${Date.now()}`);
             setItems((current) => [
@@ -383,7 +394,7 @@ export default function AiAssistantPage() {
     if (!active) void newChat();
   };
   const bubbleItems: BubbleItemType[] = items.map((item) => {
-    if (item.role === 'tool') {
+    if (item.role === 'tool' || item.role === 'jev') {
       return {
         key: item.id,
         role: 'tool',
@@ -392,7 +403,7 @@ export default function AiAssistantPage() {
           <ThoughtChain
             items={[{
               key: item.id,
-              title: item.toolName || '工具调用',
+              title: item.toolName || (item.role === 'jev' ? 'Jev 决策' : '工具调用'),
               description: item.text,
               status: item.running ? 'loading' : item.error ? 'error' : 'success',
               blink: Boolean(item.running),

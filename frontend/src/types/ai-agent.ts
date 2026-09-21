@@ -193,6 +193,8 @@ export interface AiModelView {
   assistantEnabled: boolean
   /** 用于邮件摘要与周报纪要 */
   digestEnabled: boolean
+  /** 用于 AI 助手意图路由与写操作门禁（Jev / System One） */
+  decisionEnabled: boolean
   /** 默认模型（同一时间只有一条，后端在设为 true 时自动取消其他行） */
   isDefault: boolean
   enabled: boolean
@@ -206,6 +208,7 @@ export interface AiModelSavePayload {
   displayName?: string
   assistantEnabled?: boolean
   digestEnabled?: boolean
+  decisionEnabled?: boolean
   isDefault?: boolean
   enabled?: boolean
   sortOrder?: number

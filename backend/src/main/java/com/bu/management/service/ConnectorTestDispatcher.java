@@ -67,7 +67,8 @@ public class ConnectorTestDispatcher {
     private static final List<String> PROBE_HANDLED = List.of(
             ConnectorRegistryService.CODE_YUNXIAO, ConnectorRegistryService.CODE_WORKTIME,
             ConnectorRegistryService.CODE_DEEPSEEK, ConnectorRegistryService.CODE_GLM,
-            ConnectorRegistryService.CODE_WECOM, ConnectorRegistryService.CODE_MAIL);
+            ConnectorRegistryService.CODE_TYPESAFE, ConnectorRegistryService.CODE_WECOM,
+            ConnectorRegistryService.CODE_MAIL);
 
     private String probe(Connector connector) {
         return switch (connector.getCode()) {
@@ -75,6 +76,7 @@ public class ConnectorTestDispatcher {
             case ConnectorRegistryService.CODE_WORKTIME -> probeWorktime();
             case ConnectorRegistryService.CODE_DEEPSEEK -> probeDeepSeek();
             case ConnectorRegistryService.CODE_GLM -> probeGlm(connector);
+            case ConnectorRegistryService.CODE_TYPESAFE -> probeTypesafe(connector);
             case ConnectorRegistryService.CODE_WECOM -> probeWeCom();
             case ConnectorRegistryService.CODE_MAIL -> probeMail();
             default -> throw new IllegalStateException("不支持的连接器：" + connector.getCode());
@@ -119,6 +121,20 @@ public class ConnectorTestDispatcher {
         body.put("messages", List.of(Map.of("role", "user", "content", "ping")));
         body.put("max_tokens", 1);
         registryService.postJson(connector, "/chat/completions", body, token);
+        return "连接成功（模型 " + model + "）";
+    }
+
+    /** TypeSafe Jev：最小 System One 请求探活（Noul ping）。 */
+    private String probeTypesafe(Connector connector) {
+        String token = registryService.credential(connector, "token");
+        String model = registryService.extra(connector, "model", "jev-latest");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("state", "ping");
+        body.put("model", model);
+        body.put("questions", Map.of("ok", Map.of(
+                "type", "noul",
+                "instructions", "Is this a connectivity probe?")));
+        registryService.postJson(connector, "/v1/systemone", body, token);
         return "连接成功（模型 " + model + "）";
     }
 

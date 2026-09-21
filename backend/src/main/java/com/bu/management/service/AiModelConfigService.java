@@ -33,6 +33,7 @@ public class AiModelConfigService {
     public static final String LEGACY_PROVIDER_ZHIPU = "zhipu";
     public static final String PROVIDER_GLM = "glm";
     public static final String PROVIDER_DEEPSEEK = "deepseek";
+    public static final String PROVIDER_TYPESAFE = "typesafe";
 
     private final AiModelMapper mapper;
     private final ConnectorRegistryService registryService;
@@ -40,11 +41,11 @@ public class AiModelConfigService {
     /** 管理端列表项：附带提供方（连接器）就绪状态与名称。 */
     public record ModelView(Long id, String providerCode, String providerName, boolean providerReady,
             String model, String displayName, boolean assistantEnabled, boolean digestEnabled,
-            boolean isDefault, boolean enabled, int sortOrder) {}
+            boolean decisionEnabled, boolean isDefault, boolean enabled, int sortOrder) {}
 
     public record ModelSaveRequest(String providerCode, String model, String displayName,
-            Boolean assistantEnabled, Boolean digestEnabled, Boolean isDefault,
-            Boolean enabled, Integer sortOrder) {}
+            Boolean assistantEnabled, Boolean digestEnabled, Boolean decisionEnabled,
+            Boolean isDefault, Boolean enabled, Integer sortOrder) {}
 
     /** AI 助手可选模型（前端下拉）。 */
     public record ModelOption(String provider, String model, String label) {}
@@ -54,6 +55,9 @@ public class AiModelConfigService {
 
     /** 摘要 / 周报纪要使用的模型。 */
     public record DigestModel(String providerCode, String baseUrl, String model, String apiKey) {}
+
+    /** 决策层（Jev / System One）：意图路由与写操作门禁。 */
+    public record DecisionModel(String providerCode, String baseUrl, String model, String apiKey) {}
 
     // ==================== 管理端 ====================
 
@@ -89,6 +93,7 @@ public class AiModelConfigService {
         if (StringUtils.hasText(request.displayName())) patch.setDisplayName(request.displayName().trim());
         if (request.assistantEnabled() != null) patch.setAssistantEnabled(request.assistantEnabled() ? 1 : 0);
         if (request.digestEnabled() != null) patch.setDigestEnabled(request.digestEnabled() ? 1 : 0);
+        if (request.decisionEnabled() != null) patch.setDecisionEnabled(request.decisionEnabled() ? 1 : 0);
         if (request.enabled() != null) patch.setEnabled(request.enabled() ? 1 : 0);
         if (request.sortOrder() != null) patch.setSortOrder(request.sortOrder());
         if (Boolean.TRUE.equals(request.isDefault())) patch.setIsDefault(1);
@@ -103,6 +108,11 @@ public class AiModelConfigService {
                     .ne(AiModel::getId, id)) > 0) {
                 throw new IllegalArgumentException("该提供方下模型已存在：" + model);
             }
+        }
+        if (PROVIDER_TYPESAFE.equals(provider)) {
+            patch.setAssistantEnabled(0);
+            patch.setDigestEnabled(0);
+            patch.setIsDefault(0);
         }
         mapper.updateById(patch);
         if (Integer.valueOf(1).equals(patch.getIsDefault())) clearOtherDefaults(id);
@@ -121,7 +131,10 @@ public class AiModelConfigService {
      * AI 助手可选模型：启用 + 勾选「助手可用」+ 提供方连接器就绪。
      */
     public List<ModelOption> listAvailableModels() {
-        List<AiModel> available = ordered().stream().filter(entity -> available(entity, true)).toList();
+        List<AiModel> available = ordered().stream()
+                .filter(entity -> available(entity, true))
+                .filter(entity -> !PROVIDER_TYPESAFE.equals(entity.getProviderCode()))
+                .toList();
         Map<String, Long> labelCounts = available.stream().collect(java.util.stream.Collectors.groupingBy(
                 this::labelOf, java.util.stream.Collectors.counting()));
         List<ModelOption> options = new ArrayList<>();
@@ -163,6 +176,19 @@ public class AiModelConfigService {
             Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
             if (connector == null) continue;
             return Optional.of(new DigestModel(entity.getProviderCode(), connector.getBaseUrl(),
+                    entity.getModel(), registryService.credential(connector, "token")));
+        }
+        return Optional.empty();
+    }
+
+    /** 决策层模型：启用 + 勾选决策 + 提供方就绪，按排序取第一条。 */
+    public Optional<DecisionModel> decisionModel() {
+        for (AiModel entity : orderedBySort()) {
+            if (!Integer.valueOf(1).equals(entity.getEnabled())) continue;
+            if (!Integer.valueOf(1).equals(entity.getDecisionEnabled())) continue;
+            Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
+            if (connector == null || !"READY".equals(registryService.status(connector))) continue;
+            return Optional.of(new DecisionModel(entity.getProviderCode(), connector.getBaseUrl(),
                     entity.getModel(), registryService.credential(connector, "token")));
         }
         return Optional.empty();
@@ -256,9 +282,15 @@ public class AiModelConfigService {
                 ? request.displayName().trim() : request.model().trim());
         entity.setAssistantEnabled(Boolean.TRUE.equals(request.assistantEnabled()) ? 1 : 0);
         entity.setDigestEnabled(Boolean.TRUE.equals(request.digestEnabled()) ? 1 : 0);
+        entity.setDecisionEnabled(Boolean.TRUE.equals(request.decisionEnabled()) ? 1 : 0);
         entity.setIsDefault(Boolean.TRUE.equals(request.isDefault()) ? 1 : 0);
         entity.setEnabled(Boolean.FALSE.equals(request.enabled()) ? 0 : 1);
         entity.setSortOrder(request.sortOrder() == null ? 100 : request.sortOrder());
+        if (PROVIDER_TYPESAFE.equals(entity.getProviderCode())) {
+            entity.setAssistantEnabled(0);
+            entity.setDigestEnabled(0);
+            entity.setIsDefault(0);
+        }
     }
 
     private void clearOtherDefaults(Long keepId) {
@@ -294,6 +326,7 @@ public class AiModelConfigService {
                 entity.getModel(), entity.getDisplayName(),
                 Integer.valueOf(1).equals(entity.getAssistantEnabled()),
                 Integer.valueOf(1).equals(entity.getDigestEnabled()),
+                Integer.valueOf(1).equals(entity.getDecisionEnabled()),
                 Integer.valueOf(1).equals(entity.getIsDefault()),
                 Integer.valueOf(1).equals(entity.getEnabled()),
                 entity.getSortOrder() == null ? 100 : entity.getSortOrder());

@@ -7,6 +7,7 @@ import com.bu.management.service.AiAgentSessionService;
 import com.bu.management.service.AiModelConfigService;
 import com.bu.management.service.AiAgentAttachmentService;
 import com.bu.management.service.AiAgentToolService;
+import com.bu.management.service.JevDecisionService;
 import com.bu.management.service.ConnectorRegistryService;
 import com.bu.management.vo.AiAgentAttachmentVO;
 import com.bu.management.vo.AiAgentSessionSummary;
@@ -73,6 +74,7 @@ public class AiAgentController {
     private final AiModelConfigService modelConfigService;
     private final ConnectorRegistryService registryService;
     private final AiAgentAttachmentService attachmentService;
+    private final JevDecisionService jevDecisionService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -195,11 +197,15 @@ public class AiAgentController {
         AiModelConfigService.ModelConfig model =
                 modelConfigService.resolveModelConfig(session.provider(), session.model());
 
+        JevDecisionService.IntentDecision intent = jevDecisionService.classifyIntent(content);
         String runId = UUID.randomUUID().toString();
-        toolService.registerRun(runId, userId);
+        toolService.registerRun(runId, userId, content);
 
         SseEmitter emitter = new SseEmitter(0L);
         AtomicBoolean done = new AtomicBoolean(false);
+        if (intent.ready()) {
+            forward(emitter, done, "jev_decision", toJson(intent.payload()));
+        }
 
         // 运行超时定时器：SseEmitter 0L 不超时，由自己计时并发错误事件后收尾
         ScheduledFuture<?> timeoutFuture = timeoutScheduler.schedule(() -> {
@@ -221,9 +227,11 @@ public class AiAgentController {
             body.put("baseUrl", model.baseUrl());
             body.put("apiKey", model.apiKey());
             body.put("model", model.model());
-            body.put("systemPrompt", SYSTEM_PROMPT);
+            body.put("systemPrompt", intent.ready()
+                    ? SYSTEM_PROMPT + "\n本轮 TypeSafe Jev 判定：" + intent.summary() + "。优先使用对应工具。"
+                    : SYSTEM_PROMPT);
             body.set("messages", sidecarMessages);
-            body.set("tools", objectMapper.valueToTree(toolService.definitions()));
+            body.set("tools", objectMapper.valueToTree(toolService.definitions(intent)));
             body.put("toolCallbackUrl", properties.getToolCallbackUrl());
 
             HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -324,6 +332,14 @@ public class AiAgentController {
             }
         } catch (Exception e) {
             log.error("AI 运行结果落库失败: sessionId={}, error={}", sessionId, e.getMessage());
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "{}";
         }
     }
 
