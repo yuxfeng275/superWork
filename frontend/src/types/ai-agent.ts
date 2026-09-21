@@ -180,22 +180,21 @@ export interface AiConnectorSavePayload {
   sortOrder?: number
 }
 
-/** 模型管理视图（GET /api/ai/models）：provider 即连接器编码，连接就绪状态由后端附带 */
+/** 模型管理视图（GET /api/ai/models）：可自带地址/Key，未填时回落同名连接器 */
 export interface AiModelView {
   id: number
   providerCode: string
   providerName: string
-  /** 提供方连接器是否就绪（未就绪时模型不可用，需到连接器管理补全连接） */
+  /** 接入是否就绪：自带地址+Key，或同名连接器 READY */
   providerReady: boolean
+  apiProtocol: string
   model: string
   displayName: string
-  /** AI 助手可用 */
+  baseUrl?: string
+  apiKeyConfigured: boolean
   assistantEnabled: boolean
-  /** 用于邮件摘要与周报纪要 */
   digestEnabled: boolean
-  /** 用于 AI 助手意图路由与写操作门禁（Jev / System One） */
   decisionEnabled: boolean
-  /** 默认模型（同一时间只有一条，后端在设为 true 时自动取消其他行） */
   isDefault: boolean
   enabled: boolean
   sortOrder: number
@@ -204,8 +203,12 @@ export interface AiModelView {
 /** 模型创建/编辑请求体（PUT 可只提交改动字段） */
 export interface AiModelSavePayload {
   providerCode?: string
+  apiProtocol?: string
   model?: string
   displayName?: string
+  baseUrl?: string
+  apiKey?: string
+  clearApiKey?: boolean
   assistantEnabled?: boolean
   digestEnabled?: boolean
   decisionEnabled?: boolean

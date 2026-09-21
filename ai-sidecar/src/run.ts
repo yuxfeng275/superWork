@@ -189,6 +189,24 @@ function envApiKeyFor(provider: string): string | undefined {
   return undefined;
 }
 
+/** Fill official defaults; custom OpenAI-compatible relays must send baseUrl. */
+export function applyProviderDefaults(params: RunRequest): string | null {
+  if (params.provider === "zhipu") {
+    params.baseUrl = params.baseUrl || process.env.ZHIPU_BASE_URL || DEFAULT_GLM_BASE_URL;
+    params.apiKey = params.apiKey || process.env.GLM_API_KEY || "";
+    return null;
+  }
+  if (params.provider === "deepseek") {
+    params.baseUrl = params.baseUrl || process.env.DEEPSEEK_BASE_URL || DEFAULT_DEEPSEEK_BASE_URL;
+    params.apiKey = params.apiKey || process.env.DEEPSEEK_API_KEY || "";
+    return null;
+  }
+  if (!params.baseUrl.trim()) {
+    return "baseUrl is required for OpenAI-compatible providers";
+  }
+  return null;
+}
+
 /**
  * Model served through pi-ai's generic openai-completions API impl.
  *
@@ -389,26 +407,12 @@ export async function handleRun(
     return;
   }
   const params = validated.value;
-  // Supported providers: Zhipu GLM and DeepSeek, both via their
-  // OpenAI-compatible chat/completions endpoints. baseUrl defaults come
-  // from ZHIPU_BASE_URL / DEEPSEEK_BASE_URL env; apiKey from
-  // GLM_API_KEY / DEEPSEEK_API_KEY env; the key itself is only required
-  // once a run actually starts.
-  if (params.provider !== "zhipu" && params.provider !== "deepseek") {
-    sendJson(res, 400, {
-      error: {
-        code: "invalid_request",
-        message: 'provider must be "zhipu" or "deepseek"',
-      },
-    });
+  // zhipu / deepseek keep env defaults. Any other provider is treated as
+  // OpenAI-compatible (official, relay, or self-hosted) and must send baseUrl.
+  const providerError = applyProviderDefaults(params);
+  if (providerError) {
+    sendJson(res, 400, { error: { code: "invalid_request", message: providerError } });
     return;
-  }
-  if (params.provider === "zhipu") {
-    params.baseUrl = params.baseUrl || process.env.ZHIPU_BASE_URL || DEFAULT_GLM_BASE_URL;
-    params.apiKey = params.apiKey || process.env.GLM_API_KEY || "";
-  } else {
-    params.baseUrl = params.baseUrl || process.env.DEEPSEEK_BASE_URL || DEFAULT_DEEPSEEK_BASE_URL;
-    params.apiKey = params.apiKey || process.env.DEEPSEEK_API_KEY || "";
   }
 
   // 3) Build tools (remote HTTP callback execution).
@@ -520,9 +524,14 @@ async function streamRunEvents(ctx: StreamRunContext, res: ServerResponse, cb: S
 
   // Key validation happens only when a run starts, not at boot.
   if (!params.apiKey) {
+    const envHint = params.provider === "deepseek"
+      ? "DEEPSEEK_API_KEY"
+      : params.provider === "zhipu"
+        ? "GLM_API_KEY"
+        : "request apiKey";
     sendError(
       "invalid_request",
-      `${params.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "GLM_API_KEY"} (or request apiKey) is required to start a run`,
+      `${envHint} (or request apiKey) is required to start a run`,
     );
     endResponse();
     return;

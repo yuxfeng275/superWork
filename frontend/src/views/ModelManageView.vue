@@ -4,12 +4,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Delete, Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import { api } from '@/utils/api'
-import type { AiConnectorView, AiModelSavePayload, AiModelView } from '@/types/ai-agent'
+import type { AiModelSavePayload, AiModelView } from '@/types/ai-agent'
 
-/** 模型清单（GET /api/ai/models，后端已附带提供方名称与连接就绪状态） */
 const models = ref<AiModelView[]>([])
-/** 提供方下拉的来源（GET /api/connectors：code/name/ready） */
-const connectors = ref<AiConnectorView[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const updatingId = ref<number | null>(null)
@@ -29,8 +26,12 @@ const FLAG_SUCCESS: Record<FlagField, { on: string; off: string }> = {
 
 const form = reactive({
   providerCode: '',
+  apiProtocol: 'openai-compat',
   model: '',
   displayName: '',
+  baseUrl: '',
+  apiKey: '',
+  clearApiKey: false,
   assistantEnabled: true,
   digestEnabled: false,
   decisionEnabled: false,
@@ -42,19 +43,6 @@ const form = reactive({
 const editing = computed(() => models.value.find(item => item.id === editingId.value) || null)
 
 const dialogTitle = computed(() => editing.value ? `编辑模型 · ${modelLabel(editing.value)}` : '新建模型')
-
-/** 提供方选项：连接器编码 + 名称；连接未就绪只标注原因，不阻止配置 */
-const providerOptions = computed(() => {
-  const options = connectors.value.map(connector => ({
-    value: connector.code,
-    label: `${connector.name}（${connector.code}）${connector.ready ? '' : ' · 连接未就绪'}`
-  }))
-  // 提供方连接器已删除时仍要能打开编辑弹窗，避免下拉显示裸编码
-  if (form.providerCode && !options.some(option => option.value === form.providerCode)) {
-    options.unshift({ value: form.providerCode, label: `${form.providerCode}（连接器不存在）` })
-  }
-  return options
-})
 
 const modelSummary = computed(() => {
   const assistant = models.value.filter(item => item.assistantEnabled).length
@@ -87,16 +75,8 @@ async function loadModels() {
   }
 }
 
-async function loadConnectors() {
-  try {
-    connectors.value = await api.getConnectors()
-  } catch (err: unknown) {
-    ElMessage.error(errorText(err, '连接器列表加载失败'))
-  }
-}
-
 async function loadAll() {
-  await Promise.all([loadModels(), loadConnectors()])
+  await loadModels()
 }
 
 /** 用途 / 启停开关：单字段提交（乐观更新，失败回滚） */
@@ -135,9 +115,13 @@ async function setDefault(model: AiModelView) {
 function openCreate() {
   editingId.value = null
   Object.assign(form, {
-    providerCode: '',
+    providerCode: 'openai',
+    apiProtocol: 'openai-compat',
     model: '',
     displayName: '',
+    baseUrl: '',
+    apiKey: '',
+    clearApiKey: false,
     assistantEnabled: true,
     digestEnabled: false,
     decisionEnabled: false,
@@ -152,8 +136,12 @@ function openEdit(model: AiModelView) {
   editingId.value = model.id
   Object.assign(form, {
     providerCode: model.providerCode,
+    apiProtocol: model.apiProtocol || 'openai-compat',
     model: model.model,
     displayName: model.displayName,
+    baseUrl: model.baseUrl || '',
+    apiKey: '',
+    clearApiKey: false,
     assistantEnabled: model.assistantEnabled,
     digestEnabled: model.digestEnabled,
     decisionEnabled: model.decisionEnabled,
@@ -166,7 +154,7 @@ function openEdit(model: AiModelView) {
 
 async function save() {
   if (!form.providerCode) {
-    ElMessage.warning('请选择提供方')
+    ElMessage.warning('请填写提供方编码')
     return
   }
   if (!form.model.trim()) {
@@ -176,9 +164,11 @@ async function save() {
   saving.value = true
   try {
     const payload: AiModelSavePayload = {
-      providerCode: form.providerCode,
+      providerCode: form.providerCode.trim(),
+      apiProtocol: form.apiProtocol,
       model: form.model.trim(),
       displayName: form.displayName.trim(),
+      baseUrl: form.baseUrl.trim(),
       assistantEnabled: form.assistantEnabled,
       digestEnabled: form.digestEnabled,
       decisionEnabled: form.decisionEnabled,
@@ -186,6 +176,8 @@ async function save() {
       enabled: form.enabled,
       sortOrder: form.sortOrder
     }
+    if (form.apiKey.trim()) payload.apiKey = form.apiKey.trim()
+    if (form.clearApiKey) payload.clearApiKey = true
     if (editingId.value == null) {
       await api.createAiModel(payload)
       ElMessage.success('模型已创建')
@@ -234,7 +226,7 @@ onMounted(loadAll)
       <div>
         <span class="eyebrow">AI MODELS</span>
         <h2>模型管理</h2>
-        <p>连接参数（服务地址、凭据、启停）在「连接器管理」维护；本页只维护模型：模型名、用途（助手可用 / 邮件摘要与周报纪要）与默认模型。</p>
+        <p>模型自己填协议、接口地址和 API Key（官方 / 中转站 / 自建 OpenAI 兼容）。留空时才回落同名连接器。连接器只管外部系统，不再当模型提供方。</p>
         <p v-if="models.length" class="head-summary">{{ modelSummary }}</p>
       </div>
       <div class="head-actions">
@@ -244,11 +236,9 @@ onMounted(loadAll)
       </div>
     </header>
 
-    <el-alert v-if="notReadyProviders.length" type="warning" :closable="false" show-icon title="部分提供方连接未就绪">
+    <el-alert v-if="notReadyProviders.length" type="warning" :closable="false" show-icon title="部分模型接入未就绪">
       <div>
-        {{ notReadyProviders.join('、') }} 的连接未就绪，对应模型保存后仍不可用；请先在
-        <el-link type="primary" :underline="false" @click="router.push('/system/connectors')">「连接器管理」</el-link>
-        补全服务地址与凭据。
+        {{ notReadyProviders.join('、') }} 未配置接口地址 / API Key，也没有可用的同名连接器。请在本页补全，或到连接器管理填写同名凭据。
       </div>
     </el-alert>
 
@@ -258,11 +248,11 @@ onMounted(loadAll)
           <template #default="{ row }">
             <div class="provider-cell">
               <strong class="provider-name">{{ row.providerName || row.providerCode }}</strong>
-              <span class="provider-code">{{ row.providerCode }}</span>
+              <span class="provider-code">{{ row.providerCode }} · {{ row.apiProtocol || 'openai-compat' }}</span>
+              <span v-if="row.baseUrl" class="provider-code">{{ row.baseUrl }}</span>
             </div>
             <div v-if="!row.providerReady" class="provider-warning">
-              <el-tag size="small" type="warning" effect="light">连接未就绪</el-tag>
-              <el-link type="primary" :underline="false" @click="router.push('/system/connectors')">去配置</el-link>
+              <el-tag size="small" type="warning" effect="light">接入未就绪</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -354,11 +344,25 @@ onMounted(loadAll)
     <!-- 新建 / 编辑弹窗 -->
     <el-dialog v-model="dialogVisible" class="model-dialog" :title="dialogTitle" width="560px" destroy-on-close>
       <el-form label-position="top" class="model-form">
-        <el-form-item label="提供方" required>
-          <el-select v-model="form.providerCode" placeholder="选择提供方（连接器）" style="width: 100%">
-            <el-option v-for="option in providerOptions" :key="option.value" :label="option.label" :value="option.value" />
+        <el-form-item label="提供方编码" required>
+          <el-input v-model="form.providerCode" placeholder="如 openai / deepseek / glm，可手填" />
+          <span class="field-help">不必先建连接器；与连接器同名时，未填地址会回落连接器凭据</span>
+        </el-form-item>
+        <el-form-item label="接入协议">
+          <el-select v-model="form.apiProtocol" style="width: 100%">
+            <el-option value="openai-compat" label="OpenAI 兼容（对话 / 摘要 / 中转站）" />
+            <el-option value="typesafe" label="TypeSafe Jev（决策，不进助手下拉）" />
           </el-select>
-          <span class="field-help">提供方即连接器编码，服务地址与凭据在「连接器管理」维护</span>
+        </el-form-item>
+        <el-form-item label="接口地址">
+          <el-input v-model="form.baseUrl" placeholder="https://api.openai.com/v1" />
+          <span class="field-help">OpenAI 兼容根地址；留空回落同名连接器</span>
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="form.apiKey" type="password" show-password :placeholder="editing?.apiKeyConfigured ? '已配置；留空保持不变' : 'sk-…'" />
+        </el-form-item>
+        <el-form-item v-if="editing?.apiKeyConfigured">
+          <el-checkbox v-model="form.clearApiKey">清除已存 Key，改回使用连接器凭据</el-checkbox>
         </el-form-item>
         <el-form-item label="模型名" required>
           <el-input v-model="form.model" placeholder="如 deepseek-v4-flash（同一提供方下不可重复）" />

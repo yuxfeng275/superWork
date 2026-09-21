@@ -8,7 +8,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.bu.management.entity.Connector;
 import com.bu.management.integration.JevClient;
 import com.bu.management.vo.AiAgentToolDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +26,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class JevDecisionServiceTest {
 
     @Mock private AiModelConfigService modelConfigService;
-    @Mock private ConnectorRegistryService registryService;
     @Mock private JevClient jevClient;
 
     private JevDecisionService service;
@@ -35,7 +33,7 @@ class JevDecisionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new JevDecisionService(modelConfigService, registryService, jevClient);
+        service = new JevDecisionService(modelConfigService, jevClient);
     }
 
     @Test
@@ -142,14 +140,9 @@ class JevDecisionServiceTest {
     }
 
     private void stubReadyDecisionModel() {
-        Connector connector = new Connector();
-        connector.setCode("typesafe");
-        connector.setName("TypeSafe Jev");
-        connector.setBaseUrl("https://api.typesafe.ai");
         when(modelConfigService.decisionModel()).thenReturn(Optional.of(
                 new AiModelConfigService.DecisionModel("typesafe", "https://api.typesafe.ai",
                         "jev-latest", "sk-jev")));
-        when(registryService.findByCode("typesafe")).thenReturn(Optional.of(connector));
     }
 
     private JevClient.Evaluation evaluation(String intent, double confidence, double writeNoul) {

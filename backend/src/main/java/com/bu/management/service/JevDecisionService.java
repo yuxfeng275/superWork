@@ -1,6 +1,5 @@
 package com.bu.management.service;
 
-import com.bu.management.entity.Connector;
 import com.bu.management.integration.JevClient;
 import com.bu.management.vo.AiAgentToolDefinition;
 import java.util.LinkedHashMap;
@@ -68,7 +67,6 @@ public class JevDecisionService {
             "other", "综合");
 
     private final AiModelConfigService modelConfigService;
-    private final ConnectorRegistryService registryService;
     private final JevClient jevClient;
 
     public record IntentDecision(
@@ -124,7 +122,7 @@ public class JevDecisionService {
                 "criteria", List.of("Routine", "Soon", "Urgent")));
         try {
             JevClient.Evaluation evaluation = jevClient.evaluate(
-                    resolved.get().connector(), resolved.get().apiKey(), resolved.get().model(),
+                    resolved.get().baseUrl(), resolved.get().apiKey(), resolved.get().model(),
                     Map.of("user_message", userMessage), questions);
             String intent = normalizeIntent(evaluation.choice("intent"));
             double confidence = evaluation.confidence("intent");
@@ -177,7 +175,7 @@ public class JevDecisionService {
         state.put("tool_args", argsJson == null ? "" : argsJson);
         try {
             JevClient.Evaluation evaluation = jevClient.evaluate(
-                    resolved.get().connector(), resolved.get().apiKey(), resolved.get().model(),
+                    resolved.get().baseUrl(), resolved.get().apiKey(), resolved.get().model(),
                     state, questions);
             String action = evaluation.choice("action");
             if (!StringUtils.hasText(action)) {
@@ -206,11 +204,7 @@ public class JevDecisionService {
         if (model.isEmpty()) {
             return Optional.empty();
         }
-        Connector connector = registryService.findByCode(model.get().providerCode()).orElse(null);
-        if (connector == null) {
-            return Optional.empty();
-        }
-        return Optional.of(new Resolved(connector, model.get().apiKey(), model.get().model()));
+        return Optional.of(new Resolved(model.get().baseUrl(), model.get().apiKey(), model.get().model()));
     }
 
     private IntentDecision skipped(String intent) {
@@ -226,6 +220,6 @@ public class JevDecisionService {
         return Math.round(value * 100) + "%";
     }
 
-    private record Resolved(Connector connector, String apiKey, String model) {
+    private record Resolved(String baseUrl, String apiKey, String model) {
     }
 }

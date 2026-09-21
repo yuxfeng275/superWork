@@ -1,6 +1,8 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.bu.management.config.EmailCredentialCipher;
 import com.bu.management.entity.AiModel;
 import com.bu.management.entity.Connector;
 import com.bu.management.exception.ResourceNotFoundException;
@@ -10,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,9 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * AI 模型管理：模型注册表（模型名 / 用途 / 默认）的唯一管理入口。
- * 连接器提供地址与凭据，模型表决定「用哪个模型、给谁用」；
- * AI 助手可选模型、助手运行参数、邮件摘要与周报纪要模型都从这里解析。
+ * AI 模型管理：模型注册表的唯一入口。
+ * 模型可自带协议 / 地址 / API Key（官方、中转站、自建 OpenAI 兼容）；
+ * 未填时回落同名连接器。连接器不再是模型的前置条件。
  *
  * @author BU Team
  * @since 2026-09-17
@@ -29,35 +32,43 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class AiModelConfigService {
 
-    /** 历史会话里的 GLM 提供方标识，统一归一到连接器编码 glm。 */
+    /** 历史会话里的 GLM 提供方标识，统一归一到 glm。 */
     public static final String LEGACY_PROVIDER_ZHIPU = "zhipu";
     public static final String PROVIDER_GLM = "glm";
     public static final String PROVIDER_DEEPSEEK = "deepseek";
     public static final String PROVIDER_TYPESAFE = "typesafe";
+    public static final String PROTOCOL_OPENAI = "openai-compat";
+    public static final String PROTOCOL_TYPESAFE = "typesafe";
+
+    private static final Pattern PROVIDER_PATTERN = Pattern.compile("^[a-z][a-z0-9_-]{1,31}$");
 
     private final AiModelMapper mapper;
     private final ConnectorRegistryService registryService;
+    private final EmailCredentialCipher cipher;
 
-    /** 管理端列表项：附带提供方（连接器）就绪状态与名称。 */
+    /** 管理端列表项。 */
     public record ModelView(Long id, String providerCode, String providerName, boolean providerReady,
-            String model, String displayName, boolean assistantEnabled, boolean digestEnabled,
-            boolean decisionEnabled, boolean isDefault, boolean enabled, int sortOrder) {}
+            String apiProtocol, String model, String displayName, String baseUrl, boolean apiKeyConfigured,
+            boolean assistantEnabled, boolean digestEnabled, boolean decisionEnabled, boolean isDefault,
+            boolean enabled, int sortOrder) {}
 
-    public record ModelSaveRequest(String providerCode, String model, String displayName,
-            Boolean assistantEnabled, Boolean digestEnabled, Boolean decisionEnabled,
-            Boolean isDefault, Boolean enabled, Integer sortOrder) {}
+    public record ModelSaveRequest(String providerCode, String apiProtocol, String model, String displayName,
+            String baseUrl, String apiKey, Boolean clearApiKey, Boolean assistantEnabled, Boolean digestEnabled,
+            Boolean decisionEnabled, Boolean isDefault, Boolean enabled, Integer sortOrder) {}
 
     /** AI 助手可选模型（前端下拉）。 */
     public record ModelOption(String provider, String model, String label) {}
 
-    /** 传给侧车的模型参数：地址与凭据来自连接器，模型名来自本表。 */
+    /** 传给侧车 / 摘要客户端的运行参数。 */
     public record ModelConfig(String baseUrl, String model, String apiKey) {}
 
     /** 摘要 / 周报纪要使用的模型。 */
     public record DigestModel(String providerCode, String baseUrl, String model, String apiKey) {}
 
-    /** 决策层（Jev / System One）：意图路由与写操作门禁。 */
+    /** 决策层（Jev / System One）。 */
     public record DecisionModel(String providerCode, String baseUrl, String model, String apiKey) {}
+
+    private record Endpoint(String baseUrl, String apiKey) {}
 
     // ==================== 管理端 ====================
 
@@ -68,8 +79,7 @@ public class AiModelConfigService {
     @Transactional
     public ModelView create(ModelSaveRequest request) {
         AiModel entity = new AiModel();
-        applyRequest(entity, request);
-        requireProvider(entity.getProviderCode());
+        applyRequest(entity, request, true);
         if (mapper.selectCount(new LambdaQueryWrapper<AiModel>()
                 .eq(AiModel::getProviderCode, entity.getProviderCode())
                 .eq(AiModel::getModel, entity.getModel())) > 0) {
@@ -86,11 +96,21 @@ public class AiModelConfigService {
         AiModel patch = new AiModel();
         patch.setId(id);
         if (StringUtils.hasText(request.providerCode())) {
-            requireProvider(request.providerCode().trim());
-            patch.setProviderCode(request.providerCode().trim());
+            patch.setProviderCode(normalizeProvider(request.providerCode()));
+        }
+        if (StringUtils.hasText(request.apiProtocol())) {
+            patch.setApiProtocol(normalizeProtocol(request.apiProtocol(), null, false));
         }
         if (StringUtils.hasText(request.model())) patch.setModel(request.model().trim());
         if (StringUtils.hasText(request.displayName())) patch.setDisplayName(request.displayName().trim());
+        if (request.baseUrl() != null) {
+            patch.setBaseUrl(trimUrl(request.baseUrl()));
+        }
+        if (Boolean.TRUE.equals(request.clearApiKey())) {
+            patch.setEncryptedApiKey(null);
+        } else if (StringUtils.hasText(request.apiKey())) {
+            patch.setEncryptedApiKey(cipher.encrypt(request.apiKey().trim()));
+        }
         if (request.assistantEnabled() != null) patch.setAssistantEnabled(request.assistantEnabled() ? 1 : 0);
         if (request.digestEnabled() != null) patch.setDigestEnabled(request.digestEnabled() ? 1 : 0);
         if (request.decisionEnabled() != null) patch.setDecisionEnabled(request.decisionEnabled() ? 1 : 0);
@@ -98,8 +118,9 @@ public class AiModelConfigService {
         if (request.sortOrder() != null) patch.setSortOrder(request.sortOrder());
         if (Boolean.TRUE.equals(request.isDefault())) patch.setIsDefault(1);
         if (Boolean.FALSE.equals(request.isDefault())) patch.setIsDefault(0);
-        // 唯一性：改了模型名或提供方时校验不冲突
-        String provider = StringUtils.hasText(patch.getProviderCode()) ? patch.getProviderCode() : stored.getProviderCode();
+
+        String provider = StringUtils.hasText(patch.getProviderCode())
+                ? patch.getProviderCode() : stored.getProviderCode();
         String model = StringUtils.hasText(patch.getModel()) ? patch.getModel() : stored.getModel();
         if (!provider.equals(stored.getProviderCode()) || !model.equals(stored.getModel())) {
             if (mapper.selectCount(new LambdaQueryWrapper<AiModel>()
@@ -109,12 +130,29 @@ public class AiModelConfigService {
                 throw new IllegalArgumentException("该提供方下模型已存在：" + model);
             }
         }
-        if (PROVIDER_TYPESAFE.equals(provider)) {
+        boolean decision = request.decisionEnabled() != null
+                ? Boolean.TRUE.equals(request.decisionEnabled())
+                : Integer.valueOf(1).equals(stored.getDecisionEnabled());
+        String protocol = StringUtils.hasText(patch.getApiProtocol())
+                ? patch.getApiProtocol() : stored.getApiProtocol();
+        patch.setApiProtocol(normalizeProtocol(protocol, provider, decision));
+        if (PROTOCOL_TYPESAFE.equals(patch.getApiProtocol())) {
             patch.setAssistantEnabled(0);
             patch.setDigestEnabled(0);
             patch.setIsDefault(0);
         }
         mapper.updateById(patch);
+        if (Boolean.TRUE.equals(request.clearApiKey())
+                || (request.baseUrl() != null && !StringUtils.hasText(trimUrl(request.baseUrl())))) {
+            LambdaUpdateWrapper<AiModel> clear = new LambdaUpdateWrapper<AiModel>().eq(AiModel::getId, id);
+            if (Boolean.TRUE.equals(request.clearApiKey())) {
+                clear.set(AiModel::getEncryptedApiKey, null);
+            }
+            if (request.baseUrl() != null && !StringUtils.hasText(trimUrl(request.baseUrl()))) {
+                clear.set(AiModel::getBaseUrl, null);
+            }
+            mapper.update(null, clear);
+        }
         if (Integer.valueOf(1).equals(patch.getIsDefault())) clearOtherDefaults(id);
         return toView(require(id));
     }
@@ -128,19 +166,18 @@ public class AiModelConfigService {
     // ==================== 运行期 ====================
 
     /**
-     * AI 助手可选模型：启用 + 勾选「助手可用」+ 提供方连接器就绪。
+     * AI 助手可选模型：启用 + 勾选「助手可用」+ 接入就绪（自带地址或连接器就绪）。
      */
     public List<ModelOption> listAvailableModels() {
         List<AiModel> available = ordered().stream()
                 .filter(entity -> available(entity, true))
-                .filter(entity -> !PROVIDER_TYPESAFE.equals(entity.getProviderCode()))
+                .filter(entity -> !isDecisionProtocol(entity))
                 .toList();
         Map<String, Long> labelCounts = available.stream().collect(java.util.stream.Collectors.groupingBy(
                 this::labelOf, java.util.stream.Collectors.counting()));
         List<ModelOption> options = new ArrayList<>();
         for (AiModel entity : available) {
             String label = labelOf(entity);
-            // 不同提供方出现同名模型时补提供方名，避免下拉出现两个一模一样的选项
             if (labelCounts.getOrDefault(label, 0L) > 1L) {
                 label = label + "（" + providerName(entity.getProviderCode()) + "）";
             }
@@ -151,45 +188,44 @@ public class AiModelConfigService {
 
     /**
      * 解析助手运行的模型参数：优先会话指定的模型，其次默认模型，最后该提供方排序最前的模型。
-     *
-     * @param provider 提供方（连接器编码，兼容历史值 zhipu）
-     * @param model    会话上记录的模型名，可为空
      */
     public ModelConfig resolveModelConfig(String provider, String model) {
         String code = normalizeProvider(provider);
-        Connector connector = registryService.findByCode(code)
-                .orElseThrow(() -> new IllegalStateException("模型提供方不存在：" + code));
         AiModel entity = findForAssistant(code, model)
                 .orElseThrow(() -> new IllegalStateException(
                         "AI 模型未配置或未启用，请在「模型管理」中配置 " + code + " 的可用模型"));
-        if (!"READY".equals(registryService.status(connector))) {
-            throw new IllegalStateException("模型提供方连接未就绪，请在「连接器管理」补全 " + code + " 的连接配置");
-        }
-        return new ModelConfig(connector.getBaseUrl(), entity.getModel(),
-                registryService.credential(connector, "token"));
+        Endpoint endpoint = resolveEndpoint(entity);
+        return new ModelConfig(endpoint.baseUrl(), entity.getModel(), endpoint.apiKey());
     }
 
-    /** 摘要 / 周报纪要使用的模型（启用 + 勾选摘要 + 提供方就绪，按排序取第一条；不受"默认模型"影响）。 */
+    /** 摘要 / 周报纪要使用的模型（启用 + 勾选摘要 + 接入就绪，按排序取第一条）。 */
     public Optional<DigestModel> digestModel() {
         for (AiModel entity : orderedBySort()) {
-            if (!available(entity, false)) continue;
-            Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
-            if (connector == null) continue;
-            return Optional.of(new DigestModel(entity.getProviderCode(), connector.getBaseUrl(),
-                    entity.getModel(), registryService.credential(connector, "token")));
+            if (!available(entity, false) || isDecisionProtocol(entity)) continue;
+            try {
+                Endpoint endpoint = resolveEndpoint(entity);
+                return Optional.of(new DigestModel(entity.getProviderCode(), endpoint.baseUrl(),
+                        entity.getModel(), endpoint.apiKey()));
+            } catch (IllegalStateException ignored) {
+                // 下一条
+            }
         }
         return Optional.empty();
     }
 
-    /** 决策层模型：启用 + 勾选决策 + 提供方就绪，按排序取第一条。 */
+    /** 决策层模型：启用 + 勾选决策 + 接入就绪，按排序取第一条。 */
     public Optional<DecisionModel> decisionModel() {
         for (AiModel entity : orderedBySort()) {
             if (!Integer.valueOf(1).equals(entity.getEnabled())) continue;
             if (!Integer.valueOf(1).equals(entity.getDecisionEnabled())) continue;
-            Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
-            if (connector == null || !"READY".equals(registryService.status(connector))) continue;
-            return Optional.of(new DecisionModel(entity.getProviderCode(), connector.getBaseUrl(),
-                    entity.getModel(), registryService.credential(connector, "token")));
+            if (!endpointReady(entity)) continue;
+            try {
+                Endpoint endpoint = resolveEndpoint(entity);
+                return Optional.of(new DecisionModel(entity.getProviderCode(), endpoint.baseUrl(),
+                        entity.getModel(), endpoint.apiKey()));
+            } catch (IllegalStateException ignored) {
+                // 下一条
+            }
         }
         return Optional.empty();
     }
@@ -203,7 +239,7 @@ public class AiModelConfigService {
                 .findFirst();
     }
 
-    /** 提供方编码归一：历史 zhipu → glm（连接器编码）。 */
+    /** 提供方编码归一：历史 zhipu → glm。 */
     public String normalizeProvider(String provider) {
         if (!StringUtils.hasText(provider)) return PROVIDER_GLM;
         String value = provider.trim().toLowerCase(Locale.ROOT);
@@ -212,7 +248,6 @@ public class AiModelConfigService {
 
     // ==================== 内部 ====================
 
-    /** 已配置（启用 + 用途勾选），不要求提供方连接就绪。 */
     private boolean configured(AiModel entity, boolean assistant) {
         if (!Integer.valueOf(1).equals(entity.getEnabled())) return false;
         return assistant
@@ -220,11 +255,46 @@ public class AiModelConfigService {
                 : Integer.valueOf(1).equals(entity.getDigestEnabled());
     }
 
-    /** 可用 = 已配置 + 提供方连接器就绪。 */
     private boolean available(AiModel entity, boolean assistant) {
-        if (!configured(entity, assistant)) return false;
+        return configured(entity, assistant) && endpointReady(entity);
+    }
+
+    private boolean isDecisionProtocol(AiModel entity) {
+        return PROTOCOL_TYPESAFE.equals(entity.getApiProtocol())
+                || PROVIDER_TYPESAFE.equals(entity.getProviderCode());
+    }
+
+    private boolean endpointReady(AiModel entity) {
+        boolean ownUrl = StringUtils.hasText(entity.getBaseUrl());
+        boolean ownKey = StringUtils.hasText(entity.getEncryptedApiKey());
+        if (ownUrl && ownKey) return true;
         Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
-        return connector != null && "READY".equals(registryService.status(connector));
+        if (connector == null || !"READY".equals(registryService.status(connector))) return false;
+        return true;
+    }
+
+    private Endpoint resolveEndpoint(AiModel entity) {
+        boolean ownUrl = StringUtils.hasText(entity.getBaseUrl());
+        boolean ownKey = StringUtils.hasText(entity.getEncryptedApiKey());
+        if (ownUrl && ownKey) {
+            return new Endpoint(trimUrl(entity.getBaseUrl()), cipher.decrypt(entity.getEncryptedApiKey()));
+        }
+        Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
+        if (connector == null) {
+            throw new IllegalStateException("模型未配置接口地址或 API Key，请在「模型管理」补全接口地址");
+        }
+        if (!ownUrl && !"READY".equals(registryService.status(connector))) {
+            throw new IllegalStateException("模型提供方连接未就绪，请在「连接器管理」补全 "
+                    + entity.getProviderCode() + " 的连接配置，或在「模型管理」直接填写接口地址");
+        }
+        String url = ownUrl ? trimUrl(entity.getBaseUrl()) : trimUrl(connector.getBaseUrl());
+        String key = ownKey
+                ? cipher.decrypt(entity.getEncryptedApiKey())
+                : registryService.credential(connector, "token");
+        if (!StringUtils.hasText(url) || !StringUtils.hasText(key)) {
+            throw new IllegalStateException("模型未配置接口地址或 API Key，请在「模型管理」补全接口地址");
+        }
+        return new Endpoint(url, key);
     }
 
     private String labelOf(AiModel entity) {
@@ -262,35 +332,60 @@ public class AiModelConfigService {
                 .orderByAsc(AiModel::getId));
     }
 
-    /** 仅按排序（用于摘要模型选择，避免被"助手默认模型"抢占）。 */
     private List<AiModel> orderedBySort() {
         return mapper.selectList(new LambdaQueryWrapper<AiModel>()
                 .orderByAsc(AiModel::getSortOrder)
                 .orderByAsc(AiModel::getId));
     }
 
-    private void applyRequest(AiModel entity, ModelSaveRequest request) {
+    private void applyRequest(AiModel entity, ModelSaveRequest request, boolean creating) {
         if (!StringUtils.hasText(request.providerCode())) {
             throw new IllegalArgumentException("提供方不能为空");
         }
         if (!StringUtils.hasText(request.model())) {
             throw new IllegalArgumentException("模型名不能为空");
         }
-        entity.setProviderCode(request.providerCode().trim());
+        String provider = normalizeProvider(request.providerCode());
+        if (!PROVIDER_PATTERN.matcher(provider).matches()) {
+            throw new IllegalArgumentException("提供方编码仅允许小写字母开头的字母数字与下划线");
+        }
+        boolean decision = Boolean.TRUE.equals(request.decisionEnabled());
+        entity.setProviderCode(provider);
+        entity.setApiProtocol(normalizeProtocol(request.apiProtocol(), provider, decision));
         entity.setModel(request.model().trim());
         entity.setDisplayName(StringUtils.hasText(request.displayName())
                 ? request.displayName().trim() : request.model().trim());
+        entity.setBaseUrl(trimUrl(request.baseUrl()));
+        if (StringUtils.hasText(request.apiKey())) {
+            entity.setEncryptedApiKey(cipher.encrypt(request.apiKey().trim()));
+        } else if (creating) {
+            entity.setEncryptedApiKey(null);
+        }
         entity.setAssistantEnabled(Boolean.TRUE.equals(request.assistantEnabled()) ? 1 : 0);
         entity.setDigestEnabled(Boolean.TRUE.equals(request.digestEnabled()) ? 1 : 0);
-        entity.setDecisionEnabled(Boolean.TRUE.equals(request.decisionEnabled()) ? 1 : 0);
+        entity.setDecisionEnabled(decision ? 1 : 0);
         entity.setIsDefault(Boolean.TRUE.equals(request.isDefault()) ? 1 : 0);
         entity.setEnabled(Boolean.FALSE.equals(request.enabled()) ? 0 : 1);
         entity.setSortOrder(request.sortOrder() == null ? 100 : request.sortOrder());
-        if (PROVIDER_TYPESAFE.equals(entity.getProviderCode())) {
+        if (PROTOCOL_TYPESAFE.equals(entity.getApiProtocol())) {
             entity.setAssistantEnabled(0);
             entity.setDigestEnabled(0);
             entity.setIsDefault(0);
         }
+    }
+
+    private String normalizeProtocol(String raw, String provider, boolean decision) {
+        String value = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        if (decision || PROVIDER_TYPESAFE.equals(provider) || PROTOCOL_TYPESAFE.equals(value)) {
+            return PROTOCOL_TYPESAFE;
+        }
+        return PROTOCOL_OPENAI;
+    }
+
+    private String trimUrl(String value) {
+        if (!StringUtils.hasText(value)) return null;
+        String url = value.trim();
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     private void clearOtherDefaults(Long keepId) {
@@ -304,12 +399,6 @@ public class AiModelConfigService {
         }
     }
 
-    private void requireProvider(String providerCode) {
-        String code = normalizeProvider(providerCode);
-        registryService.findByCode(code)
-                .orElseThrow(() -> new IllegalArgumentException("提供方连接器不存在：" + providerCode));
-    }
-
     private AiModel require(Long id) {
         AiModel entity = mapper.selectById(id);
         if (entity == null) {
@@ -319,11 +408,13 @@ public class AiModelConfigService {
     }
 
     private ModelView toView(AiModel entity) {
-        Connector connector = registryService.findByCode(entity.getProviderCode()).orElse(null);
         return new ModelView(entity.getId(), entity.getProviderCode(),
-                connector == null ? entity.getProviderCode() : connector.getName(),
-                connector != null && "READY".equals(registryService.status(connector)),
+                providerName(entity.getProviderCode()),
+                endpointReady(entity),
+                StringUtils.hasText(entity.getApiProtocol()) ? entity.getApiProtocol() : PROTOCOL_OPENAI,
                 entity.getModel(), entity.getDisplayName(),
+                entity.getBaseUrl(),
+                StringUtils.hasText(entity.getEncryptedApiKey()),
                 Integer.valueOf(1).equals(entity.getAssistantEnabled()),
                 Integer.valueOf(1).equals(entity.getDigestEnabled()),
                 Integer.valueOf(1).equals(entity.getDecisionEnabled()),

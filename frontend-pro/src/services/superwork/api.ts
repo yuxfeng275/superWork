@@ -347,13 +347,16 @@ export interface WecomCliCapability {
 
 export interface AiModelView {
   id: number;
-  /** 提供方 = 连接器编码 */
+  /** 提供方编码（可与连接器同名作回落，也可自定义如 openai） */
   providerCode: string;
   providerName: string;
-  /** 提供方连接器是否就绪（未就绪则模型不会生效） */
+  /** 接入是否就绪：自带地址+Key，或同名连接器 READY */
   providerReady: boolean;
+  apiProtocol: string;
   model: string;
   displayName: string;
+  baseUrl?: string;
+  apiKeyConfigured: boolean;
   assistantEnabled: boolean;
   digestEnabled: boolean;
   decisionEnabled: boolean;
@@ -363,8 +366,12 @@ export interface AiModelView {
 }
 export interface AiModelSavePayload {
   providerCode?: string;
+  apiProtocol?: string;
   model?: string;
   displayName?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
   assistantEnabled?: boolean;
   digestEnabled?: boolean;
   decisionEnabled?: boolean;

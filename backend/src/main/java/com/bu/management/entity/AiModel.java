@@ -7,8 +7,8 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 /**
- * AI 模型注册表：一行 = 某个提供方（连接器）下的一个可用模型。
- * 与连接器的分界：连接器管「连接」（地址/凭据/启停/测试），本表管「模型」（模型名/用途/默认）。
+ * AI 模型注册表：一行 = 一个可调用的模型。
+ * 可自带协议 / 地址 / API Key（中转站、官方 OpenAI 兼容）；未填时回落同名连接器。
  *
  * @author BU Team
  * @since 2026-09-17
@@ -19,14 +19,23 @@ public class AiModel {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 提供方连接器编码（deepseek / glm / ...） */
+    /** 提供方编码（deepseek / glm / openai / 自定义）；连接器同名时作回落 */
     private String providerCode;
+
+    /** 接入协议：openai-compat（对话/摘要）/ typesafe（Jev 决策） */
+    private String apiProtocol;
 
     /** API 模型名（传给模型的 model 参数） */
     private String model;
 
     /** 展示名（管理页与助手下拉） */
     private String displayName;
+
+    /** 模型自己的接口地址；空则回落同名连接器 */
+    private String baseUrl;
+
+    /** 模型自己的 API Key（AES）；空则回落同名连接器 */
+    private String encryptedApiKey;
 
     /** 可用于 AI 助手 */
     private Integer assistantEnabled;

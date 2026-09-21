@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.bu.management.config.EmailCredentialCipher;
 import com.bu.management.entity.AiModel;
 import com.bu.management.entity.Connector;
 import com.bu.management.mapper.AiModelMapper;
@@ -30,12 +31,15 @@ class AiModelConfigServiceTest {
     private AiModelMapper mapper;
     @Mock
     private ConnectorRegistryService registryService;
+    @Mock
+    private EmailCredentialCipher cipher;
 
     private AiModelConfigService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiModelConfigService(mapper, registryService);
+        service = new AiModelConfigService(mapper, registryService, cipher);
+        lenient().when(cipher.decrypt("enc-relay")).thenReturn("sk-relay");
     }
 
     private AiModel model(Long id, String provider, String name, int assistant, int digest, int isDefault, int enabled,
@@ -50,6 +54,15 @@ class AiModelConfigServiceTest {
         entity.setIsDefault(isDefault);
         entity.setEnabled(enabled);
         entity.setSortOrder(sortOrder);
+        return entity;
+    }
+
+    private AiModel standalone(Long id, String provider, String name, int assistant, int digest, int isDefault,
+                               int enabled, int sortOrder) {
+        AiModel entity = model(id, provider, name, assistant, digest, isDefault, enabled, sortOrder);
+        entity.setApiProtocol("openai-compat");
+        entity.setBaseUrl("https://relay.example.com/v1");
+        entity.setEncryptedApiKey("enc-relay");
         return entity;
     }
 
@@ -152,8 +165,6 @@ class AiModelConfigServiceTest {
     @Test
     @DisplayName("未配置任何可用模型时给出可操作提示")
     void resolveFailsWhenNoModelConfigured() {
-        Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
-        when(registryService.findByCode("deepseek")).thenReturn(Optional.of(deepseek));
         when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.resolveModelConfig("deepseek", null))
@@ -218,6 +229,59 @@ class AiModelConfigServiceTest {
 
         assertThat(service.listAvailableModels()).extracting(AiModelConfigService.ModelOption::provider)
                 .containsExactly("deepseek");
+    }
+
+    @Test
+    @DisplayName("独立接入：模型自带地址和 Key 时，不依赖连接器也可出现在助手下拉")
+    void listAvailableModelsIncludesStandaloneEndpoint() {
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                standalone(1L, "openai", "gpt-4o-mini", 1, 0, 1, 1, 5)));
+
+        List<AiModelConfigService.ModelOption> options = service.listAvailableModels();
+
+        assertThat(options).hasSize(1);
+        assertThat(options.get(0).provider()).isEqualTo("openai");
+        assertThat(options.get(0).model()).isEqualTo("gpt-4o-mini");
+    }
+
+    @Test
+    @DisplayName("独立接入：解析使用模型自己的地址与 Key，不读连接器")
+    void resolveUsesModelOwnEndpoint() {
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                standalone(1L, "openai", "gpt-4o-mini", 1, 0, 1, 1, 5)));
+
+        AiModelConfigService.ModelConfig config = service.resolveModelConfig("openai", "gpt-4o-mini");
+
+        assertThat(config.baseUrl()).isEqualTo("https://relay.example.com/v1");
+        assertThat(config.apiKey()).isEqualTo("sk-relay");
+        assertThat(config.model()).isEqualTo("gpt-4o-mini");
+    }
+
+    @Test
+    @DisplayName("独立接入：模型未填地址时回落同名连接器")
+    void resolveFallsBackToConnectorWhenModelEndpointBlank() {
+        Connector deepseek = readyConnector("deepseek", "https://api.deepseek.com");
+        stubConnector(deepseek, "READY");
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                model(1L, "deepseek", "deepseek-v4-flash", 1, 1, 1, 1, 10)));
+
+        AiModelConfigService.ModelConfig config = service.resolveModelConfig("deepseek", null);
+
+        assertThat(config.baseUrl()).isEqualTo("https://api.deepseek.com");
+        assertThat(config.apiKey()).isEqualTo("sk-plain");
+    }
+
+    @Test
+    @DisplayName("独立接入：既无模型地址也无连接器时指向模型管理")
+    void resolveFailsWhenNeitherEndpointNorConnector() {
+        when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                model(1L, "openai", "gpt-4o-mini", 1, 0, 1, 1, 5)));
+        when(registryService.findByCode("openai")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.resolveModelConfig("openai", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("模型管理")
+                .hasMessageContaining("接口地址");
     }
 
     @Test

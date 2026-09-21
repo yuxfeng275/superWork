@@ -28,7 +28,6 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  type AiConnectorView,
   type AiModelSavePayload,
   type AiModelView,
   superworkApi,
@@ -38,8 +37,12 @@ import './style.less';
 
 type ModelForm = {
   providerCode: string;
+  apiProtocol: string;
   model: string;
   displayName?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
   assistantEnabled: boolean;
   digestEnabled: boolean;
   decisionEnabled: boolean;
@@ -48,13 +51,15 @@ type ModelForm = {
   sortOrder?: number;
 };
 
-/** 连接参数（地址 / 凭据 / 启停 / 测试）在连接器管理维护，本页只管模型本身。 */
 const CONNECTORS_PATH = '/system/connectors';
+const PROTOCOL_OPTIONS = [
+  { value: 'openai-compat', label: 'OpenAI 兼容（对话 / 摘要 / 中转站）' },
+  { value: 'typesafe', label: 'TypeSafe Jev（决策，不进助手下拉）' },
+];
 
 export default function ModelsPage() {
   const [form] = Form.useForm<ModelForm>();
   const [rows, setRows] = useState<AiModelView[]>([]);
-  const [connectors, setConnectors] = useState<AiConnectorView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -71,12 +76,6 @@ export default function ModelsPage() {
       setError(e instanceof Error ? e.message : '模型列表加载失败');
     } finally {
       setLoading(false);
-    }
-    // 提供方下拉的数据源；连接器读失败不影响模型列表本身的维护。
-    try {
-      setConnectors(await superworkApi.getAiConnectors());
-    } catch {
-      setConnectors([]);
     }
   }, []);
   useEffect(() => {
@@ -97,12 +96,13 @@ export default function ModelsPage() {
     setEditing(undefined);
     form.resetFields();
     form.setFieldsValue({
-      providerCode:
-        connectors.find((item) => item.ready)?.code ??
-        connectors[0]?.code ??
-        '',
+      providerCode: 'openai',
+      apiProtocol: 'openai-compat',
       model: '',
       displayName: '',
+      baseUrl: '',
+      apiKey: '',
+      clearApiKey: false,
       assistantEnabled: true,
       digestEnabled: false,
       decisionEnabled: false,
@@ -117,8 +117,12 @@ export default function ModelsPage() {
     form.resetFields();
     form.setFieldsValue({
       providerCode: row.providerCode,
+      apiProtocol: row.apiProtocol || 'openai-compat',
       model: row.model,
       displayName: row.displayName,
+      baseUrl: row.baseUrl || '',
+      apiKey: '',
+      clearApiKey: false,
       assistantEnabled: row.assistantEnabled,
       digestEnabled: row.digestEnabled,
       decisionEnabled: row.decisionEnabled,
@@ -137,9 +141,11 @@ export default function ModelsPage() {
     const values = form.getFieldsValue(true) as ModelForm;
     const model = values.model?.trim() || '';
     const payload: AiModelSavePayload = {
-      providerCode: values.providerCode,
+      providerCode: values.providerCode?.trim(),
+      apiProtocol: values.apiProtocol,
       model,
       displayName: values.displayName?.trim() || model,
+      baseUrl: values.baseUrl?.trim() || '',
       assistantEnabled: Boolean(values.assistantEnabled),
       digestEnabled: Boolean(values.digestEnabled),
       decisionEnabled: Boolean(values.decisionEnabled),
@@ -147,6 +153,8 @@ export default function ModelsPage() {
       enabled: Boolean(values.enabled),
       sortOrder: values.sortOrder ?? 0,
     };
+    if (values.apiKey?.trim()) payload.apiKey = values.apiKey.trim();
+    if (values.clearApiKey) payload.clearApiKey = true;
     setSaving(true);
     try {
       if (editing) await superworkApi.updateAiModel(editing.id, payload);
@@ -212,16 +220,30 @@ export default function ModelsPage() {
             {row.providerName || row.providerCode}
           </Typography.Text>
           <Typography.Text type="secondary" className="sw-model-meta">
-            {row.providerCode}
+            {row.providerCode} · {row.apiProtocol || 'openai-compat'}
           </Typography.Text>
+          {row.baseUrl ? (
+            <Typography.Text type="secondary" className="sw-model-meta">
+              {row.baseUrl}
+            </Typography.Text>
+          ) : null}
           {!row.providerReady && (
             <span className="sw-model-meta">
-              <Tag color="orange">连接未就绪</Tag>
-              <Typography.Link onClick={() => history.push(CONNECTORS_PATH)}>
-                去连接器管理
-              </Typography.Link>
+              <Tag color="orange">接入未就绪</Tag>
             </span>
           )}
+        </div>
+      ),
+    },
+    {
+      title: '接入',
+      width: 220,
+      render: (_: unknown, row) => (
+        <div>
+          <Typography.Text type="secondary" className="sw-model-meta">
+            {row.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}
+            {row.baseUrl ? '' : ' · 回落连接器'}
+          </Typography.Text>
         </div>
       ),
     },
@@ -338,9 +360,8 @@ export default function ModelsPage() {
           </Typography.Text>
           <Typography.Title level={2}>模型管理</Typography.Title>
           <Typography.Paragraph type="secondary">
-            连接参数（地址 / 凭据 / 启停 /
-            测试）在「连接器管理」维护，本页只维护模型： 模型名、用途（助手可用
-            / 摘要使用 / 决策门禁）、默认模型与启停。TypeSafe Jev 只勾选「决策」，不要进助手下拉。
+            模型自己填协议、接口地址和 API Key（官方 / 中转站 / 自建 OpenAI 兼容）。
+            留空时才回落同名连接器。连接器只管外部系统（云效、工时、OA、语雀、邮件、企微），不再当模型提供方。
           </Typography.Paragraph>
         </div>
         <Space>
@@ -360,8 +381,8 @@ export default function ModelsPage() {
           type="warning"
           showIcon
           className="sw-model-hint"
-          message={`提供方连接未就绪：${unreadyProviders.join('、')}`}
-          description="模型可先维护，但连接未就绪前不会出现在 AI 助手与摘要里。"
+          message={`接入未就绪：${unreadyProviders.join('、')}`}
+          description="请在本页填写接口地址与 API Key，或给同名连接器补全凭据。未就绪的模型不会出现在 AI 助手与摘要里。"
           action={
             <Button size="small" onClick={() => history.push(CONNECTORS_PATH)}>
               去连接器管理
@@ -397,7 +418,7 @@ export default function ModelsPage() {
         title={editing ? `编辑模型 · ${editing.model}` : '新建模型'}
         open={open}
         forceRender
-        width={680}
+        width={720}
         onCancel={() => setOpen(false)}
         onOk={() => void save()}
         okText="保存"
@@ -409,19 +430,11 @@ export default function ModelsPage() {
             <Col span={12}>
               <Form.Item
                 name="providerCode"
-                label="提供方"
-                rules={[{ required: true, message: '请选择提供方' }]}
-                extra="取自连接器编码，连接参数在「连接器管理」维护"
+                label="提供方编码"
+                rules={[{ required: true, message: '请填写提供方编码' }]}
+                extra="如 openai / deepseek / glm；可手填，不必先建连接器"
               >
-                <Select
-                  placeholder="选择连接器"
-                  options={connectors.map((item) => ({
-                    value: item.code,
-                    label: `${item.name}（${item.code}）${
-                      item.ready ? '' : ' · 连接未就绪'
-                    }`,
-                  }))}
-                />
+                <Input placeholder="openai" />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -447,6 +460,47 @@ export default function ModelsPage() {
                 extra="留空即与模型名一致"
               >
                 <Input placeholder="如 DeepSeek V4 Flash" maxLength={128} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={14}>
+            <Col span={12}>
+              <Form.Item
+                name="apiProtocol"
+                label="接入协议"
+                extra="对话模型选 OpenAI 兼容；Jev 选 TypeSafe"
+              >
+                <Select options={PROTOCOL_OPTIONS} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="baseUrl"
+                label="接口地址"
+                extra="OpenAI 兼容根地址，如 https://api.openai.com/v1；留空回落同名连接器"
+              >
+                <Input placeholder="https://api.openai.com/v1" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={14}>
+            <Col span={12}>
+              <Form.Item
+                name="apiKey"
+                label="API Key"
+                extra={editing?.apiKeyConfigured ? '已配置；留空保持不变' : '中转站 / 官方密钥'}
+              >
+                <Input.Password placeholder={editing?.apiKeyConfigured ? '已配置' : 'sk-…'} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="clearApiKey"
+                label="清除已存 Key"
+                valuePropName="checked"
+                extra="勾选后改回使用同名连接器凭据"
+              >
+                <Switch />
               </Form.Item>
             </Col>
           </Row>

@@ -670,7 +670,7 @@ onMounted(async () => {
       <div>
         <span class="eyebrow">CONNECTOR HUB</span>
         <h2>连接器管理</h2>
-        <p>统一维护各外部系统的服务地址、专属参数与凭据：AI 助手、云效同步、工时同步、邮件摘要等共用这份连接配置。</p>
+        <p>统一维护云效、工时、OA、语雀、邮件、企微等外部系统连接。AI 模型（含中转站）在「模型管理」独立配置协议、地址和 Key。</p>
         <p v-if="statuses.length" class="head-summary">
           就绪 {{ statusSummary.READY }} · 待配置 {{ statusSummary.NOT_CONFIGURED }} · 已停用 {{ statusSummary.DISABLED }}
         </p>
@@ -698,7 +698,7 @@ onMounted(async () => {
           <div class="card-url" :title="connectorUrl(connector)">{{ connectorUrl(connector) }}</div>
           <div v-if="connector.hint" class="card-hint">{{ connector.hint }}</div>
           <div v-if="MODEL_PROVIDER_CODES.includes(connector.code)" class="card-hint">
-            模型配置已移至
+            历史模型凭据回落：模型请到
             <el-link type="primary" :underline="false" @click="openModelManage">「模型管理」</el-link>
           </div>
 
@@ -905,7 +905,7 @@ onMounted(async () => {
           </el-form-item>
         </template>
         <p v-else-if="MODEL_PROVIDER_CODES.includes(form.code.trim())" class="model-note">
-          本连接器只维护服务地址与凭据；模型名、助手可用、邮件摘要与默认模型已移至
+          此连接器仅作模型回落凭据；协议、接口地址、API Key 与用途请到
           <el-link type="primary" :underline="false" @click="openModelManage">「模型管理」</el-link>
         </p>
 

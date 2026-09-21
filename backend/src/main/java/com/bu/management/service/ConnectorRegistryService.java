@@ -308,9 +308,18 @@ public class ConnectorRegistryService {
 
     /** POST JSON 并按 Bearer 认证；返回响应体（2xx 之外抛业务异常）。 */
     public JsonNode postJson(Connector entity, String path, Map<String, Object> body, String token) {
+        String name = entity == null || !StringUtils.hasText(entity.getName()) ? "外部系统" : entity.getName();
+        return postJson(entity == null ? null : entity.getBaseUrl(), path, body, token, name);
+    }
+
+    public JsonNode postJson(String baseUrl, String path, Map<String, Object> body, String token) {
+        return postJson(baseUrl, path, body, token, "外部系统");
+    }
+
+    public JsonNode postJson(String baseUrl, String path, Map<String, Object> body, String token, String name) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(trimSlash(entity.getBaseUrl()) + (path.startsWith("/") ? path : "/" + path)))
+                    .uri(URI.create(trimSlash(baseUrl) + (path.startsWith("/") ? path : "/" + path)))
                     .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json");
@@ -320,18 +329,20 @@ public class ConnectorRegistryService {
             HttpResponse<String> response = httpClient.send(
                     builder.POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build(),
                     HttpResponse.BodyHandlers.ofString());
+            String label = StringUtils.hasText(name) ? name : "外部系统";
             if (response.statusCode() == 401 || response.statusCode() == 403
                     || response.statusCode() == 400 || response.statusCode() == 422) {
-                throw new IllegalStateException(entity.getName() + "认证失败，请检查凭据");
+                throw new IllegalStateException(label + "认证失败，请检查凭据");
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException(entity.getName() + "暂时不可用(" + response.statusCode() + ")");
+                throw new IllegalStateException(label + "暂时不可用(" + response.statusCode() + ")");
             }
             String text = response.body();
             return objectMapper.readTree(text == null || text.isBlank() ? "{}" : text);
         } catch (java.io.IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new IllegalStateException(entity.getName() + "暂时不可用，请稍后重试");
+            String label = StringUtils.hasText(name) ? name : "外部系统";
+            throw new IllegalStateException(label + "暂时不可用，请稍后重试");
         }
     }
 

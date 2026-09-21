@@ -1,6 +1,5 @@
 package com.bu.management.integration;
 
-import com.bu.management.entity.Connector;
 import com.bu.management.service.ConnectorRegistryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,7 +11,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * TypeSafe System One（Jev）客户端：state + typed questions → answers。
- * 官方无 Java SDK，走连接器同一套 HTTP/Bearer。
+ * 官方无 Java SDK，走模型自己的地址 + Bearer，不依赖连接器实体。
  */
 @Component
 @RequiredArgsConstructor
@@ -39,13 +38,13 @@ public class JevClient {
         }
     }
 
-    public Evaluation evaluate(Connector connector, String apiKey, String model,
+    public Evaluation evaluate(String baseUrl, String apiKey, String model,
             Object state, Map<String, Object> questions) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("state", state);
         body.put("model", StringUtils.hasText(model) ? model : "jev-latest");
         body.put("questions", questions == null ? Map.of() : questions);
-        JsonNode response = registryService.postJson(connector, "/v1/systemone", body, apiKey);
+        JsonNode response = registryService.postJson(baseUrl, "/v1/systemone", body, apiKey, "TypeSafe Jev");
         JsonNode answers = response == null ? objectMapper.createObjectNode() : response.path("answers");
         if (!answers.isObject() || answers.isEmpty()) {
             throw new IllegalStateException("TypeSafe 返回缺少 answers");

@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   getAiModels: vi.fn(),
-  getAiConnectors: vi.fn(),
   createAiModel: vi.fn(),
   updateAiModel: vi.fn(),
   deleteAiModel: vi.fn(),
@@ -15,7 +14,6 @@ vi.mock('@umijs/max', () => ({ history: { push: mocks.push } }));
 vi.mock('@/services/superwork/api', () => ({
   superworkApi: {
     getAiModels: mocks.getAiModels,
-    getAiConnectors: mocks.getAiConnectors,
     createAiModel: mocks.createAiModel,
     updateAiModel: mocks.updateAiModel,
     deleteAiModel: mocks.deleteAiModel,
@@ -32,6 +30,9 @@ const models = [
     providerReady: true,
     model: 'deepseek-v4-flash',
     displayName: 'deepseek-v4-flash',
+    apiProtocol: 'openai-compat',
+    baseUrl: 'https://api.deepseek.com',
+    apiKeyConfigured: false,
     assistantEnabled: true,
     digestEnabled: false,
     decisionEnabled: false,
@@ -44,8 +45,11 @@ const models = [
     providerCode: 'glm',
     providerName: '智谱 GLM',
     providerReady: false,
+    apiProtocol: 'openai-compat',
     model: 'glm-5.3',
     displayName: 'GLM 5.3',
+    baseUrl: '',
+    apiKeyConfigured: false,
     assistantEnabled: false,
     digestEnabled: true,
     decisionEnabled: false,
@@ -59,24 +63,6 @@ describe('ModelsPage smoke', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getAiModels.mockResolvedValue(models);
-    mocks.getAiConnectors.mockResolvedValue([
-      {
-        id: 11,
-        code: 'deepseek',
-        name: 'DeepSeek',
-        authType: 'TOKEN',
-        baseUrl: 'https://api.deepseek.com',
-        extraConfig: {},
-        usernameConfigured: false,
-        passwordConfigured: false,
-        tokenConfigured: true,
-        enabled: true,
-        ready: true,
-        hint: '',
-        builtIn: true,
-        sortOrder: 10,
-      },
-    ]);
     mocks.updateAiModel.mockResolvedValue(models[1]);
     mocks.createAiModel.mockResolvedValue(models[1]);
   });
@@ -88,8 +74,8 @@ describe('ModelsPage smoke', () => {
       (await screen.findAllByText('deepseek-v4-flash')).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText('GLM 5.3')).toBeInTheDocument();
-    expect(screen.getByText('连接未就绪')).toBeInTheDocument();
-    expect(screen.getByText(/提供方连接未就绪：glm/)).toBeInTheDocument();
+    expect(screen.getByText('接入未就绪')).toBeInTheDocument();
+    expect(screen.getByText(/接入未就绪：glm/)).toBeInTheDocument();
 
     const glmRow = screen
       .getAllByRole('row')
@@ -122,9 +108,11 @@ describe('ModelsPage smoke', () => {
 
     await waitFor(() =>
       expect(mocks.createAiModel).toHaveBeenCalledWith({
-        providerCode: 'deepseek',
+        providerCode: 'openai',
+        apiProtocol: 'openai-compat',
         model: 'deepseek-v4',
         displayName: 'deepseek-v4',
+        baseUrl: '',
         assistantEnabled: true,
         digestEnabled: false,
         decisionEnabled: false,

@@ -190,15 +190,51 @@ describe("POST /v1/runs validation", () => {
     });
   }
 
-  it("400 on unsupported provider", async () => {
+  it("accepts openai-compatible relay provider and streams a run", async () => {
+    const events: AgentEvent[] = [
+      { type: "agent_start" } as AgentEvent,
+      { type: "agent_end", messages: [] } as AgentEvent,
+    ];
+    const seen: Array<Record<string, unknown>> = [];
+    const factory: AgentFactory = (input) => {
+      seen.push({ provider: input.provider, baseUrl: input.baseUrl, model: input.model });
+      return new FakeAgent(events);
+    };
+    const server = createSidecarServer({ createAgent: factory });
+    await listen(server);
+    const res = await post(
+      server,
+      "/v1/runs",
+      validBody({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        baseUrl: "https://relay.example.com/v1",
+      }),
+      { "Content-Type": "application/json" },
+    );
+    assert.equal(res.status, 200);
+    const frames = parseSseFrames(res.body);
+    assert.equal(frames[frames.length - 1].event, "run_end");
+    assert.deepEqual(seen[0], {
+      provider: "openai",
+      baseUrl: "https://relay.example.com/v1",
+      model: "gpt-4o-mini",
+    });
+    server.close();
+  });
+
+  it("400 when custom provider has empty baseUrl", async () => {
     const server = createSidecarServer();
     await listen(server);
-    const res = await post(server, "/v1/runs", validBody({ provider: "openai" }), {
-      "Content-Type": "application/json",
-    });
+    const res = await post(
+      server,
+      "/v1/runs",
+      validBody({ provider: "openai", baseUrl: "" }),
+      { "Content-Type": "application/json" },
+    );
     assert.equal(res.status, 400);
     const parsed = JSON.parse(res.body) as { error: { message: string } };
-    assert.match(parsed.error.message, /zhipu|deepseek/);
+    assert.match(parsed.error.message, /baseUrl/);
     server.close();
   });
 

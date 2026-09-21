@@ -137,8 +137,7 @@ public class AiAgentController {
     }
 
     /**
-     * 侧车只认 {@code zhipu} / {@code deepseek}；平台内 GLM 的规范编码是 {@code glm}（见 AiModelConfigService）。
-     * 这里是唯一出站翻译点，避免两套命名在各处散落。
+     * 侧车：官方 GLM 仍映射 {@code zhipu}（保留 env 默认地址）；其他提供方原样透传（OpenAI 兼容 / 中转站）。
      */
     private String sidecarProvider(String provider) {
         return AiModelConfigService.PROVIDER_GLM.equals(provider)

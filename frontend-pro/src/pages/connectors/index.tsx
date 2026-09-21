@@ -108,9 +108,6 @@ const connectorLinks: Record<string, { label: string; path: string }> = {
   worktime: { label: '工时同步', path: '/kpi-report?tab=worktime' },
   oa: { label: 'OA 待办', path: '/oa-affairs' },
   mail: { label: '邮箱账号', path: '/emails' },
-  deepseek: { label: '模型管理', path: MODELS_PATH },
-  glm: { label: '模型管理', path: MODELS_PATH },
-  typesafe: { label: '模型管理', path: MODELS_PATH },
 };
 
 const builtinSpecs: Record<string, BuiltinSpec> = {
@@ -799,8 +796,8 @@ export default function ConnectorsPage() {
           </Typography.Text>
           <Typography.Title level={2}>连接器管理</Typography.Title>
           <Typography.Paragraph type="secondary">
-            统一维护云效、工时、OA、语雀、邮件与 AI
-            提供方等外部系统连接；凭据留空表示保持原配置。
+            统一维护云效、工时、OA、语雀、邮件、企微等外部系统连接。
+            AI 模型（含中转站）在「模型管理」独立配置协议、地址和 Key。
           </Typography.Paragraph>
         </div>
         <Space>
@@ -818,8 +815,8 @@ export default function ConnectorsPage() {
         className="sw-connector-hint"
         message={
           <span>
-            模型名与用途（助手可用 /
-            摘要使用）已移至「模型管理」，本页只维护地址与凭据。
+            AI 模型已与连接器解耦：协议 / 接口地址 / API Key 在「模型管理」填写。
+            本页只维护外部系统连接。历史 DeepSeek / GLM / TypeSafe 连接器仍可作为模型回落凭据。
             <Typography.Link
               className="sw-connector-hint-link"
               onClick={() => history.push(MODELS_PATH)}

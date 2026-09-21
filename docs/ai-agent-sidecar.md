@@ -27,7 +27,7 @@
   "toolCallbackUrl": "http://backend:8080/internal/ai-agent/tools"
 }
 ```
-provider 支持 `zhipu`（GLM，智谱）与 `deepseek`；其他值返回 400。
+provider：`zhipu`（GLM）与 `deepseek` 保留官方默认地址；其他值视为 OpenAI 兼容（官方 / 中转站 / 自建），**必须**传 `baseUrl`。
 baseUrl / apiKey 可由请求传入；缺省时 sidecar 按 provider 取环境变量：
 `zhipu` → `ZHIPU_BASE_URL`（默认 https://open.bigmodel.cn/api/paas/v4）/ `GLM_API_KEY`；
 `deepseek` → `DEEPSEEK_BASE_URL`（默认 https://api.deepseek.com）/ `DEEPSEEK_API_KEY`。

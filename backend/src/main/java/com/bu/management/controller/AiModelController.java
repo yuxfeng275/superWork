@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * AI 模型管理端（唯一入口）：模型清单、用途（助手 / 摘要）、默认模型、启停。
- * 提供方的地址与凭据在「连接器管理」维护，本接口只管模型本身。
+ * 模型可自带协议 / 地址 / API Key；未填时回落同名连接器。
  *
  * @author BU Team
  * @since 2026-09-17

@@ -54,14 +54,14 @@ public class AiAgentSessionService {
 
     /**
      * 创建会话；provider/model 缺省取「模型管理」里的默认模型，
-     * 运行期按 provider（连接器编码，兼容历史 zhipu）取地址与凭据。
+     * 运行期按模型自己的地址/Key（未填则回落同名连接器）。
      */
     public AiAgentSessionView create(Long userId, String title, String provider, String model) {
         String resolvedProvider = StringUtils.hasText(provider)
                 ? modelConfigService.normalizeProvider(provider)
                 : modelConfigService.defaultModel()
                         .orElseThrow(() -> new IllegalStateException(
-                                "尚未配置可用的 AI 模型，请在「模型管理」中启用模型并确认连接器就绪"))
+                                "尚未配置可用的 AI 模型，请在「模型管理」中启用模型并填写接口地址"))
                         .provider();
         String resolvedModel = StringUtils.hasText(model) ? model.trim()
                 : modelConfigService.resolveModelConfig(resolvedProvider, null).model();
