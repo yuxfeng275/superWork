@@ -76,6 +76,7 @@ public class MeetingPipelineService {
     private final MeetingAudioStorage audioStorage;
     private final MeetingTranscriptionClient transcriptionClient;
     private final MeetingSummaryClient summaryClient;
+    private final MeetingCorrectionService correctionService;
     private final MeetingConfigService configService;
     private final MeetingTranscriptCodec codec;
     private final ObjectMapper objectMapper;
@@ -119,6 +120,7 @@ public class MeetingPipelineService {
             Meeting meeting = require(meetingId);
             updateStatus(meeting, "TRANSCRIBING", null);
             transcribe(meeting);
+            correct(meeting);
             updateStatus(meeting, "SUMMARIZING", null);
             summarizeInternal(meetingId);
             updateStatus(require(meetingId), "DRAFT", null);
@@ -133,6 +135,20 @@ public class MeetingPipelineService {
             updateStatus(require(meetingId), "DRAFT", null);
         } catch (Exception e) {
             fail(meetingId, e);
+        }
+    }
+
+    /** AI 纠偏（LLM 提案 + 可选 Jev 守门）：改动写 corrected_transcript_json；任何失败保持原稿。 */
+    private void correct(Meeting meeting) {
+        List<Segment> segments = codec.parse(meeting.getTranscriptJson());
+        if (segments.isEmpty()) {
+            return;
+        }
+        List<Segment> corrected = correctionService.correct(segments, configService.load().asrHotwords());
+        if (corrected != segments) {
+            meeting.setCorrectedTranscriptJson(codec.write(corrected));
+            meeting.setUpdatedAt(LocalDateTime.now());
+            meetingMapper.updateById(meeting);
         }
     }
 
@@ -156,6 +172,7 @@ public class MeetingPipelineService {
         long durationMs = result.durationMs() > 0 ? result.durationMs()
                 : segments.stream().mapToLong(Segment::endMs).max().orElse(0L);
         meeting.setTranscriptJson(codec.write(segments));
+        meeting.setCorrectedTranscriptJson(null);   // 新转写令旧校正稿作废（AI/人工后续重新生成）
         meeting.setDurationSeconds((int) Math.max(0, durationMs / 1000));
         meeting.setUpdatedAt(LocalDateTime.now());
         meetingMapper.updateById(meeting);

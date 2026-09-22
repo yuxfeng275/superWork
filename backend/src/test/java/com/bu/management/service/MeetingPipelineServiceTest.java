@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
@@ -48,6 +49,8 @@ class MeetingPipelineServiceTest {
     @Mock
     private MeetingSummaryClient summaryClient;
     @Mock
+    private MeetingCorrectionService correctionService;
+    @Mock
     private MeetingConfigService configService;
 
     private ObjectMapper objectMapper;
@@ -57,7 +60,7 @@ class MeetingPipelineServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         pipeline = new MeetingPipelineService(meetingMapper, speakerMapper, todoMapper, audioStorage,
-                transcriptionClient, summaryClient, configService,
+                transcriptionClient, summaryClient, correctionService, configService,
                 new MeetingTranscriptCodec(objectMapper), objectMapper);
         ReflectionTestUtils.setField(pipeline, "taskExecutor", (Executor) Runnable::run);
     }
@@ -158,6 +161,36 @@ class MeetingPipelineServiceTest {
                     assertThat(todo.getDueDate()).isEqualTo(LocalDate.of(2026, 9, 25));
                     assertThat(todo.getSourceExcerpt()).contains("00:00 SPEAKER_00");
                 });
+    }
+
+    @Test
+    @DisplayName("纠偏稿写入 corrected_transcript_json，总结输入用纠偏后的文本")
+    void process_appliesCorrectionBeforeSummary() throws Exception {
+        Meeting meeting = meeting("UPLOADED");
+        when(meetingMapper.selectById(1L)).thenReturn(meeting);
+        when(configService.load()).thenReturn(
+                new MeetingRuntimeConfig(false, "http://localhost:8790", "", 60, "CDP", 100));
+        when(audioStorage.pathOf("a.m4a")).thenReturn(Path.of("/tmp/a.m4a"));
+        when(transcriptionClient.transcribe(any(), any(), any())).thenReturn(
+                new MeetingTranscriptionClient.TranscriptionResult(5000, "stub",
+                        List.of(new MeetingTranscriptionClient.Segment(1, 0, 5000,
+                                "SPEAKER_00", "先对齐 c d p 项目"))));
+        when(correctionService.correct(anyList(), any())).thenReturn(List.of(
+                new MeetingTranscriptCodec.Segment(1, 0, 5000, "SPEAKER_00", "先对齐 CDP 项目", true)));
+        when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
+                "{\"summary\":\"概览\",\"decisions\":[],\"risks\":[],\"todos\":[]}"));
+        when(speakerMapper.selectList(any())).thenReturn(List.of());
+        when(todoMapper.delete(any())).thenReturn(1);
+        lenient().when(summaryClient.describeModel()).thenReturn("http://glm/glm-4");
+        lenient().when(meetingMapper.updateById(meeting)).thenReturn(1);
+
+        pipeline.process(1L);
+
+        assertThat(meeting.getStatus()).isEqualTo("DRAFT");
+        assertThat(meeting.getCorrectedTranscriptJson()).contains("CDP");
+        ArgumentCaptor<String> inputCaptor = ArgumentCaptor.forClass(String.class);
+        verify(summaryClient).chatJson(any(), inputCaptor.capture());
+        assertThat(inputCaptor.getValue()).contains("CDP").doesNotContain("c d p");
     }
 
     private void stubSummary(Meeting meeting, String modelJson) throws Exception {
