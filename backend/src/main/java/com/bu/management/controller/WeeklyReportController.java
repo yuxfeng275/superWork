@@ -3,6 +3,7 @@ package com.bu.management.controller;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.vo.Result;
 import com.bu.management.entity.WeeklyReport;
+import com.bu.management.service.AiModelConfigService;
 import com.bu.management.service.WeeklyReportService;
 import com.bu.management.vo.WeeklyReportVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,7 +30,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class WeeklyReportController {
 
+    /** 当前周报生成模型信息（供编辑器展示模型接入）。 */
+    public record GenerationModelInfo(boolean configured, String providerCode, String providerName,
+                                      String model, String baseUrl) {}
+
     private final WeeklyReportService reportService;
+    private final AiModelConfigService aiModelConfigService;
 
     @GetMapping
     @RequirePermission({"weekly:view"})
@@ -48,11 +54,22 @@ public class WeeklyReportController {
 
     @PutMapping("/{id}/inputs")
     @RequirePermission({"weekly:manage"})
-    @Operation(summary = "保存人工输入（企微智能总结 / 补充信息）")
+    @Operation(summary = "保存人工输入（企微智能总结 / 补充信息 / 生成提示词）")
     public Result<WeeklyReportVO> saveInputs(@PathVariable Long id,
                                              @RequestBody Map<String, String> body) {
         return Result.success("已保存", toVO(reportService.saveInputs(
-                id, body.get("wecomSummary"), body.get("manualNotes"))));
+                id, body.get("wecomSummary"), body.get("manualNotes"), body.get("generationPrompt"))));
+    }
+
+    @GetMapping("/generation-model")
+    @RequirePermission({"weekly:view"})
+    @Operation(summary = "当前周报生成使用的模型（模型管理 · 摘要用途第一条）")
+    public Result<GenerationModelInfo> generationModel() {
+        return Result.success(aiModelConfigService.digestModel()
+                .map(digest -> new GenerationModelInfo(true, digest.providerCode(),
+                        aiModelConfigService.providerDisplayName(digest.providerCode()),
+                        digest.model(), digest.baseUrl()))
+                .orElse(new GenerationModelInfo(false, null, null, null, null)));
     }
 
     @PostMapping("/{id}/generate")
@@ -117,6 +134,10 @@ public class WeeklyReportController {
 
     private WeeklyReportVO toVO(WeeklyReport report) {
         WeeklyReportVO vo = WeeklyReportVO.from(report);
+        if (org.springframework.util.StringUtils.hasText(report.getGenerationProvider())) {
+            vo.setGenerationProviderName(
+                    aiModelConfigService.providerDisplayName(report.getGenerationProvider()));
+        }
         vo.setSheetTargetInfo(reportService.sheetTargetInfo(report.getId()));
         try {
             Map<String, Object> facts = reportService.collectFacts(report.getWeekStartDate());

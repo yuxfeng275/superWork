@@ -1,16 +1,21 @@
 import {
+  ApiOutlined,
+  CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
   ReloadOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { history } from '@umijs/max';
 import type { TableProps } from 'antd';
 import {
   Alert,
+  AutoComplete,
   Button,
   Card,
   Col,
+  Divider,
   Form,
   Input,
   InputNumber,
@@ -20,6 +25,7 @@ import {
   Row,
   Select,
   Space,
+  Statistic,
   Switch,
   Table,
   Tag,
@@ -66,6 +72,10 @@ export default function ModelsPage() {
   const [editing, setEditing] = useState<AiModelView>();
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<number>();
+  const [testingId, setTestingId] = useState<number>();
+  const [testingDraft, setTestingDraft] = useState(false);
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  const [fetchingRemote, setFetchingRemote] = useState(false);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -92,8 +102,24 @@ export default function ModelsPage() {
       ),
     [rows],
   );
+  const summary = useMemo(() => {
+    const enabled = rows.filter((row) => row.enabled).length;
+    const ready = rows.filter((row) => row.enabled && row.providerReady).length;
+    const fallbackCount = rows.filter((row) => !row.baseUrl).length;
+    const defaultRow = rows.find((row) => row.isDefault && row.enabled);
+    return {
+      total: rows.length,
+      enabled,
+      ready,
+      fallbackCount,
+      defaultLabel: defaultRow
+        ? defaultRow.displayName || defaultRow.model
+        : '未设置',
+    };
+  }, [rows]);
   const openCreate = () => {
     setEditing(undefined);
+    setRemoteModels([]);
     form.resetFields();
     form.setFieldsValue({
       providerCode: 'openai',
@@ -114,6 +140,7 @@ export default function ModelsPage() {
   };
   const openEdit = (row: AiModelView) => {
     setEditing(row);
+    setRemoteModels([]);
     form.resetFields();
     form.setFieldsValue({
       providerCode: row.providerCode,
@@ -194,6 +221,66 @@ export default function ModelsPage() {
       message.error(e instanceof Error ? e.message : '模型删除失败');
     }
   };
+  const testRow = async (row: AiModelView) => {
+    setTestingId(row.id);
+    try {
+      const result = await superworkApi.testAiModel(row.id);
+      message.success(
+        `「${row.displayName || row.model}」${result.message}${
+          result.latencyMs != null ? ` · ${result.latencyMs}ms` : ''
+        }`,
+      );
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '模型测试失败');
+    } finally {
+      setTestingId(undefined);
+    }
+  };
+  /** 拉取提供方模型列表：编辑时用已存凭据，新建时用表单地址/Key。 */
+  const fetchRemoteList = async () => {
+    setFetchingRemote(true);
+    try {
+      const values = form.getFieldsValue(true) as ModelForm;
+      const list = await superworkApi.fetchRemoteAiModels({
+        id: editing?.id,
+        providerCode: values.providerCode?.trim() || undefined,
+        baseUrl: values.baseUrl?.trim() || undefined,
+        apiKey: values.apiKey?.trim() || undefined,
+      });
+      setRemoteModels(list);
+      message.success(`获取到 ${list.length} 个可用模型，请在模型名下拉中选择`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '模型列表获取失败');
+    } finally {
+      setFetchingRemote(false);
+    }
+  };
+  /** 测试弹窗里未保存的配置。 */
+  const testDraft = async () => {
+    const values = form.getFieldsValue(true) as ModelForm;
+    if (!values.model?.trim()) {
+      message.warning('请先填写模型名再测试');
+      return;
+    }
+    setTestingDraft(true);
+    try {
+      const result = await superworkApi.testAiModelDraft({
+        id: editing?.id,
+        providerCode: values.providerCode?.trim() || undefined,
+        apiProtocol: values.apiProtocol,
+        model: values.model.trim(),
+        baseUrl: values.baseUrl?.trim() || undefined,
+        apiKey: values.apiKey?.trim() || undefined,
+      });
+      message.success(
+        `${result.message}${result.latencyMs != null ? ` · ${result.latencyMs}ms` : ''}`,
+      );
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '模型测试失败');
+    } finally {
+      setTestingDraft(false);
+    }
+  };
   const renderSwitch = (
     row: AiModelView,
     key: 'assistantEnabled' | 'digestEnabled' | 'decisionEnabled' | 'isDefault' | 'enabled',
@@ -211,57 +298,60 @@ export default function ModelsPage() {
   );
   const columns: TableProps<AiModelView>['columns'] = [
     {
-      title: '提供方',
-      dataIndex: 'providerName',
-      width: 200,
+      title: '模型',
+      dataIndex: 'model',
       render: (_: unknown, row) => (
-        <div>
-          <Typography.Text strong>
-            {row.providerName || row.providerCode}
-          </Typography.Text>
-          <Typography.Text type="secondary" className="sw-model-meta">
-            {row.providerCode} · {row.apiProtocol || 'openai-compat'}
-          </Typography.Text>
-          {row.baseUrl ? (
-            <Typography.Text type="secondary" className="sw-model-meta">
-              {row.baseUrl}
+        <div className="sw-model-identity">
+          <Space size={6} wrap>
+            <Typography.Text strong>
+              {row.displayName || row.model}
             </Typography.Text>
-          ) : null}
-          {!row.providerReady && (
-            <span className="sw-model-meta">
-              <Tag color="orange">接入未就绪</Tag>
-            </span>
-          )}
+            {row.isDefault && <Tag color="gold">默认</Tag>}
+          </Space>
+          <Typography.Text code className="sw-model-meta">
+            {row.model}
+          </Typography.Text>
         </div>
       ),
     },
     {
-      title: '接入',
-      width: 220,
+      title: '提供方 / 接入',
+      dataIndex: 'providerName',
+      width: 260,
       render: (_: unknown, row) => (
         <div>
+          <Space size={6} wrap>
+            <Typography.Text>
+              {row.providerName || row.providerCode}
+            </Typography.Text>
+            <Tag>{row.apiProtocol || 'openai-compat'}</Tag>
+          </Space>
+          <Typography.Text type="secondary" className="sw-model-meta">
+            {row.baseUrl || `回落连接器 ${row.providerCode}`}
+          </Typography.Text>
           <Typography.Text type="secondary" className="sw-model-meta">
             {row.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}
-            {row.baseUrl ? '' : ' · 回落连接器'}
           </Typography.Text>
         </div>
       ),
     },
     {
-      title: '模型名',
-      dataIndex: 'model',
-      render: (value) => <Typography.Text code>{value}</Typography.Text>,
-    },
-    {
-      title: '展示名',
-      dataIndex: 'displayName',
-      ellipsis: true,
-      render: (value) => value || '—',
+      title: '状态',
+      key: 'status',
+      width: 100,
+      render: (_: unknown, row) =>
+        !row.enabled ? (
+          <Tag>已停用</Tag>
+        ) : row.providerReady ? (
+          <Tag color="success">就绪</Tag>
+        ) : (
+          <Tag color="orange">未就绪</Tag>
+        ),
     },
     {
       title: '助手可用',
       dataIndex: 'assistantEnabled',
-      width: 100,
+      width: 96,
       render: (_: unknown, row) =>
         renderSwitch(
           row,
@@ -273,7 +363,7 @@ export default function ModelsPage() {
     {
       title: '摘要使用',
       dataIndex: 'digestEnabled',
-      width: 100,
+      width: 96,
       render: (_: unknown, row) =>
         renderSwitch(
           row,
@@ -299,17 +389,6 @@ export default function ModelsPage() {
         ),
     },
     {
-      title: (
-        <Tooltip title="AI 助手默认模型全局唯一，开启后其他行会自动取消默认">
-          <span>默认</span>
-        </Tooltip>
-      ),
-      dataIndex: 'isDefault',
-      width: 90,
-      render: (_: unknown, row) =>
-        renderSwitch(row, 'isDefault', '已设为默认模型', '已取消默认模型'),
-    },
-    {
       title: '启用',
       dataIndex: 'enabled',
       width: 80,
@@ -319,15 +398,24 @@ export default function ModelsPage() {
     {
       title: '排序',
       dataIndex: 'sortOrder',
-      width: 80,
+      width: 70,
       render: (value) => value ?? 100,
     },
     {
       title: '操作',
       key: 'action',
-      width: 170,
+      width: 220,
       render: (_: unknown, row) => (
         <Space size={0}>
+          <Button
+            type="link"
+            icon={<ThunderboltOutlined />}
+            loading={testingId === row.id}
+            disabled={!row.enabled}
+            onClick={() => void testRow(row)}
+          >
+            测试
+          </Button>
           <Button
             type="link"
             icon={<EditOutlined />}
@@ -376,6 +464,37 @@ export default function ModelsPage() {
           </Button>
         </Space>
       </div>
+      <Row gutter={[12, 12]} className="sw-stat-row">
+        <Col xs={12} md={6}>
+          <Card variant="borderless">
+            <Statistic title="模型总数" value={summary.total} suffix="个" />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card variant="borderless">
+            <Statistic title="已启用" value={summary.enabled} suffix="个" />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card variant="borderless">
+            <Statistic
+              title="接入就绪"
+              value={summary.ready}
+              suffix="个"
+              prefix={<CheckCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={6}>
+          <Card variant="borderless">
+            <Statistic
+              title="助手默认模型"
+              value={summary.defaultLabel}
+              valueStyle={{ fontSize: 20 }}
+            />
+          </Card>
+        </Col>
+      </Row>
       {unreadyProviders.length > 0 && (
         <Alert
           type="warning"
@@ -410,7 +529,7 @@ export default function ModelsPage() {
           columns={columns}
           dataSource={rows}
           pagination={false}
-          scroll={{ x: 1120 }}
+          scroll={{ x: 1080 }}
           locale={{ emptyText: '暂无模型，请先新建模型' }}
         />
       </Card>
@@ -418,14 +537,34 @@ export default function ModelsPage() {
         title={editing ? `编辑模型 · ${editing.model}` : '新建模型'}
         open={open}
         forceRender
-        width={720}
+        width={760}
         onCancel={() => setOpen(false)}
-        onOk={() => void save()}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={saving}
+        footer={
+          <div className="sw-model-modal-footer">
+            <Button
+              icon={<ApiOutlined />}
+              loading={testingDraft}
+              onClick={() => void testDraft()}
+            >
+              测试连接
+            </Button>
+            <Space>
+              <Button onClick={() => setOpen(false)}>取消</Button>
+              <Button
+                type="primary"
+                loading={saving}
+                onClick={() => void save()}
+              >
+                保存
+              </Button>
+            </Space>
+          </div>
+        }
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" className="sw-model-form">
+          <Divider titlePlacement="left" plain className="sw-model-divider">
+            基本信息
+          </Divider>
           <Row gutter={14}>
             <Col span={12}>
               <Form.Item
@@ -449,8 +588,21 @@ export default function ModelsPage() {
                 name="model"
                 label="模型名"
                 rules={[{ required: true, message: '请输入模型名' }]}
+                extra={
+                  remoteModels.length > 0
+                    ? `已从提供方拉取 ${remoteModels.length} 个模型，可直接下拉选择`
+                    : '不知道模型 ID？先在下方填好接口地址与 Key，点「获取模型列表」'
+                }
               >
-                <Input placeholder="如 deepseek-v4-flash" />
+                <AutoComplete
+                  options={remoteModels.map((item) => ({ value: item }))}
+                  placeholder="如 deepseek-v4-flash"
+                  filterOption={(input, option) =>
+                    (option?.value ?? '')
+                      .toLowerCase()
+                      .includes(input.toLowerCase())
+                  }
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -463,6 +615,9 @@ export default function ModelsPage() {
               </Form.Item>
             </Col>
           </Row>
+          <Divider titlePlacement="left" plain className="sw-model-divider">
+            接入配置
+          </Divider>
           <Row gutter={14}>
             <Col span={12}>
               <Form.Item
@@ -488,9 +643,15 @@ export default function ModelsPage() {
               <Form.Item
                 name="apiKey"
                 label="API Key"
-                extra={editing?.apiKeyConfigured ? '已配置；留空保持不变' : '中转站 / 官方密钥'}
+                extra={
+                  editing?.apiKeyConfigured
+                    ? '已配置；留空保持不变'
+                    : '中转站 / 官方密钥'
+                }
               >
-                <Input.Password placeholder={editing?.apiKeyConfigured ? '已配置' : 'sk-…'} />
+                <Input.Password
+                  placeholder={editing?.apiKeyConfigured ? '已配置' : 'sk-…'}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -504,6 +665,32 @@ export default function ModelsPage() {
               </Form.Item>
             </Col>
           </Row>
+          <div className="sw-model-actions">
+            <Space>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={fetchingRemote}
+                onClick={() => void fetchRemoteList()}
+              >
+                获取模型列表
+              </Button>
+              <Button
+                size="small"
+                icon={<ApiOutlined />}
+                loading={testingDraft}
+                onClick={() => void testDraft()}
+              >
+                测试连接
+              </Button>
+            </Space>
+            <Typography.Text type="secondary" className="sw-model-actions-hint">
+              中转站不知道模型 ID 时，先拉取列表再下拉选择；保存前可先测试连通性
+            </Typography.Text>
+          </div>
+          <Divider titlePlacement="left" plain className="sw-model-divider">
+            用途与状态
+          </Divider>
           <Row gutter={14}>
             <Col span={12}>
               <Form.Item
@@ -537,8 +724,6 @@ export default function ModelsPage() {
                 <Switch />
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={14}>
             <Col span={12}>
               <Form.Item
                 name="isDefault"
@@ -549,6 +734,8 @@ export default function ModelsPage() {
                 <Switch />
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={14}>
             <Col span={12}>
               <Form.Item name="enabled" label="启用" valuePropName="checked">
                 <Switch checkedChildren="启用" unCheckedChildren="停用" />

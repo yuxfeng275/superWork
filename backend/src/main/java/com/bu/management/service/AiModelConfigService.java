@@ -7,11 +7,19 @@ import com.bu.management.entity.AiModel;
 import com.bu.management.entity.Connector;
 import com.bu.management.exception.ResourceNotFoundException;
 import com.bu.management.mapper.AiModelMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +53,10 @@ public class AiModelConfigService {
     private final AiModelMapper mapper;
     private final ConnectorRegistryService registryService;
     private final EmailCredentialCipher cipher;
+    /** 在线拉取模型列表 / 测试连接用的 HTTP 客户端（字段初始化，不进构造器，免改测试装配）。 */
+    private final ObjectMapper httpJson = new ObjectMapper();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10)).build();
 
     /** 管理端列表项。 */
     public record ModelView(Long id, String providerCode, String providerName, boolean providerReady,
@@ -69,6 +81,16 @@ public class AiModelConfigService {
     public record DecisionModel(String providerCode, String baseUrl, String model, String apiKey) {}
 
     private record Endpoint(String baseUrl, String apiKey) {}
+
+    /** 拉取远程模型列表：id 优先（用已存模型的地址/Key），否则用表单里的地址/Key/提供方回落。 */
+    public record RemoteModelsRequest(Long id, String providerCode, String baseUrl, String apiKey) {}
+
+    /** 模型连接测试：id 优先；否则按表单内容组装探测目标。 */
+    public record ModelTestRequest(Long id, String providerCode, String apiProtocol, String model,
+            String baseUrl, String apiKey) {}
+
+    /** 测试结果。 */
+    public record ModelTestResult(boolean success, String message, Long latencyMs) {}
 
     // ==================== 管理端 ====================
 
@@ -163,6 +185,123 @@ public class AiModelConfigService {
         mapper.deleteById(id);
     }
 
+    // ==================== 在线探测（模型列表 / 连接测试） ====================
+
+    /**
+     * 拉取 OpenAI 兼容端点的模型清单（GET {baseUrl}/models）。
+     * 第三方中转站不知道模型 ID 时用：填好地址和 Key 后一键拉取可选模型。
+     */
+    public List<String> fetchRemoteModels(RemoteModelsRequest request) {
+        Endpoint endpoint = resolveProbeEndpoint(request.id(), request.providerCode(),
+                request.baseUrl(), request.apiKey());
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint.baseUrl() + "/models"))
+                .timeout(Duration.ofSeconds(20))
+                .header("Authorization", "Bearer " + endpoint.apiKey())
+                .GET()
+                .build();
+        JsonNode body = send(httpRequest, "拉取模型列表");
+        JsonNode data = body.path("data");
+        if (!data.isArray()) {
+            throw new IllegalStateException("模型列表响应无效：缺少 data 数组");
+        }
+        TreeSet<String> ids = new TreeSet<>();
+        for (JsonNode item : data) {
+            String id = item.path("id").asText(null);
+            if (StringUtils.hasText(id)) ids.add(id.trim());
+        }
+        if (ids.isEmpty()) {
+            throw new IllegalStateException("提供方返回了空的模型列表");
+        }
+        return List.copyOf(ids);
+    }
+
+    /**
+     * 测试模型连通性：先发 GET /models 验证地址与凭据，再发一条最小化对话请求验证模型可用。
+     * TypeSafe 决策模型不走 OpenAI 兼容协议，不支持在线测试。
+     */
+    public ModelTestResult testModel(ModelTestRequest request) {
+        AiModel stored = request.id() != null ? require(request.id()) : null;
+        String protocol = StringUtils.hasText(request.apiProtocol()) ? request.apiProtocol()
+                : stored != null ? stored.getApiProtocol() : PROTOCOL_OPENAI;
+        if (PROTOCOL_TYPESAFE.equals(protocol)) {
+            throw new IllegalArgumentException("TypeSafe 决策模型不走 OpenAI 兼容协议，请在连接器管理测试");
+        }
+        String model = StringUtils.hasText(request.model()) ? request.model().trim()
+                : stored != null ? stored.getModel() : null;
+        if (!StringUtils.hasText(model)) {
+            throw new IllegalArgumentException("请先填写模型名再测试");
+        }
+        Endpoint endpoint = stored != null ? resolveEndpoint(stored)
+                : resolveProbeEndpoint(null, request.providerCode(), request.baseUrl(), request.apiKey());
+        long start = System.nanoTime();
+        try {
+            Map<String, Object> payload = Map.of(
+                    "model", model,
+                    "max_tokens", 1,
+                    "messages", List.of(Map.of("role", "user", "content", "ping")));
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint.baseUrl() + "/chat/completions"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + endpoint.apiKey())
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(httpJson.writeValueAsString(payload)))
+                    .build();
+            JsonNode body = send(httpRequest, "模型测试");
+            long latencyMs = (System.nanoTime() - start) / 1_000_000;
+            if (body.path("choices").isArray() && !body.path("choices").isEmpty()) {
+                return new ModelTestResult(true, "对话接口正常", latencyMs);
+            }
+            return new ModelTestResult(true, "接口连通，但响应缺少 choices（兼容实现，可按通）", latencyMs);
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("模型测试失败：" + e.getMessage());
+        }
+    }
+
+    /** 组装探测目标：已存模型优先；否则用表单地址/Key，缺省时回落同名连接器凭据。 */
+    private Endpoint resolveProbeEndpoint(Long id, String providerCode, String baseUrl, String apiKey) {
+        if (id != null) {
+            return resolveEndpoint(require(id));
+        }
+        if (!StringUtils.hasText(baseUrl) && !StringUtils.hasText(providerCode)) {
+            throw new IllegalArgumentException("请先填写接口地址（或提供方编码以回落连接器凭据）");
+        }
+        AiModel probe = new AiModel();
+        probe.setProviderCode(StringUtils.hasText(providerCode)
+                ? normalizeProvider(providerCode) : PROVIDER_GLM);
+        probe.setBaseUrl(trimUrl(baseUrl));
+        if (StringUtils.hasText(apiKey)) {
+            probe.setEncryptedApiKey(cipher.encrypt(apiKey.trim()));
+        }
+        return resolveEndpoint(probe);
+    }
+
+    /** 发送请求并把非 2xx 响应翻译成可读错误。 */
+    private JsonNode send(HttpRequest request, String action) {
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(action + "被中断", e);
+        } catch (Exception e) {
+            throw new IllegalStateException(action + "失败：无法连接接口地址（" + e.getMessage() + "）", e);
+        }
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ").trim();
+            if (detail.length() > 200) detail = detail.substring(0, 200);
+            throw new IllegalStateException(action + "失败（HTTP " + response.statusCode() + "）"
+                    + (detail.isEmpty() ? "" : "：" + detail));
+        }
+        try {
+            return httpJson.readTree(response.body());
+        } catch (Exception e) {
+            throw new IllegalStateException(action + "失败：响应不是合法 JSON", e);
+        }
+    }
+
     // ==================== 运行期 ====================
 
     /**
@@ -237,6 +376,11 @@ public class AiModelConfigService {
                 .map(entity -> new ModelOption(entity.getProviderCode(), entity.getModel(),
                         StringUtils.hasText(entity.getDisplayName()) ? entity.getDisplayName() : entity.getModel()))
                 .findFirst();
+    }
+
+    /** 提供方展示名（找不到同名连接器时返回编码本身）。 */
+    public String providerDisplayName(String providerCode) {
+        return providerName(providerCode);
     }
 
     /** 提供方编码归一：历史 zhipu → glm。 */

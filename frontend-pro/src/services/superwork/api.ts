@@ -379,6 +379,27 @@ export interface AiModelSavePayload {
   enabled?: boolean;
   sortOrder?: number;
 }
+/** 拉取远程模型列表：id 优先（用已存凭据），否则按表单地址/Key/提供方回落 */
+export interface AiModelRemoteListPayload {
+  id?: number;
+  providerCode?: string;
+  baseUrl?: string;
+  apiKey?: string;
+}
+/** 模型连接测试请求（未保存的表单内容） */
+export interface AiModelTestPayload {
+  id?: number;
+  providerCode?: string;
+  apiProtocol?: string;
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string;
+}
+export interface AiModelTestResult {
+  success: boolean;
+  message: string;
+  latencyMs?: number | null;
+}
 export interface AiAgentModelOption {
   provider: string;
   model: string;
@@ -801,6 +822,8 @@ export interface WeeklyReportVO {
   periodEndDate: string;
   wecomSummary?: string | null;
   manualNotes?: string | null;
+  /** 生成提示词：引导 AI 生成周报的侧重点 */
+  generationPrompt?: string | null;
   coreWork?: string | null;
   kpiSection?: string | null;
   risks?: string | null;
@@ -808,6 +831,9 @@ export interface WeeklyReportVO {
   minutesMarkdown?: string | null;
   status: WeeklyReportStatus;
   generationModel?: string | null;
+  /** 生成使用的模型提供方编码与展示名 */
+  generationProvider?: string | null;
+  generationProviderName?: string | null;
   generationMode?: string | null;
   generationError?: string | null;
   yuqueDocUrl?: string | null;
@@ -821,6 +847,14 @@ export interface WeeklyReportVO {
   editable: boolean;
   factsPreview: Array<{ title: string; status: string }>;
   sheetTargetInfo?: WeeklyReportSheetTargetInfo | null;
+}
+
+export interface WeeklyReportGenerationModel {
+  configured: boolean;
+  providerCode?: string | null;
+  providerName?: string | null;
+  model?: string | null;
+  baseUrl?: string | null;
 }
 
 export interface WeeklyReportFacts {
@@ -1862,6 +1896,23 @@ export const superworkApi = {
   },
   deleteAiModel(id: number) {
     return requestJson<void>(`/api/ai/models/${id}`, { method: "DELETE" });
+  },
+  fetchRemoteAiModels(payload: AiModelRemoteListPayload) {
+    return requestJson<string[]>("/api/ai/models/remote-models", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  testAiModel(id: number) {
+    return requestJson<AiModelTestResult>(`/api/ai/models/${id}/test`, {
+      method: "POST",
+    });
+  },
+  testAiModelDraft(payload: AiModelTestPayload) {
+    return requestJson<AiModelTestResult>("/api/ai/models/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
   getTodos(params: { status?: string; userId?: number; user?: string } = {}) {
     return requestJson<UserTodo[]>(
@@ -2919,7 +2970,11 @@ export const superworkApi = {
   },
   saveWeeklyInputs(
     id: number,
-    payload: { wecomSummary?: string; manualNotes?: string }
+    payload: {
+      wecomSummary?: string;
+      manualNotes?: string;
+      generationPrompt?: string;
+    }
   ) {
     return requestJson<WeeklyReportVO>(`/api/weekly-reports/${id}/inputs`, {
       method: "PUT",
@@ -2930,6 +2985,11 @@ export const superworkApi = {
     return requestJson<WeeklyReportVO>(`/api/weekly-reports/${id}/generate`, {
       method: "POST",
     });
+  },
+  getWeeklyGenerationModel() {
+    return requestJson<WeeklyReportGenerationModel>(
+      "/api/weekly-reports/generation-model"
+    );
   },
   saveWeeklyContent(
     id: number,

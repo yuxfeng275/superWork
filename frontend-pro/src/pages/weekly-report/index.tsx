@@ -27,14 +27,17 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
+import { history } from '@umijs/max';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SimpleMarkdown } from '@/components/SimpleMarkdown';
 import {
   superworkApi,
   type WeeklyReportFacts,
+  type WeeklyReportGenerationModel,
   type WeeklyReportStatus,
   type WeeklyReportVO,
 } from '@/services/superwork/api';
@@ -101,7 +104,10 @@ export default function WeeklyReportPage() {
   const [inputDraft, setInputDraft] = useState({
     wecomSummary: '',
     manualNotes: '',
+    generationPrompt: '',
   });
+  const [generationModel, setGenerationModel] =
+    useState<WeeklyReportGenerationModel | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   const applyReport = useCallback((report: WeeklyReportVO) => {
@@ -116,6 +122,7 @@ export default function WeeklyReportPage() {
     setInputDraft({
       wecomSummary: report.wecomSummary || '',
       manualNotes: report.manualNotes || '',
+      generationPrompt: report.generationPrompt || '',
     });
   }, []);
 
@@ -208,6 +215,12 @@ export default function WeeklyReportPage() {
       applyReport(report);
       if (report.status === 'GENERATING') startPolling(report.weekStartDate);
       void loadFacts(weekStartDate);
+      if (mode === 'edit') {
+        superworkApi
+          .getWeeklyGenerationModel()
+          .then(setGenerationModel)
+          .catch(() => setGenerationModel(null));
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '周报加载失败');
     } finally {
@@ -257,6 +270,8 @@ export default function WeeklyReportPage() {
     if (!current) return;
     setGenerating(true);
     try {
+      // 先把企微总结/补充信息/生成提示词落库，保证本次生成使用最新输入
+      await superworkApi.saveWeeklyInputs(current.id, inputDraft);
       const next = await superworkApi.generateWeeklyReport(current.id);
       setCurrent(next);
       message.info('AI 生成中，约需 30-60 秒');
@@ -394,7 +409,11 @@ export default function WeeklyReportPage() {
           <Typography.Text type="secondary" className="sw-report-subline">
             {row.weekStartDate.slice(0, 4)} 年 ·{' '}
             {row.generationMode
-              ? `${row.generationMode} · ${row.generationModel || ''}`
+              ? `${row.generationMode} · ${
+                  row.generationProvider
+                    ? `${row.generationProviderName || row.generationProvider} / ${row.generationModel || ''}`
+                    : row.generationModel || ''
+                }`
               : '未生成'}
           </Typography.Text>
         </div>
@@ -688,11 +707,59 @@ export default function WeeklyReportPage() {
                 </Tag>
                 <Typography.Text type="secondary">
                   {current.weekStartDate} ~ {current.periodEndDate}
-                  {current.generationModel
-                    ? ` · ${current.generationModel}`
-                    : ''}
                 </Typography.Text>
+                {current.generationModel && (
+                  <Tooltip
+                    title={`生成模型接入：${
+                      current.generationProviderName ||
+                      current.generationProvider ||
+                      ''
+                    } / ${current.generationModel}`}
+                  >
+                    <Tag icon={<ThunderboltOutlined />} color="geekblue">
+                      {`AI · ${
+                        current.generationProviderName ||
+                        current.generationProvider ||
+                        ''
+                      } ${current.generationModel}`}
+                    </Tag>
+                  </Tooltip>
+                )}
               </div>
+              {panelMode === 'edit' && (
+                <Alert
+                  type={generationModel?.configured ? 'info' : 'warning'}
+                  showIcon
+                  className="sw-genmodel-bar"
+                  message={
+                    generationModel?.configured ? (
+                      <span>
+                        本次生成使用模型：
+                        <Typography.Text strong>
+                          {generationModel.providerName ||
+                            generationModel.providerCode}
+                          {' · '}
+                          {generationModel.model}
+                        </Typography.Text>
+                        <Typography.Text type="secondary">
+                          {`（${generationModel.baseUrl}）`}
+                        </Typography.Text>
+                        ，取自「模型管理 · 摘要使用」排序第一的已启用模型。
+                      </span>
+                    ) : (
+                      '尚未配置可用的摘要模型，AI 生成会失败。'
+                    )
+                  }
+                  action={
+                    <Button
+                      size="small"
+                      onClick={() => history.push('/system/models')}
+                    >
+                      模型管理
+                    </Button>
+                  }
+                />
+              )}
               {current.status === 'GENERATION_FAILED' &&
                 current.generationError && (
                   <Alert
@@ -907,7 +974,14 @@ export default function WeeklyReportPage() {
                 )}
               </Card>
               <Card
-                title="人工输入"
+                title={
+                  <span>
+                    人工输入与生成指引{' '}
+                    <Typography.Text type="secondary">
+                      点「生成 / 重新生成」时自动保存并生效
+                    </Typography.Text>
+                  </span>
+                }
                 extra={
                   <Button
                     size="small"
@@ -947,6 +1021,23 @@ export default function WeeklyReportPage() {
                       rows={3}
                       disabled={!editable}
                       placeholder="可选"
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label="生成指引（提示词）"
+                    extra="告诉 AI 本周周报的侧重点，生成时与事实一起提交。例如：重点写皇家项目交付风险与商机推进，弱化日常迭代；下周计划聚焦云鹿发版。"
+                  >
+                    <Input.TextArea
+                      value={inputDraft.generationPrompt}
+                      onChange={(event) =>
+                        setInputDraft((draftValue) => ({
+                          ...draftValue,
+                          generationPrompt: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                      disabled={!editable}
+                      placeholder="可选：如「重点写 XX 项目风险，弱化日常迭代」"
                     />
                   </Form.Item>
                 </Form>
