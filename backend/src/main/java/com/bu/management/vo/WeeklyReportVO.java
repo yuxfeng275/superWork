@@ -15,6 +15,8 @@ public class WeeklyReportVO {
     private LocalDate periodEndDate;
     private String wecomSummary;
     private String manualNotes;
+    /** 生成提示词：引导 AI 生成周报的侧重点 */
+    private String generationPrompt;
     private String coreWork;
     private String kpiSection;
     private String risks;
@@ -22,6 +24,10 @@ public class WeeklyReportVO {
     private String minutesMarkdown;
     private String status;
     private String generationModel;
+    /** 生成使用的模型提供方编码 */
+    private String generationProvider;
+    /** 生成使用的模型提供方展示名（列表/详情展示用） */
+    private String generationProviderName;
     private String generationMode;
     private String generationError;
     private Integer yuqueDocId;
@@ -48,6 +54,7 @@ public class WeeklyReportVO {
         vo.setPeriodEndDate(report.getPeriodEndDate());
         vo.setWecomSummary(report.getWecomSummary());
         vo.setManualNotes(report.getManualNotes());
+        vo.setGenerationPrompt(report.getGenerationPrompt());
         vo.setCoreWork(report.getCoreWork());
         vo.setKpiSection(report.getKpiSection());
         vo.setRisks(report.getRisks());
@@ -55,6 +62,7 @@ public class WeeklyReportVO {
         vo.setMinutesMarkdown(report.getMinutesMarkdown());
         vo.setStatus(report.getStatus());
         vo.setGenerationModel(report.getGenerationModel());
+        vo.setGenerationProvider(report.getGenerationProvider());
         vo.setGenerationMode(report.getGenerationMode());
         vo.setGenerationError(report.getGenerationError());
         vo.setYuqueDocId(report.getYuqueDocId());

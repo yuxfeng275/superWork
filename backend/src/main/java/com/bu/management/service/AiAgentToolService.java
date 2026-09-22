@@ -277,7 +277,7 @@ public class AiAgentToolService {
         try {
             LocalDate weekStart = parseWeekStart(textArg(args, "weekStart"));
             var report = weeklyReportService.getOrCreate(weekStart);
-            weeklyReportService.saveInputs(report.getId(), wecomSummary, manualNotes);
+            weeklyReportService.saveInputs(report.getId(), wecomSummary, manualNotes, null);
             return new AiAgentToolResult("已写入本周（" + weekStart + "）周报草稿："
                     + (StringUtils.hasText(wecomSummary) ? "企微智能总结 " : "")
                     + (StringUtils.hasText(manualNotes) ? "补充信息" : ""), false);

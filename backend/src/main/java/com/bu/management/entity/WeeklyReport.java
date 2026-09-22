@@ -28,6 +28,8 @@ public class WeeklyReport {
     private String wecomSummary;
     /** 人为补充信息 */
     private String manualNotes;
+    /** 生成提示词：引导 AI 生成周报的侧重点 */
+    private String generationPrompt;
     /** 自动采集事实（大事儿+财务+上周闭环） */
     private String autoFactsJson;
     /** 本周核心工作完成情况 */
@@ -43,6 +45,8 @@ public class WeeklyReport {
     /** PENDING|GENERATING|DRAFT|CONFIRMED|PUBLISHED|GENERATION_FAILED */
     private String status;
     private String generationModel;
+    /** 生成使用的模型提供方编码（如 glm / deepseek） */
+    private String generationProvider;
     /** AI|RULES|NONE */
     private String generationMode;
     private String generationError;

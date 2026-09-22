@@ -53,4 +53,28 @@ public class AiModelController {
         modelConfigService.delete(id);
         return Result.success();
     }
+
+    /**
+     * 拉取远程模型列表（OpenAI 兼容 GET /models）。
+     * 第三方中转站不知道模型 ID 时，填好地址和 Key 一键拉取可选模型。
+     */
+    @PostMapping("/remote-models")
+    public Result<List<String>> remoteModels(
+            @RequestBody AiModelConfigService.RemoteModelsRequest request) {
+        return Result.success(modelConfigService.fetchRemoteModels(request));
+    }
+
+    /** 测试已存模型：地址 + 凭据 + 模型名全链路验证。 */
+    @PostMapping("/{id}/test")
+    public Result<AiModelConfigService.ModelTestResult> testSaved(@PathVariable Long id) {
+        return Result.success(modelConfigService.testModel(
+                new AiModelConfigService.ModelTestRequest(id, null, null, null, null, null)));
+    }
+
+    /** 测试表单中的模型（未保存）：按表单地址/Key/提供方回落组装探测目标。 */
+    @PostMapping("/test")
+    public Result<AiModelConfigService.ModelTestResult> testDraft(
+            @RequestBody AiModelConfigService.ModelTestRequest request) {
+        return Result.success(modelConfigService.testModel(request));
+    }
 }

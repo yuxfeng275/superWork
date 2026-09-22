@@ -61,6 +61,7 @@ public class WeeklyReportService {
     private final SystemConfigService configService;
     private final EmailIntegrationConfigService integrationConfigService;
     private final ConnectorRegistryService registryService;
+    private final AiModelConfigService aiModelConfigService;
     private final ObjectMapper objectMapper;
 
     @Resource(name = "emailTaskExecutor")
@@ -104,14 +105,18 @@ public class WeeklyReportService {
                 .last("LIMIT " + Math.max(1, Math.min(limit, 50))));
     }
 
-    /** 保存人工输入（企微智能总结 + 补充信息）。 */
-    public WeeklyReport saveInputs(Long reportId, String wecomSummary, String manualNotes) {
+    /** 保存人工输入（企微智能总结 + 补充信息 + 生成提示词）。 */
+    public WeeklyReport saveInputs(Long reportId, String wecomSummary, String manualNotes,
+                                 String generationPrompt) {
         WeeklyReport report = getById(reportId);
         if (wecomSummary != null) {
             report.setWecomSummary(wecomSummary);
         }
         if (manualNotes != null) {
             report.setManualNotes(manualNotes);
+        }
+        if (generationPrompt != null) {
+            report.setGenerationPrompt(generationPrompt);
         }
         reportMapper.updateById(report);
         return report;
@@ -306,7 +311,7 @@ public class WeeklyReportService {
 
             EmailIntegrationRuntimeConfig config = integrationConfigService.getRuntimeConfig();
             if (!config.isDeepSeekConfigured()) {
-                throw new IllegalStateException("DeepSeek 未配置");
+                throw new IllegalStateException("摘要模型未配置或未启用，请在「模型管理」勾选「摘要使用」的模型并补全接口地址");
             }
             String userInput = buildUserInput(report, factsJson);
             JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
@@ -319,6 +324,8 @@ public class WeeklyReportService {
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
             report.setStatus(WeeklyReport.STATUS_DRAFT);
             report.setGenerationModel(config.deepSeekModel());
+            report.setGenerationProvider(aiModelConfigService.digestModel()
+                    .map(AiModelConfigService.DigestModel::providerCode).orElse(null));
             report.setGenerationMode("AI");
             report.setGenerationError(null);
             reportMapper.updateById(report);
@@ -339,6 +346,10 @@ public class WeeklyReportService {
         }
         if (StringUtils.hasText(report.getManualNotes())) {
             sb.append("== 人为补充信息 ==\n").append(report.getManualNotes()).append("\n\n");
+        }
+        if (StringUtils.hasText(report.getGenerationPrompt())) {
+            sb.append("== 生成指引（用户提示词，优先遵循其侧重点要求） ==\n")
+                    .append(report.getGenerationPrompt()).append("\n\n");
         }
         return sb.toString();
     }
