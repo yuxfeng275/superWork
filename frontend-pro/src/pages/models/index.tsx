@@ -7,7 +7,6 @@ import {
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { history } from '@umijs/max';
 import type { TableProps } from 'antd';
 import {
   Alert,
@@ -57,7 +56,6 @@ type ModelForm = {
   sortOrder?: number;
 };
 
-const CONNECTORS_PATH = '/system/connectors';
 const PROTOCOL_OPTIONS = [
   { value: 'openai-compat', label: 'OpenAI 兼容（对话 / 摘要 / 中转站）' },
   { value: 'typesafe', label: 'TypeSafe Jev（决策，不进助手下拉）' },
@@ -262,6 +260,10 @@ export default function ModelsPage() {
       message.warning('请先填写模型名再测试');
       return;
     }
+    if (values.apiProtocol === 'typesafe') {
+      message.warning('TypeSafe 决策模型不走 OpenAI 兼容协议，不支持在线测试');
+      return;
+    }
     setTestingDraft(true);
     try {
       const result = await superworkApi.testAiModelDraft({
@@ -327,7 +329,7 @@ export default function ModelsPage() {
             <Tag>{row.apiProtocol || 'openai-compat'}</Tag>
           </Space>
           <Typography.Text type="secondary" className="sw-model-meta">
-            {row.baseUrl || `回落连接器 ${row.providerCode}`}
+            {row.baseUrl || '未配置接口地址'}
           </Typography.Text>
           <Typography.Text type="secondary" className="sw-model-meta">
             {row.apiKeyConfigured ? 'Key 已配置' : 'Key 未配置'}
@@ -407,15 +409,23 @@ export default function ModelsPage() {
       width: 220,
       render: (_: unknown, row) => (
         <Space size={0}>
-          <Button
-            type="link"
-            icon={<ThunderboltOutlined />}
-            loading={testingId === row.id}
-            disabled={!row.enabled}
-            onClick={() => void testRow(row)}
-          >
-            测试
-          </Button>
+          {(row.apiProtocol || 'openai-compat') === 'typesafe' ? (
+            <Tooltip title="TypeSafe 决策模型不走 OpenAI 兼容协议，不支持在线测试">
+              <Button type="link" icon={<ThunderboltOutlined />} disabled>
+                测试
+              </Button>
+            </Tooltip>
+          ) : (
+            <Button
+              type="link"
+              icon={<ThunderboltOutlined />}
+              loading={testingId === row.id}
+              disabled={!row.enabled}
+              onClick={() => void testRow(row)}
+            >
+              测试
+            </Button>
+          )}
           <Button
             type="link"
             icon={<EditOutlined />}
@@ -448,14 +458,11 @@ export default function ModelsPage() {
           </Typography.Text>
           <Typography.Title level={2}>模型管理</Typography.Title>
           <Typography.Paragraph type="secondary">
-            模型自己填协议、接口地址和 API Key（官方 / 中转站 / 自建 OpenAI 兼容）。
-            留空时才回落同名连接器。连接器只管外部系统（云效、工时、OA、语雀、邮件、企微），不再当模型提供方。
+            模型在这里自填协议、接口地址和 API Key（官方 / 中转站 / 自建 OpenAI 兼容），
+            支持一键拉取提供方的模型列表并在线测试连通性。
           </Typography.Paragraph>
         </div>
         <Space>
-          <Button onClick={() => history.push(CONNECTORS_PATH)}>
-            连接器管理
-          </Button>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新
           </Button>
@@ -501,12 +508,7 @@ export default function ModelsPage() {
           showIcon
           className="sw-model-hint"
           message={`接入未就绪：${unreadyProviders.join('、')}`}
-          description="请在本页填写接口地址与 API Key，或给同名连接器补全凭据。未就绪的模型不会出现在 AI 助手与摘要里。"
-          action={
-            <Button size="small" onClick={() => history.push(CONNECTORS_PATH)}>
-              去连接器管理
-            </Button>
-          }
+          description="请在编辑里补全该模型的接口地址与 API Key。未就绪的模型不会出现在 AI 助手与摘要里。"
         />
       )}
       {error && (
@@ -571,7 +573,7 @@ export default function ModelsPage() {
                 name="providerCode"
                 label="提供方编码"
                 rules={[{ required: true, message: '请填写提供方编码' }]}
-                extra="如 openai / deepseek / glm；可手填，不必先建连接器"
+                extra="如 openai / deepseek / glm；自定义编码即可"
               >
                 <Input placeholder="openai" />
               </Form.Item>
@@ -632,7 +634,7 @@ export default function ModelsPage() {
               <Form.Item
                 name="baseUrl"
                 label="接口地址"
-                extra="OpenAI 兼容根地址，如 https://api.openai.com/v1；留空回落同名连接器"
+                extra="OpenAI 兼容根地址，如 https://api.openai.com/v1"
               >
                 <Input placeholder="https://api.openai.com/v1" />
               </Form.Item>
@@ -659,7 +661,7 @@ export default function ModelsPage() {
                 name="clearApiKey"
                 label="清除已存 Key"
                 valuePropName="checked"
-                extra="勾选后改回使用同名连接器凭据"
+                extra="勾选后删除已保存的 Key，下次保存生效"
               >
                 <Switch />
               </Form.Item>
