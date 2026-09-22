@@ -8,6 +8,8 @@ import com.bu.management.mapper.ConnectorMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -309,7 +311,8 @@ public class ConnectorRegistryService {
     /** POST JSON 并按 Bearer 认证；返回响应体（2xx 之外抛业务异常）。 */
     public JsonNode postJson(Connector entity, String path, Map<String, Object> body, String token) {
         String name = entity == null || !StringUtils.hasText(entity.getName()) ? "外部系统" : entity.getName();
-        return postJson(entity == null ? null : entity.getBaseUrl(), path, body, token, name);
+        String proxy = entity == null ? null : extra(entity, "proxy");
+        return postJson(entity == null ? null : entity.getBaseUrl(), path, body, token, name, proxy);
     }
 
     public JsonNode postJson(String baseUrl, String path, Map<String, Object> body, String token) {
@@ -317,7 +320,22 @@ public class ConnectorRegistryService {
     }
 
     public JsonNode postJson(String baseUrl, String path, Map<String, Object> body, String token, String name) {
+        return postJson(baseUrl, path, body, token, name, null);
+    }
+
+    /** proxy 非空时走 HTTP CONNECT 前代（连接器 extra.proxy = http://host:port）；TLS 端到端不终止。 */
+    public JsonNode postJson(String baseUrl, String path, Map<String, Object> body, String token,
+            String name, String proxy) {
         try {
+            HttpClient client = httpClient;
+            if (StringUtils.hasText(proxy)) {
+                URI proxyUri = URI.create(proxy.trim());
+                int port = proxyUri.getPort() > 0 ? proxyUri.getPort() : 7890;
+                client = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .proxy(ProxySelector.of(new InetSocketAddress(proxyUri.getHost(), port)))
+                        .build();
+            }
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(trimSlash(baseUrl) + (path.startsWith("/") ? path : "/" + path)))
                     .timeout(Duration.ofSeconds(30))
@@ -326,7 +344,7 @@ public class ConnectorRegistryService {
             if (StringUtils.hasText(token)) {
                 builder.header("Authorization", "Bearer " + token);
             }
-            HttpResponse<String> response = httpClient.send(
+            HttpResponse<String> response = client.send(
                     builder.POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build(),
                     HttpResponse.BodyHandlers.ofString());
             String label = StringUtils.hasText(name) ? name : "外部系统";

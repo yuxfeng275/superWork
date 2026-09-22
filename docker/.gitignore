@@ -4,6 +4,10 @@ redis/data/
 minio/data/
 data/meetings/
 asr-models/
+mihomo/config.yaml
+mihomo/mihomo
+mihomo/*.mmdb
+mihomo/geoip.dat
 
 # 日志文件
 nginx/logs/

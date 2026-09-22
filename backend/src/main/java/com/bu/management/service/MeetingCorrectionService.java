@@ -38,6 +38,7 @@ public class MeetingCorrectionService {
 
     private final MeetingSummaryClient summaryClient;
     private final JevClient jevClient;
+    private final AiModelConfigService modelConfigService;
     private final ObjectMapper objectMapper;
 
     /**
@@ -70,7 +71,7 @@ public class MeetingCorrectionService {
         }
 
         // Jev 门控 1：是否需要纠偏（连接器未就绪 → 跳过门控，直接纠偏）
-        Optional<Boolean> needed = jevClient.judge(input,
+        Optional<Boolean> needed = judge(input,
                 "这是一次会议的语音识别转写（segments）与领域术语表（glossary）。转写中是否存在疑似术语/专名误识别"
                         + "（音近字错、英文缩写被拆成带空格的字母或错拼），需要纠偏？");
         if (needed.isPresent() && !needed.get()) {
@@ -91,7 +92,7 @@ public class MeetingCorrectionService {
         }
 
         // Jev 门控 2：纠偏提案是否安全采纳（仅当有改动时）
-        Optional<Boolean> accept = jevClient.judge(diffOf(segments, corrected),
+        Optional<Boolean> accept = judge(diffOf(segments, corrected),
                 "上面是会议转写纠偏对照（每行：seq | 原文 → 纠偏）。纠偏是否仅修正了术语/专名识别错误、语义与原文一致、可以采纳？");
         if (accept.isPresent() && !accept.get()) {
             log.warn("Jev 判定纠偏提案不可采纳，保持原稿");
@@ -135,6 +136,26 @@ public class MeetingCorrectionService {
                     origin.speaker(), text, true));
         }
         return out == null ? segments : out;
+    }
+
+    /** 决策模型（Jev/System One）守门：模型管理未勾选「决策」或调用失败 → empty（无门控）。 */
+    private Optional<Boolean> judge(String state, String instructions) {
+        Optional<AiModelConfigService.DecisionModel> model = modelConfigService.decisionModel();
+        if (model.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<String, Object> questions = Map.of("judge", Map.of(
+                "type", "noul",
+                "instructions", instructions));
+        try {
+            JevClient.Evaluation evaluation = jevClient.evaluate(
+                    model.get().baseUrl(), model.get().apiKey(), model.get().model(),
+                    state, questions, jevClient.connectorProxy());
+            return Optional.of(evaluation.noul("judge") >= 0.5);
+        } catch (RuntimeException e) {
+            log.warn("Jev 判定失败（降级为无门控）：{}", e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private static String diffOf(List<Segment> before, List<Segment> after) {

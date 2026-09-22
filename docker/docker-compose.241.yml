@@ -148,6 +148,24 @@ services:
     networks:
       - bu-network
 
+  # 出口代理（mihomo，订阅节点）：默认直连，仅 typesafe.ai / b.ai 等被墙域名走节点。
+  # 连接器在 extra.proxy=http://mihomo:7890 时经此前代（CONNECT 隧道，TLS 端到端）；仅 bu-network 内网，不发布宿主端口。
+  mihomo:
+    build:
+      context: ./mihomo
+    container_name: superwork-bu-mihomo
+    restart: unless-stopped
+    volumes:
+      - ./mihomo:/root/.config/mihomo
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7890"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - bu-network
+
   frontend:
     build:
       context: ../frontend

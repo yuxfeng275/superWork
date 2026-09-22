@@ -27,6 +27,8 @@ class MeetingCorrectionServiceTest {
     private MeetingSummaryClient summaryClient;
     @Mock
     private JevClient jevClient;
+    @Mock
+    private AiModelConfigService modelConfigService;
 
     private ObjectMapper objectMapper;
     private MeetingCorrectionService correctionService;
@@ -34,7 +36,8 @@ class MeetingCorrectionServiceTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        correctionService = new MeetingCorrectionService(summaryClient, jevClient, objectMapper);
+        correctionService = new MeetingCorrectionService(summaryClient, jevClient, modelConfigService,
+                objectMapper);
     }
 
     @Test
@@ -47,10 +50,9 @@ class MeetingCorrectionServiceTest {
     }
 
     @Test
-    @DisplayName("合法纠偏被应用：仅 text 变化、edited=true，未改段原样")
+    @DisplayName("合法纠偏被应用：仅 text 变化、edited=true，未改段原样（决策模型未配置时无门控）")
     void validCorrections_applied() throws Exception {
         List<Segment> input = segments("大家好", "先对齐 c d p 项目的本期目标");
-        when(jevClient.judge(any(), any())).thenReturn(Optional.empty());
         when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
                 "{\"corrections\":[{\"seq\":2,\"text\":\"先对齐 CDP 项目的本期目标\"}]}"));
 
@@ -67,7 +69,6 @@ class MeetingCorrectionServiceTest {
     @DisplayName("越界 seq 与未改动条目被忽略；全忽略时返回原引用")
     void outOfRangeAndNoop_ignored() throws Exception {
         List<Segment> input = segments("大家好");
-        when(jevClient.judge(any(), any())).thenReturn(Optional.empty());
         when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
                 "{\"corrections\":[{\"seq\":99,\"text\":\"改动\"},{\"seq\":1,\"text\":\"大家好\"}]}"));
 
@@ -78,7 +79,6 @@ class MeetingCorrectionServiceTest {
     @DisplayName("长度暴增（超原文 2 倍 + 20 字）的纠偏被视为改写而忽略")
     void lengthExplosion_ignored() throws Exception {
         List<Segment> input = segments("短句");
-        when(jevClient.judge(any(), any())).thenReturn(Optional.empty());
         when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
                 "{\"corrections\":[{\"seq\":1,\"text\":\"这是一段被大幅改写扩写的文本，远超原文长度，不应该被采纳为纠偏结果\"}]}"));
 
@@ -89,7 +89,6 @@ class MeetingCorrectionServiceTest {
     @DisplayName("LLM 调用失败 → 保持原稿")
     void llmFailure_keepsOriginal() {
         List<Segment> input = segments("先对齐 c d p 项目");
-        when(jevClient.judge(any(), any())).thenReturn(Optional.empty());
         when(summaryClient.chatJson(any(), any()))
                 .thenThrow(new IllegalStateException("AI 模型未配置或未启用"));
 
@@ -98,9 +97,10 @@ class MeetingCorrectionServiceTest {
 
     @Test
     @DisplayName("Jev 判定无需纠偏 → 不调 LLM，原样返回")
-    void jevSkips_llmNotCalled() {
+    void jevSkips_llmNotCalled() throws Exception {
         List<Segment> input = segments("一切正常的发言");
-        when(jevClient.judge(any(), any())).thenReturn(Optional.of(false));
+        when(modelConfigService.decisionModel()).thenReturn(Optional.of(decisionModel()));
+        when(jevClient.evaluate(any(), any(), any(), any(), any(), any())).thenReturn(noul(0.1));
 
         assertThat(correctionService.correct(input, "CDP")).isSameAs(input);
         verifyNoInteractions(summaryClient);
@@ -110,13 +110,40 @@ class MeetingCorrectionServiceTest {
     @DisplayName("Jev 判定纠偏提案不可采纳 → 返回原稿")
     void jevRejects_keepsOriginal() throws Exception {
         List<Segment> input = segments("先对齐 c d p 项目");
-        when(jevClient.judge(any(), any()))
-                .thenReturn(Optional.of(true))
-                .thenReturn(Optional.of(false));
+        when(modelConfigService.decisionModel()).thenReturn(Optional.of(decisionModel()));
+        when(jevClient.evaluate(any(), any(), any(), any(), any(), any()))
+                .thenReturn(noul(0.9))
+                .thenReturn(noul(0.1));
         when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
                 "{\"corrections\":[{\"seq\":1,\"text\":\"先对齐 CDP 项目\"}]}"));
 
         assertThat(correctionService.correct(input, "CDP")).isSameAs(input);
+    }
+
+    @Test
+    @DisplayName("决策模型调用失败 → 降级为无门控，纠偏照常进行")
+    void jevFailure_fallsBackToNoGate() throws Exception {
+        List<Segment> input = segments("先对齐 c d p 项目");
+        when(modelConfigService.decisionModel()).thenReturn(Optional.of(decisionModel()));
+        when(jevClient.evaluate(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new IllegalStateException("TypeSafe Jev暂时不可用"));
+        when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
+                "{\"corrections\":[{\"seq\":1,\"text\":\"先对齐 CDP 项目\"}]}"));
+
+        List<Segment> corrected = correctionService.correct(input, "CDP");
+
+        assertThat(corrected).isNotSameAs(input);
+        assertThat(corrected.get(0).text()).isEqualTo("先对齐 CDP 项目");
+    }
+
+    private JevClient.Evaluation noul(double value) throws Exception {
+        return new JevClient.Evaluation("jev-latest",
+                objectMapper.readTree("{\"judge\":{\"type\":\"noul\",\"noul\":" + value + "}}"));
+    }
+
+    private AiModelConfigService.DecisionModel decisionModel() {
+        return new AiModelConfigService.DecisionModel("typesafe", "https://api.typesafe.ai",
+                "jev-latest", "tok");
     }
 
     private static List<Segment> segments(String... texts) {

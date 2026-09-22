@@ -74,4 +74,29 @@ class JevClientTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("answers");
     }
+    @Test
+    @DisplayName("evaluate：baseUrl 已含 /v1/systemone 时不重复拼接")
+    void evaluateStripsEmbeddedPath() {
+        when(registryService.postJson(eq("https://api.typesafe.ai"), eq("/v1/systemone"), any(), eq("sk"), any()))
+                .thenReturn(mapper.createObjectNode().set("answers", mapper.createObjectNode()
+                        .set("judge", mapper.createObjectNode().put("type", "noul").put("noul", 0.9))));
+
+        client.evaluate("https://api.typesafe.ai/v1/systemone", "sk", "jev-latest", "s", Map.of());
+
+        verify(registryService).postJson(eq("https://api.typesafe.ai"), eq("/v1/systemone"), any(), eq("sk"), any());
+    }
+
+    @Test
+    @DisplayName("evaluate：proxy 非空时 postJson 携带前代地址")
+    void evaluatePassesProxyThrough() {
+        when(registryService.postJson(eq("https://api.typesafe.ai"), eq("/v1/systemone"), any(), eq("sk"),
+                eq("TypeSafe Jev"), eq("http://mihomo:7890")))
+                .thenReturn(mapper.createObjectNode().set("answers", mapper.createObjectNode()
+                        .set("judge", mapper.createObjectNode().put("type", "noul").put("noul", 0.9))));
+
+        client.evaluate("https://api.typesafe.ai", "sk", "jev-latest", "s", Map.of(), "http://mihomo:7890");
+
+        verify(registryService).postJson(eq("https://api.typesafe.ai"), eq("/v1/systemone"), any(), eq("sk"),
+                eq("TypeSafe Jev"), eq("http://mihomo:7890"));
+    }
 }
