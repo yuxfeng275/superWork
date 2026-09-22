@@ -151,7 +151,11 @@ public class MeetingCorrectionService {
             JevClient.Evaluation evaluation = jevClient.evaluate(
                     model.get().baseUrl(), model.get().apiKey(), model.get().model(),
                     state, questions, jevClient.connectorProxy());
-            return Optional.of(evaluation.noul("judge") >= 0.5);
+            boolean accepted = evaluation.noul("judge") >= 0.5;
+            log.info("Jev 判定：{}… → {}（noul={}，model={}）",
+                    instructions.substring(0, Math.min(24, instructions.length())),
+                    accepted ? "是" : "否", evaluation.noul("judge"), evaluation.model());
+            return Optional.of(accepted);
         } catch (RuntimeException e) {
             log.warn("Jev 判定失败（降级为无门控）：{}", e.getMessage());
             return Optional.empty();
