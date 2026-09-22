@@ -80,6 +80,57 @@ class BuKeyMatterLockIntegrationTest {
                 )
                 """);
         jdbcTemplate.execute("""
+                CREATE TABLE user (
+                    id BIGINT PRIMARY KEY,
+                    username VARCHAR(50),
+                    password VARCHAR(100),
+                    real_name VARCHAR(50),
+                    role VARCHAR(30),
+                    email VARCHAR(100),
+                    phone VARCHAR(30),
+                    status INT,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE system_config_item (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    group_code VARCHAR(50),
+                    group_name VARCHAR(100),
+                    group_description VARCHAR(200),
+                    config_key VARCHAR(100),
+                    config_name VARCHAR(100),
+                    config_description VARCHAR(200),
+                    value_type VARCHAR(20),
+                    config_value VARCHAR(1000),
+                    is_sensitive INT,
+                    is_required INT,
+                    sort_order INT,
+                    status INT,
+                    updated_by BIGINT,
+                    created_at TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE user_todo (
+                    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                    assignee_id BIGINT NOT NULL,
+                    actor_id BIGINT,
+                    source_type VARCHAR(30),
+                    source_id BIGINT,
+                    mention_token VARCHAR(100),
+                    title VARCHAR(200),
+                    excerpt VARCHAR(500),
+                    link VARCHAR(500),
+                    source_date DATE,
+                    status VARCHAR(20),
+                    created_at TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+                """);
+        jdbcTemplate.execute("""
                 CREATE TABLE bu_key_matter_weekly_update (
                     id BIGINT PRIMARY KEY AUTO_INCREMENT,
                     key_matter_id BIGINT NOT NULL,
@@ -319,7 +370,10 @@ class BuKeyMatterLockIntegrationTest {
     }
 
     private void dropTables() {
+        jdbcTemplate.execute("DROP TABLE IF EXISTS user");
         jdbcTemplate.execute("DROP TABLE IF EXISTS bu_key_matter_weekly_update");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS system_config_item");
+        jdbcTemplate.execute("DROP TABLE IF EXISTS user_todo");
         jdbcTemplate.execute("DROP TABLE IF EXISTS bu_key_matter");
     }
 }
