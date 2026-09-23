@@ -201,7 +201,11 @@ public class OaContractCollector implements DataCollector {
         entry.setSourceSystem("OA");
         entry.setDetailNo(detailNo.trim());
         entry.setContractNo(field(row, "contractNo"));
-        entry.setContractName(field(row, "contractName"));
+        String contractName = field(row, "contractName");
+        if (contractName != null && contractName.trim().startsWith("测试")) {
+            return null; // OA 报表里的测试合同不进营收统计
+        }
+        entry.setContractName(contractName);
         entry.setBrand(field(row, "brand"));
         entry.setCustomer(field(row, "customer"));
         entry.setItemDesc(field(row, "itemDesc"));
@@ -209,6 +213,7 @@ public class OaContractCollector implements DataCollector {
         entry.setBizLineRaw(typeRaw);
         entry.setSalesOwner(field(row, "salesOwner"));
         entry.setReceivableAmount(amount);
+        entry.setReceivableDate(dateText(field(row, "receivableDate")));
         String saleMonth = monthText(field(row, "saleMonth"));
         if (saleMonth == null) {
             saleMonth = monthText(field(row, "receivableDate"));

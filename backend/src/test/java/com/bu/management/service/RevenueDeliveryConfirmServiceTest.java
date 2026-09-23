@@ -119,6 +119,30 @@ class RevenueDeliveryConfirmServiceTest {
     }
 
     @Test
+    @DisplayName("stats：应收日期优先于收款销售月份归组；测试合同剔除")
+    void statsGroupsByReceivableMonth() {
+        LocalDate today = LocalDate.now();
+        int year = today.getYear();
+        // 收款销售月份 2026-08，应收日期在年末 Q4 → 应归入应收月份
+        RevenueContractEntry q4 = entry(year + "-08", 1L, "张三", "70000", null);
+        q4.setReceivableDate(LocalDate.of(year, 11, 30));
+        q4.setContractName("正常合同");
+        // 同名月但合同名是测试合同 → 剔除
+        RevenueContractEntry test = entry(year + "-11", 1L, "cs", "5", null);
+        test.setReceivableDate(LocalDate.of(year, 11, 1));
+        test.setContractName("测试合同2025");
+        when(entryMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(q4, test));
+        when(businessLineMapper.selectList(null)).thenReturn(List.of(line(1L, "会员通")));
+        when(confirmMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+        List<RevenueDeliveryConfirmService.StatsRow> rows = service.stats(year);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).yearMonth()).isEqualTo(String.format("%04d-11", year));
+        assertThat(rows.get(0).pendingAmount()).isEqualByComparingTo("70000");
+    }
+
+    @Test
     @DisplayName("confirm：非法月份与非法状态拒绝")
     void confirmValidates() {
         assertThatThrownBy(() -> service.confirm(

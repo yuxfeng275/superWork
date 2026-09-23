@@ -111,7 +111,11 @@ public class WorktimeContractSyncService {
         entry.setSourceSystem("WORKTIME");
         entry.setDetailNo(detailNo.trim());
         entry.setContractNo(text(row, "contract_id"));
-        entry.setContractName(text(row, "contract_name"));
+        String contractName = text(row, "contract_name");
+        if (contractName != null && contractName.trim().startsWith("测试")) {
+            return null; // 工时系统里的测试合同不进营收统计
+        }
+        entry.setContractName(contractName);
         entry.setBrand(text(row, "brand"));
         entry.setCustomer(text(row, "customer_name"));
         entry.setItemDesc(text(row, "payment_item_content"));
@@ -127,6 +131,7 @@ public class WorktimeContractSyncService {
             saleMonth = monthText(text(row, "receivable_date"));
         }
         entry.setSaleMonth(saleMonth);
+        entry.setReceivableDate(dateText(text(row, "receivable_date")));
         entry.setDeliveryDate(dateText(text(row, "project_delivery_date")));
         entry.setSmsCost(decimal(row, "sms_cost"));
         entry.setDirectCost(decimal(row, "direct_cost"));

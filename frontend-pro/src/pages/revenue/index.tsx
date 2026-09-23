@@ -90,7 +90,7 @@ export default function RevenuePage() {
     {
       matrix: { title: '工时 & 成本', desc: '业务线 × 项目的工时、成本与营收矩阵，含月份结账、单元格明细与营收估算。' },
       delivery: { title: '交付与利润', desc: '按合同交付日期归集的交付收入、成本与利润，含预估交付计划与其他成本。' },
-      confirm: { title: '待交付确认', desc: '按 月份 × 业务线 × 销售 统计待交付合同，与销售逐一确认当月能否交付并记录备注。' },
+      confirm: { title: '待交付确认', desc: '按 应收月份 × 业务线 × 销售 统计待交付合同，与销售逐一确认当月能否交付并记录备注。' },
       import: { title: '数据导入', desc: '工时 / 成本 / 合同明细的 Excel 兜底导入、批次历史与合同归属映射。' },
       pending: { title: '待映射与销售项目', desc: '待人工映射归属的工时/成本记录，以及销售项目与商机的绑定。' },
     } as Record<string, { title: string; desc: string }>

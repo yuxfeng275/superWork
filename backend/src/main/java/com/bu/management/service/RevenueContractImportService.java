@@ -230,7 +230,11 @@ public class RevenueContractImportService {
                 RevenueContractEntry entry = new RevenueContractEntry();
                 entry.setDetailNo(detailNo.trim());
                 entry.setContractNo(trimToNull(contractNo));
-                entry.setContractName(trimToNull(text(formatter, evaluator, row, columns, "合同名称")));
+                String contractName = trimToNull(text(formatter, evaluator, row, columns, "合同名称"));
+                if (contractName != null && contractName.startsWith("测试")) {
+                    continue; // 测试合同不进营收统计
+                }
+                entry.setContractName(contractName);
                 entry.setBrand(trimToNull(text(formatter, evaluator, row, columns, "品牌")));
                 entry.setCustomer(trimToNull(text(formatter, evaluator, row, columns, "客户名称")));
                 entry.setItemDesc(trimToNull(text(formatter, evaluator, row, columns, "款项内容")));
@@ -246,6 +250,7 @@ public class RevenueContractImportService {
                     saleMonth = monthText(text(formatter, evaluator, row, columns, "应收日期"));
                 }
                 entry.setSaleMonth(saleMonth);
+                entry.setReceivableDate(dateText(text(formatter, evaluator, row, columns, "应收日期")));
                 entry.setDeliveryDate(dateText(text(formatter, evaluator, row, columns, "项目交付日期")));
 
                 RevenueContractAssignment.Assigned assigned =

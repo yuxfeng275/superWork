@@ -38,6 +38,8 @@ public class RevenueContractEntry {
     private BigDecimal receivableAmount;
     /** 收款销售月份 YYYY-MM（按年视图隔离用） */
     private String saleMonth;
+    /** 应收日期；待交付统计的月份维度（空回落 saleMonth） */
+    private LocalDate receivableDate;
     /** 项目交付日期；NULL=未交付 */
     private LocalDate deliveryDate;
     /** 短信成本（元），工时系统同步带入 */

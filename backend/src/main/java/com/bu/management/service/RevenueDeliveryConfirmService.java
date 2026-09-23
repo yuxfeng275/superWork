@@ -61,11 +61,14 @@ public class RevenueDeliveryConfirmService {
     public List<StatsRow> stats(Integer year) {
         int targetYear = year == null ? LocalDate.now().getYear() : year;
         LocalDate today = LocalDate.now();
+        // 数据量小（百级行），全量拉取后在内存按 应收月份（空回落收款销售月份）归组
         List<RevenueContractEntry> entries = entryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>()
                 .select(RevenueContractEntry::getId, RevenueContractEntry::getSaleMonth,
-                        RevenueContractEntry::getBizLineId, RevenueContractEntry::getSalesOwner,
-                        RevenueContractEntry::getReceivableAmount, RevenueContractEntry::getDeliveryDate)
-                .likeRight(RevenueContractEntry::getSaleMonth, targetYear + "-"));
+                        RevenueContractEntry::getReceivableDate, RevenueContractEntry::getBizLineId,
+                        RevenueContractEntry::getSalesOwner, RevenueContractEntry::getReceivableAmount,
+                        RevenueContractEntry::getDeliveryDate, RevenueContractEntry::getContractName)
+                .and(w -> w.likeRight(RevenueContractEntry::getSaleMonth, targetYear + "-")
+                        .or().likeRight(RevenueContractEntry::getReceivableDate, targetYear + "-")));
 
         Map<Long, String> lineNames = new LinkedHashMap<>();
         for (BusinessLine line : businessLineMapper.selectList(null)) {
@@ -77,7 +80,9 @@ public class RevenueDeliveryConfirmService {
         Map<String, StatsRow> grouped = new LinkedHashMap<>();
         for (RevenueContractEntry entry : entries) {
             if (!isPendingDelivery(entry, today)) continue;
-            String month = entry.getSaleMonth();
+            if (isTestContract(entry)) continue;
+            String month = effectiveMonth(entry);
+            if (month == null || !month.startsWith(targetYear + "-")) continue;
             Long lineId = entry.getBizLineId();
             String salesKey = StringUtils.hasText(entry.getSalesOwner()) ? entry.getSalesOwner().trim() : UNSET_SALES;
             String key = month + "|" + lineId + "|" + salesKey;
@@ -110,19 +115,23 @@ public class RevenueDeliveryConfirmService {
     public List<EntryRow> entries(String yearMonth, Long bizLineId, String salesOwner) {
         requireMonth(yearMonth);
         LocalDate today = LocalDate.now();
+        String yearPrefix = yearMonth.trim().substring(0, 4) + "-";
         String salesKey = StringUtils.hasText(salesOwner) ? salesOwner.trim() : UNSET_SALES;
         return entryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>()
-                        .eq(RevenueContractEntry::getSaleMonth, yearMonth)
                         .eq(bizLineId != null, RevenueContractEntry::getBizLineId, bizLineId)
                         .isNull(bizLineId == null, RevenueContractEntry::getBizLineId)
+                        .and(w -> w.likeRight(RevenueContractEntry::getSaleMonth, yearPrefix)
+                                .or().likeRight(RevenueContractEntry::getReceivableDate, yearPrefix))
                         .orderByAsc(RevenueContractEntry::getContractNo))
                 .stream()
                 .filter(entry -> isPendingDelivery(entry, today))
+                .filter(entry -> !isTestContract(entry))
+                .filter(entry -> yearMonth.equals(effectiveMonth(entry)))
                 .filter(entry -> salesKey.equals(StringUtils.hasText(entry.getSalesOwner())
                         ? entry.getSalesOwner().trim() : UNSET_SALES))
                 .map(entry -> new EntryRow(entry.getId(), entry.getContractNo(), entry.getContractName(),
                         entry.getCustomer(), entry.getItemDesc(), entry.getReceivableAmount(),
-                        entry.getSaleMonth(), entry.getDeliveryDate()))
+                        effectiveMonth(entry), entry.getDeliveryDate()))
                 .toList();
     }
 
@@ -174,6 +183,20 @@ public class RevenueDeliveryConfirmService {
 
     private boolean isPendingDelivery(RevenueContractEntry entry, LocalDate today) {
         return entry.getDeliveryDate() == null || entry.getDeliveryDate().isAfter(today);
+    }
+
+    /** 月份维度：应收日期月份，空回落收款销售月份。 */
+    private String effectiveMonth(RevenueContractEntry entry) {
+        if (entry.getReceivableDate() != null) {
+            return String.format("%04d-%02d", entry.getReceivableDate().getYear(),
+                    entry.getReceivableDate().getMonthValue());
+        }
+        return entry.getSaleMonth();
+    }
+
+    /** 测试合同（合同名以「测试」开头）不进统计。 */
+    private boolean isTestContract(RevenueContractEntry entry) {
+        return entry.getContractName() != null && entry.getContractName().trim().startsWith("测试");
     }
 
     private Map<String, RevenueDeliveryConfirmation> confirmationsByKey(int year) {

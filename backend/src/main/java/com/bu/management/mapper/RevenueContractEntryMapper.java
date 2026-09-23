@@ -20,14 +20,14 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
             <script>
             INSERT INTO revenue_contract_entry
                 (batch_id, contract_no, detail_no, contract_name, brand, customer, item_desc,
-                 biz_line_raw, sales_owner, biz_line_id, project_id, receivable_amount, sale_month, delivery_date,
+                 biz_line_raw, sales_owner, biz_line_id, project_id, receivable_amount, sale_month, receivable_date, delivery_date,
                  sms_cost, direct_cost, third_party_cost, received_amount, payment_status,
                  pending, source_system, created_by)
             VALUES
             <foreach collection="list" item="e" separator=",">
                 (#{e.batchId}, #{e.contractNo}, #{e.detailNo}, #{e.contractName}, #{e.brand}, #{e.customer},
                  #{e.itemDesc}, #{e.bizLineRaw}, #{e.salesOwner}, #{e.bizLineId}, #{e.projectId}, #{e.receivableAmount},
-                 #{e.saleMonth}, #{e.deliveryDate},
+                 #{e.saleMonth}, #{e.receivableDate}, #{e.deliveryDate},
                  #{e.smsCost}, #{e.directCost}, #{e.thirdPartyCost}, #{e.receivedAmount}, #{e.paymentStatus},
                  #{e.pending}, #{e.sourceSystem}, #{e.createdBy})
             </foreach>
@@ -44,6 +44,7 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
                 project_id = IF(mapping_locked = 1, project_id, VALUES(project_id)),
                 receivable_amount = VALUES(receivable_amount),
                 sale_month = VALUES(sale_month),
+                receivable_date = VALUES(receivable_date),
                 delivery_date = VALUES(delivery_date),
                 sms_cost = VALUES(sms_cost),
                 direct_cost = VALUES(direct_cost),
