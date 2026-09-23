@@ -3,16 +3,24 @@
 -- 1) revenue_contract_entry 增 sales_owner（销售：承接人，缺省取报价人），
 --    由工时同步 / OA 采集 / Excel 导入三条链路写入，存量数据随下次同步回填。
 -- 2) 新增 revenue_delivery_confirmation：按 月份×业务线×销售 记录人为确认结果与备注。
+-- 注意：year_month 是 MySQL 保留字，必须反引号；ALTER 带存在性判断保证可重跑。
 -- ====================================
 
-ALTER TABLE revenue_contract_entry
-    ADD COLUMN sales_owner VARCHAR(64) NULL
-        COMMENT '销售（承接人，缺省取报价人）'
-        AFTER biz_line_raw;
+SET @has_sales_owner := (
+    SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'revenue_contract_entry'
+      AND COLUMN_NAME = 'sales_owner');
+SET @add_sales_owner := IF(@has_sales_owner = 0,
+    'ALTER TABLE revenue_contract_entry ADD COLUMN `sales_owner` VARCHAR(64) NULL COMMENT ''销售（承接人，缺省取报价人）'' AFTER biz_line_raw',
+    'SELECT 1');
+PREPARE stmt FROM @add_sales_owner;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS revenue_delivery_confirmation (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    year_month CHAR(7) NOT NULL COMMENT 'YYYY-MM（取 revenue_contract_entry.sale_month）',
+    `year_month` CHAR(7) NOT NULL COMMENT 'YYYY-MM（取 revenue_contract_entry.sale_month）',
     biz_line_id BIGINT NOT NULL COMMENT '业务线 ID',
     sales_owner VARCHAR(64) NOT NULL COMMENT '销售姓名（承接人/报价人），空串行用 _UNSET_ 占位',
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
@@ -23,6 +31,6 @@ CREATE TABLE IF NOT EXISTS revenue_delivery_confirmation (
     confirmed_at DATETIME NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_delivery_confirm (year_month, biz_line_id, sales_owner)
+    UNIQUE KEY uk_delivery_confirm (`year_month`, biz_line_id, sales_owner)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='按月待交付的销售确认（人为与销售一一确认）';
