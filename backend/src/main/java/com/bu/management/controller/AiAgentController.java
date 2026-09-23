@@ -46,6 +46,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -226,6 +227,9 @@ public class AiAgentController {
             body.put("baseUrl", model.baseUrl());
             body.put("apiKey", model.apiKey());
             body.put("model", model.model());
+            if (StringUtils.hasText(model.proxy())) {
+                body.put("proxy", model.proxy());
+            }
             body.put("systemPrompt", intent.ready()
                     ? SYSTEM_PROMPT + "\n本轮 TypeSafe Jev 判定：" + intent.summary() + "。优先使用对应工具。"
                     : SYSTEM_PROMPT);

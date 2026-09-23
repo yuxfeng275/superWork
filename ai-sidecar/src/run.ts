@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createModels, createProvider } from "@earendil-works/pi-ai";
-import type { Message, Model } from "@earendil-works/pi-ai";
+import type { FetchFunction, Message, Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { buildAgentTools, type RequestedTool } from "./tools.js";
 
 /**
@@ -38,6 +39,8 @@ export interface RunRequest {
   messages: OpaqueAgentMessage[];
   tools: RequestedTool[];
   toolCallbackUrl?: string;
+  /** HTTP CONNECT 前代（如 http://mihomo:7890），用于出口被墙的提供方（如 api.b.ai）；空 = 直连 */
+  proxy?: string;
 }
 
 /** Java-persisted AgentMessage JSON; treated as an opaque structure. */
@@ -132,6 +135,13 @@ export function validateRunRequest(body: unknown): ValidationResult {
     return { ok: false, message: "toolCallbackUrl is required when tools are declared" };
   }
 
+  if (body.toolCallbackUrl !== undefined && typeof body.toolCallbackUrl !== "string") {
+    return { ok: false, message: "toolCallbackUrl must be a string" };
+  }
+  if (body.proxy !== undefined && typeof body.proxy !== "string") {
+    return { ok: false, message: "proxy must be a string" };
+  }
+
   return {
     ok: true,
     value: {
@@ -145,6 +155,7 @@ export function validateRunRequest(body: unknown): ValidationResult {
       messages,
       tools,
       toolCallbackUrl,
+      proxy: body.proxy as string | undefined,
     },
   };
 }
@@ -174,6 +185,16 @@ export interface AgentFactoryInput {
   /** Header value for X-Sidecar-Token, when SIDECAR_TOKEN is set. */
   token?: string;
   toolCallbackUrl?: string;
+  /** HTTP CONNECT 前代；非空时提供方请求走代理 fetch */
+  proxy?: string;
+}
+
+/** 构造走 HTTP CONNECT 前代的 fetch（undici ProxyAgent），proxy 为空返回 undefined = 直连。 */
+function proxyFetchFor(proxy?: string): FetchFunction | undefined {
+  if (!proxy?.trim()) return undefined;
+  const dispatcher = new ProxyAgent(proxy.trim());
+  return ((url: unknown, init?: Record<string, unknown>) =>
+    undiciFetch(url as never, { ...init, dispatcher } as never)) as unknown as FetchFunction;
 }
 
 export type AgentFactory = (input: AgentFactoryInput) => AgentLike;
@@ -303,7 +324,11 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
       messages,
       tools: input.tools,
     },
-    streamFn: models.streamSimple.bind(models),
+    streamFn: (modelArg, context, options) =>
+      models.streamSimple(modelArg, context, {
+        ...options,
+        fetch: proxyFetchFor(input.proxy) ?? options?.fetch,
+      }),
     convertToLlm: (msgs: AgentMessage[]): Message[] =>
       msgs.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult") as unknown as Message[],
   });
@@ -552,6 +577,7 @@ async function streamRunEvents(ctx: StreamRunContext, res: ServerResponse, cb: S
       tools: ctx.tools,
       token: ctx.token,
       toolCallbackUrl: params.toolCallbackUrl,
+      proxy: params.proxy,
     });
   } catch (error) {
     agentCreationError = errorMessageText(error);

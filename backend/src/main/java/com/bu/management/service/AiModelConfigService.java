@@ -71,8 +71,8 @@ public class AiModelConfigService {
     /** AI 助手可选模型（前端下拉）。 */
     public record ModelOption(String provider, String model, String label) {}
 
-    /** 传给侧车 / 摘要客户端的运行参数。 */
-    public record ModelConfig(String baseUrl, String model, String apiKey) {}
+    /** 传给侧车 / 摘要客户端的运行参数；proxy = 同名连接器 extra.proxy（HTTP CONNECT 前代），空 = 直连。 */
+    public record ModelConfig(String baseUrl, String model, String apiKey, String proxy) {}
 
     /** 摘要 / 周报纪要使用的模型。 */
     public record DigestModel(String providerCode, String baseUrl, String model, String apiKey) {}
@@ -194,13 +194,15 @@ public class AiModelConfigService {
     public List<String> fetchRemoteModels(RemoteModelsRequest request) {
         Endpoint endpoint = resolveProbeEndpoint(request.id(), request.providerCode(),
                 request.baseUrl(), request.apiKey());
+        String proxy = proxyFor(request.id() != null
+                ? require(request.id()).getProviderCode() : request.providerCode());
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint.baseUrl() + "/models"))
                 .timeout(Duration.ofSeconds(20))
                 .header("Authorization", "Bearer " + endpoint.apiKey())
                 .GET()
                 .build();
-        JsonNode body = send(httpRequest, "拉取模型列表");
+        JsonNode body = send(httpRequest, "拉取模型列表", proxy);
         JsonNode data = body.path("data");
         if (!data.isArray()) {
             throw new IllegalStateException("模型列表响应无效：缺少 data 数组");
@@ -247,7 +249,8 @@ public class AiModelConfigService {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(httpJson.writeValueAsString(payload)))
                     .build();
-            JsonNode body = send(httpRequest, "模型测试");
+            JsonNode body = send(httpRequest, "模型测试",
+                    proxyFor(stored != null ? stored.getProviderCode() : request.providerCode()));
             long latencyMs = (System.nanoTime() - start) / 1_000_000;
             if (body.path("choices").isArray() && !body.path("choices").isEmpty()) {
                 return new ModelTestResult(true, "对话接口正常", latencyMs);
@@ -278,11 +281,11 @@ public class AiModelConfigService {
         return resolveEndpoint(probe);
     }
 
-    /** 发送请求并把非 2xx 响应翻译成可读错误。 */
-    private JsonNode send(HttpRequest request, String action) {
+    /** 发送请求并把非 2xx 响应翻译成可读错误；proxy 非空时走 HTTP CONNECT 前代（TLS 端到端）。 */
+    private JsonNode send(HttpRequest request, String action, String proxy) {
         HttpResponse<String> response;
         try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            response = clientFor(proxy).send(request, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(action + "被中断", e);
@@ -300,6 +303,26 @@ public class AiModelConfigService {
         } catch (Exception e) {
             throw new IllegalStateException(action + "失败：响应不是合法 JSON", e);
         }
+    }
+
+    /** 同名连接器的 extra.proxy（如 http://mihomo:7890）；未配置返回 null = 直连。 */
+    public String proxyFor(String providerCode) {
+        if (!StringUtils.hasText(providerCode)) return null;
+        return registryService.findByCode(normalizeProvider(providerCode))
+                .map(connector -> registryService.extra(connector, "proxy"))
+                .filter(StringUtils::hasText)
+                .orElse(null);
+    }
+
+    private HttpClient clientFor(String proxy) {
+        if (!StringUtils.hasText(proxy)) return httpClient;
+        java.net.URI proxyUri = java.net.URI.create(proxy.trim());
+        int port = proxyUri.getPort() > 0 ? proxyUri.getPort() : 7890;
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .proxy(java.net.ProxySelector.of(
+                        new java.net.InetSocketAddress(proxyUri.getHost(), port)))
+                .build();
     }
 
     // ==================== 运行期 ====================
@@ -334,7 +357,8 @@ public class AiModelConfigService {
                 .orElseThrow(() -> new IllegalStateException(
                         "AI 模型未配置或未启用，请在「模型管理」中配置 " + code + " 的可用模型"));
         Endpoint endpoint = resolveEndpoint(entity);
-        return new ModelConfig(endpoint.baseUrl(), entity.getModel(), endpoint.apiKey());
+        return new ModelConfig(endpoint.baseUrl(), entity.getModel(), endpoint.apiKey(),
+                proxyFor(entity.getProviderCode()));
     }
 
     /** 摘要 / 周报纪要使用的模型（启用 + 勾选摘要 + 接入就绪，按排序取第一条）。 */

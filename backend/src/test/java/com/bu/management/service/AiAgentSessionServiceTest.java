@@ -164,7 +164,7 @@ class AiAgentSessionServiceTest {
         when(modelConfigService.defaultModel()).thenReturn(java.util.Optional.of(
                 new AiModelConfigService.ModelOption("glm", "glm-5.3", "GLM（智谱）")));
         when(modelConfigService.resolveModelConfig("glm", null)).thenReturn(
-                new AiModelConfigService.ModelConfig("https://open.bigmodel.cn/api/paas/v4", "glm-5.3", "sk-test"));
+                new AiModelConfigService.ModelConfig("https://open.bigmodel.cn/api/paas/v4", "glm-5.3", "sk-test", null));
 
         service.create(7L, null, null, null);
 
@@ -181,7 +181,7 @@ class AiAgentSessionServiceTest {
         when(modelConfigService.normalizeProvider("deepseek")).thenReturn("deepseek");
         when(modelConfigService.resolveModelConfig("deepseek", null))
                 .thenReturn(new AiModelConfigService.ModelConfig(
-                        "https://api.deepseek.com", "deepseek-v4-flash", "sk-test"));
+                        "https://api.deepseek.com", "deepseek-v4-flash", "sk-test", null));
 
         service.create(7L, null, "deepseek", null);
 
