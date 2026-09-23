@@ -240,7 +240,8 @@ public class AiModelConfigService {
         try {
             Map<String, Object> payload = Map.of(
                     "model", model,
-                    "max_tokens", 1,
+                    // 部分中转站（如 b.ai）要求 max_tokens > 2，取 4 兼容
+                    "max_tokens", 4,
                     "messages", List.of(Map.of("role", "user", "content", "ping")));
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create(endpoint.baseUrl() + "/chat/completions"))
