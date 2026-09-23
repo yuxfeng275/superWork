@@ -30,6 +30,8 @@ public class RevenueContractEntry {
     private String itemDesc;
     /** 收款款项类型（原始业务线名） */
     private String bizLineRaw;
+    /** 销售（承接人，缺省取报价人） */
+    private String salesOwner;
     private Long bizLineId;
     private Long projectId;
     /** 应收金额（元） */

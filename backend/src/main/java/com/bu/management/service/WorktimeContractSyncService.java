@@ -118,6 +118,9 @@ public class WorktimeContractSyncService {
         String typeRaw = StringUtils.hasText(text(row, "business_line_original"))
                 ? text(row, "business_line_original") : text(row, "business_line");
         entry.setBizLineRaw(typeRaw);
+        // 销售 = 承接人，缺省取报价人（工时系统 drilldown 的 undertaker 经常为空）
+        String undertaker = text(row, "undertaker");
+        entry.setSalesOwner(StringUtils.hasText(undertaker) ? undertaker : text(row, "quoter"));
         entry.setReceivableAmount(decimal(row, "receivable_amount"));
         String saleMonth = monthText(text(row, "payment_sales_month"));
         if (saleMonth == null) {
