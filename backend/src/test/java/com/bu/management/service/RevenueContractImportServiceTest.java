@@ -155,7 +155,7 @@ class RevenueContractImportServiceTest {
                 List.of("HT-5", "会员通2.0", "惠氏", "雀巢", "开发", "全域-全渠道-会员通",
                         "2026-11-30", "", "21200", "", "", "2026-08", "", "d5"),
                 // 未知名品牌 + 定制类型（full 模式）→ 待映射，不静默丢弃
-                List.of("HT-6", "测试合同", "", "某客户", "定制", "全域-全渠道-全域云鹿定制",
+                List.of("HT-6", "定制开发", "", "某客户", "定制", "全域-全渠道-全域云鹿定制",
                         "2026-12-12", "", "85108", "", "", "2026-12", "", "d6"),
                 // 完全未知类型 → 待映射
                 List.of("HT-7", "短信", "东鹏", "东鹏", "短信", "全域-全渠道-全域未知类型",
@@ -202,6 +202,24 @@ class RevenueContractImportServiceTest {
         assertThat(royal.getDeliveryDate().toString()).isEqualTo("2026-06-30");
         assertThat(royal.getBrand()).isEqualTo("皇家宠物");
         assertThat(royal.getContractNo()).isEqualTo("HT-1");
+    }
+
+    @Test
+    void importSkipsTestContracts() throws IOException {
+        MockMultipartFile file = workbookFile(List.of(
+                headers(),
+                List.of("HT-T1", "测试合同-请勿使用", "惠氏", "雀巢", "开发", "全域-全渠道-会员通",
+                        "2026-11-30", "", "21200", "", "", "2026-08", "", "t1"),
+                List.of("HT-T2", "正常合同", "惠氏", "雀巢", "开发", "全域-全渠道-会员通",
+                        "2026-11-30", "", "21200", "", "", "2026-08", "", "t2")
+        ));
+        lenient().when(businessLineMapper.selectList(any())).thenReturn(lines());
+
+        RevenueImportResultVO result = service.importContracts(file, 16L);
+
+        assertThat(result.getTotalCount()).isEqualTo(1);
+        assertThat(captured()).hasSize(1);
+        assertThat(captured().get(0).getDetailNo()).isEqualTo("t2");
     }
 
     @Test
