@@ -4,7 +4,7 @@ import {
   ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import { history, useLocation } from '@umijs/max';
+import { useLocation } from '@umijs/max';
 import type { TableColumnsType } from 'antd';
 import {
   Alert,
@@ -85,6 +85,16 @@ export default function RevenuePage() {
     '/revenue/pending': 'pending',
   };
   const [activeTab, setActiveTab] = useState('matrix');
+  /** 每个营收子页（路由即页面，不再用 Tab 切换） */
+  const sectionMeta = (
+    {
+      matrix: { title: '工时 & 成本', desc: '业务线 × 项目的工时、成本与营收矩阵，含月份结账、单元格明细与营收估算。' },
+      delivery: { title: '交付与利润', desc: '按合同交付日期归集的交付收入、成本与利润，含预估交付计划与其他成本。' },
+      confirm: { title: '待交付确认', desc: '按 月份 × 业务线 × 销售 统计待交付合同，与销售逐一确认当月能否交付并记录备注。' },
+      import: { title: '数据导入', desc: '工时 / 成本 / 合同明细的 Excel 兜底导入、批次历史与合同归属映射。' },
+      pending: { title: '待映射与销售项目', desc: '待人工映射归属的工时/成本记录，以及销售项目与商机的绑定。' },
+    } as Record<string, { title: string; desc: string }>
+  )[activeTab] ?? { title: '营收管理', desc: '' };
   const [matrix, setMatrix] = useState<RevenueMatrix | null>(null);
   const [pending, setPending] = useState<{
     worklog: Record<string, any>[];
@@ -1309,9 +1319,9 @@ export default function RevenuePage() {
           <Typography.Text className="sw-eyebrow">
             DATA / REVENUE
           </Typography.Text>
-          <Typography.Title level={2}>营收管理</Typography.Title>
+          <Typography.Title level={2}>{sectionMeta.title}</Typography.Title>
           <Typography.Paragraph type="secondary">
-            工时、成本、营收矩阵与待处理数据统一查看，保留导入批次、月份结账和交付数据状态。
+            {sectionMeta.desc}
           </Typography.Paragraph>
           <SyncCutoff domains={['contract', 'worklog', 'cost']} />
         </div>
@@ -1343,6 +1353,7 @@ export default function RevenuePage() {
           description={error}
         />
       )}
+      {(activeTab === 'matrix' || activeTab === 'delivery') && (
       <Space wrap style={{ marginBottom: 14 }}>
         <Card variant="borderless" size="small">
           <Statistic
@@ -1371,21 +1382,8 @@ export default function RevenuePage() {
           <Statistic title="合同批次" value={contractBatches.length} />
         </Card>
       </Space>
-      <Tabs
-        activeKey={activeTab}
-        onChange={(key) => {
-          setActiveTab(key);
-          const path =
-            Object.entries(revenueTabByPath).find(
-              ([, tab]) => tab === key,
-            )?.[0] || '/revenue/worktime';
-          if (location.pathname !== path) history.push(path);
-        }}
-        items={[
-          {
-            key: 'matrix',
-            label: '工时 & 成本',
-            children: (
+      )}
+      {activeTab === 'matrix' && (
               <Card variant="borderless" loading={loading}>
                 {matrixLines.length ? (
                   <>
@@ -1535,12 +1533,8 @@ export default function RevenuePage() {
                   <Empty description="暂无营收数据，请先在「数据导入」中导入工时与成本明细" />
                 )}
               </Card>
-            ),
-          },
-          {
-            key: 'delivery',
-            label: '交付与利润',
-            children: (
+      )}
+      {activeTab === 'delivery' && (
               <Space
                 orientation="vertical"
                 style={{ width: '100%' }}
@@ -1937,17 +1931,9 @@ export default function RevenuePage() {
                   </Card>
                 )}
               </Space>
-            ),
-          },
-          {
-            key: 'confirm',
-            label: '待交付确认',
-            children: <DeliveryConfirm />,
-          },
-          {
-            key: 'import',
-            label: '数据导入',
-            children: (
+      )}
+      {activeTab === 'confirm' && <DeliveryConfirm />}
+      {activeTab === 'import' && (
               <Card variant="borderless">
                 <Space orientation="vertical" style={{ width: '100%' }}>
                   <Alert
@@ -2007,12 +1993,8 @@ export default function RevenuePage() {
                   </Typography.Text>
                 </Space>
               </Card>
-            ),
-          },
-          {
-            key: 'contracts',
-            label: `交付合同 ${pendingContracts.length}`,
-            children: (
+      )}
+      {activeTab === 'import' && (
               <Space
                 orientation="vertical"
                 style={{ width: '100%' }}
@@ -2248,12 +2230,8 @@ export default function RevenuePage() {
                   )}
                 </Card>
               </Space>
-            ),
-          },
-          {
-            key: 'pending',
-            label: `待映射 ${pending.worklog.length + pending.cost.length}`,
-            children: (
+      )}
+      {activeTab === 'pending' && (
               <Space
                 orientation="vertical"
                 style={{ width: '100%' }}
@@ -2348,13 +2326,9 @@ export default function RevenuePage() {
                   )}
                 </Card>
               </Space>
-            ),
-          },
-          {
-            key: 'estimates',
-            label: `营收估算 ${estimates.length}`,
-            children: (
-              <Card variant="borderless">
+      )}
+      {activeTab === 'matrix' && (
+              <Card variant="borderless" title="营收估算" className="sw-revenue-estimates">
                 {estimates.length ? (
                   <Table
                     rowKey={(row) =>
@@ -2408,10 +2382,7 @@ export default function RevenuePage() {
                   <Empty description="暂无营收估算" />
                 )}
               </Card>
-            ),
-          },
-        ]}
-      />
+      )}
       <Drawer
         title={cellContext.title || '单元格明细'}
         size={720}
