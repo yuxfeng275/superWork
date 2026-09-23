@@ -20,12 +20,12 @@ public class RevenueDeliveryConfirmation {
 
     @TableId(type = IdType.AUTO)
     private Long id;
-    /** YYYY-MM（取 revenue_contract_entry.sale_month） */
-    private String yearMonth;
     private Long bizLineId;
+    /** YYYY-MM（取 revenue_contract_entry.sale_month）；year_month 是 MySQL 保留字，必须反引号 */
+    @com.baomidou.mybatisplus.annotation.TableField("`year_month`")
+    private String yearMonth;
     /** 销售姓名；源数据缺销售时用 _UNSET_ 占位 */
     private String salesOwner;
-    /** PENDING 待确认 / CONFIRMABLE 可交付 / UNCONFIRMABLE 无法按期交付 */
     private String status;
     /** 确认备注（与销售的沟通结论） */
     private String remark;
