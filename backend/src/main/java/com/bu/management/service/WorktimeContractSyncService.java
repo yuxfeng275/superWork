@@ -132,6 +132,7 @@ public class WorktimeContractSyncService {
         }
         entry.setSaleMonth(saleMonth);
         entry.setReceivableDate(dateText(text(row, "receivable_date")));
+        entry.setServiceEndDate(dateText(text(row, "payment_service_completion_date")));
         entry.setDeliveryDate(dateText(text(row, "project_delivery_date")));
         entry.setSmsCost(decimal(row, "sms_cost"));
         entry.setDirectCost(decimal(row, "direct_cost"));

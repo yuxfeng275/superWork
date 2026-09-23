@@ -251,6 +251,7 @@ public class RevenueContractImportService {
                 }
                 entry.setSaleMonth(saleMonth);
                 entry.setReceivableDate(dateText(text(formatter, evaluator, row, columns, "应收日期")));
+                entry.setServiceEndDate(dateText(text(formatter, evaluator, row, columns, "收款-项目服务完成日期")));
                 entry.setDeliveryDate(dateText(text(formatter, evaluator, row, columns, "项目交付日期")));
 
                 RevenueContractAssignment.Assigned assigned =

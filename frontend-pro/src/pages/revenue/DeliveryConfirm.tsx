@@ -41,7 +41,7 @@ const STATUS_META: Record<
 
 const fmtWan = (value: number) => (value / 10000).toFixed(1);
 
-/** 按月待交付统计 + 与销售一一确认（含备注）。月份=应收日期月（空回落收款销售月份）；待交付=交付日期为空或晚于今天；测试合同已剔除。 */
+/** 按月待交付统计 + 与销售一一确认（含备注）。月份=服务结束时间月（空回落应收/收款销售月份）；待交付=交付日期为空；测试合同已剔除。 */
 export default function DeliveryConfirm() {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(currentYear);
@@ -198,7 +198,7 @@ export default function DeliveryConfirm() {
       <Card
         variant="borderless"
         className="sw-table-card"
-        title="按月待交付（应收月份 × 业务线 × 销售）"
+        title="按月待交付（服务结束月 × 业务线 × 销售）"
         extra={
           <Space>
             <Select
@@ -231,7 +231,7 @@ export default function DeliveryConfirm() {
           dataSource={rows}
           pagination={false}
           locale={{
-            emptyText: '本年暂无待交付合同（交付日期为空或晚于今天才计入）',
+            emptyText: '本年暂无待交付合同（交付日期为空的才计入）',
           }}
           columns={[
             {

@@ -172,7 +172,9 @@ public class OaContractCollector implements DataCollector {
             Map.entry("paymentStatus", new String[]{"payment_status", "paymentStatus", "收款状态"}),
             // 销售：承接人优先，报价人兜底
             Map.entry("salesOwner", new String[]{"undertaker", "承接人", "sales_owner", "salesOwner",
-                    "quoter", "报价人"}));
+                    "quoter", "报价人"}),
+            Map.entry("serviceEndDate", new String[]{"payment_service_completion_date",
+                    "service_end_date", "serviceEndDate", "收款-项目服务完成日期", "项目服务完成日期"}));
 
     record AssignmentContext(List<BusinessLine> lines, Map<Long, String> lineMode,
                              List<Project> projects, List<Long> enabledLineIds) {
@@ -214,6 +216,7 @@ public class OaContractCollector implements DataCollector {
         entry.setSalesOwner(field(row, "salesOwner"));
         entry.setReceivableAmount(amount);
         entry.setReceivableDate(dateText(field(row, "receivableDate")));
+        entry.setServiceEndDate(dateText(field(row, "serviceEndDate")));
         String saleMonth = monthText(field(row, "saleMonth"));
         if (saleMonth == null) {
             saleMonth = monthText(field(row, "receivableDate"));

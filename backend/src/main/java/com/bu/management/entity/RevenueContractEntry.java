@@ -40,6 +40,8 @@ public class RevenueContractEntry {
     private String saleMonth;
     /** 应收日期；待交付统计的月份维度（空回落 saleMonth） */
     private LocalDate receivableDate;
+    /** 服务结束时间（收款-项目服务完成日期）；待交付统计的首选月份维度 */
+    private LocalDate serviceEndDate;
     /** 项目交付日期；NULL=未交付 */
     private LocalDate deliveryDate;
     /** 短信成本（元），工时系统同步带入 */

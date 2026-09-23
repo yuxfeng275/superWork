@@ -64,11 +64,13 @@ public class RevenueDeliveryConfirmService {
         // 数据量小（百级行），全量拉取后在内存按 应收月份（空回落收款销售月份）归组
         List<RevenueContractEntry> entries = entryMapper.selectList(new LambdaQueryWrapper<RevenueContractEntry>()
                 .select(RevenueContractEntry::getId, RevenueContractEntry::getSaleMonth,
-                        RevenueContractEntry::getReceivableDate, RevenueContractEntry::getBizLineId,
-                        RevenueContractEntry::getSalesOwner, RevenueContractEntry::getReceivableAmount,
-                        RevenueContractEntry::getDeliveryDate, RevenueContractEntry::getContractName)
+                        RevenueContractEntry::getReceivableDate, RevenueContractEntry::getServiceEndDate,
+                        RevenueContractEntry::getBizLineId, RevenueContractEntry::getSalesOwner,
+                        RevenueContractEntry::getReceivableAmount, RevenueContractEntry::getDeliveryDate,
+                        RevenueContractEntry::getContractName)
                 .and(w -> w.likeRight(RevenueContractEntry::getSaleMonth, targetYear + "-")
-                        .or().likeRight(RevenueContractEntry::getReceivableDate, targetYear + "-")));
+                        .or().likeRight(RevenueContractEntry::getReceivableDate, targetYear + "-")
+                        .or().likeRight(RevenueContractEntry::getServiceEndDate, targetYear + "-")));
 
         Map<Long, String> lineNames = new LinkedHashMap<>();
         for (BusinessLine line : businessLineMapper.selectList(null)) {
@@ -121,7 +123,8 @@ public class RevenueDeliveryConfirmService {
                         .eq(bizLineId != null, RevenueContractEntry::getBizLineId, bizLineId)
                         .isNull(bizLineId == null, RevenueContractEntry::getBizLineId)
                         .and(w -> w.likeRight(RevenueContractEntry::getSaleMonth, yearPrefix)
-                                .or().likeRight(RevenueContractEntry::getReceivableDate, yearPrefix))
+                                .or().likeRight(RevenueContractEntry::getReceivableDate, yearPrefix)
+                                .or().likeRight(RevenueContractEntry::getServiceEndDate, yearPrefix))
                         .orderByAsc(RevenueContractEntry::getContractNo))
                 .stream()
                 .filter(entry -> isPendingDelivery(entry, today))
@@ -181,15 +184,17 @@ public class RevenueDeliveryConfirmService {
 
     // ==================== 内部 ====================
 
+    /** 待交付（业务口径）：交付日期为空；服务结束时间在对应月（见 effectiveMonth）。 */
     private boolean isPendingDelivery(RevenueContractEntry entry, LocalDate today) {
-        return entry.getDeliveryDate() == null || entry.getDeliveryDate().isAfter(today);
+        return entry.getDeliveryDate() == null;
     }
 
-    /** 月份维度：应收日期月份，空回落收款销售月份。 */
+    /** 月份维度：服务结束时间月 → 应收日期月 → 收款销售月份。 */
     private String effectiveMonth(RevenueContractEntry entry) {
-        if (entry.getReceivableDate() != null) {
-            return String.format("%04d-%02d", entry.getReceivableDate().getYear(),
-                    entry.getReceivableDate().getMonthValue());
+        LocalDate anchor = entry.getServiceEndDate() != null ? entry.getServiceEndDate()
+                : entry.getReceivableDate();
+        if (anchor != null) {
+            return String.format("%04d-%02d", anchor.getYear(), anchor.getMonthValue());
         }
         return entry.getSaleMonth();
     }

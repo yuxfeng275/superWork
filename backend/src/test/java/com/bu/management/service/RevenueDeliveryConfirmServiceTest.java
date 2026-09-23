@@ -65,15 +65,15 @@ class RevenueDeliveryConfirmServiceTest {
     }
 
     @Test
-    @DisplayName("stats：按月×业务线×销售聚合待交付，已交付（交付日期<=今天）不计入")
+    @DisplayName("stats：按月×业务线×销售聚合待交付；已填交付日期（无论过去或未来）均不计入")
     void statsAggregatesPendingOnly() {
         LocalDate today = LocalDate.now();
         int year = today.getYear();
         String month = String.format("%04d-%02d", year, today.getMonthValue());
         when(entryMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
-                entry(month, 1L, "张三", "100", null),                       // 待交付：无交付日期
-                entry(month, 1L, "张三", "200", today.plusDays(10)),         // 待交付：未来交付
-                entry(month, 1L, "张三", "999", today),                      // 已交付：今天
+                entry(month, 1L, "张三", "100", null),                       // 待交付：交付日期为空
+                entry(month, 1L, "张三", "200", today.plusDays(10)),         // 已填交付日期（未来）→ 不计
+                entry(month, 1L, "张三", "999", today),                      // 已填交付日期（今天）→ 不计
                 entry(month, 1L, "李四", "50", null),
                 entry(month, 2L, null, "70", null)));                        // 未标注销售
         when(businessLineMapper.selectList(null)).thenReturn(List.of(
@@ -85,8 +85,8 @@ class RevenueDeliveryConfirmServiceTest {
         assertThat(rows).hasSize(3);
         RevenueDeliveryConfirmService.StatsRow zhangsan = rows.stream()
                 .filter(r -> "张三".equals(r.salesOwner())).findFirst().orElseThrow();
-        assertThat(zhangsan.entryCount()).isEqualTo(2);
-        assertThat(zhangsan.pendingAmount()).isEqualByComparingTo("300");
+        assertThat(zhangsan.entryCount()).isEqualTo(1);
+        assertThat(zhangsan.pendingAmount()).isEqualByComparingTo("100");
         assertThat(zhangsan.bizLineName()).isEqualTo("会员通");
         assertThat(zhangsan.status()).isEqualTo(RevenueDeliveryConfirmation.STATUS_PENDING);
         assertThat(rows.stream().filter(r -> "未标注销售".equals(r.salesOwner())).findFirst().orElseThrow()
@@ -119,27 +119,36 @@ class RevenueDeliveryConfirmServiceTest {
     }
 
     @Test
-    @DisplayName("stats：应收日期优先于收款销售月份归组；测试合同剔除")
-    void statsGroupsByReceivableMonth() {
+    @DisplayName("stats：服务结束时间优先于应收日期归组；测试合同剔除")
+    void statsGroupsByServiceEndMonth() {
         LocalDate today = LocalDate.now();
         int year = today.getYear();
-        // 收款销售月份 2026-08，应收日期在年末 Q4 → 应归入应收月份
+        // 服务结束时间 12 月 > 应收 11 月 > 销售月 08 月 → 归 12 月
         RevenueContractEntry q4 = entry(year + "-08", 1L, "张三", "70000", null);
         q4.setReceivableDate(LocalDate.of(year, 11, 30));
+        q4.setServiceEndDate(LocalDate.of(year, 12, 20));
         q4.setContractName("正常合同");
-        // 同名月但合同名是测试合同 → 剔除
+        // 无服务结束时间时回落应收月份
+        RevenueContractEntry fallback = entry(year + "-08", 1L, "李四", "40000", null);
+        fallback.setReceivableDate(LocalDate.of(year, 10, 16));
+        fallback.setContractName("正常合同B");
+        // 合同名是测试合同 → 剔除
         RevenueContractEntry test = entry(year + "-11", 1L, "cs", "5", null);
         test.setReceivableDate(LocalDate.of(year, 11, 1));
         test.setContractName("测试合同2025");
-        when(entryMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(q4, test));
+        when(entryMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(q4, fallback, test));
         when(businessLineMapper.selectList(null)).thenReturn(List.of(line(1L, "会员通")));
         when(confirmMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
         List<RevenueDeliveryConfirmService.StatsRow> rows = service.stats(year);
 
-        assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).yearMonth()).isEqualTo(String.format("%04d-11", year));
-        assertThat(rows.get(0).pendingAmount()).isEqualByComparingTo("70000");
+        assertThat(rows).hasSize(2);
+        RevenueDeliveryConfirmService.StatsRow dec = rows.stream()
+                .filter(r -> "张三".equals(r.salesOwner())).findFirst().orElseThrow();
+        assertThat(dec.yearMonth()).isEqualTo(String.format("%04d-12", year));
+        assertThat(dec.pendingAmount()).isEqualByComparingTo("70000");
+        assertThat(rows.stream().filter(r -> "李四".equals(r.salesOwner())).findFirst().orElseThrow()
+                .yearMonth()).isEqualTo(String.format("%04d-10", year));
     }
 
     @Test
