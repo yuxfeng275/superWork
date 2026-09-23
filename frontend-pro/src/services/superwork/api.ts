@@ -849,6 +849,37 @@ export interface WeeklyReportVO {
   sheetTargetInfo?: WeeklyReportSheetTargetInfo | null;
 }
 
+/** 按月待交付统计行：月份×业务线×销售 聚合 + 确认状态 */
+export interface PendingDeliveryStatsRow {
+  yearMonth: string;
+  bizLineId?: number | null;
+  bizLineName: string;
+  salesOwner: string;
+  entryCount: number;
+  pendingAmount: number;
+  status: "PENDING" | "CONFIRMABLE" | "UNCONFIRMABLE";
+  remark?: string | null;
+  confirmedByName?: string | null;
+  confirmedAt?: string | null;
+}
+export interface PendingDeliveryEntry {
+  id: number;
+  contractNo?: string | null;
+  contractName?: string | null;
+  customer?: string | null;
+  itemDesc?: string | null;
+  receivableAmount?: number | null;
+  saleMonth?: string | null;
+  deliveryDate?: string | null;
+}
+export interface PendingDeliveryConfirmPayload {
+  yearMonth: string;
+  bizLineId: number;
+  salesOwner?: string;
+  status: "PENDING" | "CONFIRMABLE" | "UNCONFIRMABLE";
+  remark?: string;
+}
+
 export interface WeeklyReportGenerationModel {
   configured: boolean;
   providerCode?: string | null;
@@ -2487,6 +2518,30 @@ export const superworkApi = {
       `/api/revenue/cell-detail?yearMonth=${encodeURIComponent(
         yearMonth
       )}&businessLineId=${businessLineId}&rowKey=${encodeURIComponent(rowKey)}`
+    );
+  },
+  getPendingDeliveryStats(year: number) {
+    return requestJson<PendingDeliveryStatsRow[]>(
+      `/api/revenue/pending-delivery/stats?year=${year}`
+    );
+  },
+  getPendingDeliveryEntries(params: {
+    month: string;
+    bizLineId?: number | null;
+    salesOwner?: string;
+  }) {
+    return requestJson<PendingDeliveryEntry[]>(
+      `/api/revenue/pending-delivery/entries${query({
+        month: params.month,
+        bizLineId: params.bizLineId ?? undefined,
+        salesOwner: params.salesOwner || undefined,
+      })}`
+    );
+  },
+  confirmPendingDelivery(payload: PendingDeliveryConfirmPayload) {
+    return requestJson<Record<string, unknown>>(
+      "/api/revenue/pending-delivery/confirm",
+      { method: "PUT", body: JSON.stringify(payload) }
     );
   },
   resolveRevenuePending(

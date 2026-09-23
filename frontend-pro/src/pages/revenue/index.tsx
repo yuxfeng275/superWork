@@ -31,6 +31,7 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
+import DeliveryConfirm from './DeliveryConfirm';
 import type {
   RevenueCell,
   RevenueCellDetail,
@@ -79,6 +80,7 @@ export default function RevenuePage() {
   const revenueTabByPath: Record<string, string> = {
     '/revenue/worktime': 'matrix',
     '/revenue/delivery': 'delivery',
+    '/revenue/delivery-confirm': 'confirm',
     '/revenue/import': 'import',
     '/revenue/pending': 'pending',
   };
@@ -1936,6 +1938,11 @@ export default function RevenuePage() {
                 )}
               </Space>
             ),
+          },
+          {
+            key: 'confirm',
+            label: '待交付确认',
+            children: <DeliveryConfirm />,
           },
           {
             key: 'import',

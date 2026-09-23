@@ -20,13 +20,13 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
             <script>
             INSERT INTO revenue_contract_entry
                 (batch_id, contract_no, detail_no, contract_name, brand, customer, item_desc,
-                 biz_line_raw, biz_line_id, project_id, receivable_amount, sale_month, delivery_date,
+                 biz_line_raw, sales_owner, biz_line_id, project_id, receivable_amount, sale_month, delivery_date,
                  sms_cost, direct_cost, third_party_cost, received_amount, payment_status,
                  pending, source_system, created_by)
             VALUES
             <foreach collection="list" item="e" separator=",">
                 (#{e.batchId}, #{e.contractNo}, #{e.detailNo}, #{e.contractName}, #{e.brand}, #{e.customer},
-                 #{e.itemDesc}, #{e.bizLineRaw}, #{e.bizLineId}, #{e.projectId}, #{e.receivableAmount},
+                 #{e.itemDesc}, #{e.bizLineRaw}, #{e.salesOwner}, #{e.bizLineId}, #{e.projectId}, #{e.receivableAmount},
                  #{e.saleMonth}, #{e.deliveryDate},
                  #{e.smsCost}, #{e.directCost}, #{e.thirdPartyCost}, #{e.receivedAmount}, #{e.paymentStatus},
                  #{e.pending}, #{e.sourceSystem}, #{e.createdBy})
@@ -39,6 +39,7 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
                 customer = VALUES(customer),
                 item_desc = VALUES(item_desc),
                 biz_line_raw = VALUES(biz_line_raw),
+                sales_owner = VALUES(sales_owner),
                 biz_line_id = IF(mapping_locked = 1, biz_line_id, VALUES(biz_line_id)),
                 project_id = IF(mapping_locked = 1, project_id, VALUES(project_id)),
                 receivable_amount = VALUES(receivable_amount),

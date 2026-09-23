@@ -215,6 +215,12 @@ export default [
     component: './revenue',
   },
   {
+    path: '/revenue/delivery-confirm',
+    name: '待交付确认',
+    hideInMenu: true,
+    component: './revenue',
+  },
+  {
     path: '/revenue/import',
     name: '数据导入',
     hideInMenu: true,

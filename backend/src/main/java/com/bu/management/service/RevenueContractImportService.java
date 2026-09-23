@@ -236,6 +236,10 @@ public class RevenueContractImportService {
                 entry.setItemDesc(trimToNull(text(formatter, evaluator, row, columns, "款项内容")));
                 String typeRaw = trimToNull(text(formatter, evaluator, row, columns, "收款款项类型"));
                 entry.setBizLineRaw(typeRaw);
+                // 销售 = 承接人，缺省取报价人
+                String undertaker = trimToNull(text(formatter, evaluator, row, columns, "承接人"));
+                entry.setSalesOwner(undertaker != null
+                        ? undertaker : trimToNull(text(formatter, evaluator, row, columns, "报价人")));
                 entry.setReceivableAmount(amount);
                 String saleMonth = monthText(text(formatter, evaluator, row, columns, "收款销售月份"));
                 if (saleMonth == null) {

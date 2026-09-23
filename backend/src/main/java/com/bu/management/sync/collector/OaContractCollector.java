@@ -169,7 +169,10 @@ public class OaContractCollector implements DataCollector {
             Map.entry("directCost", new String[]{"direct_cost", "directCost", "直接成本"}),
             Map.entry("thirdPartyCost", new String[]{"third_party_procurement_cost", "third_party_cost", "thirdPartyCost", "第三方采购成本"}),
             Map.entry("received", new String[]{"received_amount", "receivedAmount", "已收金额", "实收金额"}),
-            Map.entry("paymentStatus", new String[]{"payment_status", "paymentStatus", "收款状态"}));
+            Map.entry("paymentStatus", new String[]{"payment_status", "paymentStatus", "收款状态"}),
+            // 销售：承接人优先，报价人兜底
+            Map.entry("salesOwner", new String[]{"undertaker", "承接人", "sales_owner", "salesOwner",
+                    "quoter", "报价人"}));
 
     record AssignmentContext(List<BusinessLine> lines, Map<Long, String> lineMode,
                              List<Project> projects, List<Long> enabledLineIds) {
@@ -204,6 +207,7 @@ public class OaContractCollector implements DataCollector {
         entry.setItemDesc(field(row, "itemDesc"));
         String typeRaw = field(row, "typeRaw");
         entry.setBizLineRaw(typeRaw);
+        entry.setSalesOwner(field(row, "salesOwner"));
         entry.setReceivableAmount(amount);
         String saleMonth = monthText(field(row, "saleMonth"));
         if (saleMonth == null) {
