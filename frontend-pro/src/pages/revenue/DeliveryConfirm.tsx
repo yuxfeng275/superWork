@@ -131,6 +131,32 @@ export default function DeliveryConfirm() {
     }
   };
 
+  /** 连续相同 月份 / 月份+业务线 的行做纵向单元格合并（后端已按此序排序）。 */
+  const [monthSpans, lineSpans] = useMemo(() => {
+    const months: number[] = new Array(rows.length).fill(0);
+    const lines: number[] = new Array(rows.length).fill(0);
+    let i = 0;
+    while (i < rows.length) {
+      let j = i + 1;
+      while (j < rows.length && rows[j].yearMonth === rows[i].yearMonth) j++;
+      months[i] = j - i;
+      i = j;
+    }
+    i = 0;
+    while (i < rows.length) {
+      let j = i + 1;
+      while (
+        j < rows.length &&
+        rows[j].yearMonth === rows[i].yearMonth &&
+        rows[j].bizLineId === rows[i].bizLineId
+      )
+        j++;
+      lines[i] = j - i;
+      i = j;
+    }
+    return [months, lines];
+  }, [rows]);
+
   return (
     <div className="sw-delivery-confirm">
       <Row gutter={[12, 12]} className="sw-stat-row">
@@ -208,8 +234,18 @@ export default function DeliveryConfirm() {
             emptyText: '本年暂无待交付合同（交付日期为空或晚于今天才计入）',
           }}
           columns={[
-            { title: '月份', dataIndex: 'yearMonth', width: 100 },
-            { title: '业务线', dataIndex: 'bizLineName', width: 180 },
+            {
+              title: '月份',
+              dataIndex: 'yearMonth',
+              width: 100,
+              onCell: (_row, index) => ({ rowSpan: monthSpans[index ?? 0] }),
+            },
+            {
+              title: '业务线',
+              dataIndex: 'bizLineName',
+              width: 180,
+              onCell: (_row, index) => ({ rowSpan: lineSpans[index ?? 0] }),
+            },
             { title: '销售', dataIndex: 'salesOwner', width: 110 },
             {
               title: '待交付笔数',
