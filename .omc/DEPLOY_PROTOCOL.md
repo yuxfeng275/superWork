@@ -116,17 +116,17 @@ ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --bu
 | 2026-09-20 | e2fb65c | **放弃企微会议接入（品类授权不可得）**：整条线移除——后端不再请求 `meeting list`、删除 3 个 AI 工具（wecom_list_meetings / wecom_meeting_detail / wecom_meeting_transcript）、3 个 REST 端点与 `meeting` 品类探针；日程页去掉 `WECOM_MEETING` 来源（后端聚合、两套前端类型/筛选/配色）；品类矩阵由 8 行收敛为 7 行、AI 工具由 12 个收敛为 9 个。验证：两套前端 /schedule 正常（pro 共 136 条日程、vue 月历正常），筛选只剩 全部来源/本地会议/企微日程，企微会议提示消失；部署产物 grep 无「企微会议」残留；458 后端单测全绿 | system-config agent |
 | 2026-09-18 | d280b27 | ä¼å¾®æºå¨äººééåç«¯ä¸çº¿ï¼ä¸¤å¥è¿æ¥å¨é¡µï¼Bot å­è¯/æ«ç ææ + åç±»ææç©éµï¼+ åç«¯ä¿®å¤ï¼CLI å·¥ä½ç®å½ç§»åºæ²ç®±æç»çéç½®ç®å½ãæ«ç ç­å¾äºç»´ç åå¥å®æ | system-config agent |
 | 2026-09-17 | 130436b | **企微官方 CLI（wecom-cli）机器人通道集成**：后端镜像内嵌静态二进制（v1.3.0，双架构 sha512 校验）+ `/data/wecom-cli` 数据卷；连接器「企业微信」卡片新增机器人通道配置（Bot ID 存 extra_config、Bot Secret 走新增加密列 V83），保存后一键授权（`auth init --bot-id/--secret`，非交互）与扫码兜底；品类授权矩阵（8 品类体检 + 企微续期链接逐字透传）；11 个 AI 工具（通讯录/待办读写/会议含纪要转写/文档/消息/邮件）；探活合并双通道。附带修复两处既有 bug：**SSE 异步分派被 401 覆盖**（AI 助手对话报「登录已失效」，放行 ASYNC/ERROR 分派）与**出站 provider 命名不一致**（glm vs zhipu，GLM 会话空流）。部署注意：bind mount 目录需 `chown spring:spring /data/wecom-cli`（uid 999） | system-config agent |
+| 2026-09-25 | 1235e37 | **下线旧 Vue 前端**：删除 `frontend/` 源码（git 历史可溯）；241 移除 superwork-bu-frontend 容器/镜像与 :18088 入口，frontend-pro 独占 :18080；本地 dev compose 的 frontend 服务改指 frontend-pro；备份 deploy-backups/20260925-130511/frontend-vue-legacy.tar.gz | master agent |
 
 ### ⚠️ 部署操作提醒（2026-09-17）
 
-重建 `frontend` / `frontend-pro` 容器后**必须同时 `docker restart superwork-bu-nginx`**：
-nginx upstream 用 `server frontend:80` 形式在启动时解析一次，容器重建换 IP 后仍指向旧地址。
+重建 `frontend-pro` 容器后**必须同时 `docker restart superwork-bu-nginx`**：
+nginx upstream 用 `server frontend-pro:80` 形式在启动时解析一次，容器重建换 IP 后仍指向旧地址。
 
-当前入口（2026-09-17 起）：
-- `:18080` = frontend-pro（Ant Design Pro，默认入口）
-- `:18088` = 旧 Vue 前端（兜底）
+当前入口（2026-09-25 起）：
+- `:18080` = frontend-pro（Ant Design Pro，唯一前端入口）
 - `:18081` = backend
-- `:18084` 已废弃，不再映射
+- 旧 Vue 前端与 `:18088` 已于 2026-09-25 下线
 
 
 ## 回滚
