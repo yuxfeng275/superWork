@@ -115,7 +115,7 @@ docker compose down -v
 
 ## 241 生产部署（superwork-bu）
 
-生产环境为 `192.168.1.241`（部署目录 `/home/openclaw/superwork-claude-sp/`，git 检出、镜像在 241 上构建），使用 `docker/docker-compose.241.yml`：compose 项目名 `superwork-bu`，容器名统一 `superwork-bu-*`，与上文本地 dev 拓扑（`bu-management-*`）相互独立。
+生产环境为 `192.168.1.241`（部署目录 `/home/openclaw/superwork-claude-sp/`，非 git 检出——源码经 git archive + rsync 覆盖同步，镜像在 241 上用 compose 构建，jar 由 maven 容器预打包），使用 `docker/docker-compose.241.yml`：compose 项目名 `superwork-bu`，容器名统一 `superwork-bu-*`，与上文本地 dev 拓扑（`bu-management-*`）相互独立。
 
 ### 服务与端口
 
@@ -132,17 +132,36 @@ docker compose down -v
 
 ### 更新部署
 
-前端镜像只复制宿主机预构建的 `dist/`（backend 为 jar 多阶段构建），所以**改了前端必须先在 241 宿主执行 `npm run build`，再 `up -d --build`**：
-
-```bash
-# 1. 在 241 上构建前端产物（frontend-pro 会议模块改动时同样要执行）
-ssh 241 'cd /home/openclaw/superwork-claude-sp/frontend-pro && npm run build'
-
-# 2. 重建并启动变更的服务（示例：后端 + 新前端 + 转写 worker）
-ssh 241 'cd /home/openclaw/superwork-claude-sp/docker && \
-  docker compose -f docker-compose.241.yml up -d --build backend frontend-pro asr-worker && \
-  docker compose -f docker-compose.241.yml ps'
-```
+> 实际机制（2026-09-26 校正）：241 部署目录**不是 git 检出**（无 .git），241 宿主无 Node 依赖环境（frontend-pro 无 node_modules）、无 JDK/Maven 命令。代码与产物从构建机推送：
+>
+> ```bash
+> # 0. 构建机：提交并推送 master 后
+> git archive master -o /tmp/master.tar && scp /tmp/master.tar 241:/tmp/
+> # 1. 241：解包到临时目录后 rsync 覆盖（保护运行时/数据目录）
+> ssh 241 'rm -rf ~/superwork-claude-sp-new && mkdir ~/superwork-claude-sp-new && \
+>   tar -xf /tmp/master.tar -C ~/superwork-claude-sp-new && \
+>   rsync -a --delete \
+>     --exclude="/.deploy/" --exclude="/DEPLOYED_COMMIT" \
+>     --exclude="/.agents/" --exclude="/.claude/" --exclude="/.codex/" --exclude="/.omc/" --exclude="/.omx/" \
+>     --exclude="/.playwright-cli/" --exclude="/.playwright-mcp/" --exclude="/.trellis/" \
+>     --exclude="/docker/" --exclude="/frontend-pro/dist/" --exclude="/frontend-pro/node_modules/" \
+>     --exclude="/backend/target/" --exclude=".DS_Store" \
+>     ~/superwork-claude-sp-new/ ~/superwork-claude-sp/'
+> # 2. 后端 jar：在 241 用 maven 容器打包（Dockerfile.runtime 直接 COPY target/*.jar，镜像不编译源码；
+> #    跳过此步则 docker build 全部命中缓存、部署的是旧 jar）
+> ssh 241 'docker run --rm -v ~/superwork-claude-sp/backend:/app \
+>   -v ~/.m2/repository:/root/.m2/repository -w /app \
+>   maven:3.9-eclipse-temurin-17 mvn -q package -DskipTests'
+> # 3. 前端 dist：在构建机打包后推送（241 无 node_modules）
+> cd frontend-pro && npm run build && rsync -az --delete dist/ 241:/home/openclaw/superwork-claude-sp/frontend-pro/dist/
+> # 4. 重建并启动变更的服务
+> ssh 241 'cd /home/openclaw/superwork-claude-sp/docker && \
+>   docker compose -f docker-compose.241.yml up -d --build backend frontend-pro && \
+>   docker restart superwork-bu-nginx && \
+>   docker compose -f docker-compose.241.yml ps'
+> ```
+>
+> Flyway 在后端启动时自动应用新迁移（含菜单/权限 SQL）。
 
 ### 数据目录（241 宿主）
 
