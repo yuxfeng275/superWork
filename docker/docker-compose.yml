@@ -56,9 +56,10 @@ services:
     networks:
       - bu-network
 
+  # 旧 Vue 前端已下线，frontend 服务即 frontend-pro（需先 npm run build 生成 dist）
   frontend:
     build:
-      context: ../frontend
+      context: ../frontend-pro
       dockerfile: Dockerfile
     container_name: bu-management-frontend
     restart: always

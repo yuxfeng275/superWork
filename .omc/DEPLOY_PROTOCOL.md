@@ -9,7 +9,7 @@
    禁止直接从 feature/worktree 分支构建部署。241 上的 jar/dist 必须与 origin/master 一致。
 
 2. **master 是唯一部署源**：部署产物（jar/dist）只从 `master` 分支的 `backend/target/management-1.0.0.jar`
-   、`frontend/dist/`、`frontend-pro/dist/` 构建。worktree（bigwork/aiagent 等）只负责开发与自测。
+   、`frontend-pro/dist/` 构建（旧 Vue `frontend/` 已于 2026-09-25 下线删除）。worktree（bigwork/aiagent 等）只负责开发与自测。
 
 3. **合并前必须同步**：merge 到 master 前先 `git fetch`，确认没有其他 agent 刚推过提交；
    merge 后 `git push origin master` 成功才算完成合并。
@@ -32,7 +32,7 @@ git push origin master
 # 3. 构建 + 同步 + 重建容器（参照 docs/deployment.md）：
 rsync jar/dist → server-241
 ssh server-241 'cd docker && docker compose -f docker-compose.241.yml up -d --build frontend-pro && docker restart superwork-bu-nginx'
-# 241 入口：frontend-pro :18080，旧 Vue :18088，backend :18081
+# 241 入口：frontend-pro :18080，backend :18081（旧 Vue :18088 已于 2026-09-25 下线）
 # 4. 登记部署
 ```
 

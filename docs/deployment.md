@@ -39,10 +39,8 @@
   │
   ▼
 Nginx
-  ├── :18080 /          → frontend-pro :80   （Ant Design Pro，当前默认入口）
+  ├── :18080 /          → frontend-pro :80   （Ant Design Pro）
   ├── :18080 /api/      → backend :8081
-  ├── :18088 /          → frontend :80       （旧 Vue，兜底）
-  ├── :18088 /api/      → backend :8081
   └── :18081            → backend :8081      （直连）
 
 Backend :8081
@@ -52,16 +50,16 @@ Backend :8081
   └── asr-worker :8790   ← 会议转写（docker compose 服务）
 ```
 
-本地开发仍可用 `docker/docker-compose.yml`（Nginx :8000 / 旧前端 :8080 / 后端 :8081）。
+本地开发仍可用 `docker/docker-compose.yml`（Nginx :8000 / 前端 :8080 / 后端 :8081；frontend 服务即 frontend-pro，旧 Vue 已于 2026-09-25 下线）。
 
 ### 241 容器列表
 
 | 容器名 | 镜像 | 端口映射 | 说明 |
 |--------|------|---------|------|
-| superwork-bu-nginx | nginx:alpine | 18080:80、18088:8088 | 统一入口：新前端 :18080，旧前端 :18088 |
+| superwork-bu-nginx | nginx:alpine | 18080:80 | 统一入口：前端 :18080 |
 | superwork-bu-backend | 本地构建 | 18081:8081 | Spring Boot API |
 | superwork-bu-frontend-pro | 本地构建 | 内部 80 | Ant Design Pro 前端 |
-| superwork-bu-frontend | 本地构建 | 内部 80 | 旧 Vue 前端（兜底） |
+| ~~superwork-bu-frontend~~ | — | — | 旧 Vue 前端，2026-09-25 已下线删除 |
 | superwork-bu-mysql | mysql:8.0 | 127.0.0.1:13306:3306 | 数据库 |
 | superwork-bu-redis | redis:7-alpine | 内部 6379 | 缓存 |
 | superwork-bu-minio | minio/minio | 127.0.0.1:19000-19001 | 对象存储 |
@@ -91,13 +89,9 @@ docker compose logs -f
 ```bash
 cd docker
 
-# 仅更新新前端（常用）
+# 仅更新前端（常用）
 docker compose -f docker-compose.241.yml up -d --build frontend-pro
 docker restart superwork-bu-nginx   # 必须：upstream IP 在 nginx 启动时解析一次
-
-# 仅更新旧前端兜底
-docker compose -f docker-compose.241.yml up -d --build frontend
-docker restart superwork-bu-nginx
 
 # 仅更新后端
 docker compose -f docker-compose.241.yml up -d --build backend
@@ -128,10 +122,9 @@ docker compose down -v
 
 | 服务名 | 容器名 | 宿主端口 | 说明 |
 |--------|--------|---------|------|
-| nginx | superwork-bu-nginx | 18080（新前端入口）、18088（旧前端兜底） | 统一入口，`/api/` 反代 backend |
+| nginx | superwork-bu-nginx | 18080（前端入口） | 统一入口，`/api/` 反代 backend |
 | backend | superwork-bu-backend | 18081 | Spring Boot API，会议音频落 `/data/meetings` |
-| frontend | superwork-bu-frontend | 经 nginx 18088 | 旧 Vue 前端（兜底） |
-| frontend-pro | superwork-bu-frontend-pro | 经 nginx 18080 | 新 Ant Design Pro 前端（会议模块 `/meetings`） |
+| frontend-pro | superwork-bu-frontend-pro | 经 nginx 18080 | Ant Design Pro 前端（会议模块 `/meetings`）；旧 Vue 前端 2026-09-25 已下线 |
 | ai-sidecar | superwork-bu-ai-sidecar | 8787 | AI 助手旁路服务 |
 | asr-worker | superwork-bu-asr-worker | 不发布（仅 bu-network 内网） | 会议录音转写，见下节 |
 | mysql | superwork-bu-mysql | 127.0.0.1:13306 | 数据库 |
@@ -140,7 +133,7 @@ docker compose down -v
 
 ### 更新部署
 
-两个前端镜像都只复制宿主机预构建的 `dist/`（backend 为 jar 多阶段构建），所以**改了前端必须先在 241 宿主执行 `npm run build`，再 `up -d --build`**：
+前端镜像只复制宿主机预构建的 `dist/`（backend 为 jar 多阶段构建），所以**改了前端必须先在 241 宿主执行 `npm run build`，再 `up -d --build`**：
 
 ```bash
 # 1. 在 241 上构建前端产物（frontend-pro 会议模块改动时同样要执行）
@@ -182,12 +175,11 @@ ssh 241 'cd /home/openclaw/superwork-claude-sp/docker && \
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| **新前端（推荐）** | http://192.168.1.241:18080 | frontend-pro，Nginx 同时代理 `/api` |
-| 旧前端（兜底） | http://192.168.1.241:18088 | 旧 Vue 工程 |
+| **前端应用** | http://192.168.1.241:18080 | frontend-pro，Nginx 同时代理 `/api` |
 | 后端 API | http://192.168.1.241:18081 | Spring Boot 直连 |
 | API 文档 | http://192.168.1.241:18081/doc.html | Knife4j |
 
-> 家中网络也可走 `http://100.85.67.82:18080`。旧入口 `:18084` 已废弃，请改用 `:18080` / `:18088`。
+> 家中网络也可走 `http://100.85.67.82:18080`。旧 Vue 前端与 `:18084` / `:18088` 入口已于 2026-09-25 下线。
 
 ### 本地开发
 
