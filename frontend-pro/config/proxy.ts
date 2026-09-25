@@ -2,7 +2,7 @@
 export default {
   dev: {
     '/api/': {
-      target: 'http://100.85.67.82:18080',
+      target: process.env.PROXY_TARGET ?? 'http://100.85.67.82:18080',
       changeOrigin: true,
       secure: false,
     },

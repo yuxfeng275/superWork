@@ -995,6 +995,105 @@ export interface BizLineProfitReport {
   totalYtd: BizLineProfitRow;
 }
 
+/** 项目利润表：行类型 PROJECT | SALES | LINE_OTHER | TOTAL | RESIDUAL */
+export type ProjectProfitRowType =
+  | "PROJECT"
+  | "SALES"
+  | "LINE_OTHER"
+  | "TOTAL"
+  | "RESIDUAL";
+
+export interface ProjectProfitRow {
+  rowType: ProjectProfitRowType;
+  /** '项目' | '销售' | '差额'（TOTAL 为 null） */
+  category: string | null;
+  projectId: number | null;
+  projectName: string | null;
+  /** editable=true 仅 full 线真实项目行 */
+  editable: boolean;
+  revenue: number | null;
+  smsCost: number | null;
+  directCost: number | null;
+  platformFee: number | null;
+  compensation: number | null;
+  outsourcing: number | null;
+  softwareGift: number | null;
+  /** 工时（人月） */
+  hours: number | null;
+  /** 人工成本（元） */
+  cost: number | null;
+  grossProfit: number | null;
+  grossProfitRate: number | null;
+}
+
+export interface ProjectProfitLine {
+  businessLineId: number;
+  businessLineName: string;
+  revenueMode: string;
+  rows: ProjectProfitRow[];
+  total: ProjectProfitRow;
+  residual: ProjectProfitRow;
+}
+
+export interface ProjectProfitBlock {
+  /** '2026-01' | 'H1' | 'H2' | 'YEAR' */
+  key: string;
+  /** '1月' | 'H1' | 'H2' | '全年' */
+  label: string;
+  lines: ProjectProfitLine[];
+}
+
+export interface ProjectProfitProjectOption {
+  projectId: number;
+  projectName: string;
+}
+
+export interface ProjectProfitLineOption {
+  businessLineId: number;
+  businessLineName: string;
+  projects: ProjectProfitProjectOption[];
+}
+
+export interface ProjectProfitReport {
+  year: number;
+  /** 镜像已同步月份 YYYY-MM 升序 */
+  availableMonths: string[];
+  lastSyncedAt: string | null;
+  lineOptions: ProjectProfitLineOption[];
+  blocks: ProjectProfitBlock[];
+}
+
+export interface ProjectProfitAllocation {
+  id: number;
+  yearMonth: string;
+  businessLineId: number;
+  projectId: number;
+  costType: string;
+  amount: number;
+  note: string | null;
+  createdBy: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ProjectProfitLineAlignment {
+  businessLineId: number;
+  businessLineName: string;
+  revenueResidual: number | null;
+  costResidual: number | null;
+  hoursResidual: number | null;
+  aligned: boolean;
+}
+
+export interface ProjectProfitMonthSyncResult {
+  yearMonth: string;
+  /** 该月已完结：工时/成本未重拉，仅刷新利润镜像 */
+  monthClosed: boolean;
+  logs: WorktimeSyncLog[];
+  lines: ProjectProfitLineAlignment[];
+}
+
+
 export type MeetingStatus =
   | "UPLOADED"
   | "TRANSCRIBING"
@@ -3182,6 +3281,68 @@ export const superworkApi = {
     return requestJson<WorktimeSyncLog[]>(
       `/api/finance/bl-profit/sync-logs?limit=${limit}`
     );
+  },
+  getProjectProfitReport(params: {
+    year: number;
+    months?: number[];
+    periods?: string[];
+    businessLineIds?: number[];
+    categories?: string[];
+    projectIds?: number[];
+  }) {
+    const search = new URLSearchParams();
+    search.set("year", String(params.year));
+    if (params.months?.length) search.set("months", params.months.join(","));
+    if (params.periods?.length) search.set("periods", params.periods.join(","));
+    if (params.businessLineIds?.length)
+      search.set("businessLineIds", params.businessLineIds.join(","));
+    if (params.categories?.length)
+      search.set("categories", params.categories.join(","));
+    if (params.projectIds?.length)
+      search.set("projectIds", params.projectIds.join(","));
+    return requestJson<ProjectProfitReport>(
+      `/api/finance/project-profit?${search.toString()}`
+    );
+  },
+  syncProjectProfitMonth(yearMonth: string) {
+    return requestJson<ProjectProfitMonthSyncResult>(
+      "/api/finance/project-profit/sync-month",
+      { method: "POST", body: JSON.stringify({ yearMonth }) }
+    );
+  },
+  syncProjectProfit(body: { year?: number; month?: string }) {
+    return requestJson<WorktimeSyncLog[]>("/api/finance/project-profit/sync", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  getProjectProfitSyncLogs(limit = 10) {
+    return requestJson<WorktimeSyncLog[]>(
+      `/api/finance/project-profit/sync-logs?limit=${limit}`
+    );
+  },
+  getProjectProfitAllocations(yearMonth: string, businessLineId: number) {
+    return requestJson<ProjectProfitAllocation[]>(
+      `/api/finance/project-profit/allocations?yearMonth=${encodeURIComponent(
+        yearMonth
+      )}&businessLineId=${businessLineId}`
+    );
+  },
+  saveProjectProfitAllocations(body: {
+    yearMonth: string;
+    businessLineId: number;
+    projectId: number;
+    items: { costType: string; amount: number; note?: string | null }[];
+  }) {
+    return requestJson<ProjectProfitAllocation[]>(
+      "/api/finance/project-profit/allocations/batch",
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  },
+  deleteProjectProfitAllocation(id: number) {
+    return requestJson<void>(`/api/finance/project-profit/allocations/${id}`, {
+      method: "DELETE",
+    });
   },
   getMeetings(
     params: { page?: number; size?: number; status?: MeetingStatus } = {}

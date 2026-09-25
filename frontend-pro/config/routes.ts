@@ -250,6 +250,12 @@ export default [
     icon: 'fund',
     component: './bl-profit',
   },
+  {
+    path: '/project-profit',
+    name: '项目利润',
+    icon: 'fund',
+    component: './project-profit',
+  },
   { path: '/', redirect: '/workbench' },
   { path: '/*', redirect: '/workbench' },
 ];
