@@ -67,6 +67,7 @@ class RevenueDeliverySummaryServiceTest {
         lenient().when(salesProjectMapper.selectList(null)).thenReturn(List.of());
         lenient().when(opportunityMapper.selectList(null)).thenReturn(List.of());
         lenient().when(financialReportService.loadWorktimeYearMap(anyInt())).thenReturn(Map.of());
+        lenient().when(financialReportService.loadWorktimeCostYearMap(anyInt())).thenReturn(Map.of());
         lenient().when(monthService.closedMonths())
                 .thenReturn(Set.of("2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"));
         lenient().when(businessLineMapper.selectList(any())).thenReturn(List.of(

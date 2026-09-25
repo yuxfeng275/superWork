@@ -66,6 +66,24 @@ public class RevenueFinancialReportService {
         return result;
     }
 
+    /** 工时系统业务线利润报表的只读成本基准：营业收入 - 考核毛利。 */
+    public Map<Long, Map<String, BigDecimal>> loadWorktimeCostYearMap(int year) {
+        List<BizLineProfitReport> list = worktimeReportMapper.selectList(
+                new LambdaQueryWrapper<BizLineProfitReport>()
+                        .likeRight(BizLineProfitReport::getYearMonth, year + "-")
+                        .isNotNull(BizLineProfitReport::getBusinessLineId)
+                        .orderByAsc(BizLineProfitReport::getYearMonth));
+        Map<Long, Map<String, BigDecimal>> result = new LinkedHashMap<>();
+        for (BizLineProfitReport r : list) {
+            if (r.getRevenue() == null || r.getGrossProfit() == null) {
+                continue;
+            }
+            result.computeIfAbsent(r.getBusinessLineId(), k -> new LinkedHashMap<>())
+                    .put(r.getYearMonth(), r.getRevenue().subtract(r.getGrossProfit()));
+        }
+        return result;
+    }
+
     /** 批量保存（先删后插，按 year_month + business_line_id 唯一） */
     public void batchSave(List<RevenueFinancialReport> list) {
         for (RevenueFinancialReport r : list) {

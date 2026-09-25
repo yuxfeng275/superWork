@@ -461,6 +461,10 @@ public class RevenueDeliverySummaryService {
         if (finByLine == null) {
             finByLine = Map.of();
         }
+        Map<Long, Map<String, BigDecimal>> worktimeCostByLine = financialReportService.loadWorktimeCostYearMap(year);
+        if (worktimeCostByLine == null) {
+            worktimeCostByLine = Map.of();
+        }
         // 计算系统各线 H1 / H2 / YTD 已交付收入（从 deliveredByMonth 按行汇总）
         Map<Long, BigDecimal[]> sysRev = new HashMap<>(); // lineId -> [h1, h2, ytd]
         for (BusinessLine line : lines) {
@@ -555,6 +559,27 @@ public class RevenueDeliverySummaryService {
             out.getProjects().add(adj);
         }
 
+        // 成本基准同样只读自工时系统。合拍项目行保留本地项目归属，
+        // 差额只进入业务线合计，避免把工时系统错误的 SaaS/定制拆分重新写回项目。
+        for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
+            Long lineId = out.getBusinessLineId();
+            Map<String, BigDecimal> monthly = worktimeCostByLine.get(lineId);
+            if (monthly == null || monthly.isEmpty()) {
+                continue;
+            }
+            BigDecimal[] baseline = new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
+            monthly.forEach((month, amount) -> {
+                int idx = monthIndex(month);
+                if (idx < 0 || idx > 11) return;
+                baseline[2] = baseline[2].add(amount);
+                if (idx <= 5) baseline[0] = baseline[0].add(amount);
+                else baseline[1] = baseline[1].add(amount);
+            });
+            reconcileCostToBaseline(out.getTotals().getH1(), baseline[0], includeEstimate);
+            reconcileCostToBaseline(out.getTotals().getH2(), baseline[1], includeEstimate);
+            reconcileCostToBaseline(out.getTotals().getYtd(), baseline[2], includeEstimate);
+        }
+
         BigDecimal totalOa = BigDecimal.ZERO;
         BigDecimal[] totalsArr = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
@@ -607,6 +632,33 @@ public class RevenueDeliverySummaryService {
         overview.getSalesUnallocatedDetail().sort(Comparator
                 .comparing(RevenueDeliverySummaryVO.UnallocatedItem::getCost).reversed());
         return vo;
+    }
+
+    private void reconcileCostToBaseline(RevenueDeliverySummaryVO.Window window,
+                                         BigDecimal baselineCost, boolean includeEstimate) {
+        if (includeEstimate) {
+            return;
+        }
+        BigDecimal currentCost = nz(window.getProjectLaborCost())
+                .add(nz(window.getSalesCost()))
+                .add(otherOf(window));
+        BigDecimal adjustment = baselineCost.subtract(currentCost);
+        if (adjustment.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+        RevenueDeliverySummaryVO.OtherCosts other = window.getOtherCosts();
+        if (other == null) {
+            other = new RevenueDeliverySummaryVO.OtherCosts();
+            other.setPartner(BigDecimal.ZERO);
+            other.setServer(BigDecimal.ZERO);
+            other.setSms(BigDecimal.ZERO);
+            other.setOther(BigDecimal.ZERO);
+            window.setOtherCosts(other);
+        }
+        other.setOther(nz(other.getOther()).add(adjustment));
+        other.setTotal(nz(other.getPartner()).add(nz(other.getServer()))
+                .add(nz(other.getSms())).add(nz(other.getOther())));
+        recompute(window, false);
     }
 
     // ------------------------------------------------------------ 销售成本分配
