@@ -26,10 +26,10 @@
 - **构建工具**：Maven
 - **Java 版本**：17
 
-### 前端（待开发）
-- Vue 3 + TypeScript
-- Ant Design Vue
-- Vite
+### 前端（frontend-pro/）
+- React 19 + TypeScript
+- Ant Design 6 + ProComponents（UmiJS Max / Ant Design Pro 6）
+- 旧 Vue 3 前端已于 2026-09-25 下线删除
 
 ## 项目结构
 
@@ -55,7 +55,7 @@ superWork-claude-sp/
 │   │   │           └── schema.sql       # 数据库初始化脚本
 │   │   └── test/                        # 测试代码
 │   └── pom.xml                          # Maven 配置
-├── frontend/                   # 前端项目（待开发）
+├── frontend-pro/               # 前端项目（React 19 + Ant Design Pro 6）
 ├── docker/                     # Docker 配置
 │   └── docker-compose.yml
 └── docs/                       # 项目文档

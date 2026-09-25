@@ -34,12 +34,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Migration:** Flyway 9.22.x
 
 ### Frontend
-- **Framework:** Vue 3.4.x (Composition API)
-- **Build Tool:** Vite 5.x
-- **UI Library:** Element Plus 2.5.x
-- **State Management:** Pinia 2.x
-- **Router:** Vue Router 4.x
-- **Language:** TypeScript 5.x
+- **Framework:** React 19 + UmiJS Max（Ant Design Pro 6），工程目录 `frontend-pro/`
+- **UI Library:** Ant Design 6 + ProComponents
+- **State/Data:** @tanstack/react-query + Umi 插件（initialState/access/model）
+- **Language:** TypeScript
+- 旧 Vue 3 + Element Plus 前端（`frontend/`）已于 2026-09-25 下线并从仓库删除。
 
 ### Infrastructure
 - **Container:** Docker + Docker Compose
@@ -71,28 +70,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │       │   └── V4__init_sys_menu_and_permission.sql  # 系统菜单和权限
 │       └── application.yml     # 应用配置
 │
-├── frontend/                   # Vue 3 前端项目
+├── frontend-pro/               # React 前端项目（唯一前端，Ant Design Pro / UmiJS Max）
 │   ├── src/
-│   │   ├── views/            # 页面组件 (11个)
-│   │   │   ├── HomeView.vue           # 首页/工作台
-│   │   │   ├── LoginView.vue         # 登录页
-│   │   │   ├── RequirementsView.vue   # 需求管理列表
-│   │   │   ├── RequirementDetailView.vue  # 需求详情
-│   │   │   ├── TasksView.vue         # 任务管理
-│   │   │   ├── StatisticsView.vue    # 数据统计
-│   │   │   ├── OrganizationView.vue # 组织架构
-│   │   │   ├── SystemUserView.vue    # 用户管理
-│   │   │   ├── SystemRoleView.vue    # 角色管理
-│   │   │   ├── SystemMenuView.vue    # 菜单管理
-│   │   │   └── SystemWorkflowView.vue # 工作流配置
-│   │   ├── layouts/           # 布局组件
-│   │   ├── components/         # 公共组件
-│   │   ├── router/            # 路由配置
-│   │   ├── stores/            # Pinia 状态管理
-│   │   ├── utils/             # 工具函数 (API服务)
-│   │   ├── types/             # TypeScript 类型定义
-│   │   └── styles/            # 全局样式
-│   └── vite.config.ts
+│   │   ├── pages/             # 业务页面（workbench/requirements/tasks/key-matters/revenue/...）
+│   │   ├── services/          # API 服务（services/superwork/api.ts 为业务接口集中点）
+│   │   ├── components/        # 公共组件
+│   │   ├── access.ts          # 权限定义
+│   │   └── app.tsx            # 运行时配置（登录态/布局/请求）
+│   ├── config/
+│   │   ├── routes.ts          # 路由
+│   │   ├── config.ts          # Umi 配置
+│   │   └── proxy.ts           # 开发代理（/api → 100.85.67.82:18080）
+│   ├── Dockerfile             # nginx 托管 dist（需先 npm run build）
+│   └── nginx.conf             # SPA fallback + 静态缓存
 │
 ├── docker/                     # Docker 配置
 │   ├── docker-compose.yml      # 容器编排
@@ -198,21 +188,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **其他** | GET /api/customer-contacts | 客户联系人列表 |
 | | GET /api/project-members/{projectId} | 项目成员列表 |
 
-### Frontend Pages (已实现的页面)
+### Frontend Pages（frontend-pro，路由以 `frontend-pro/config/routes.ts` 为准）
 
 | 页面 | 路由 | 说明 |
 |------|------|------|
-| 登录页 | /login | 用户登录 |
-| 工作台/首页 | / | 统计数据面板、最近需求、快捷操作 |
-| 需求管理 | /requirements | 需求列表、筛选、创建 |
-| 需求详情 | /requirements/:id | 需求详情、任务、子需求 |
-| 任务管理 | /tasks | 任务列表 |
-| 数据统计 | /statistics | 数据看板 |
-| 组织架构 | /organization | 业务线-项目树形结构 |
-| 用户管理 | /system/users | 用户CRUD |
-| 角色管理 | /system/roles | 角色CRUD、菜单/权限分配 |
-| 菜单管理 | /system/menus | 菜单树形展示 |
-| 工作流配置 | /system/workflow | 工作流规则管理 |
+| 登录页 | /user/login | 用户登录 |
+| 工作台 | /workbench | 待办、KPI、快捷入口 |
+| 需求管理 | /requirements | 需求列表、卡片/表格切换、创建 |
+| 任务管理 | /tasks | 任务列表、看板 |
+| 缺陷管理 | /defects | 缺陷看板/列表 |
+| 大事儿管理 | /key-matters（周会 /key-matters-meeting） | 事项登记、周进展、周会演示 |
+| 周报中心 | /weekly-report | 周报概览与确认 |
+| 营收 | /revenue/worktime 等子路由 | 工时成本/交付利润/待交付确认/导入 |
+| 商机/报价 | /opportunities、/quotations | 销售管理 |
+| 系统管理 | /system/users 等 | 用户/角色/菜单/连接器/模型/数据集成 |
+| 会议与日程 | /meetings、/schedule | 会议转写总结、日程聚合 |
 
 ---
 
@@ -305,19 +295,21 @@ mvn test
 ### Frontend
 
 ```bash
-cd frontend
+cd frontend-pro
 
 # 安装依赖
 npm install
 
-# 开发模式运行 (http://localhost:5173)
+# 开发模式运行 (http://localhost:8000，/api 代理到 100.85.67.82:18080)
 npm run dev
 
-# 构建生产版本
+# 构建生产版本（产物 dist/，部署必需）
 npm run build
 
-# 类型检查
-npm run type-check
+# 类型检查 / lint / 测试
+npm run tsc
+npm run lint
+npm test
 ```
 
 ### Docker
@@ -409,9 +401,9 @@ spring:
     out-of-order: true  # 允许乱序迁移
 ```
 
-### Frontend - .env
+### Frontend - config/proxy.ts
 ```
-VITE_API_BASE_URL=http://localhost:8081
+开发环境 /api 代理到 http://100.85.67.82:18080；生产由 nginx 同源反代，无 .env
 ```
 
 ---
@@ -424,11 +416,11 @@ VITE_API_BASE_URL=http://localhost:8081
 - Service 层处理业务逻辑，Controller 层只做参数校验
 - 使用 `Result<T>` 统一响应格式
 
-### Frontend (Vue/TypeScript)
-- Vue 3 Composition API (`<script setup lang="ts">`)
-- 组件 props 使用 interface 定义
-- API 调用统一通过 `src/utils/api.ts` 的 ApiService 类
-- 样式使用 CSS 变量（`var(--gray-500)` 等）和 Element Plus 组件
+### Frontend (React/TypeScript，frontend-pro/)
+- React 19 函数组件 + Hooks；页面位于 `src/pages/<域>/`
+- API 调用统一通过 `src/services/superwork/api.ts`
+- UI 组件用 Ant Design 6 / ProComponents；样式用页面级 `style.less`（`sw-` 前缀类名）
+- 权限通过 `src/access.ts` + 后端菜单树；登录态走 `src/app.tsx` initialState
 
 ---
 
@@ -446,7 +438,7 @@ VITE_API_BASE_URL=http://localhost:8081
 | Service | Port | URL |
 |---------|------|-----|
 | Backend | 8081 | http://localhost:8081 |
-| Frontend | 5173 | http://localhost:5173 |
+| Frontend | 8000 | http://localhost:8000（npm run dev，/api 代理到生产） |
 | MySQL | 3306 | localhost:3306 |
 | Redis | 6379 | localhost:6379 |
 | MinIO Console | 9001 | http://localhost:9001 |

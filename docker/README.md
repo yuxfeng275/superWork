@@ -90,8 +90,7 @@ docker-compose up -d mysql redis minio
 
 241 生产 `docker-compose.241.yml`：
 
-- 新前端 frontend-pro（默认入口）: http://192.168.1.241:18080
-- 旧前端 Vue（兜底）: http://192.168.1.241:18088
+- 前端 frontend-pro: http://192.168.1.241:18080（唯一入口，旧 Vue 已于 2026-09-25 下线）
 - 后端 API: http://192.168.1.241:18081
 
 ## 注意事项

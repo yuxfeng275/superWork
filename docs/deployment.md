@@ -32,7 +32,7 @@
 
 ## 服务架构
 
-241 生产（`docker/docker-compose.241.yml`）通过 Nginx 同时托管两套前端，共用同一后端：
+241 生产（`docker/docker-compose.241.yml`）由 Nginx 统一入口托管 frontend-pro 前端，并反代后端：
 
 ```
 浏览器
@@ -59,7 +59,6 @@ Backend :8081
 | superwork-bu-nginx | nginx:alpine | 18080:80 | 统一入口：前端 :18080 |
 | superwork-bu-backend | 本地构建 | 18081:8081 | Spring Boot API |
 | superwork-bu-frontend-pro | 本地构建 | 内部 80 | Ant Design Pro 前端 |
-| ~~superwork-bu-frontend~~ | — | — | 旧 Vue 前端，2026-09-25 已下线删除 |
 | superwork-bu-mysql | mysql:8.0 | 127.0.0.1:13306:3306 | 数据库 |
 | superwork-bu-redis | redis:7-alpine | 内部 6379 | 缓存 |
 | superwork-bu-minio | minio/minio | 127.0.0.1:19000-19001 | 对象存储 |
@@ -84,7 +83,7 @@ docker compose logs -f
 
 ### 更新部署（241）
 
-先合入 `master`，再从 master 构建产物。frontend-pro 只发 dist，不要带上旧 Vue / 后端。
+先合入 `master`，再从 master 构建产物。frontend-pro 只发 dist，不要带上后端。
 
 ```bash
 cd docker
