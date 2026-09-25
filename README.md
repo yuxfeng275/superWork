@@ -59,8 +59,8 @@ superWork-claude-sp/
 ├── docker/                     # Docker 配置
 │   └── docker-compose.yml
 └── docs/                       # 项目文档
-    ├── PROJECT_COMPLETE.md     # 项目完成报告
-    ├── RESUME.md               # 停工报告
+    ├── archive/2026-04/        # 早期状态报告（PROJECT_COMPLETE / RESUME）
+    ├── deployment.md           # 部署文档（生产）
     └── superpowers/
         └── specs/              # 设计文档
 ```

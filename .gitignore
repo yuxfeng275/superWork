@@ -43,3 +43,4 @@ ai-sidecar/node_modules/
 ai-sidecar/dist/
 .pnpm-store/
 .pnpm-store/
+\n# Agent state\nstate/\n
