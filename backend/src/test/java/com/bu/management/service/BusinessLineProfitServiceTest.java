@@ -169,4 +169,26 @@ class BusinessLineProfitServiceTest {
         assertThat(vo.getTotalYtd().getGrossProfitRate()).isNull();
         assertThat(vo.getTotalYtd().getGrossProfit()).isEqualByComparingTo("-100");
     }
+
+    @Test
+    @DisplayName("年度查询：只返回带 KPI 分组的本系统业务线，排除公司其他业务线")
+    void queryYearFiltersToManagedBusinessLines() {
+        BusinessLine managed = new BusinessLine();
+        managed.setId(3L);
+        managed.setStatus(1);
+        managed.setKpiReportGroup("会员通");
+        when(businessLineMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(managed));
+
+        BizLineProfitReport member = row("2026-08", "全域-全渠道-会员通", "100", "20", "10", "1");
+        member.setBusinessLineId(3L);
+        BizLineProfitReport company = row("2026-08", "全域-二象限-其他", "999", "999", "999", "9");
+        company.setBusinessLineId(null);
+        when(reportMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(member, company));
+
+        BizLineProfitReportVO vo = service.queryYear(2026);
+
+        assertThat(vo.getLines()).extracting(BizLineProfitReportVO.LineGroup::getBusinessLineName)
+                .containsExactly("全域-全渠道-会员通");
+        assertThat(vo.getTotalYtd().getRevenue()).isEqualByComparingTo("100");
+    }
 }

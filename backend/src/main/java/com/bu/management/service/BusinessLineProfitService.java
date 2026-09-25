@@ -185,6 +185,25 @@ public class BusinessLineProfitService {
                         .likeRight(BizLineProfitReport::getYearMonth, year + "-")
                         .orderByAsc(BizLineProfitReport::getYearMonth));
 
+        // The worktime report contains the company's full 70-line report. This page is
+        // scoped to the four BU lines participating in KPI/revenue management. Keep
+        // only rows mapped to an active local line with a KPI report group; unmapped
+        // company-level rows must not inflate the user's revenue total.
+        List<BusinessLine> managedLines = businessLineMapper.selectList(
+                new LambdaQueryWrapper<BusinessLine>()
+                        .eq(BusinessLine::getStatus, 1)
+                        .isNotNull(BusinessLine::getKpiReportGroup));
+        if (managedLines != null && !managedLines.isEmpty()) {
+            var managedLineIds = managedLines.stream()
+                    .map(BusinessLine::getId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            rows = rows.stream()
+                    .filter(row -> row.getBusinessLineId() != null
+                            && managedLineIds.contains(row.getBusinessLineId()))
+                    .toList();
+        }
+
         Map<String, List<BizLineProfitReport>> byLine = new LinkedHashMap<>();
         rows.stream()
                 .sorted(Comparator.comparing(BizLineProfitReport::getWorktimeBusinessLineName,
