@@ -2,6 +2,8 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.RevenueFinancialReport;
+import com.bu.management.entity.BizLineProfitReport;
+import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.RevenueFinancialReportMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import java.util.Map;
 public class RevenueFinancialReportService {
 
     private final RevenueFinancialReportMapper mapper;
+    private final BizLineProfitReportMapper worktimeReportMapper;
 
     /** 查询某年某业务线的财报收入 */
     public List<RevenueFinancialReport> listByYearAndLine(int year, Long businessLineId) {
@@ -38,6 +41,27 @@ public class RevenueFinancialReportService {
         for (RevenueFinancialReport r : list) {
             result.computeIfAbsent(r.getBusinessLineId(), k -> new LinkedHashMap<>())
                     .put(r.getYearMonth(), r.getRevenueAmount());
+        }
+        return result;
+    }
+
+    /**
+     * 工时系统业务线利润报表的只读基准，按本系统业务线聚合月份收入。
+     * 该数据来自同步镜像，不写入财报基准表。
+     */
+    public Map<Long, Map<String, BigDecimal>> loadWorktimeYearMap(int year) {
+        List<BizLineProfitReport> list = worktimeReportMapper.selectList(
+                new LambdaQueryWrapper<BizLineProfitReport>()
+                        .likeRight(BizLineProfitReport::getYearMonth, year + "-")
+                        .isNotNull(BizLineProfitReport::getBusinessLineId)
+                        .orderByAsc(BizLineProfitReport::getYearMonth));
+        Map<Long, Map<String, BigDecimal>> result = new LinkedHashMap<>();
+        for (BizLineProfitReport r : list) {
+            if (r.getRevenue() == null) {
+                continue;
+            }
+            result.computeIfAbsent(r.getBusinessLineId(), k -> new LinkedHashMap<>())
+                    .put(r.getYearMonth(), r.getRevenue());
         }
         return result;
     }

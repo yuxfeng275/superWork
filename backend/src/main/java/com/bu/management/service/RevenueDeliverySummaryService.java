@@ -455,7 +455,12 @@ public class RevenueDeliverySummaryService {
 
         // ===== 财报收入对齐 =====
         // 加载财报月度数据，按 会员通/精准/定制+SAAS 三类与系统收入对比，差额以「财务调节」行补充
-        Map<Long, Map<String, BigDecimal>> finByLine = financialReportService.loadYearMap(year);
+        // 财报基准只读自工时系统利润报表镜像；revenue_financial_report 是历史手工维护表，
+        // 不能作为本次 8 月对账的写入目标。
+        Map<Long, Map<String, BigDecimal>> finByLine = financialReportService.loadWorktimeYearMap(year);
+        if (finByLine == null) {
+            finByLine = Map.of();
+        }
         // 计算系统各线 H1 / H2 / YTD 已交付收入（从 deliveredByMonth 按行汇总）
         Map<Long, BigDecimal[]> sysRev = new HashMap<>(); // lineId -> [h1, h2, ytd]
         for (BusinessLine line : lines) {
@@ -499,45 +504,34 @@ public class RevenueDeliverySummaryService {
             }
             finRev.put(lid, arr);
         }
-        // 定制+SAAS 合计对比
-        BigDecimal[] finCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
-        BigDecimal[] sysCustomSaas = {BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO};
-        for (Long lid : List.of(1L, 2L)) {
-            BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-            BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-            for (int i = 0; i < 3; i++) {
-                finCustomSaas[i] = finCustomSaas[i].add(f[i]);
-                sysCustomSaas[i] = sysCustomSaas[i].add(s[i]);
-            }
-        }
-        // 为每条线插入财务调节行（如果财报 > 系统）
+        // 为每条线插入财务调节行，使项目交付口径严格对齐财报口径。
+        // 财报可能小于合同交付汇总（交付月与财务确认月不同），因此保留负向调节。
         for (RevenueDeliverySummaryVO.Line out : vo.getLines()) {
             Long lid = out.getBusinessLineId();
             BigDecimal gapH1 = BigDecimal.ZERO, gapH2 = BigDecimal.ZERO, gapYtd = BigDecimal.ZERO;
             if (lid == 1L || lid == 2L) {
-                // 定制/SAAS 用合计对比，按各线系统收入占比分摊
-                BigDecimal totalSysCustomSaas = sysCustomSaas[2];
-                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-                if (totalSysCustomSaas.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal ratio = s[2].divide(totalSysCustomSaas, 6, RoundingMode.HALF_UP);
-                    for (int i = 0; i < 3; i++) {
-                        BigDecimal combinedGap = finCustomSaas[i].subtract(sysCustomSaas[i]);
-                        if (combinedGap.compareTo(BigDecimal.ZERO) > 0) {
-                            BigDecimal[] arr = {gapH1, gapH2, gapYtd};
-                            arr[i] = combinedGap.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
-                            gapH1 = arr[0]; gapH2 = arr[1]; gapYtd = arr[2];
-                        }
-                    }
+                if (!finRev.containsKey(lid)) {
+                    continue;
                 }
+                // 定制 / SAAS 分别对账。工时系统的四条业务线是独立财报行，
+                // 不再把 SaaS 的合同交付差额按收入比例摊到定制项目。
+                BigDecimal[] f = finRev.get(lid);
+                BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                gapH1 = f[0].subtract(s[0]);
+                gapH2 = f[1].subtract(s[1]);
+                gapYtd = f[2].subtract(s[2]);
             } else {
+                if (!finRev.containsKey(lid)) {
+                    continue;
+                }
                 // 会员通/精准：直接对比
                 BigDecimal[] f = finRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
                 BigDecimal[] s = sysRev.getOrDefault(lid, new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
-                gapH1 = f[0].subtract(s[0]).max(BigDecimal.ZERO);
-                gapH2 = f[1].subtract(s[1]).max(BigDecimal.ZERO);
-                gapYtd = f[2].subtract(s[2]).max(BigDecimal.ZERO);
+                gapH1 = f[0].subtract(s[0]);
+                gapH2 = f[1].subtract(s[1]);
+                gapYtd = f[2].subtract(s[2]);
             }
-            if (gapYtd.compareTo(BigDecimal.ZERO) <= 0 && gapH1.compareTo(BigDecimal.ZERO) <= 0 && gapH2.compareTo(BigDecimal.ZERO) <= 0) continue;
+            if (gapYtd.compareTo(BigDecimal.ZERO) == 0 && gapH1.compareTo(BigDecimal.ZERO) == 0 && gapH2.compareTo(BigDecimal.ZERO) == 0) continue;
             // 创建财务调节行（窗口需完整初始化，否则 addWindow 合并 otherCosts 时 NPE）
             RevenueDeliverySummaryVO.ProjectRow adj = new RevenueDeliverySummaryVO.ProjectRow();
             adj.setName("财务调节");
@@ -548,8 +542,14 @@ public class RevenueDeliverySummaryService {
             adj.getH1().setDelivered(gapH1);
             adj.getH2().setDelivered(gapH2);
             adj.getYtd().setDelivered(gapYtd);
+            recompute(adj.getH1(), includeEstimate);
+            recompute(adj.getH2(), includeEstimate);
+            recompute(adj.getYtd(), includeEstimate);
             // 并入线 totals
             addInto(out.getTotals(), adj);
+            recompute(out.getTotals().getH1(), includeEstimate);
+            recompute(out.getTotals().getH2(), includeEstimate);
+            recompute(out.getTotals().getYtd(), includeEstimate);
             // 追加到项目行列表
             if (out.getProjects() == null) out.setProjects(new ArrayList<>());
             out.getProjects().add(adj);
