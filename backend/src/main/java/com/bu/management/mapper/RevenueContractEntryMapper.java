@@ -15,6 +15,8 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
      * 批量插入，明细表记录ID（detail_no 唯一键）重复时更新不新增 ——
      * 同一文件重复导入/每日自动同步不产生重复行，同明细ID内容变化更新。
      * 人工调整过归属（mapping_locked=1）的行保留 biz_line_id/project_id/pending 不被覆盖。
+     * 交付日期为空时不覆盖库中已有值（IFNULL）——源侧字段临时缺失/清空不得让已确认的交付日丢失，
+     * 否则该合同会从「已交付」退化为不落月，项目利润的项目行营收随之少计（差额行虚增）。
      */
     @Insert("""
             <script>
@@ -46,7 +48,7 @@ public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEn
                 sale_month = VALUES(sale_month),
                 receivable_date = VALUES(receivable_date),
                 service_end_date = VALUES(service_end_date),
-                delivery_date = VALUES(delivery_date),
+                delivery_date = IFNULL(VALUES(delivery_date), delivery_date),
                 sms_cost = VALUES(sms_cost),
                 direct_cost = VALUES(direct_cost),
                 third_party_cost = VALUES(third_party_cost),
