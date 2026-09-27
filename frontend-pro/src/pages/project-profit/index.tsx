@@ -23,6 +23,7 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
 import {
@@ -161,6 +162,15 @@ const syncMonthOptions = (year: number) => {
   return options;
 };
 
+/** 长表头显式换行：避免浏览器在字间断成「平台佣金&手续 / 费」这类难看断点 */
+const headerBreaks = (first: string, second: string) => (
+  <>
+    {first}
+    <br />
+    {second}
+  </>
+);
+
 export default function ProjectProfitPage() {
   const [year, setYear] = useState(currentYear);
   const [viewMode, setViewMode] = useState<ViewMode>('month');
@@ -254,20 +264,28 @@ export default function ProjectProfitPage() {
 
   // 表格可视高度：随 视图/筛选/错误提示/数据 变化重算，保证页面不出现外层滚动、表头常驻
   useEffect(() => {
+    const card = tableCardRef.current;
+    const scroller = (card?.closest('.ant-layout-content') as HTMLElement | null) ?? null;
     const compute = () => {
+      if (!tableCardRef.current) return;
       const el = tableCardRef.current;
-      if (!el) return;
-      const scroller = el.closest('.ant-layout-content') as HTMLElement | null;
       const top = scroller
         ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
         : el.getBoundingClientRect().top;
       const available = (scroller?.clientHeight ?? window.innerHeight) - top;
-      // 预留：表头（可折行 ~32px）+ 卡片内边距（24）+ 底部留白（16）
-      setTableBodyHeight(Math.max(220, Math.round(available - 74)));
+      // 预留：表头（可折行 ~46px）+ 卡片内边距（24）+ 底部留白（8）
+      setTableBodyHeight(Math.max(220, Math.round(available - 78)));
     };
     compute();
+    // 布局时序（数据到达、字体/滚动条出现、窗口缩放）都会改变可用高度，用 RO 持续校正
+    const observer = new ResizeObserver(compute);
+    observer.observe(scroller ?? document.body);
+    if (card) observer.observe(card);
     window.addEventListener('resize', compute);
-    return () => window.removeEventListener('resize', compute);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', compute);
+    };
   }, [report, viewMode, error, filterLineIds, filterCategories, filterProjectIds, selectedMonths]);
 
   // 月度一键同步（决策4）：完成后弹结果 Modal，关闭后刷新报表与日志
@@ -412,7 +430,7 @@ export default function ProjectProfitPage() {
   );
 
   const moneyColumn = (
-    title: string,
+    title: ReactNode,
     field: CostKey | 'revenue' | 'cost' | 'grossProfit',
     width: number,
   ) => ({
@@ -452,9 +470,9 @@ export default function ProjectProfitPage() {
     moneyColumn('营业收入', 'revenue', 74),
     moneyColumn('短信成本', 'smsCost', 60),
     moneyColumn('直接成本', 'directCost', 60),
-    moneyColumn('平台佣金&手续费', 'platformFee', 64),
+    moneyColumn(headerBreaks('平台佣金&', '手续费'), 'platformFee', 64),
     moneyColumn('赔付', 'compensation', 44),
-    moneyColumn('协力&外包', 'outsourcing', 58),
+    moneyColumn(headerBreaks('协力&', '外包'), 'outsourcing', 58),
     moneyColumn('软件赠送', 'softwareGift', 58),
     {
       title: '工时',
@@ -465,8 +483,8 @@ export default function ProjectProfitPage() {
     moneyColumn('成本', 'cost', 74),
     moneyColumn('考核毛利', 'grossProfit', 74),
     {
-      title: '考核毛利率(%)',
-      width: 88,
+      title: headerBreaks('考核', '毛利率(%)'),
+      width: 76,
       align: 'right',
       render: (_, record) => cellNum(formatRate)(record.row.grossProfitRate),
     },
