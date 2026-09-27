@@ -1,4 +1,8 @@
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DownloadOutlined,
+  InfoCircleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import type { TableProps } from 'antd';
 import {
   Alert,
@@ -15,6 +19,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -241,7 +246,8 @@ export default function ProjectProfitPage() {
         ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
         : el.getBoundingClientRect().top;
       const available = (scroller?.clientHeight ?? window.innerHeight) - top;
-      setTableBodyHeight(Math.max(220, Math.round(available - 92)));
+      // 预留：表头（可折行 ~32px）+ 卡片内边距（24）+ 底部留白（16）
+      setTableBodyHeight(Math.max(220, Math.round(available - 74)));
     };
     compute();
     window.addEventListener('resize', compute);
@@ -450,15 +456,18 @@ export default function ProjectProfitPage() {
     },
     {
       title: '操作',
-      width: 60,
+      width: 48,
       fixed: 'right',
       render: (_, record) =>
         record.row.rowType === 'PROJECT' &&
         record.row.editable &&
         !['H1', 'H2', 'YEAR'].includes(record.block.key) ? (
-          <Button size="small" type="link" onClick={() => openDrawer(record.block, record.line, record.row)}>
+          <Typography.Link
+            className="sw-project-profit-alloc-link"
+            onClick={() => openDrawer(record.block, record.line, record.row)}
+          >
             分配
-          </Button>
+          </Typography.Link>
         ) : null,
     },
   ];
@@ -468,26 +477,38 @@ export default function ProjectProfitPage() {
 
   return (
     <div className="sw-page sw-project-profit">
-      <div className="sw-page-header">
+      <div className="sw-page-header sw-project-profit-header">
         <div>
-          <div className="sw-eyebrow">FINANCE</div>
-          <Typography.Title level={2} style={{ margin: 0 }}>
-            项目利润
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税），项目行营收为 OA 已交付（含税÷(1+税率)换算未税），差额行暴露未分配口径差。
-          </Typography.Paragraph>
+          <Space align="baseline" size={8} wrap={false}>
+            <span className="sw-eyebrow">FINANCE</span>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              项目利润
+            </Typography.Title>
+            <Tooltip
+              title={
+                <span>
+                  月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税）；
+                  项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）；
+                  差额行 = 合计 − 已显示明细行。收益单位：金额「万」，工时「人月」。
+                </span>
+              }
+            >
+              <InfoCircleOutlined className="sw-project-profit-info" />
+            </Tooltip>
+          </Space>
         </div>
         <SyncCutoff domains={['contract', 'worklog', 'cost']} />
-        <Space wrap>
+        <Space wrap size={8}>
           <Select
             aria-label="选择年份"
-            style={{ width: 110 }}
+            size="small"
+            style={{ width: 92 }}
             value={year}
             options={yearOptions}
             onChange={(value) => setYear(value)}
           />
           <Segmented<ViewMode>
+            size="small"
             value={viewMode}
             onChange={(value) => setViewMode(value)}
             options={[
@@ -498,11 +519,13 @@ export default function ProjectProfitPage() {
             ]}
           />
           <Button
+            size="small"
             icon={<ReloadOutlined />}
             aria-label="刷新"
             onClick={() => void loadReport(year)}
           />
           <Button
+            size="small"
             icon={<DownloadOutlined />}
             loading={syncingYear}
             onClick={() => void syncWholeYear()}
@@ -511,13 +534,15 @@ export default function ProjectProfitPage() {
           </Button>
           <Select
             aria-label="同步月份"
-            style={{ width: 100 }}
+            size="small"
+            style={{ width: 92 }}
             value={syncTargetMonth || undefined}
             options={monthOptions}
             placeholder="月份"
             onChange={(value) => setSyncTargetMonth(value)}
           />
           <Button
+            size="small"
             type="primary"
             icon={<DownloadOutlined />}
             loading={syncing}
@@ -557,13 +582,14 @@ export default function ProjectProfitPage() {
 
       {report && report.availableMonths.length > 0 && (
         <>
-          <Space wrap style={{ marginBottom: 16 }}>
+          <Space wrap size={8} style={{ marginBottom: 8 }}>
             {viewMode === 'month' && (
               <Select
                 mode="multiple"
                 allowClear
+                size="small"
                 placeholder="月份（默认全部）"
-                style={{ minWidth: 200 }}
+                style={{ minWidth: 180 }}
                 value={selectedMonths}
                 options={monthFilterOptions}
                 onChange={(value) => setSelectedMonths(value)}
@@ -572,8 +598,9 @@ export default function ProjectProfitPage() {
             <Select
               mode="multiple"
               allowClear
+              size="small"
               placeholder="分类（项目/销售）"
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 148 }}
               value={filterCategories}
               options={[
                 { label: '项目', value: '项目' },
@@ -584,8 +611,9 @@ export default function ProjectProfitPage() {
             <Select
               mode="multiple"
               allowClear
+              size="small"
               placeholder="项目（仅过滤项目行）"
-              style={{ minWidth: 240 }}
+              style={{ minWidth: 220 }}
               value={filterProjectIds}
               options={projectOptions}
               onChange={(value) => setFilterProjectIds(value)}

@@ -1,19 +1,34 @@
 .sw-project-profit {
+  // 页面顶距收紧（默认 24px），纵向空间优先留给表格
+  padding-top: 12px;
+  // 页头压缩：标题单行 + 口径说明改为 ⓘ 悬浮，给表格让出纵向空间
+  .sw-project-profit-header {
+    margin-bottom: 8px;
+    .sw-eyebrow {
+      margin: 0;
+    }
+  }
+  .sw-project-profit-info {
+    color: #98a2b3;
+    cursor: help;
+  }
   .sw-project-profit-sync-status {
-    margin: 0 0 16px;
-    font-size: 12px;
+    margin: 0 0 6px;
+    font-size: 11px;
+    line-height: 1.4;
   }
   .sw-project-profit-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 6px;
+    margin-bottom: 8px;
     button {
       border: 1px solid #e4e7ec;
       background: #fff;
       border-radius: 999px;
-      padding: 4px 14px;
-      font-size: 13px;
+      padding: 1px 10px;
+      font-size: 12px;
+      line-height: 18px;
       color: #667085;
       cursor: pointer;
       &.is-active {
@@ -59,7 +74,7 @@
       font-size: 12px !important;
     }
     .ant-table-thead > tr > th {
-      padding: 4px 6px !important;
+      padding: 2px 6px !important;
       font-size: 12px !important;
       line-height: 1.15;
       // 表头折行（如「平台佣金&手续费」「考核毛利率(%)」），不再独占横向空间
@@ -67,11 +82,21 @@
       word-break: break-word;
     }
     .ant-table-tbody > tr > td {
-      padding: 3px 6px !important;
+      padding: 0 6px !important;
+      line-height: 1.25;
       white-space: nowrap;
       // 数值异常变长时也不与相邻列重叠（表头仍折行，正文超长省略）
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    // antd Typography 默认 1.5715 行高会把行撑到 ~23px；表格内统一收到 1.25
+    .ant-typography {
+      line-height: 1.25;
+    }
+    // 分配入口用文字链，避免按钮 24px 最小高度把行撑高
+    .sw-project-profit-alloc-link {
+      font-size: 12px;
+      line-height: 1.25;
     }
     // 合并后的月份/业务线/分类单元格纵向居中
     .ant-table-tbody > tr > td[rowspan] {
