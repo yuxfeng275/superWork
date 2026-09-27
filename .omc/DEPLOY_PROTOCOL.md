@@ -161,3 +161,4 @@ V48+V50，backend UP、UI 200。V50 记录保留（master jar 无此文件但历
 | 2026-09-07 | 2459a54 | H1/H2 逐行 Playwright 核查（按真实数据 mock）：全部行随窗口变化，前端后端无 bug | bigwork agent |
 | 2026-09-08 | 81b67b1 | 修复交付与利润 H1/H2/全年切换部分行冻结(嵌套 template v-for 片段锚点错位,改 tr/td 直挂 key) | bigwork agent |
 | 2026-09-08 | 8980d3d | 修复其他成本编辑保存报"业务线不能为空"(PUT 请求体漏带归属字段) | bigwork agent |
+| 2026-09-27 | 47a74da | 下线「交付与利润」：菜单/路由/接口/服务移除 + V96 清理菜单与角色授权（数据表保留）；同批含 8月财报数据归档、取消跟踪 .DS_Store | omp agent |
