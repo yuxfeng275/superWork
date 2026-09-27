@@ -197,13 +197,18 @@ export default function ProjectProfitPage() {
           projectIds: filterProjectIds.length > 0 ? filterProjectIds : undefined,
         });
         setReport(result);
-        // 项目选项随业务线联动：业务线变化后剔除已失效的项目选择
+        // 项目选项随业务线联动：业务线变化后剔除已失效的项目选择。
+        // 注意：必须保持原引用（无变化时返回 prev），否则 filterProjectIds 每次都是新数组，
+        // 会让 loadReport 换身份、useEffect 再次触发拉取，形成无限请求循环。
         const validProjectIds = new Set(
           result.lineOptions.flatMap((line) =>
             line.projects.map((project) => project.projectId),
           ),
         );
-        setFilterProjectIds((prev) => prev.filter((id) => validProjectIds.has(id)));
+        setFilterProjectIds((prev) => {
+          const next = prev.filter((id) => validProjectIds.has(id));
+          return next.length === prev.length ? prev : next;
+        });
       } catch {
         setError('项目利润报表加载失败');
       } finally {
