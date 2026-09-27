@@ -114,12 +114,23 @@ const formatYuan = (value?: number | null) =>
         maximumFractionDigits: 2,
       });
 const isNegative = (value?: number | null) => value != null && Number(value) < 0;
+/** 抽屉/同步结果等需要精确数字的地方：0 也显示 0.00 */
 const num =
   (render: (value?: number | null) => string) => (value: number | null) => (
     <Typography.Text type={isNegative(value) ? 'danger' : undefined}>
       {render(value)}
     </Typography.Text>
   );
+/** 表格单元格：0 与空统一弱化为灰色短横，避免整屏 0.00 干扰读数；仅真实数字着色 */
+const cellNum =
+  (render: (value?: number | null) => string) => (value: number | null) =>
+    value == null || Number(value) === 0 ? (
+      <Typography.Text className="sw-project-profit-zero">-</Typography.Text>
+    ) : (
+      <Typography.Text type={isNegative(value) ? 'danger' : undefined}>
+        {render(value)}
+      </Typography.Text>
+    );
 
 /** 差额行仅当任一数值列非零（金额 ≥0.01 / 工时 ≥0.0001）时渲染 */
 const residualVisible = (row: ProjectProfitRow) => {
@@ -408,7 +419,7 @@ export default function ProjectProfitPage() {
     title,
     width,
     align: 'right' as const,
-    render: (_: unknown, record: FlatRow) => num(formatWan)(record.row[field]),
+    render: (_: unknown, record: FlatRow) => cellNum(formatWan)(record.row[field]),
   });
   // 紧凑列宽：文本列固定窄宽 + 省略号，数值列按当前数据最大文本留 1~2 字符余量，合计宽度收敛到一屏内
   const columns: TableProps<FlatRow>['columns'] = [
@@ -449,7 +460,7 @@ export default function ProjectProfitPage() {
       title: '工时',
       width: 60,
       align: 'right',
-      render: (_, record) => num(formatHours)(record.row.hours),
+      render: (_, record) => cellNum(formatHours)(record.row.hours),
     },
     moneyColumn('成本', 'cost', 74),
     moneyColumn('考核毛利', 'grossProfit', 74),
@@ -457,7 +468,7 @@ export default function ProjectProfitPage() {
       title: '考核毛利率(%)',
       width: 88,
       align: 'right',
-      render: (_, record) => num(formatRate)(record.row.grossProfitRate),
+      render: (_, record) => cellNum(formatRate)(record.row.grossProfitRate),
     },
     {
       title: '操作',
