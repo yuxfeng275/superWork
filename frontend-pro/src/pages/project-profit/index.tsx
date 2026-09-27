@@ -18,7 +18,7 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
 import {
   type ProjectProfitBlock,
@@ -88,18 +88,26 @@ const spanCounts = <T,>(list: T[], keyOf: (item: T) => string) => {
 
 const formatWan = (value?: number | null) => {
   if (value == null) return '—';
-  const num = Number(value) / 10000;
-  if (num === 0) return '—';
-  return (Math.round(num * 100) / 100).toLocaleString('zh-CN');
+  const wan = Math.round((Number(value) / 10000) * 100) / 100;
+  return wan.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 };
 const formatRate = (value?: number | null) =>
   value == null ? '—' : `${Number(value).toFixed(1)}%`;
 const formatHours = (value?: number | null) => {
   if (value == null) return '—';
-  const num = Number(value);
-  if (num === 0) return '—';
-  return String(Math.round(num * 100) / 100);
+  return (Math.round(Number(value) * 100) / 100).toFixed(2);
 };
+/** 元（千分位、两位小数）：分配抽屉内与输入框同单位，避免与表格「万」列混填 */
+const formatYuan = (value?: number | null) =>
+  value == null
+    ? '—'
+    : Number(value).toLocaleString('zh-CN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
 const isNegative = (value?: number | null) => value != null && Number(value) < 0;
 const num =
   (render: (value?: number | null) => string) => (value: number | null) => (
@@ -162,6 +170,10 @@ export default function ProjectProfitPage() {
   const [allocAmounts, setAllocAmounts] = useState<Record<string, number | null>>({});
   const [allocNote, setAllocNote] = useState('');
   const [savingAlloc, setSavingAlloc] = useState(false);
+  // 表头吸顶：页面滚动容器是 .ant-layout-content，表格自带横向 overflow 容器会让 position:sticky 失效，
+  // 因此用 scroll.y 固定表头，高度按「滚动容器可视高 − 表格在容器内的偏移 − 表头/内边距」动态计算。
+  const tableCardRef = useRef<HTMLDivElement>(null);
+  const [tableBodyHeight, setTableBodyHeight] = useState(320);
 
   const loadReport = useCallback(
     async (targetYear: number) => {
@@ -218,6 +230,23 @@ export default function ProjectProfitPage() {
       setSyncTargetMonth(monthOptions[0]?.value ?? '');
     }
   }, [monthOptions, syncTargetMonth]);
+
+  // 表格可视高度：随 视图/筛选/错误提示/数据 变化重算，保证页面不出现外层滚动、表头常驻
+  useEffect(() => {
+    const compute = () => {
+      const el = tableCardRef.current;
+      if (!el) return;
+      const scroller = el.closest('.ant-layout-content') as HTMLElement | null;
+      const top = scroller
+        ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        : el.getBoundingClientRect().top;
+      const available = (scroller?.clientHeight ?? window.innerHeight) - top;
+      setTableBodyHeight(Math.max(220, Math.round(available - 92)));
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    return () => window.removeEventListener('resize', compute);
+  }, [report, viewMode, error, filterLineIds, filterCategories, filterProjectIds, selectedMonths]);
 
   // 月度一键同步（决策4）：完成后弹结果 Modal，关闭后刷新报表与日志
   const syncMonth = async () => {
@@ -593,23 +622,43 @@ export default function ProjectProfitPage() {
       )}
 
       {report && report.availableMonths.length > 0 ? (
-        <Card variant="borderless" className="sw-table-card" styles={{ body: { padding: 12 } }}>
-          <Table<FlatRow>
-            columns={columns}
-            dataSource={dataSource}
-            loading={loading}
-            pagination={false}
-            scroll={{ x: tableWidth }}
-            size="small"
-            rowClassName={(record) =>
-              record.row.rowType === 'TOTAL'
-                ? 'sw-project-profit-total-row'
-                : record.row.rowType === 'RESIDUAL'
-                  ? 'sw-project-profit-residual-row'
-                  : ''
-            }
-          />
-        </Card>
+        <>
+          {viewMode !== 'month' && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="成本分配为月度粒度：H1/H2/全年 视图不提供「分配」入口，需要分配时切回月度视图。"
+              action={
+                <Button size="small" onClick={() => setViewMode('month')}>
+                  切到月度
+                </Button>
+              }
+            />
+          )}
+          <Card
+            variant="borderless"
+            className="sw-table-card"
+            ref={tableCardRef}
+            styles={{ body: { padding: 12 } }}
+          >
+            <Table<FlatRow>
+              columns={columns}
+              dataSource={dataSource}
+              loading={loading}
+              pagination={false}
+              scroll={{ x: tableWidth, y: tableBodyHeight }}
+              size="small"
+              rowClassName={(record) =>
+                record.row.rowType === 'TOTAL'
+                  ? 'sw-project-profit-total-row'
+                  : record.row.rowType === 'RESIDUAL'
+                    ? 'sw-project-profit-residual-row'
+                    : ''
+              }
+            />
+          </Card>
+        </>
       ) : (
         !loading &&
         !error && (
@@ -697,29 +746,34 @@ export default function ProjectProfitPage() {
         {drawer && (
           <>
             <Typography.Paragraph type="secondary">
-              金额为财报未税口径（元）。「未分配余额」= 该月该业务线合计 − 各项目行已分配之和，保存后差额行联动。
+              录入单位：<Typography.Text strong>元</Typography.Text>（财报未税口径，两位小数）。表格里的成本列以「万」展示，
+              1 万 = 10,000 元。「未分配」= 该月该业务线合计 − 各项目行已分配之和，保存后差额行联动。
             </Typography.Paragraph>
             {COST_TYPES.map(({ key, costType, label }) => {
               const total = Number(drawer.line.total[key] ?? 0);
               const allocated = drawer.line.rows
                 .filter((row) => row.rowType === 'PROJECT')
                 .reduce((sum, row) => sum + Number(row[key] ?? 0), 0);
+              const balance = total - allocated;
               return (
                 <div key={costType} className="sw-project-profit-alloc-item">
                   <div className="sw-project-profit-alloc-meta">
                     <span className="sw-project-profit-alloc-label">{label}</span>
                     <span className="sw-project-profit-alloc-nums">
-                      合计 {formatWan(total)} 万 · 已分配 {formatWan(allocated)} 万 · 未分配{' '}
-                      <Typography.Text type={total - allocated < -0.005 || total - allocated > 0.005 ? 'warning' : undefined}>
-                        {formatWan(total - allocated)} 万
+                      合计 {formatYuan(total)} · 已分配 {formatYuan(allocated)} · 未分配{' '}
+                      <Typography.Text type={Math.abs(balance) > 0.005 ? 'warning' : undefined}>
+                        {formatYuan(balance)}
                       </Typography.Text>
+                      （元）
                     </span>
                   </div>
                   <InputNumber
                     style={{ width: '100%' }}
                     value={allocAmounts[costType]}
-                    placeholder="0"
+                    placeholder="0.00"
                     precision={2}
+                    step={100}
+                    addonAfter="元"
                     onChange={(value) =>
                       setAllocAmounts((prev) => ({ ...prev, [costType]: value }))
                     }
