@@ -17,7 +17,7 @@
 ## 2. 目标架构
 
 ```
-业务消费层   KPI周报 / 业务线利润 / BU驾驶舱 / 交付与利润 / 待映射
+业务消费层   KPI周报 / 业务线利润 / 项目利润 / BU驾驶舱 / 待映射 / 待交付确认
                 ↑ 订阅 SyncCompletedEvent 自动联动
 数据中心层   revenue_contract_entry / revenue_worklog_entry / revenue_cost_entry /
              oa_org_department / oa_org_member / revenue_sales_project

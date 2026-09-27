@@ -3,21 +3,14 @@ package com.bu.management.controller;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.dto.RevenueImportResultVO;
 import com.bu.management.dto.RevenueContractMappingVO;
-import com.bu.management.dto.RevenuePlanBatchRequest;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.RevenueContractImportBatch;
-import com.bu.management.entity.RevenueDeliveryPlan;
 import com.bu.management.entity.RevenueOtherCost;
 import com.bu.management.entity.RevenueDeliveryConfirmation;
-import com.bu.management.entity.RevenueFinancialReport;
 import com.bu.management.service.RevenueContractImportService;
 import com.bu.management.service.RevenueDeliveryConfirmService;
-import com.bu.management.service.RevenueDeliveryPlanService;
-import com.bu.management.service.RevenueDeliverySummaryService;
-import com.bu.management.service.RevenueFinancialReportService;
 import com.bu.management.service.RevenueOtherCostService;
 import com.bu.management.vo.Result;
-import com.bu.management.vo.RevenueDeliverySummaryVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -32,45 +25,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellType;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 营收管理 - 项目交付营收（利润）：
- * 交付汇总、合同导入与待映射、预估交付计划、其他成本。
+ * 营收管理 - 合同明细与成本维护：
+ * 合同导入与待映射归属、其他成本、按月待交付与销售确认。
  * 金额单位一律为元（页面展示换算万）；工时单位人月。
  */
-@Tag(name = "营收管理", description = "项目交付营收：汇总、合同导入、预估交付计划与其他成本")
+@Tag(name = "营收管理", description = "营收管理：合同导入与待映射、其他成本、按月待交付确认")
 @RestController
 @RequestMapping("/api/revenue")
 @RequiredArgsConstructor
 public class RevenueDeliveryController {
 
-    private final RevenueDeliverySummaryService summaryService;
     private final RevenueContractImportService contractImportService;
-    private final RevenueDeliveryPlanService planService;
     private final RevenueOtherCostService otherCostService;
-    private final RevenueFinancialReportService financialReportService;
     private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
     private final RevenueDeliveryConfirmService deliveryConfirmService;
-
-    @GetMapping("/delivery/summary")
-    @RequirePermission({"revenue:view"})
-    @Operation(summary = "项目交付营收（利润）汇总：业务线×项目，h1/h2/ytd 三个时窗")
-    public Result<RevenueDeliverySummaryVO> deliverySummary(@RequestParam int year,
-                                                            @RequestParam(defaultValue = "true") boolean includeEstimate,
-                                                            @RequestParam(defaultValue = "false") boolean excludeTax) {
-        return Result.success(summaryService.summary(year, includeEstimate, excludeTax));
-    }
 
     // ------------------------------------------------------------ 合同导入与待映射
 
@@ -123,49 +96,6 @@ public class RevenueDeliveryController {
     @Operation(summary = "合同导入批次历史")
     public Result<List<RevenueContractImportBatch>> listContractBatches() {
         return Result.success(contractImportService.listBatches());
-    }
-
-    // ------------------------------------------------------------ 预估交付计划
-
-    @GetMapping("/delivery-plans")
-    @RequirePermission({"revenue:view"})
-    @Operation(summary = "预估交付计划列表")
-    public Result<List<RevenueDeliveryPlan>> listPlans(@RequestParam(required = false) Integer year,
-                                                       @RequestParam(required = false) Long businessLineId,
-                                                       @RequestParam(required = false) Long projectId) {
-        return Result.success(planService.list(year, businessLineId, projectId));
-    }
-
-    @PostMapping("/delivery-plans")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "新增预估交付计划（单价快照自动计算预估工时成本）")
-    public Result<RevenueDeliveryPlan> createPlan(@RequestBody RevenueDeliveryPlan request,
-                                                  @RequestAttribute("userId") Long userId) {
-        return Result.success(planService.create(request, userId));
-    }
-
-    @PostMapping("/delivery-plans/batch")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "按 项目×月份 批量新增预估交付计划")
-    public Result<List<RevenueDeliveryPlan>> createPlanBatch(@RequestBody RevenuePlanBatchRequest request,
-                                                             @RequestAttribute("userId") Long userId) {
-        return Result.success(planService.createBatch(request, userId));
-    }
-
-    @PutMapping("/delivery-plans/{id}")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "修改预估交付计划（改人月后按单价快照重算成本）")
-    public Result<RevenueDeliveryPlan> updatePlan(@PathVariable Long id,
-                                                  @RequestBody RevenueDeliveryPlan request) {
-        return Result.success(planService.update(id, request));
-    }
-
-    @DeleteMapping("/delivery-plans/{id}")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "删除预估交付计划")
-    public Result<Void> deletePlan(@PathVariable Long id) {
-        planService.delete(id);
-        return Result.success();
     }
 
     // ------------------------------------------------------------ 按月待交付与销售确认
@@ -231,72 +161,5 @@ public class RevenueDeliveryController {
     public Result<Void> deleteOtherCost(@PathVariable Long id) {
         otherCostService.delete(id);
         return Result.success();
-    }
-
-    @PostMapping("/financial-report/import")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "导入财报月度收入 Excel，按 月份×业务线 覆盖")
-    public Result<Integer> importFinancialReport(@RequestParam("file") MultipartFile file) {
-        try {
-            List<RevenueFinancialReport> list = new ArrayList<>();
-            // 映射：财报业务线名 → 系统 business_line.id
-            Map<String, Long> nameToId = Map.of(
-                    "全域-全渠道-会员通", 3L,
-                    "全域-全渠道-全域私域精准", 6L,
-                    "全域-全渠道-全域云鹿定制", 1L,
-                    "全域-全渠道-全域云鹿Saas", 2L
-            );
-            Workbook wb = WorkbookFactory.create(file.getInputStream());
-            Sheet sheet = wb.getSheetAt(0);
-            String currentMonth = null;
-            for (int r = 1; r <= sheet.getLastRowNum(); r++) {
-                Row row = sheet.getRow(r);
-                if (row == null) continue;
-                // 第0列：月份标签（如 "1月"）或空（同上月）
-                String monthLabel = cellStr(row, 0);
-                if (monthLabel != null && monthLabel.matches("\\d+月")) {
-                    int m = Integer.parseInt(monthLabel.replace("月", ""));
-                    currentMonth = String.format("2026-%02d", m);
-                }
-                if (currentMonth == null) continue;
-                // 第1列：业务线名
-                String blName = cellStr(row, 1);
-                if (blName == null) continue;
-                Long blId = nameToId.get(blName.trim());
-                if (blId == null) continue;
-                // 第2列：营业收入
-                BigDecimal revenue = cellDecimal(row, 2);
-                if (revenue == null || revenue.compareTo(BigDecimal.ZERO) <= 0) continue;
-                RevenueFinancialReport rpt = new RevenueFinancialReport();
-                rpt.setYearMonth(currentMonth);
-                rpt.setBusinessLineId(blId);
-                rpt.setRevenueAmount(revenue);
-                list.add(rpt);
-            }
-            wb.close();
-            if (list.isEmpty()) return Result.error("未解析到有效数据");
-            financialReportService.batchSave(list);
-            return Result.success(list.size());
-        } catch (Exception e) {
-            return Result.error("导入失败: " + e.getMessage());
-        }
-    }
-
-    private String cellStr(Row row, int col) {
-        Cell cell = row.getCell(col);
-        if (cell == null) return null;
-        return cell.toString().trim();
-    }
-
-    private BigDecimal cellDecimal(Row row, int col) {
-        Cell cell = row.getCell(col);
-        if (cell == null) return BigDecimal.ZERO;
-        try {
-            if (cell.getCellType() == CellType.NUMERIC) return BigDecimal.valueOf(cell.getNumericCellValue());
-            String s = cell.toString().trim().replace(",", "");
-            return s.isEmpty() ? BigDecimal.ZERO : new BigDecimal(s);
-        } catch (Exception e) {
-            return BigDecimal.ZERO;
-        }
     }
 }

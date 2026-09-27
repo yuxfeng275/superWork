@@ -2710,77 +2710,6 @@ export const superworkApi = {
       method: "DELETE",
     });
   },
-  getDeliverySummary(params: {
-    year: number;
-    includeEstimate?: boolean;
-    excludeTax?: boolean;
-  }) {
-    return requestJson<Record<string, unknown>>(
-      `/api/revenue/delivery/summary?year=${params.year}&includeEstimate=${
-        params.includeEstimate !== false
-      }&excludeTax=${Boolean(params.excludeTax)}`
-    );
-  },
-  getDeliveryPlans(
-    params: {
-      year?: number;
-      businessLineId?: number;
-      projectId?: number | null;
-    } = {}
-  ) {
-    return requestJson<Record<string, unknown>[]>(
-      `/api/revenue/delivery-plans${query(
-        params as Record<string, string | number | undefined>
-      )}`
-    );
-  },
-  createDeliveryPlansBatch(payload: Record<string, unknown>) {
-    return requestJson<Record<string, unknown>[]>(
-      "/api/revenue/delivery-plans/batch",
-      { method: "POST", body: JSON.stringify(payload) }
-    );
-  },
-  updateDeliveryPlan(id: number, payload: Record<string, unknown>) {
-    return requestJson<Record<string, unknown>>(
-      `/api/revenue/delivery-plans/${id}`,
-      { method: "PUT", body: JSON.stringify(payload) }
-    );
-  },
-  deleteDeliveryPlan(id: number) {
-    return requestJson<void>(`/api/revenue/delivery-plans/${id}`, {
-      method: "DELETE",
-    });
-  },
-  getOtherCosts(
-    params: {
-      year?: number;
-      businessLineId?: number;
-      projectId?: number | null;
-    } = {}
-  ) {
-    return requestJson<Record<string, unknown>[]>(
-      `/api/revenue/other-costs${query(
-        params as Record<string, string | number | undefined>
-      )}`
-    );
-  },
-  createOtherCost(payload: Record<string, unknown>) {
-    return requestJson<Record<string, unknown>>("/api/revenue/other-costs", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-  },
-  updateOtherCost(id: number, payload: Record<string, unknown>) {
-    return requestJson<Record<string, unknown>>(
-      `/api/revenue/other-costs/${id}`,
-      { method: "PUT", body: JSON.stringify(payload) }
-    );
-  },
-  deleteOtherCost(id: number) {
-    return requestJson<void>(`/api/revenue/other-costs/${id}`, {
-      method: "DELETE",
-    });
-  },
   importDeliveryContracts(file: File) {
     const body = new FormData();
     body.append("file", file);
@@ -3262,11 +3191,6 @@ export const superworkApi = {
     return requestJson<void>(`/api/quotation-policies/items/${itemId}`, {
       method: "DELETE",
     });
-  },
-  getDeliveryUnitPrice(projectId: number) {
-    return requestJson<unknown>(
-      `/api/revenue/estimates/unit-price?projectId=${projectId}`
-    );
   },
   getBlProfitReport(year: number) {
     return requestJson<BizLineProfitReport>(`/api/finance/bl-profit?year=${year}`);

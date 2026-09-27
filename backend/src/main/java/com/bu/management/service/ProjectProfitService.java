@@ -50,7 +50,7 @@ import java.util.stream.Collectors;
  *   <li>报表月份轴只由工时系统业务线利润镜像（biz_line_profit_report）已同步月份驱动；
  *       合计行整行取镜像值（未税），与《业务线营收利润月度汇总表》天然对齐。</li>
  *   <li>full 线（云鹿Saas/定制）项目行营收 = OA 合同已交付金额（含税，receivable_amount 按 delivery_date 落月、
- *       交付日期不超过今天，与「交付与利润」同口径）÷(1+业务线 taxRate/100) 换算为未税，
+ *       交付日期不超过今天）÷(1+业务线 taxRate/100) 换算为未税，
  *       与镜像合计（财报未税）同口径可比；6 个成本列支持按 月×项目 手动分配（project_profit_allocation，财报口径未税）。</li>
  *   <li>aggregate 线（会员通）「项目集」行、simple 线（精准）单行：营收与 6 成本列直接取镜像线级值（该行即整线）。</li>
  *   <li>销售行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「业务线」= work_type=project 且
@@ -59,8 +59,8 @@ import java.util.stream.Collectors;
  *   <li>考核毛利 = 营业收入 − 短信成本 − 直接成本 − 平台佣金 − 赔付 − 协力外包 − 软件赠送 − 成本(人工)，
  *       每行按公式重算；率 = 毛利/营收×100（HALF_UP 2 位，营收为 0/null 时率为 null）。</li>
  * </ul>
- * <p>项目别名归并（佳贝艾特/海普诺凯 → 澳优）与 rootIdOf 归并逻辑复制自
- * {@link RevenueDeliverySummaryService}（仅复制小工具，不改原类）。</p>
+ * <p>项目别名归并（佳贝艾特/海普诺凯 → 澳优）与 rootIdOf 归并逻辑与营收侧（RevenueContractAssignment /
+ * 明细归属）保持一致，本类内自持实现，不依赖已下线的交付与利润模块。</p>
  */
 @Slf4j
 @Service
@@ -71,7 +71,7 @@ public class ProjectProfitService {
     public static final Set<String> COST_TYPES = Set.of(
             "sms", "direct", "platform_fee", "compensation", "outsourcing", "software_gift");
 
-    /** 复制自 RevenueDeliverySummaryService.PROJECT_ALIASES：别名项目（源）并入同业务线目标主项目行 */
+    /** 营收侧别名口径（RevenueContractAssignment 同款）：别名项目（源）并入同业务线目标主项目行 */
     private static final Map<String, String> PROJECT_ALIASES = Map.of(
             "佳贝艾特", "澳优",
             "海普诺凯", "澳优");
@@ -508,7 +508,7 @@ public class ProjectProfitService {
             }
         }
 
-        // 项目与别名归并（复制自 RevenueDeliverySummaryService：rootIdOf / aliasMap）
+        // 项目与别名归并（与营收侧 rootIdOf / 别名口径一致）
         ds.projectsById = projectMapper.selectList(null).stream()
                 .filter(p -> managedIds.contains(p.getBusinessLineId()))
                 .collect(Collectors.toMap(Project::getId, p -> p, (a, b) -> a));
@@ -698,7 +698,7 @@ public class ProjectProfitService {
         acc.setCost(acc.getCost().subtract(nz(row.getCost())));
     }
 
-    /** 含税 → 未税：÷(1+taxRate/100)，保留 2 位 HALF_UP（与「交付与利润」excludeTax 同口径） */
+    /** 含税 → 未税：÷(1+taxRate/100)，保留 2 位 HALF_UP（与营收侧 excludeTax 换算口径一致） */
     private BigDecimal exTax(BigDecimal inclTaxAmount, BigDecimal divisor) {
         if (inclTaxAmount == null) {
             return BigDecimal.ZERO;
@@ -746,7 +746,7 @@ public class ProjectProfitService {
         return months;
     }
 
-    /** 复制自 RevenueDeliverySummaryService.rootIdOf：沿 parentId 走到根项目 */
+    /** 沿 parentId 走到根项目（与营收侧 rootIdOf 同口径） */
     private Long rootIdOf(Long projectId, Map<Long, Project> projectsById) {
         Project project = projectsById.get(projectId);
         while (project != null && project.getParentId() != null) {
@@ -755,7 +755,7 @@ public class ProjectProfitService {
         return project == null ? null : project.getId();
     }
 
-    /** 复制自 RevenueDeliverySummaryService.aliasMap：别名源项目 → 同业务线目标主项目 */
+    /** 别名源项目 → 同业务线目标主项目（与营收侧别名口径一致） */
     private Map<Long, Long> aliasMap(Map<Long, Project> projectsById) {
         Map<Long, Long> aliasToRoot = new HashMap<>();
         PROJECT_ALIASES.forEach((sourceName, targetName) -> {

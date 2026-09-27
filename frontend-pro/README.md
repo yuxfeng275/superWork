@@ -29,7 +29,7 @@
 | `/emails` | 邮箱绑定、同步、每日摘要、项目/公司分组、纯文本详情、AI 解读 | `/api/emails/*` | 已验证 |
 | `/statistics` | BU 驾驶舱、容量与工时明细 | `/api/bu-dashboard` | 已验证 |
 | `/revenue` | 营收矩阵、待处理工时/成本、营收估算 | `/api/revenue/*` | 已验证 |
-| `/revenue/worktime`、`/revenue/delivery`、`/revenue/import`、`/revenue/pending` | 营收四个旧版深链接分栏（工时成本、交付利润、数据导入、待映射） | `/api/revenue/*` | 已映射，入口不平铺 |
+| `/revenue/worktime`、`/revenue/import`、`/revenue/pending`、`/revenue/delivery-confirm` | 营收子页深链接（工时成本、数据导入、待映射、待交付确认） | `/api/revenue/*` | 已映射，入口不平铺 |
 | `/kpi-report` | KPI 年度报告、目标、周快照 | `/api/kpi/*` | 已验证 |
 | `/key-matters`、`/key-matters-meeting` | 大事儿登记与会议视图、运行时权限 | `/api/key-matters/*` | 已验证路由与权限态 |
 | `/system/users`、`/system/roles`、`/system/menus`、`/system/workflow`、`/system/configs` | 系统用户、角色、菜单、工作流、配置 | `/api/system/*`、`/api/workflow-configs/*` | 已验证 |

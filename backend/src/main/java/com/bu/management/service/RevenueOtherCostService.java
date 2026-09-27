@@ -13,6 +13,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Set;
 
@@ -74,7 +76,7 @@ public class RevenueOtherCostService {
     }
 
     private void validate(RevenueOtherCost request) {
-        RevenueDeliveryPlanService.requireMonth(request.getYearMonth());
+        requireMonth(request.getYearMonth());
         if (request.getBusinessLineId() == null) {
             throw new IllegalArgumentException("业务线不能为空");
         }
@@ -96,6 +98,17 @@ public class RevenueOtherCostService {
             if (!request.getBusinessLineId().equals(project.getBusinessLineId())) {
                 throw new IllegalArgumentException("项目不属于该业务线");
             }
+        }
+    }
+
+    private static void requireMonth(String yearMonth) {
+        if (!StringUtils.hasText(yearMonth)) {
+            throw new IllegalArgumentException("月份不能为空");
+        }
+        try {
+            YearMonth.parse(yearMonth);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("月份格式应为 yyyy-MM: " + yearMonth);
         }
     }
 }

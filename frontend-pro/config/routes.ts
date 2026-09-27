@@ -209,12 +209,6 @@ export default [
     component: './revenue',
   },
   {
-    path: '/revenue/delivery',
-    name: '交付与利润',
-    hideInMenu: true,
-    component: './revenue',
-  },
-  {
     path: '/revenue/delivery-confirm',
     name: '待交付确认',
     hideInMenu: true,
