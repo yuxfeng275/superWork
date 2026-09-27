@@ -205,7 +205,7 @@ b) `src/pages/project-profit/index.tsx` + `style.less`（以 `src/pages/bl-profi
     - 任一 log failed 时 Modal 顶部额外 warning 提示「部分同步失败，对齐结果基于现有数据计算」；
     - 关闭 Modal 后 `Promise.all([loadReport(year), loadSyncLogs()])` 刷新（照抄 bl-profit syncFromWorktime 的收尾模式）。
   - 原「同步工时系统」整年按钮保留为次要按钮（调 syncProjectProfit({year})，行为与 bl-profit 页一致），用于历史回填。
-- 表格 15 列 = 月份(块 label) | 业务线 | 分类 | 项目 | 营业收入(万) | 短信成本 | 直接成本 | 平台佣金&手续费 | 赔付 | 协力&外包 | 软件赠送 | 工时(人月) | 成本(万) | 考核毛利(万) | 考核毛利率。平铺行（不做 rowSpan，照 bl-profit 重复标签的做法）。行序：项目行… → 销售行（销售、业务线） → 差额行（warning 色，仅非零渲染） → 合计行（沿用 sw-bl-profit-total-row 样式类名写法到本项目 style.less）。
+- 表格 15 列 = 月份(块 label) | 业务线 | 分类 | 项目 | 营业收入(万) | 短信成本 | 直接成本 | 平台佣金&手续费 | 赔付 | 协力&外包 | 软件赠送 | 工时(人月) | 成本(万) | 考核毛利(万) | 考核毛利率。**单元格合并**：月份 / 业务线 / 分类 三列按相邻同值合并（`dataSource` 预计算 `spans`，`onCell` 返回 `rowSpan`；分类以 `category ?? rowType` 分组，保证差额行与合计行不并入项目/销售组）。**列宽收敛（2026-09-27 调整）**：文本列固定窄宽 + `ellipsis`，数值列按当前数据最大文本留 1~2 字符余量，长表头（平台佣金&手续费、考核毛利率(%)）折行，`scroll.x` = 各列宽之和（1104），使 15 列在 1512 宽屏一屏内全部可见（此前固定 `scroll.x=1600`，1086 容器下约 5 列被横向滚动隐藏）。行序：项目行… → 销售行（销售、业务线） → 差额行（warning 色，仅非零渲染） → 合计行（沿用 sw-bl-profit-total-row 样式类名写法到本项目 style.less）。
 - 分配入口：rowType=PROJECT 且 editable=true 且当前为月度块 的行尾「分配」按钮 → Drawer：展示该月该业务线 6 个成本列的 合计值 / 已分配(Σ 兄弟项目行) / 未分配余额，6 个 InputNumber 编辑当前项目值 + 备注；保存调 saveProjectProfitAllocations 后刷新报表。聚合块（H1/H2/全年）不出现分配按钮（分配是月度粒度）。
 - 空态：availableMonths 为空 → Empty + 提示「请先用右上角「同步月度数据」选择月份拉取工时系统数据」。
 
