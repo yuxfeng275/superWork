@@ -47,7 +47,34 @@
       color: #98a2b3;
     }
   }
+
   .ant-table-cell {
     font-variant-numeric: tabular-nums;
+  }
+
+  // 紧凑表格：压字号/行高/内边距，长表头折行，让 15 列尽量在一屏内排开
+  .sw-table-card {
+    .ant-table {
+      font-size: 12px !important;
+    }
+    .ant-table-thead > tr > th {
+      padding: 4px 6px !important;
+      font-size: 12px !important;
+      line-height: 1.15;
+      // 表头折行（如「平台佣金&手续费」「考核毛利率(%)」），不再独占横向空间
+      white-space: normal;
+      word-break: break-word;
+    }
+    .ant-table-tbody > tr > td {
+      padding: 3px 6px !important;
+      white-space: nowrap;
+      // 数值异常变长时也不与相邻列重叠（表头仍折行，正文超长省略）
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    // 合并后的月份/业务线/分类单元格纵向居中
+    .ant-table-tbody > tr > td[rowspan] {
+      vertical-align: middle;
+    }
   }
 }

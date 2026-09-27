@@ -1,4 +1,5 @@
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import type { TableProps } from 'antd';
 import {
   Alert,
   Button,
@@ -16,7 +17,6 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import type { TableProps } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
@@ -58,12 +58,33 @@ const SYNC_TYPE_LABELS: Record<string, string> = {
   contract: '合同明细',
 };
 
+/** 合并单元格跨度：仅组内首行有值（= 组内行数），其余行为 0 表示被上行吞并 */
+interface RowSpans {
+  month: number;
+  line: number;
+  category: number;
+}
+
 interface FlatRow {
   key: string;
   block: ProjectProfitBlock;
   line: ProjectProfitLine;
   row: ProjectProfitRow;
+  spans: RowSpans;
 }
+
+/** 连续相同取值的分组跨度（依赖行序：块 → 业务线 → 行） */
+const spanCounts = <T,>(list: T[], keyOf: (item: T) => string) => {
+  const spans = new Array<number>(list.length).fill(0);
+  let start = 0;
+  for (let i = 1; i <= list.length; i += 1) {
+    if (i === list.length || keyOf(list[i]) !== keyOf(list[start])) {
+      spans[start] = i - start;
+      start = i;
+    }
+  }
+  return spans;
+};
 
 const formatWan = (value?: number | null) => {
   if (value == null) return '—';
@@ -272,10 +293,10 @@ export default function ProjectProfitPage() {
     }
   };
 
-  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行
+  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行；月份/业务线/分类三列按相邻同值合并
   const dataSource = useMemo<FlatRow[]>(() => {
     if (!report) return [];
-    const rows: FlatRow[] = [];
+    const rows: Omit<FlatRow, 'spans'>[] = [];
     report.blocks.forEach((block) => {
       block.lines.forEach((line) => {
         line.rows.forEach((row) =>
@@ -297,7 +318,21 @@ export default function ProjectProfitPage() {
         });
       });
     });
-    return rows;
+    const monthSpans = spanCounts(rows, (row) => row.block.key);
+    const lineSpans = spanCounts(rows, (row) => `${row.block.key}|${row.line.businessLineId}`);
+    const categorySpans = spanCounts(
+      rows,
+      (row) =>
+        `${row.block.key}|${row.line.businessLineId}|${row.row.category ?? row.row.rowType}`,
+    );
+    return rows.map((row, index) => ({
+      ...row,
+      spans: {
+        month: monthSpans[index],
+        line: lineSpans[index],
+        category: categorySpans[index],
+      },
+    }));
   }, [report]);
 
   const latestSyncLog = syncLogs[0];
@@ -325,47 +360,68 @@ export default function ProjectProfitPage() {
     [report],
   );
 
-  const moneyColumn = (title: string, field: CostKey | 'revenue' | 'cost' | 'grossProfit') => ({
+  const moneyColumn = (
+    title: string,
+    field: CostKey | 'revenue' | 'cost' | 'grossProfit',
+    width: number,
+  ) => ({
     title,
+    width,
     align: 'right' as const,
     render: (_: unknown, record: FlatRow) => num(formatWan)(record.row[field]),
   });
+  // 紧凑列宽：文本列固定窄宽 + 省略号，数值列按当前数据最大文本留 1~2 字符余量，合计宽度收敛到一屏内
   const columns: TableProps<FlatRow>['columns'] = [
-    { title: '月份', width: 72, render: (_, record) => record.block.label },
-    { title: '业务线', width: 190, render: (_, record) => record.line.businessLineName },
+    {
+      title: '月份',
+      width: 48,
+      onCell: (record) => ({ rowSpan: record.spans.month }),
+      render: (_, record) => record.block.label,
+    },
+    {
+      title: '业务线',
+      width: 108,
+      ellipsis: true,
+      onCell: (record) => ({ rowSpan: record.spans.line }),
+      render: (_, record) => record.line.businessLineName,
+    },
     {
       title: '分类',
-      width: 72,
+      width: 44,
+      onCell: (record) => ({ rowSpan: record.spans.category }),
       render: (_, record) => record.row.category ?? '—',
     },
     {
       title: '项目',
-      width: 170,
+      width: 120,
+      ellipsis: true,
       render: (_, record) =>
         record.row.rowType === 'TOTAL' ? '合计' : record.row.projectName ?? '—',
     },
-    moneyColumn('营业收入', 'revenue'),
-    moneyColumn('短信成本', 'smsCost'),
-    moneyColumn('直接成本', 'directCost'),
-    moneyColumn('平台佣金&手续费', 'platformFee'),
-    moneyColumn('赔付', 'compensation'),
-    moneyColumn('协力&外包', 'outsourcing'),
-    moneyColumn('软件赠送', 'softwareGift'),
+    moneyColumn('营业收入', 'revenue', 74),
+    moneyColumn('短信成本', 'smsCost', 60),
+    moneyColumn('直接成本', 'directCost', 60),
+    moneyColumn('平台佣金&手续费', 'platformFee', 64),
+    moneyColumn('赔付', 'compensation', 44),
+    moneyColumn('协力&外包', 'outsourcing', 58),
+    moneyColumn('软件赠送', 'softwareGift', 58),
     {
       title: '工时',
+      width: 60,
       align: 'right',
       render: (_, record) => num(formatHours)(record.row.hours),
     },
-    moneyColumn('成本', 'cost'),
-    moneyColumn('考核毛利', 'grossProfit'),
+    moneyColumn('成本', 'cost', 74),
+    moneyColumn('考核毛利', 'grossProfit', 74),
     {
       title: '考核毛利率(%)',
+      width: 88,
       align: 'right',
       render: (_, record) => num(formatRate)(record.row.grossProfitRate),
     },
     {
       title: '操作',
-      width: 80,
+      width: 60,
       fixed: 'right',
       render: (_, record) =>
         record.row.rowType === 'PROJECT' &&
@@ -377,6 +433,9 @@ export default function ProjectProfitPage() {
         ) : null,
     },
   ];
+
+  // 表格总宽 = 各列宽之和：断言横向滚动量，避免固定 1600px 造成的无谓横向滚动
+  const tableWidth = columns.reduce((sum, column) => sum + Number(column?.width ?? 0), 0);
 
   return (
     <div className="sw-page sw-project-profit">
@@ -534,13 +593,13 @@ export default function ProjectProfitPage() {
       )}
 
       {report && report.availableMonths.length > 0 ? (
-        <Card variant="borderless" className="sw-table-card">
+        <Card variant="borderless" className="sw-table-card" styles={{ body: { padding: 12 } }}>
           <Table<FlatRow>
             columns={columns}
             dataSource={dataSource}
             loading={loading}
             pagination={false}
-            scroll={{ x: 1600 }}
+            scroll={{ x: tableWidth }}
             size="small"
             rowClassName={(record) =>
               record.row.rowType === 'TOTAL'
