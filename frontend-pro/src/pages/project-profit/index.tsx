@@ -362,7 +362,8 @@ export default function ProjectProfitPage() {
     }
   };
 
-  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行；月份/业务线/分类三列按相邻同值合并
+  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行 → 块末「全部业务线」汇总行；
+  // 月份/业务线/分类三列按相邻同值合并（汇总行业务线列显示「全部业务线」，伪线 id=-1 保证不与任何业务线合并）
   const dataSource = useMemo<FlatRow[]>(() => {
     if (!report) return [];
     const rows: Omit<FlatRow, 'spans'>[] = [];
@@ -386,6 +387,21 @@ export default function ProjectProfitPage() {
           row: line.total,
         });
       });
+      if (block.summary) {
+        rows.push({
+          key: `${block.key}-SUMMARY`,
+          block,
+          line: {
+            businessLineId: -1,
+            businessLineName: '全部业务线',
+            revenueMode: '',
+            rows: [],
+            total: block.summary,
+            residual: block.summary,
+          },
+          row: block.summary,
+        });
+      }
     });
     const monthSpans = spanCounts(rows, (row) => row.block.key);
     const lineSpans = spanCounts(rows, (row) => `${row.block.key}|${row.line.businessLineId}`);
@@ -523,7 +539,8 @@ export default function ProjectProfitPage() {
                 <span>
                   月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税）；
                   项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）；
-                  差额行 = 合计 − 已显示明细行。收益单位：金额「万」，工时「人月」。
+                  差额行 = 合计 − 已显示明细行；每块末行「全部业务线」汇总 = 块内各业务线合计求和。
+                  收益单位：金额「万」，工时「人月」。
                 </span>
               }
             >
@@ -712,11 +729,13 @@ export default function ProjectProfitPage() {
               scroll={{ x: tableWidth, y: tableBodyHeight }}
               size="small"
               rowClassName={(record) =>
-                record.row.rowType === 'TOTAL'
-                  ? 'sw-project-profit-total-row'
-                  : record.row.rowType === 'RESIDUAL'
-                    ? 'sw-project-profit-residual-row'
-                    : ''
+                record.row.rowType === 'SUMMARY'
+                  ? 'sw-project-profit-summary-row'
+                  : record.row.rowType === 'TOTAL'
+                    ? 'sw-project-profit-total-row'
+                    : record.row.rowType === 'RESIDUAL'
+                      ? 'sw-project-profit-residual-row'
+                      : ''
               }
             />
           </Card>

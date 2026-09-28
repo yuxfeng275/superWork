@@ -56,6 +56,8 @@ import java.util.stream.Collectors;
  *   <li>销售行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「业务线」= work_type=project 且
  *       project_id 为空的工时成本（投入到其他事项）；aggregate 线无「业务线」行（并入项目集），simple 线无销售行。</li>
  *   <li>差额行 = 合计 − Σ(当前返回的项目行+销售行)，随 projectIds/categories 过滤按显示行重算。</li>
+ *   <li>块级汇总行（SUMMARY）= Σ 块内各业务线合计行（镜像值求和），毛利/率按公式重算，
+ *       随 businessLineIds 过滤联动；月度、H1/H2、全年块均提供。</li>
  *   <li>考核毛利 = 营业收入 − 短信成本 − 直接成本 − 平台佣金 − 赔付 − 协力外包 − 软件赠送 − 成本(人工)，
  *       每行按公式重算；率 = 毛利/营收×100（HALF_UP 2 位，营收为 0/null 时率为 null）。</li>
  * </ul>
@@ -85,6 +87,7 @@ public class ProjectProfitService {
     private static final String ROW_LINE_OTHER = "LINE_OTHER";
     private static final String ROW_TOTAL = "TOTAL";
     private static final String ROW_RESIDUAL = "RESIDUAL";
+    private static final String ROW_SUMMARY = "SUMMARY";
     private static final List<String> PERIOD_ORDER = List.of("H1", "H2", "YEAR");
 
     private final BizLineProfitReportMapper reportMapper;
@@ -162,6 +165,7 @@ public class ProjectProfitService {
             lines.add(assembleLine(line, rows, mirrorTotal(mirror), filters));
         }
         block.setLines(lines);
+        block.setSummary(buildSummary(lines));
         return block;
     }
 
@@ -199,6 +203,7 @@ public class ProjectProfitService {
             lines.add(assembleLine(line, rows, mirrorTotal(mirrorSum), filters));
         }
         block.setLines(lines);
+        block.setSummary(buildSummary(lines));
         return block;
     }
 
@@ -272,6 +277,19 @@ public class ProjectProfitService {
         rows.add(sales);
         rows.add(lineOther);
         return rows;
+    }
+
+    /** 跨业务线汇总行 = Σ 块内各业务线合计行（镜像口径求和），毛利/率按公式重算；块内无业务线返回 null */
+    private ProjectProfitReportVO.Row buildSummary(List<ProjectProfitReportVO.Line> lines) {
+        if (lines.isEmpty()) {
+            return null;
+        }
+        ProjectProfitReportVO.Row summary = newRow(ROW_SUMMARY, null, null, "汇总", false);
+        for (ProjectProfitReportVO.Line line : lines) {
+            addInto(summary, line.getTotal());
+        }
+        finalizeRow(summary);
+        return summary;
     }
 
     /** 组装 Line：应用行过滤后重算差额行（= 合计 − Σ显示明细行） */

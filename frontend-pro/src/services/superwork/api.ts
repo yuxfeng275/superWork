@@ -995,17 +995,18 @@ export interface BizLineProfitReport {
   totalYtd: BizLineProfitRow;
 }
 
-/** 项目利润表：行类型 PROJECT | SALES | LINE_OTHER | TOTAL | RESIDUAL */
+/** 项目利润表：行类型 PROJECT | SALES | LINE_OTHER | TOTAL | RESIDUAL | SUMMARY */
 export type ProjectProfitRowType =
   | "PROJECT"
   | "SALES"
   | "LINE_OTHER"
   | "TOTAL"
-  | "RESIDUAL";
+  | "RESIDUAL"
+  | "SUMMARY";
 
 export interface ProjectProfitRow {
   rowType: ProjectProfitRowType;
-  /** '项目' | '销售' | '差额'（TOTAL 为 null） */
+  /** '项目' | '销售' | '差额'（TOTAL/SUMMARY 为 null） */
   category: string | null;
   projectId: number | null;
   projectName: string | null;
@@ -1041,6 +1042,8 @@ export interface ProjectProfitBlock {
   /** '1月' | 'H1' | 'H2' | '全年' */
   label: string;
   lines: ProjectProfitLine[];
+  /** 跨业务线汇总行（rowType=SUMMARY）= Σ 块内各业务线合计，随业务线过滤联动；块内无业务线时为 null */
+  summary: ProjectProfitRow | null;
 }
 
 export interface ProjectProfitProjectOption {

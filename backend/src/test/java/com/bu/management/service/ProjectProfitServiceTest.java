@@ -398,6 +398,60 @@ class ProjectProfitServiceTest {
         assertThat(h2.getBlocks()).isEmpty();
     }
 
+    // ==================== 块级汇总行（跨业务线） ====================
+
+    @Test
+    @DisplayName("月度块汇总行 = Σ 各业务线合计（镜像求和），毛利/率按公式重算")
+    void monthBlockSummary() {
+        stubFullDataset();
+
+        ProjectProfitReportVO vo = service.query(2026, List.of(1), null, null, null, null);
+
+        ProjectProfitReportVO.Row summary = vo.getBlocks().get(0).getSummary();
+        assertThat(summary.getRowType()).isEqualTo("SUMMARY");
+        assertThat(summary.getProjectName()).isEqualTo("汇总");
+        assertThat(summary.getEditable()).isFalse();
+        assertThat(summary.getRevenue()).isEqualByComparingTo("3560");     // 1060+2000+500
+        assertThat(summary.getSmsCost()).isEqualByComparingTo("10");
+        assertThat(summary.getDirectCost()).isEqualByComparingTo("20");
+        assertThat(summary.getPlatformFee()).isEqualByComparingTo("5");
+        assertThat(summary.getOutsourcing()).isEqualByComparingTo("30");
+        assertThat(summary.getHours()).isEqualByComparingTo("17");         // 10+5+2
+        assertThat(summary.getCost()).isEqualByComparingTo("1200");        // 800+300+100
+        assertThat(summary.getGrossProfit()).isEqualByComparingTo("2295"); // 3560−10−20−5−30−1200
+        assertThat(summary.getGrossProfitRate()).isEqualByComparingTo("64.47"); // 率重算非加和
+    }
+
+    @Test
+    @DisplayName("H1 块汇总行 = 各业务线镜像跨月求和后再跨线求和")
+    void periodBlockSummary() {
+        stubFullDataset();
+
+        ProjectProfitReportVO vo = service.query(2026, null, List.of("H1"), null, null, null);
+
+        ProjectProfitReportVO.Row summary = vo.getBlocks().get(0).getSummary();
+        assertThat(summary.getRevenue()).isEqualByComparingTo("4620");     // 2120+2000+500
+        assertThat(summary.getHours()).isEqualByComparingTo("21");         // 14+5+2
+        assertThat(summary.getCost()).isEqualByComparingTo("1400");        // 1000+300+100
+        assertThat(summary.getGrossProfit()).isEqualByComparingTo("3155"); // 4620−10−20−5−30−1400
+        assertThat(summary.getGrossProfitRate()).isEqualByComparingTo("68.29");
+    }
+
+    @Test
+    @DisplayName("汇总行随业务线过滤联动：只汇总返回的业务线；过滤后无业务线则为 null")
+    void summaryFollowsLineFilter() {
+        stubFullDataset();
+
+        ProjectProfitReportVO onlySaas = service.query(2026, List.of(1), null, List.of(1L), null, null);
+        ProjectProfitReportVO.Row summary = onlySaas.getBlocks().get(0).getSummary();
+        assertThat(summary.getRevenue()).isEqualByComparingTo("1060");     // 仅 saas 合计
+        assertThat(summary.getCost()).isEqualByComparingTo("800");
+
+        ProjectProfitReportVO none = service.query(2026, List.of(1), null, List.of(999L), null, null);
+        assertThat(none.getBlocks().get(0).getLines()).isEmpty();
+        assertThat(none.getBlocks().get(0).getSummary()).isNull();
+    }
+
     // ==================== 过滤 ====================
 
     @Test

@@ -46,6 +46,9 @@ public class ProjectProfitReportVO {
         /** '1月' | 'H1' | 'H2' | '全年' */
         private String label;
         private List<Line> lines;
+        /** 跨业务线汇总行（rowType=SUMMARY）：Σ 当前块内各业务线合计行（镜像值求和），毛利/率按公式重算；
+         *  随 businessLineIds 过滤联动（只汇总块内返回的业务线）；块内无业务线时为 null */
+        private Row summary;
     }
 
     @Data
@@ -60,9 +63,9 @@ public class ProjectProfitReportVO {
 
     @Data
     public static class Row {
-        /** PROJECT | SALES | LINE_OTHER | TOTAL | RESIDUAL */
+        /** PROJECT | SALES | LINE_OTHER | TOTAL | RESIDUAL | SUMMARY */
         private String rowType;
-        /** '项目' | '销售' | '差额'（TOTAL 为 null） */
+        /** '项目' | '销售' | '差额'（TOTAL/SUMMARY 为 null） */
         private String category;
         private Long projectId;
         private String projectName;
