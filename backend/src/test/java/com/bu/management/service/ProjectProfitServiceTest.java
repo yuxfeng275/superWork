@@ -145,9 +145,15 @@ class ProjectProfitServiceTest {
 
     private ProjectProfitAllocation allocation(String month, Long lineId, Long projectId,
                                                String costType, String amount) {
+        return allocation(month, lineId, "project", projectId, costType, amount);
+    }
+
+    private ProjectProfitAllocation allocation(String month, Long lineId, String targetType, Long projectId,
+                                               String costType, String amount) {
         ProjectProfitAllocation allocation = new ProjectProfitAllocation();
         allocation.setYearMonth(month);
         allocation.setBusinessLineId(lineId);
+        allocation.setTargetType(targetType);
         allocation.setProjectId(projectId);
         allocation.setCostType(costType);
         allocation.setAmount(new BigDecimal(amount));
@@ -502,29 +508,128 @@ class ProjectProfitServiceTest {
         assertThat(vo.getLineOptions().get(1).getProjects()).isEmpty();
     }
 
+    // ==================== 全列分配（差额消除） ====================
+
+    @Test
+    @DisplayName("revenue 分配：差额营收分配到项目行后归零（差额所有项为 0 → 前端自动隐藏差额行）")
+    void revenueAllocationEliminatesResidual() {
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "1000", "5", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-01", 9L, "project", 900L, "5", "800")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 9L, 900L, "revenue", "400")));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "600", "2026-01-15")));
+
+        ProjectProfitReportVO.Line out = lineOf(
+                service.query(2026, null, null, null, null, null).getBlocks().get(0), 9L);
+
+        assertThat(out.getRows().get(0).getRevenue()).isEqualByComparingTo("1000"); // 600 合同 + 400 分配
+        ProjectProfitReportVO.Row residual = out.getResidual();
+        assertThat(residual.getRevenue()).isEqualByComparingTo("0");
+        assertThat(residual.getCost()).isEqualByComparingTo("0");
+        assertThat(residual.getHours()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("hours/cost 分配到销售行：工时与人工成本差额归零")
+    void salesTargetAllocationEliminatesLaborResidual() {
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "1000", "10", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-01", 9L, "project", 900L, "4", "400"),
+                cost("2026-01", 9L, "sales", null, "1", "100")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 9L, "sales", 0L, "hours", "5"),
+                allocation("2026-01", 9L, "sales", 0L, "cost", "300")));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "1000", "2026-01-15")));
+
+        ProjectProfitReportVO.Line out = lineOf(
+                service.query(2026, null, null, null, null, null).getBlocks().get(0), 9L);
+
+        ProjectProfitReportVO.Row sales = rowOf(out, "SALES", null);
+        assertThat(sales.getHours()).isEqualByComparingTo("6");   // 1 + 5 分配
+        assertThat(sales.getCost()).isEqualByComparingTo("400");  // 100 + 300 分配
+        assertThat(out.getResidual().getHours()).isEqualByComparingTo("0");
+        assertThat(out.getResidual().getCost()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("aggregate 线：负数调整分配到销售行，工时差额归零")
+    void aggregateSalesNegativeAdjustment() {
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(member));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 2L, "2000", "5", "300")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-01", 2L, "project", null, "5", "290"),
+                cost("2026-01", 2L, "sales", null, "0.2", "10")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 2L, "sales", 0L, "hours", "-0.2")));
+        when(projectMapper.selectList(any())).thenReturn(List.of());
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of());
+
+        ProjectProfitReportVO.Line out = lineOf(
+                service.query(2026, null, null, null, null, null).getBlocks().get(0), 2L);
+
+        assertThat(rowOf(out, "SALES", null).getHours()).isEqualByComparingTo("0"); // 0.2 − 0.2
+        assertThat(out.getResidual().getHours()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("分配校验：full 线 projectId=0 / simple 线销售目标 / aggregate 线业务线目标均拒绝")
+    void allocationTargetValidation() {
+        when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        assertThatThrownBy(() -> service.saveAllocations(batchRequest(1L, "project", 0L, "cost", "100")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("具体项目");
+
+        when(businessLineMapper.selectById(3L)).thenReturn(precise);
+        assertThatThrownBy(() -> service.saveAllocations(batchRequest(3L, "sales", 0L, "cost", "100")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("无销售行");
+
+        when(businessLineMapper.selectById(2L)).thenReturn(member);
+        assertThatThrownBy(() -> service.saveAllocations(batchRequest(2L, "line_other", 0L, "cost", "100")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("业务线");
+    }
+
     // ==================== 分配 upsert 校验 ====================
 
     private ProjectProfitAllocationBatchRequest batchRequest(Long lineId, Long projectId,
                                                              String costType, String amount) {
+        return batchRequest(lineId, "project", projectId, costType, amount);
+    }
+
+    private ProjectProfitAllocationBatchRequest batchRequest(Long lineId, String targetType, Long projectId,
+                                                             String costType, String amount) {
         ProjectProfitAllocationBatchRequest request = new ProjectProfitAllocationBatchRequest();
         request.setYearMonth("2026-01");
         request.setBusinessLineId(lineId);
-        request.setProjectId(projectId);
+        ProjectProfitAllocationBatchRequest.Target target = new ProjectProfitAllocationBatchRequest.Target();
+        target.setTargetType(targetType);
+        target.setProjectId(projectId);
         ProjectProfitAllocationBatchRequest.Item item = new ProjectProfitAllocationBatchRequest.Item();
         item.setCostType(costType);
         item.setAmount(new BigDecimal(amount));
-        request.setItems(List.of(item));
+        target.setItems(List.of(item));
+        request.setTargets(List.of(target));
         return request;
     }
 
     @Test
-    @DisplayName("分配校验：非 full 业务线拒绝")
+    @DisplayName("分配校验：aggregate/simple 线分配到具体项目ID拒绝")
     void allocationRejectsNonFullLine() {
         when(businessLineMapper.selectById(2L)).thenReturn(member);
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(2L, 100L, "direct", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("full");
+                .hasMessageContaining("项目集");
     }
 
     @Test
@@ -546,7 +651,7 @@ class ProjectProfitServiceTest {
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(1L, 100L, "bad_type", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("成本类型");
+                .hasMessageContaining("分配列");
     }
 
     @Test
@@ -562,7 +667,8 @@ class ProjectProfitServiceTest {
         ProjectProfitAllocationBatchRequest.Item sms = new ProjectProfitAllocationBatchRequest.Item();
         sms.setCostType("sms");
         sms.setAmount(new BigDecimal("50"));
-        request.setItems(List.of(request.getItems().get(0), sms));
+        ProjectProfitAllocationBatchRequest.Target target = request.getTargets().get(0);
+        target.setItems(List.of(target.getItems().get(0), sms));
 
         service.saveAllocations(request);
 

@@ -1070,8 +1070,13 @@ export interface ProjectProfitAllocation {
   id: number;
   yearMonth: string;
   businessLineId: number;
+  /** 分配目标：project/sales/line_other */
+  targetType: string;
+  /** 主项目ID；0=非项目目标（销售/业务线/项目集/精准单行） */
   projectId: number;
+  /** revenue/sms/direct/platform_fee/compensation/outsourcing/software_gift/hours/cost */
   costType: string;
+  /** 分配数量（金额：元；hours：人月） */
   amount: number;
   note: string | null;
   createdBy: number | null;
@@ -3258,8 +3263,13 @@ export const superworkApi = {
   saveProjectProfitAllocations(body: {
     yearMonth: string;
     businessLineId: number;
-    projectId: number;
-    items: { costType: string; amount: number; note?: string | null }[];
+    targets: {
+      /** project/sales/line_other */
+      targetType: string;
+      /** 主项目ID；非项目目标传 0 */
+      projectId: number;
+      items: { costType: string; amount: number; note?: string | null }[];
+    }[];
   }) {
     return requestJson<ProjectProfitAllocation[]>(
       "/api/finance/project-profit/allocations/batch",

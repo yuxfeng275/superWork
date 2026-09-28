@@ -51,7 +51,8 @@ import java.util.stream.Collectors;
  *       合计行整行取镜像值（未税），与《业务线营收利润月度汇总表》天然对齐。</li>
  *   <li>full 线（云鹿Saas/定制）项目行营收 = OA 合同已交付金额（含税，receivable_amount 按 delivery_date 落月、
  *       交付日期不超过今天）÷(1+业务线 taxRate/100) 换算为未税，
- *       与镜像合计（财报未税）同口径可比；6 个成本列支持按 月×项目 手动分配（project_profit_allocation，财报口径未税）。</li>
+ *       与镜像合计（财报未税）同口径可比；差额所有项（9 列：营收/6 成本列/工时/人工成本）支持按
+ *       月×目标（项目/销售/业务线行，project_profit_allocation）手动分配，分配后差额归零即自动消行。</li>
  *   <li>aggregate 线（会员通）「项目集」行、simple 线（精准）单行：营收与 6 成本列直接取镜像线级值（该行即整线）。</li>
  *   <li>销售行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「业务线」= work_type=project 且
  *       project_id 为空的工时成本（投入到其他事项）；aggregate 线无「业务线」行（并入项目集），simple 线无销售行。</li>
@@ -69,9 +70,16 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ProjectProfitService {
 
-    /** 可手动分配的 6 个成本列 */
-    public static final Set<String> COST_TYPES = Set.of(
-            "sms", "direct", "platform_fee", "compensation", "outsourcing", "software_gift");
+    /** 可分配的全部列（差额所有项）：6 成本列 + 营收 / 工时 / 人工成本 */
+    public static final Set<String> ALLOCATABLE_FIELDS = Set.of(
+            "revenue", "sms", "direct", "platform_fee", "compensation", "outsourcing", "software_gift",
+            "hours", "cost");
+
+    /** 分配目标类型：project=项目行/项目集/精准单行；sales=销售行；line_other=full 线「业务线」行。
+     *  非项目目标（sales/line_other/项目集/精准单行）的 project_id 一律为 0 */
+    public static final String TARGET_PROJECT = "project";
+    public static final String TARGET_SALES = "sales";
+    public static final String TARGET_LINE_OTHER = "line_other";
 
     /** 营收侧别名口径（RevenueContractAssignment 同款）：别名项目（源）并入同业务线目标主项目行 */
     private static final Map<String, String> PROJECT_ALIASES = Map.of(
@@ -214,18 +222,19 @@ public class ProjectProfitService {
         List<RevenueCostEntry> costs = ds.costs(yearMonth, line.getId());
         List<ProjectProfitReportVO.Row> rows = new ArrayList<>();
         if (MODE_SIMPLE.equals(mode)) {
-            // 精准：单行合并 project+sales 工时成本；营收与 6 成本列取镜像线级值
+            // 精准：单行合并 project+sales 工时成本；营收与 6 成本列取镜像线级值；差额各项可手动分配（目标 project:0）
             ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", null, line.getName(), false);
             for (RevenueCostEntry entry : costs) {
                 addLabor(row, entry);
             }
             applyMirror(row, mirror);
+            applyAllocations(row, ds.allocations(yearMonth, TARGET_PROJECT, 0L));
             finalizeRow(row);
             rows.add(row);
             return rows;
         }
         if (MODE_AGGREGATE.equals(mode)) {
-            // 会员通：「项目集」行即整线（含 project_id 为空的 project 行）；营收与 6 成本列取镜像
+            // 会员通：「项目集」行即整线（含 project_id 为空的 project 行）；营收与 6 成本列取镜像；差额各项可分配（project:0 / sales:0）
             ProjectProfitReportVO.Row agg = newRow(ROW_PROJECT, "项目", null, "项目集", false);
             BigDecimal salesHours = BigDecimal.ZERO;
             BigDecimal salesCost = BigDecimal.ZERO;
@@ -238,17 +247,21 @@ public class ProjectProfitService {
                 }
             }
             applyMirror(agg, mirror);
+            applyAllocations(agg, ds.allocations(yearMonth, TARGET_PROJECT, 0L));
             finalizeRow(agg);
             rows.add(agg);
-            rows.add(salesRow(salesHours, salesCost));
+            ProjectProfitReportVO.Row sales = salesRow(salesHours, salesCost);
+            applyAllocations(sales, ds.allocations(yearMonth, TARGET_SALES, 0L));
+            finalizeRow(sales);
+            rows.add(sales);
             return rows;
         }
-        // full：每个根项目一行（别名归并），工时/成本取 revenue_cost_entry，营收取 OA 合同（含税→未税），6 成本列取手动分配
+        // full：每个根项目一行（别名归并），工时/成本取 revenue_cost_entry，营收取 OA 合同（含税→未税），差额各项可手动分配
         Map<Long, ProjectProfitReportVO.Row> projectRows = new LinkedHashMap<>();
         for (Project root : ds.rootProjects(line.getId())) {
             ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), true);
             row.setRevenue(exTax(ds.contractInclTax(yearMonth, root.getId()), ds.taxDivisor(line.getId())));
-            applyAllocations(row, ds.allocations(yearMonth, root.getId()));
+            applyAllocations(row, ds.allocations(yearMonth, TARGET_PROJECT, root.getId()));
             projectRows.put(root.getId(), row);
         }
         ProjectProfitReportVO.Row sales = salesRow(BigDecimal.ZERO, BigDecimal.ZERO);
@@ -270,6 +283,8 @@ public class ProjectProfitService {
             }
             // 项目缺失/跨线等无法归桶的行落入差额行（合计 − Σ明细）暴露
         }
+        applyAllocations(sales, ds.allocations(yearMonth, TARGET_SALES, 0L));
+        applyAllocations(lineOther, ds.allocations(yearMonth, TARGET_LINE_OTHER, 0L));
         projectRows.values().forEach(this::finalizeRow);
         finalizeRow(sales);
         finalizeRow(lineOther);
@@ -412,7 +427,7 @@ public class ProjectProfitService {
                 .orderByAsc(ProjectProfitAllocation::getCostType));
     }
 
-    /** 按 (year_month, project_id, cost_type) 唯一键 upsert：存在则 update amount/note，不存在 insert */
+    /** 按 (year_month, target_type, project_id, cost_type) 唯一键 upsert：存在则 update amount/note，不存在 insert */
     public List<ProjectProfitAllocation> saveAllocations(ProjectProfitAllocationBatchRequest request) {
         if (request == null || !StringUtils.hasText(request.getYearMonth())
                 || !YM_PATTERN.matcher(request.getYearMonth().trim()).matches()) {
@@ -425,55 +440,92 @@ public class ProjectProfitService {
         if (line == null) {
             throw new IllegalArgumentException("业务线不存在");
         }
-        if (!MODE_FULL.equals(modeOf(line))) {
-            throw new IllegalArgumentException("仅 full 模式业务线（云鹿Saas/定制）支持项目成本分配");
+        if (request.getTargets() == null || request.getTargets().isEmpty()) {
+            throw new IllegalArgumentException("分配目标不能为空");
         }
-        if (request.getProjectId() == null) {
-            throw new IllegalArgumentException("项目不能为空");
-        }
-        Project project = projectMapper.selectById(request.getProjectId());
-        if (project == null) {
-            throw new IllegalArgumentException("项目不存在");
-        }
-        if (!request.getBusinessLineId().equals(project.getBusinessLineId())) {
-            throw new IllegalArgumentException("项目不属于该业务线");
-        }
-        if (request.getItems() == null || request.getItems().isEmpty()) {
-            throw new IllegalArgumentException("分配明细不能为空");
-        }
+        String mode = modeOf(line);
         String yearMonth = request.getYearMonth().trim();
         List<ProjectProfitAllocation> saved = new ArrayList<>();
-        for (ProjectProfitAllocationBatchRequest.Item item : request.getItems()) {
-            if (item == null || !COST_TYPES.contains(item.getCostType())) {
-                throw new IllegalArgumentException("非法成本类型: " + (item == null ? null : item.getCostType()));
-            }
-            if (item.getAmount() == null) {
-                throw new IllegalArgumentException("分配金额不能为空");
-            }
-            ProjectProfitAllocation existing = allocationMapper.selectOne(
-                    new LambdaQueryWrapper<ProjectProfitAllocation>()
-                            .eq(ProjectProfitAllocation::getYearMonth, yearMonth)
-                            .eq(ProjectProfitAllocation::getProjectId, request.getProjectId())
-                            .eq(ProjectProfitAllocation::getCostType, item.getCostType())
-                            .last("LIMIT 1"));
-            if (existing != null) {
-                existing.setAmount(item.getAmount());
-                existing.setNote(item.getNote());
-                allocationMapper.updateById(existing);
-                saved.add(existing);
-            } else {
-                ProjectProfitAllocation created = new ProjectProfitAllocation();
-                created.setYearMonth(yearMonth);
-                created.setBusinessLineId(request.getBusinessLineId());
-                created.setProjectId(request.getProjectId());
-                created.setCostType(item.getCostType());
-                created.setAmount(item.getAmount());
-                created.setNote(item.getNote());
-                allocationMapper.insert(created);
-                saved.add(created);
+        for (ProjectProfitAllocationBatchRequest.Target target : request.getTargets()) {
+            validateTarget(target, line, mode);
+            String targetType = target.getTargetType().trim();
+            long projectId = target.getProjectId() == null ? 0L : target.getProjectId();
+            for (ProjectProfitAllocationBatchRequest.Item item : target.getItems()) {
+                if (item == null || !ALLOCATABLE_FIELDS.contains(item.getCostType())) {
+                    throw new IllegalArgumentException("非法分配列: " + (item == null ? null : item.getCostType()));
+                }
+                if (item.getAmount() == null) {
+                    throw new IllegalArgumentException("分配数量不能为空");
+                }
+                ProjectProfitAllocation existing = allocationMapper.selectOne(
+                        new LambdaQueryWrapper<ProjectProfitAllocation>()
+                                .eq(ProjectProfitAllocation::getYearMonth, yearMonth)
+                                .eq(ProjectProfitAllocation::getTargetType, targetType)
+                                .eq(ProjectProfitAllocation::getProjectId, projectId)
+                                .eq(ProjectProfitAllocation::getCostType, item.getCostType())
+                                .last("LIMIT 1"));
+                if (existing != null) {
+                    existing.setAmount(item.getAmount());
+                    existing.setNote(item.getNote());
+                    allocationMapper.updateById(existing);
+                    saved.add(existing);
+                } else {
+                    ProjectProfitAllocation created = new ProjectProfitAllocation();
+                    created.setYearMonth(yearMonth);
+                    created.setBusinessLineId(request.getBusinessLineId());
+                    created.setTargetType(targetType);
+                    created.setProjectId(projectId);
+                    created.setCostType(item.getCostType());
+                    created.setAmount(item.getAmount());
+                    created.setNote(item.getNote());
+                    allocationMapper.insert(created);
+                    saved.add(created);
+                }
             }
         }
         return saved;
+    }
+
+    /** 目标合法性：目标类型与业务线 revenueMode 匹配；project+projectId>0 仅 full 线且项目必须属于该线。
+     *  目标与行对应关系：full=根项目×N+销售+业务线；aggregate=项目集(project:0)+销售；simple=单行(project:0) */
+    private void validateTarget(ProjectProfitAllocationBatchRequest.Target target, BusinessLine line, String mode) {
+        if (target == null || !StringUtils.hasText(target.getTargetType())
+                || !Set.of(TARGET_PROJECT, TARGET_SALES, TARGET_LINE_OTHER).contains(target.getTargetType().trim())) {
+            throw new IllegalArgumentException("非法分配目标: " + (target == null ? null : target.getTargetType()));
+        }
+        Long projectId = target.getProjectId();
+        switch (target.getTargetType().trim()) {
+            case TARGET_PROJECT -> {
+                if (projectId != null && projectId > 0) {
+                    if (!MODE_FULL.equals(mode)) {
+                        throw new IllegalArgumentException("aggregate/simple 模式业务线请分配到项目集/单行（projectId=0）");
+                    }
+                    Project project = projectMapper.selectById(projectId);
+                    if (project == null) {
+                        throw new IllegalArgumentException("项目不存在");
+                    }
+                    if (!line.getId().equals(project.getBusinessLineId())) {
+                        throw new IllegalArgumentException("项目不属于该业务线");
+                    }
+                } else if (MODE_FULL.equals(mode)) {
+                    throw new IllegalArgumentException("full 模式业务线（云鹿Saas/定制）请分配到具体项目");
+                }
+            }
+            case TARGET_SALES -> {
+                if (MODE_SIMPLE.equals(mode)) {
+                    throw new IllegalArgumentException("simple 模式业务线（精准）无销售行，请分配到单行（projectId=0）");
+                }
+            }
+            case TARGET_LINE_OTHER -> {
+                if (!MODE_FULL.equals(mode)) {
+                    throw new IllegalArgumentException("仅 full 模式业务线（云鹿Saas/定制）有「业务线」行");
+                }
+            }
+            default -> { /* 上面已校验 */ }
+        }
+        if (target.getItems() == null || target.getItems().isEmpty()) {
+            throw new IllegalArgumentException("分配明细不能为空");
+        }
     }
 
     public void deleteAllocation(Long id) {
@@ -520,8 +572,12 @@ public class ProjectProfitService {
             for (ProjectProfitAllocation allocation : allocationMapper.selectList(
                     new LambdaQueryWrapper<ProjectProfitAllocation>()
                             .in(ProjectProfitAllocation::getYearMonth, ds.availableMonths))) {
+                // 目标键 = targetType:projectId（非项目目标 projectId=0）；老数据 target_type 默认 'project'
+                String targetKey = (StringUtils.hasText(allocation.getTargetType())
+                        ? allocation.getTargetType() : TARGET_PROJECT)
+                        + ":" + (allocation.getProjectId() == null ? 0L : allocation.getProjectId());
                 ds.allocations.computeIfAbsent(allocation.getYearMonth(), k -> new HashMap<>())
-                        .computeIfAbsent(allocation.getProjectId(), k -> new HashMap<>())
+                        .computeIfAbsent(targetKey, k -> new HashMap<>())
                         .merge(allocation.getCostType(), nz(allocation.getAmount()), BigDecimal::add);
             }
         }
@@ -645,13 +701,16 @@ public class ProjectProfitService {
     private void applyAllocations(ProjectProfitReportVO.Row row, Map<String, BigDecimal> byType) {
         byType.forEach((costType, amount) -> {
             switch (costType) {
+                case "revenue" -> row.setRevenue(row.getRevenue().add(amount));
                 case "sms" -> row.setSmsCost(row.getSmsCost().add(amount));
                 case "direct" -> row.setDirectCost(row.getDirectCost().add(amount));
                 case "platform_fee" -> row.setPlatformFee(row.getPlatformFee().add(amount));
                 case "compensation" -> row.setCompensation(row.getCompensation().add(amount));
                 case "outsourcing" -> row.setOutsourcing(row.getOutsourcing().add(amount));
                 case "software_gift" -> row.setSoftwareGift(row.getSoftwareGift().add(amount));
-                default -> { /* COST_TYPES 之外忽略 */ }
+                case "hours" -> row.setHours(row.getHours().add(amount));
+                case "cost" -> row.setCost(row.getCost().add(amount));
+                default -> { /* ALLOCATABLE_FIELDS 之外忽略 */ }
             }
         });
     }
@@ -851,8 +910,8 @@ public class ProjectProfitService {
         Map<String, Map<Long, List<RevenueCostEntry>>> costs = new HashMap<>();
         /** 月 → 根项目ID → OA 已交付含税金额 */
         Map<String, Map<Long, BigDecimal>> contractInclTax = new HashMap<>();
-        /** 月 → 项目ID → (成本类型 → 金额) */
-        Map<String, Map<Long, Map<String, BigDecimal>>> allocations = new HashMap<>();
+        /** 月 → 目标键（targetType:projectId） → (列 → 数量) */
+        Map<String, Map<String, Map<String, BigDecimal>>> allocations = new HashMap<>();
         Map<Long, Project> projectsById = Map.of();
         Map<Long, Long> aliasToRoot = Map.of();
         /** 业务线ID → 根项目（别名源已排除，按 ID 升序） */
@@ -872,8 +931,9 @@ public class ProjectProfitService {
             return contractInclTax.getOrDefault(yearMonth, Map.of()).get(rootProjectId);
         }
 
-        Map<String, BigDecimal> allocations(String yearMonth, Long projectId) {
-            return allocations.getOrDefault(yearMonth, Map.of()).getOrDefault(projectId, Map.of());
+        Map<String, BigDecimal> allocations(String yearMonth, String targetType, Long projectId) {
+            return allocations.getOrDefault(yearMonth, Map.of())
+                    .getOrDefault(targetType + ":" + (projectId == null ? 0L : projectId), Map.of());
         }
 
         List<Project> rootProjects(Long lineId) {

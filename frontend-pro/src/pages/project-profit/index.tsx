@@ -45,17 +45,53 @@ const yearOptions = [currentYear - 1, currentYear, currentYear + 1].map(
 
 type ViewMode = 'month' | 'H1' | 'H2' | 'YEAR';
 
-/** 6 个可分配成本列：行字段 ↔ 后端 cost_type */
-const COST_TYPES = [
-  { key: 'smsCost', costType: 'sms', label: '短信成本' },
-  { key: 'directCost', costType: 'direct', label: '直接成本' },
-  { key: 'platformFee', costType: 'platform_fee', label: '平台佣金&手续费' },
-  { key: 'compensation', costType: 'compensation', label: '赔付' },
-  { key: 'outsourcing', costType: 'outsourcing', label: '协力&外包' },
-  { key: 'softwareGift', costType: 'software_gift', label: '软件赠送' },
+/** 可分配的 9 个数值列（差额所有项）：行字段 ↔ 后端 cost_type；金额单位元、工时单位人月 */
+const ALLOC_FIELDS = [
+  { key: 'revenue', costType: 'revenue', label: '营业收入', precision: 2 },
+  { key: 'smsCost', costType: 'sms', label: '短信成本', precision: 2 },
+  { key: 'directCost', costType: 'direct', label: '直接成本', precision: 2 },
+  { key: 'platformFee', costType: 'platform_fee', label: '平台佣金&手续费', precision: 2 },
+  { key: 'compensation', costType: 'compensation', label: '赔付', precision: 2 },
+  { key: 'outsourcing', costType: 'outsourcing', label: '协力&外包', precision: 2 },
+  { key: 'softwareGift', costType: 'software_gift', label: '软件赠送', precision: 2 },
+  { key: 'hours', costType: 'hours', label: '工时(人月)', precision: 4 },
+  { key: 'cost', costType: 'cost', label: '成本(人工)', precision: 2 },
 ] as const;
 
-type CostKey = (typeof COST_TYPES)[number]['key'];
+type AllocField = (typeof ALLOC_FIELDS)[number];
+type CostKey = AllocField['key'];
+
+/** 分配目标：项目行/项目集/精准单行（project）、销售行（sales）、业务线行（line_other） */
+interface AllocTarget {
+  targetType: 'project' | 'sales' | 'line_other';
+  /** 主项目ID；非项目目标为 0 */
+  projectId: number;
+  name: string;
+  category: string | null;
+}
+
+const targetKey = (target: AllocTarget) => `${target.targetType}:${target.projectId}`;
+
+/** 行的可分配目标 = 当前显示的项目行 + 销售行（销售/业务线） */
+const targetsOf = (line: ProjectProfitLine): AllocTarget[] =>
+  line.rows
+    .filter(
+      (row) =>
+        row.rowType === 'PROJECT' ||
+        row.rowType === 'SALES' ||
+        row.rowType === 'LINE_OTHER',
+    )
+    .map((row) => ({
+      targetType:
+        row.rowType === 'PROJECT'
+          ? 'project'
+          : row.rowType === 'SALES'
+            ? 'sales'
+            : 'line_other',
+      projectId: row.projectId ?? 0,
+      name: row.projectName ?? '—',
+      category: row.category,
+    }));
 
 const SYNC_TYPE_LABELS: Record<string, string> = {
   worklog: '工时明细',
@@ -106,14 +142,6 @@ const formatHours = (value?: number | null) => {
   if (value == null) return '—';
   return (Math.round(Number(value) * 100) / 100).toFixed(2);
 };
-/** 元（千分位、两位小数）：分配抽屉内与输入框同单位，避免与表格「万」列混填 */
-const formatYuan = (value?: number | null) =>
-  value == null
-    ? '—'
-    : Number(value).toLocaleString('zh-CN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
 const isNegative = (value?: number | null) => value != null && Number(value) < 0;
 /** 抽屉/同步结果等需要精确数字的地方：0 也显示 0.00 */
 const num =
@@ -191,9 +219,11 @@ export default function ProjectProfitPage() {
   const [drawer, setDrawer] = useState<{
     yearMonth: string;
     line: ProjectProfitLine;
-    row: ProjectProfitRow;
   }>();
-  const [allocAmounts, setAllocAmounts] = useState<Record<string, number | null>>({});
+  // 分配矩阵：targetKey → costType → 输入值；existing 为已保存值（计算「未分配」联动用）
+  const [allocValues, setAllocValues] = useState<Record<string, Record<string, number | null>>>({});
+  const [allocExisting, setAllocExisting] = useState<Record<string, Record<string, number>>>({});
+  const [allocLoading, setAllocLoading] = useState(false);
   const [allocNote, setAllocNote] = useState('');
   const [savingAlloc, setSavingAlloc] = useState(false);
   // 表头吸顶：页面滚动容器是 .ant-layout-content，表格自带横向 overflow 容器会让 position:sticky 失效，
@@ -327,30 +357,81 @@ export default function ProjectProfitPage() {
     }
   };
 
-  // 分配 Drawer：初始化 6 成本列当前项目已分配值
-  const openDrawer = (block: ProjectProfitBlock, line: ProjectProfitLine, row: ProjectProfitRow) => {
-    const amounts: Record<string, number | null> = {};
-    COST_TYPES.forEach(({ key, costType }) => {
-      amounts[costType] = row[key] == null ? null : Number(row[key]);
-    });
-    setAllocAmounts(amounts);
+  // 分配 Drawer（月×业务线粒度）：拉取该线全部目标的已分配值，初始化矩阵输入
+  const openDrawer = async (block: ProjectProfitBlock, line: ProjectProfitLine) => {
+    setDrawer({ yearMonth: block.key, line });
     setAllocNote('');
-    setDrawer({ yearMonth: block.key, line, row });
+    setAllocLoading(true);
+    try {
+      const list = await superworkApi.getProjectProfitAllocations(
+        block.key,
+        line.businessLineId,
+      );
+      const existing: Record<string, Record<string, number>> = {};
+      list.forEach((allocation) => {
+        const key = `${allocation.targetType ?? 'project'}:${allocation.projectId ?? 0}`;
+        (existing[key] ??= {})[allocation.costType] = Number(allocation.amount);
+      });
+      setAllocExisting(existing);
+      const values: Record<string, Record<string, number | null>> = {};
+      targetsOf(line).forEach((target) => {
+        const key = targetKey(target);
+        values[key] = {};
+        ALLOC_FIELDS.forEach(({ costType }) => {
+          values[key][costType] = existing[key]?.[costType] ?? null;
+        });
+      });
+      setAllocValues(values);
+    } catch {
+      message.error('分配记录加载失败');
+      setDrawer(undefined);
+    } finally {
+      setAllocLoading(false);
+    }
+  };
+
+  /** 未分配（随输入实时联动）= 当前差额 − Σ(输入 − 已保存)；差额按显示行重算口径 */
+  const unallocated = (field: AllocField) => {
+    if (!drawer) return 0;
+    const residual = Number(drawer.line.residual[field.key] ?? 0);
+    const delta = targetsOf(drawer.line).reduce((sum, target) => {
+      const key = targetKey(target);
+      return (
+        sum +
+        (allocValues[key]?.[field.costType] ?? 0) -
+        (allocExisting[key]?.[field.costType] ?? 0)
+      );
+    }, 0);
+    return residual - delta;
   };
 
   const saveAllocations = async () => {
-    if (!drawer || drawer.row.projectId == null) return;
+    if (!drawer) return;
     setSavingAlloc(true);
     try {
+      const targets = targetsOf(drawer.line)
+        .map((target) => {
+          const key = targetKey(target);
+          // 仅提交有值或已有记录的列（后者支持清零）；空目标整组跳过
+          const items = ALLOC_FIELDS.filter(({ costType }) => {
+            const value = allocValues[key]?.[costType];
+            return (value != null && value !== 0) || allocExisting[key]?.[costType] != null;
+          }).map(({ costType }) => ({
+            costType,
+            amount: allocValues[key]?.[costType] ?? 0,
+            note: allocNote || null,
+          }));
+          return { targetType: target.targetType, projectId: target.projectId, items };
+        })
+        .filter((target) => target.items.length > 0);
+      if (targets.length === 0) {
+        message.info('没有需要保存的分配');
+        return;
+      }
       await superworkApi.saveProjectProfitAllocations({
         yearMonth: drawer.yearMonth,
         businessLineId: drawer.line.businessLineId,
-        projectId: drawer.row.projectId,
-        items: COST_TYPES.map(({ costType }) => ({
-          costType,
-          amount: allocAmounts[costType] ?? 0,
-          note: allocNote || null,
-        })),
+        targets,
       });
       message.success('分配已保存');
       setDrawer(undefined);
@@ -508,13 +589,13 @@ export default function ProjectProfitPage() {
       title: '操作',
       width: 48,
       fixed: 'right',
+      // 分配为月度粒度：合计行（常驻入口，差额为 0 时也可调整）与差额行均可打开
       render: (_, record) =>
-        record.row.rowType === 'PROJECT' &&
-        record.row.editable &&
+        (record.row.rowType === 'TOTAL' || record.row.rowType === 'RESIDUAL') &&
         !['H1', 'H2', 'YEAR'].includes(record.block.key) ? (
           <Typography.Link
             className="sw-project-profit-alloc-link"
-            onClick={() => openDrawer(record.block, record.line, record.row)}
+            onClick={() => void openDrawer(record.block, record.line)}
           >
             分配
           </Typography.Link>
@@ -539,7 +620,8 @@ export default function ProjectProfitPage() {
                 <span>
                   月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税）；
                   项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）；
-                  差额行 = 合计 − 已显示明细行；每块末行「全部业务线」汇总 = 块内各业务线合计求和。
+                  差额行 = 合计 − 已显示明细行，差额所有项（含营收/工时/成本）可经合计行「分配」分摊到项目/销售子项，
+                  归零后差额行自动隐藏；每块末行「全部业务线」汇总 = 块内各业务线合计求和。
                   收益单位：金额「万」，工时「人月」。
                 </span>
               }
@@ -811,66 +893,115 @@ export default function ProjectProfitPage() {
 
       <Drawer
         open={!!drawer}
-        width={480}
+        width={1000}
         title={
-          drawer
-            ? `成本分配 · ${drawer.yearMonth} · ${drawer.line.businessLineName} / ${drawer.row.projectName}`
-            : ''
+          drawer ? (
+            <Space size={8}>
+              <span>差额分配</span>
+              <Tag color="blue">{drawer.yearMonth}</Tag>
+              <Tag>{drawer.line.businessLineName}</Tag>
+            </Space>
+          ) : (
+            ''
+          )
         }
         onClose={() => setDrawer(undefined)}
         extra={
-          <Button type="primary" loading={savingAlloc} onClick={() => void saveAllocations()}>
-            保存
-          </Button>
+          <Space>
+            <Button onClick={() => setDrawer(undefined)}>取消</Button>
+            <Button type="primary" loading={savingAlloc} onClick={() => void saveAllocations()}>
+              保存
+            </Button>
+          </Space>
         }
       >
         {drawer && (
           <>
-            <Typography.Paragraph type="secondary">
-              录入单位：<Typography.Text strong>元</Typography.Text>（财报未税口径，两位小数）。表格里的成本列以「万」展示，
-              1 万 = 10,000 元。「未分配」= 该月该业务线合计 − 各项目行已分配之和，保存后差额行联动。
-            </Typography.Paragraph>
-            {COST_TYPES.map(({ key, costType, label }) => {
-              const total = Number(drawer.line.total[key] ?? 0);
-              const allocated = drawer.line.rows
-                .filter((row) => row.rowType === 'PROJECT')
-                .reduce((sum, row) => sum + Number(row[key] ?? 0), 0);
-              const balance = total - allocated;
-              return (
-                <div key={costType} className="sw-project-profit-alloc-item">
-                  <div className="sw-project-profit-alloc-meta">
-                    <span className="sw-project-profit-alloc-label">{label}</span>
-                    <span className="sw-project-profit-alloc-nums">
-                      合计 {formatYuan(total)} · 已分配 {formatYuan(allocated)} · 未分配{' '}
-                      <Typography.Text type={Math.abs(balance) > 0.005 ? 'warning' : undefined}>
-                        {formatYuan(balance)}
-                      </Typography.Text>
-                      （元）
-                    </span>
-                  </div>
-                  <InputNumber
-                    style={{ width: '100%' }}
-                    value={allocAmounts[costType]}
-                    placeholder="0.00"
-                    precision={2}
-                    step={100}
-                    addonAfter="元"
-                    onChange={(value) =>
-                      setAllocAmounts((prev) => ({ ...prev, [costType]: value }))
-                    }
-                  />
-                </div>
-              );
-            })}
-            <div className="sw-project-profit-alloc-item">
-              <div className="sw-project-profit-alloc-meta">
-                <span className="sw-project-profit-alloc-label">备注</span>
-              </div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="差额所有项均可分配到项目/销售子项：金额单位「元」（财报未税口径），工时单位「人月」。表底「未分配」= 差额 − 本次调整，随输入实时联动；全部归零后差额行自动隐藏。"
+            />
+            <Table<AllocTarget>
+              size="small"
+              bordered
+              loading={allocLoading}
+              dataSource={targetsOf(drawer.line)}
+              pagination={false}
+              rowKey={(target) => targetKey(target)}
+              scroll={{ x: 1120 }}
+              columns={[
+                {
+                  title: '分配目标',
+                  width: 132,
+                  fixed: 'left',
+                  render: (_, target) => (
+                    <Space size={4}>
+                      <Tag
+                        color={target.targetType === 'project' ? 'blue' : 'default'}
+                        style={{ marginInlineEnd: 0 }}
+                      >
+                        {target.category ?? '—'}
+                      </Tag>
+                      <span>{target.name}</span>
+                    </Space>
+                  ),
+                },
+                ...ALLOC_FIELDS.map((field) => ({
+                  title: field.label,
+                  width: 104,
+                  align: 'right' as const,
+                  render: (_: unknown, target: AllocTarget) => {
+                    const key = targetKey(target);
+                    return (
+                      <InputNumber
+                        size="small"
+                        style={{ width: 94 }}
+                        value={allocValues[key]?.[field.costType] ?? null}
+                        placeholder="0"
+                        precision={field.precision}
+                        onChange={(value) =>
+                          setAllocValues((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], [field.costType]: value },
+                          }))
+                        }
+                      />
+                    );
+                  },
+                })),
+              ]}
+              summary={() => (
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0}>
+                    <Typography.Text strong>未分配</Typography.Text>
+                  </Table.Summary.Cell>
+                  {ALLOC_FIELDS.map((field, index) => {
+                    const value = unallocated(field);
+                    const threshold = field.costType === 'hours' ? 0.0001 : 0.01;
+                    return (
+                      <Table.Summary.Cell index={index + 1} key={field.costType} align="right">
+                        <Typography.Text
+                          type={Math.abs(value) >= threshold ? 'warning' : 'success'}
+                        >
+                          {value.toFixed(field.precision)}
+                        </Typography.Text>
+                      </Table.Summary.Cell>
+                    );
+                  })}
+                </Table.Summary.Row>
+              )}
+            />
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text strong>备注</Typography.Text>
               <Input.TextArea
                 rows={2}
                 maxLength={500}
                 value={allocNote}
                 onChange={(e) => setAllocNote(e.target.value)}
+                placeholder="本次分配说明（可选，写入本次保存的所有分配项）"
+                style={{ marginTop: 4 }}
               />
             </div>
           </>
