@@ -462,7 +462,7 @@ class ProjectProfitServiceTest {
     // ==================== 过滤 ====================
 
     @Test
-    @DisplayName("projectIds 仅过滤 PROJECT 行；销售/合计保留，差额按显示行重算")
+    @DisplayName("projectIds 仅过滤 PROJECT 行的显示；差额为固定口径（合计 − Σ全部明细行），不随筛选变化")
     void projectIdsFilter() {
         stubFullDataset();
 
@@ -472,16 +472,16 @@ class ProjectProfitServiceTest {
         assertThat(line.getRows().stream().filter(r -> "PROJECT".equals(r.getRowType())))
                 .hasSize(1)
                 .allMatch(r -> r.getProjectId().equals(100L));
-        // 销售行保留
+        // 销售行保留显示
         assertThat(line.getRows().stream().filter(r -> "SALES".equals(r.getRowType()))).hasSize(1);
-        // 差额按显示行重算：1060−600=460（澳优 400 被过滤后进差额）
-        assertThat(line.getResidual().getRevenue()).isEqualByComparingTo("460");
+        // 差额不随筛选重算：恒为 1060−600−400=60（被过滤的澳优 400 不会变成差额）
+        assertThat(line.getResidual().getRevenue()).isEqualByComparingTo("60");
         // 其他业务线不受 projectIds 影响
         assertThat(lineOf(vo.getBlocks().get(0), 2L).getRows()).isNotEmpty();
     }
 
     @Test
-    @DisplayName("categories=项目：仅保留项目行，销售行进入差额")
+    @DisplayName("categories=项目：仅显示项目行；差额保持固定口径不变")
     void categoriesFilter() {
         stubFullDataset();
 
@@ -489,8 +489,8 @@ class ProjectProfitServiceTest {
 
         ProjectProfitReportVO.Line line = lineOf(vo.getBlocks().get(0), 1L);
         assertThat(line.getRows()).allMatch(r -> "PROJECT".equals(r.getRowType()));
-        // 销售行 50 + 业务线行 30 的成本进入差额：800−300−100=400
-        assertThat(line.getResidual().getCost()).isEqualByComparingTo("400");
+        // 差额固定口径：800−300−100−50−30=320（被过滤的销售/业务线行不会变成差额）
+        assertThat(line.getResidual().getCost()).isEqualByComparingTo("320");
     }
 
     @Test

@@ -57,7 +57,7 @@ import java.util.stream.Collectors;
  *   <li>aggregate 线（会员通）「项目集」行、simple 线（精准）单行：营收与 6 成本列直接取镜像线级值（该行即整线）。</li>
  *   <li>销售行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「业务线」= work_type=project 且
  *       project_id 为空的工时成本（投入到其他事项）；aggregate 线无「业务线」行（并入项目集），simple 线无销售行。</li>
- *   <li>差额行 = 合计 − Σ(当前返回的项目行+销售行)，随 projectIds/categories 过滤按显示行重算。</li>
+ *   <li>差额行 = 合计 − Σ全部明细行（固定口径，不随筛选变化；筛选只影响显示哪些行）。</li>
  *   <li>块级汇总行（SUMMARY）= Σ 块内各业务线合计行（镜像值求和），毛利/率按公式重算，
  *       随 businessLineIds 过滤联动；月度、H1/H2、全年块均提供。</li>
  *   <li>考核毛利 = 营业收入 − 短信成本 − 直接成本 − 平台佣金 − 赔付 − 协力外包 − 软件赠送 − 成本(人工)，
@@ -308,7 +308,8 @@ public class ProjectProfitService {
         return summary;
     }
 
-    /** 组装 Line：应用行过滤后重算差额行（= 合计 − Σ显示明细行） */
+    /** 组装 Line：应用行过滤；差额行 = 合计 − Σ全部明细行（固定口径，不随 categories/projectIds 筛选变化——
+     *  筛选只影响显示哪些行，不应把被过滤的行变成差额） */
     private ProjectProfitReportVO.Line assembleLine(BusinessLine line, List<ProjectProfitReportVO.Row> rows,
                                                     ProjectProfitReportVO.Row total, Filters filters) {
         List<ProjectProfitReportVO.Row> displayed = rows.stream()
@@ -322,7 +323,7 @@ public class ProjectProfitService {
         out.setTotal(total);
         ProjectProfitReportVO.Row residual = newRow(ROW_RESIDUAL, "差额", null, "未分配", false);
         addInto(residual, total);
-        for (ProjectProfitReportVO.Row row : displayed) {
+        for (ProjectProfitReportVO.Row row : rows) {
             subtract(residual, row);
         }
         finalizeRow(residual);

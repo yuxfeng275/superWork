@@ -994,88 +994,110 @@ export default function ProjectProfitPage() {
       )}
 
       {report && report.availableMonths.length > 0 && (
-        <>
-          {/* 月份平铺为 pill 按钮（按月块多时比下拉更快）；分类/项目仍为下拉 */}
-          {viewMode === 'month' && (
+        <div className="sw-project-profit-filters">
+          {/* 筛选项按维度分行：业务线（主维度）→ 月份（平铺，快速点选）→ 分类（平铺）+ 项目（下拉可搜索） */}
+          <div className="sw-project-profit-filter-row">
+            <span className="sw-project-profit-filter-label">业务线</span>
             <div className="sw-project-profit-pills">
               <button
                 type="button"
-                className={selectedMonths.length === 0 ? 'is-active' : ''}
-                onClick={() => setSelectedMonths([])}
+                className={filterLineIds.length === 0 ? 'is-active' : ''}
+                onClick={() => setFilterLineIds([])}
               >
-                全部月份
+                全部业务线
               </button>
-              {monthFilterOptions.map((option) => (
+              {report.lineOptions.map((line) => (
                 <button
-                  key={option.value}
+                  key={line.businessLineId}
                   type="button"
-                  className={selectedMonths.includes(option.value) ? 'is-active' : ''}
+                  className={filterLineIds.includes(line.businessLineId) ? 'is-active' : ''}
                   onClick={() =>
-                    setSelectedMonths((prev) =>
-                      prev.includes(option.value)
-                        ? prev.filter((m) => m !== option.value)
-                        : [...prev, option.value],
+                    setFilterLineIds((prev) =>
+                      prev.includes(line.businessLineId)
+                        ? prev.filter((id) => id !== line.businessLineId)
+                        : [...prev, line.businessLineId],
                     )
                   }
                 >
-                  {option.label}
+                  {line.businessLineName}
                 </button>
               ))}
             </div>
+          </div>
+          {viewMode === 'month' && (
+            <div className="sw-project-profit-filter-row">
+              <span className="sw-project-profit-filter-label">月份</span>
+              <div className="sw-project-profit-pills">
+                <button
+                  type="button"
+                  className={selectedMonths.length === 0 ? 'is-active' : ''}
+                  onClick={() => setSelectedMonths([])}
+                >
+                  全部月份
+                </button>
+                {monthFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={selectedMonths.includes(option.value) ? 'is-active' : ''}
+                    onClick={() =>
+                      setSelectedMonths((prev) =>
+                        prev.includes(option.value)
+                          ? prev.filter((m) => m !== option.value)
+                          : [...prev, option.value],
+                      )
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
-          <Space wrap size={8} style={{ marginBottom: 8 }}>
+          <div className="sw-project-profit-filter-row">
+            <span className="sw-project-profit-filter-label">分类</span>
+            <div className="sw-project-profit-pills">
+              <button
+                type="button"
+                className={filterCategories.length === 0 ? 'is-active' : ''}
+                onClick={() => setFilterCategories([])}
+              >
+                全部
+              </button>
+              {['项目', '销售'].map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={filterCategories.includes(category) ? 'is-active' : ''}
+                  onClick={() =>
+                    setFilterCategories((prev) =>
+                      prev.includes(category)
+                        ? prev.filter((c) => c !== category)
+                        : [...prev, category],
+                    )
+                  }
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+            <span className="sw-project-profit-filter-label" style={{ marginLeft: 16 }}>
+              项目
+            </span>
             <Select
               mode="multiple"
               allowClear
               size="small"
-              placeholder="分类（项目/销售）"
-              style={{ minWidth: 148 }}
-              value={filterCategories}
-              options={[
-                { label: '项目', value: '项目' },
-                { label: '销售', value: '销售' },
-              ]}
-              onChange={(value) => setFilterCategories(value)}
-            />
-            <Select
-              mode="multiple"
-              allowClear
-              size="small"
-              placeholder="项目（仅过滤项目行）"
-              style={{ minWidth: 220 }}
+              placeholder="仅过滤项目行（可搜索）"
+              style={{ minWidth: 240 }}
               value={filterProjectIds}
               options={projectOptions}
               onChange={(value) => setFilterProjectIds(value)}
               showSearch
               optionFilterProp="label"
             />
-          </Space>
-          <div className="sw-project-profit-pills">
-            <button
-              type="button"
-              className={filterLineIds.length === 0 ? 'is-active' : ''}
-              onClick={() => setFilterLineIds([])}
-            >
-              全部业务线
-            </button>
-            {report.lineOptions.map((line) => (
-              <button
-                key={line.businessLineId}
-                type="button"
-                className={filterLineIds.includes(line.businessLineId) ? 'is-active' : ''}
-                onClick={() =>
-                  setFilterLineIds((prev) =>
-                    prev.includes(line.businessLineId)
-                      ? prev.filter((id) => id !== line.businessLineId)
-                      : [...prev, line.businessLineId],
-                  )
-                }
-              >
-                {line.businessLineName}
-              </button>
-            ))}
           </div>
-        </>
+        </div>
       )}
 
       {report && report.availableMonths.length > 0 ? (

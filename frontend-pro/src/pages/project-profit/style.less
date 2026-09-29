@@ -42,6 +42,25 @@
       }
     }
   }
+  // 筛选区：按维度分行（业务线/月份/分类+项目），左侧小标签对齐
+  .sw-project-profit-filter-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 6px;
+    .sw-project-profit-filter-label {
+      flex: none;
+      font-size: 12px;
+      color: #667085;
+      line-height: 22px; // 与 pill 高度对齐
+    }
+    .sw-project-profit-pills {
+      margin-bottom: 0;
+    }
+    .ant-select {
+      align-self: center;
+    }
+  }
   .sw-project-profit-total-row td {
     background: #eef4ff !important;
     font-weight: 700;

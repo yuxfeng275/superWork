@@ -12,7 +12,7 @@ import java.util.List;
  * 赔付 | 协力&外包 | 软件赠送 | 工时 | 成本 | 考核毛利 | 考核毛利率(%)。
  * <p>口径：合计行取工时系统业务线利润镜像（biz_line_profit_report，未税）；full 线项目行营收取
  * OA 合同已交付金额（含税），按业务线税率 ÷(1+taxRate/100) 换算为未税后与镜像同口径；
- * 差额行 = 合计 − Σ(当前返回的项目行+销售行)，随 projectIds/categories 过滤按显示行重算。</p>
+ * 差额行 = 合计 − Σ全部明细行（固定口径，不随筛选变化）。</p>
  */
 @Data
 public class ProjectProfitReportVO {
