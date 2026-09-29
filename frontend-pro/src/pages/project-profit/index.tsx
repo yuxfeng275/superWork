@@ -116,6 +116,10 @@ const domainLines = (block: ProjectProfitBlock, line: ProjectProfitLine) =>
 const targetsOfDomain = (block: ProjectProfitBlock, line: ProjectProfitLine): AllocTarget[] =>
   domainLines(block, line).flatMap(lineTargets);
 
+/** 块内第一条 full 线（共享差额行的分配/明细入口以它为宿主，抽屉内部仍展示整个 full 域） */
+const firstFullLineOf = (block: ProjectProfitBlock) =>
+  block.lines.find((l) => l.revenueMode === 'full') ?? block.lines[0];
+
 const SYNC_TYPE_LABELS: Record<string, string> = {
   worklog: '工时明细',
   cost: '成本分析（含销售工时）',
@@ -142,8 +146,56 @@ interface FlatRow {
   block: ProjectProfitBlock;
   line: ProjectProfitLine;
   row: ProjectProfitRow;
+  /** true = full 线（云鹿Saas/定制）共享差额行（伪业务线，跨线分配对消） */
+  shared?: boolean;
   spans: RowSpans;
 }
+
+/** 差额行的数值列（求和口径；毛利率求和后重算） */
+const RESIDUAL_NUM_FIELDS = [
+  'revenue',
+  'smsCost',
+  'directCost',
+  'platformFee',
+  'compensation',
+  'outsourcing',
+  'softwareGift',
+  'hours',
+  'cost',
+  'grossProfit',
+] as const;
+
+/** full 线共享差额 = 各 full 线差额逐列求和，毛利率重算 */
+const sumResiduals = (lines: ProjectProfitLine[]): ProjectProfitRow => {
+  const base: ProjectProfitRow = {
+    rowType: 'RESIDUAL',
+    category: '差额',
+    projectId: null,
+    projectName: '共享差额',
+    editable: false,
+    revenue: 0,
+    smsCost: 0,
+    directCost: 0,
+    platformFee: 0,
+    compensation: 0,
+    outsourcing: 0,
+    softwareGift: 0,
+    hours: 0,
+    cost: 0,
+    grossProfit: 0,
+    grossProfitRate: null,
+  };
+  lines.forEach((line) =>
+    RESIDUAL_NUM_FIELDS.forEach((field) => {
+      base[field] = Number(base[field] ?? 0) + Number(line.residual[field] ?? 0);
+    }),
+  );
+  base.grossProfitRate =
+    base.revenue != null && Number(base.revenue) !== 0
+      ? Math.round((Number(base.grossProfit) / Number(base.revenue)) * 10000) / 100
+      : null;
+  return base;
+};
 
 /** 连续相同取值的分组跨度（依赖行序：块 → 业务线 → 行） */
 const spanCounts = <T,>(list: T[], keyOf: (item: T) => string) => {
@@ -290,6 +342,8 @@ export default function ProjectProfitPage() {
   const [detail, setDetail] = useState<{
     yearMonth: string;
     line: ProjectProfitLine;
+    /** 可切换的业务线（共享差额行传入 full 线列表） */
+    lines: ProjectProfitLine[];
     tab: DetailTab;
   }>();
   const [detailLoading, setDetailLoading] = useState(false);
@@ -473,6 +527,21 @@ export default function ProjectProfitPage() {
     return residual - delta;
   };
 
+  /** full 域共享未分配 = 各线差额之和 − 全域目标(输入 − 已保存) */
+  const unallocatedShared = (field: AllocField, lines: ProjectProfitLine[]) => {
+    if (!drawer) return 0;
+    const residual = lines.reduce((sum, l) => sum + Number(l.residual[field.key] ?? 0), 0);
+    const delta = targetsOfDomain(drawer.block, drawer.line).reduce((sum, target) => {
+      const key = targetKey(target);
+      return (
+        sum +
+        (allocValues[key]?.[field.costType] ?? 0) -
+        (allocExisting[key]?.[field.costType] ?? 0)
+      );
+    }, 0);
+    return residual - delta;
+  };
+
   const saveAllocations = async () => {
     if (!drawer) return;
     setSavingAlloc(true);
@@ -516,19 +585,15 @@ export default function ProjectProfitPage() {
     }
   };
 
-  // 差额明细下钻（差额行非零单元格点击）：营收=镜像 vs OA 合同逐条；工时/成本=镜像 vs 成本分析逐条；分配记录
-  const openDetail = async (
-    block: ProjectProfitBlock,
-    line: ProjectProfitLine,
-    tab: DetailTab,
-  ) => {
-    setDetail({ yearMonth: block.key, line, tab });
+  // 差额明细下钻（差额行非零单元格点击）：营收=镜像 vs OA 合同逐条；工时/成本=镜像 vs 成本分析逐条；分配记录。
+  // 共享差额行传入 full 线列表，抽屉顶部可切换业务线
+  const fetchDetail = async (yearMonth: string, line: ProjectProfitLine) => {
     setDetailLoading(true);
     try {
       const [revenue, labor, allocations] = await Promise.all([
-        superworkApi.getProjectProfitRevenueDetail(block.key, line.businessLineId),
-        superworkApi.getProjectProfitLaborDetail(block.key, line.businessLineId),
-        superworkApi.getProjectProfitAllocations(block.key, line.businessLineId),
+        superworkApi.getProjectProfitRevenueDetail(yearMonth, line.businessLineId),
+        superworkApi.getProjectProfitLaborDetail(yearMonth, line.businessLineId),
+        superworkApi.getProjectProfitAllocations(yearMonth, line.businessLineId),
       ]);
       setRevenueDetail(revenue);
       setLaborDetail(labor);
@@ -540,17 +605,38 @@ export default function ProjectProfitPage() {
     }
   };
 
-  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行 → 块末「全部业务线」汇总行；
-  // 月份/业务线/分类三列按相邻同值合并（汇总行业务线列显示「全部业务线」，伪线 id=-1 保证不与任何业务线合并）
+  const openDetail = (
+    block: ProjectProfitBlock,
+    line: ProjectProfitLine,
+    tab: DetailTab,
+    lines?: ProjectProfitLine[],
+  ) => {
+    setDetail({ yearMonth: block.key, line, lines: lines ?? [line], tab });
+    void fetchDetail(block.key, line);
+  };
+
+  const switchDetailLine = (line: ProjectProfitLine) => {
+    if (!detail) return;
+    setDetail({ ...detail, line });
+    void fetchDetail(detail.yearMonth, line);
+  };
+
+  // 平铺行：项目行… → 销售行 → 差额行（仅非零；full 线 ≥2 条时合并为一条「共享差额」行，
+  // 跨线分配自动对消，不再出现互斥差额对） → 合计行（simple 线除外） → 块末「全部业务线」汇总行；
+  // 月份/业务线/分类三列按相邻同值合并
   const dataSource = useMemo<FlatRow[]>(() => {
     if (!report) return [];
     const rows: Omit<FlatRow, 'spans'>[] = [];
     report.blocks.forEach((block) => {
+      const fullLines = block.lines.filter((l) => l.revenueMode === 'full');
+      const sharedResidual = fullLines.length >= 2 ? sumResiduals(fullLines) : null;
+      const lastFullLine = fullLines[fullLines.length - 1];
       block.lines.forEach((line) => {
         line.rows.forEach((row) =>
           rows.push({ key: `${block.key}-${line.businessLineId}-${row.rowType}-${row.projectId ?? row.projectName}`, block, line, row }),
         );
-        if (residualVisible(line.residual)) {
+        const hideLineResidual = sharedResidual != null && line.revenueMode === 'full';
+        if (!hideLineResidual && residualVisible(line.residual)) {
           rows.push({
             key: `${block.key}-${line.businessLineId}-RESIDUAL`,
             block,
@@ -565,6 +651,23 @@ export default function ProjectProfitPage() {
             block,
             line,
             row: line.total,
+          });
+        }
+        // 共享差额行跟在最后一条 full 线的合计行之后（伪业务线 id=-2，不与任何业务线合并）
+        if (sharedResidual && line === lastFullLine && residualVisible(sharedResidual)) {
+          rows.push({
+            key: `${block.key}-SHARED-RESIDUAL`,
+            block,
+            line: {
+              businessLineId: -2,
+              businessLineName: fullLines.map((l) => l.businessLineName).join(' + '),
+              revenueMode: 'full',
+              rows: [],
+              total: sharedResidual,
+              residual: sharedResidual,
+            },
+            row: sharedResidual,
+            shared: true,
           });
         }
       });
@@ -626,7 +729,7 @@ export default function ProjectProfitPage() {
     [report],
   );
 
-  /** 差额行非零单元格（月度块）包装为可点击链接，下钻差额明细 */
+  /** 差额行非零单元格（月度块）包装为可点击链接，下钻差额明细；共享差额行带上线切换 */
   const maybeDetailLink = (
     record: FlatRow,
     tab: DetailTab | undefined,
@@ -638,7 +741,18 @@ export default function ProjectProfitPage() {
     !['H1', 'H2', 'YEAR'].includes(record.block.key) &&
     value != null &&
     Number(value) !== 0 ? (
-      <Typography.Link onClick={() => void openDetail(record.block, record.line, tab)}>
+      <Typography.Link
+        onClick={() =>
+          void openDetail(
+            record.block,
+            record.shared ? firstFullLineOf(record.block) : record.line,
+            tab,
+            record.shared
+              ? record.block.lines.filter((l) => l.revenueMode === 'full')
+              : undefined,
+          )
+        }
+      >
         {rendered}
       </Typography.Link>
     ) : (
@@ -712,7 +826,7 @@ export default function ProjectProfitPage() {
       width: 48,
       fixed: 'right',
       // 分配为月度粒度：合计行（常驻入口，差额为 0 时也可调整）与差额行均可打开；
-      // simple 线（精准）无合计行，入口放在唯一的项目行上
+      // simple 线（精准）无合计行，入口放在唯一的项目行上；共享差额行以块内第一条 full 线为宿主打开
       render: (_, record) =>
         (record.row.rowType === 'TOTAL' ||
           record.row.rowType === 'RESIDUAL' ||
@@ -720,7 +834,12 @@ export default function ProjectProfitPage() {
         !['H1', 'H2', 'YEAR'].includes(record.block.key) ? (
           <Typography.Link
             className="sw-project-profit-alloc-link"
-            onClick={() => void openDrawer(record.block, record.line)}
+            onClick={() =>
+              void openDrawer(
+                record.block,
+                record.shared ? firstFullLineOf(record.block) : record.line,
+              )
+            }
           >
             分配
           </Typography.Link>
@@ -995,7 +1114,7 @@ export default function ProjectProfitPage() {
         {syncResult && syncResult.lines.length > 0 ? (
           <Space direction="vertical" style={{ width: '100%' }}>
             {syncResult.lines.map((line) => (
-              <div key={line.businessLineId}>
+              <div key={line.businessLineId ?? 'shared'}>
                 {line.aligned ? (
                   <>
                     <Tag color="green">✓ 已对齐</Tag>
@@ -1108,35 +1227,48 @@ export default function ProjectProfitPage() {
                   },
                 })),
               ]}
-              summary={() => (
-                <>
-                  {domainLines(drawer.block, drawer.line).map((line) => (
-                    <Table.Summary.Row key={line.businessLineId}>
-                      <Table.Summary.Cell index={0}>
-                        <Typography.Text strong>
-                          未分配
-                          {domainLines(drawer.block, drawer.line).length > 1
-                            ? ` · ${line.businessLineName}`
-                            : ''}
+              summary={() => {
+                const lines = domainLines(drawer.block, drawer.line);
+                const cells = (valueOf: (field: AllocField) => number) =>
+                  ALLOC_FIELDS.map((field, index) => {
+                    const value = valueOf(field);
+                    const threshold = field.costType === 'hours' ? 0.0001 : 0.01;
+                    return (
+                      <Table.Summary.Cell index={index + 1} key={field.costType} align="right">
+                        <Typography.Text
+                          type={Math.abs(value) >= threshold ? 'warning' : 'success'}
+                        >
+                          {value.toFixed(field.precision)}
                         </Typography.Text>
                       </Table.Summary.Cell>
-                      {ALLOC_FIELDS.map((field, index) => {
-                        const value = unallocated(field, line);
-                        const threshold = field.costType === 'hours' ? 0.0001 : 0.01;
-                        return (
-                          <Table.Summary.Cell index={index + 1} key={field.costType} align="right">
-                            <Typography.Text
-                              type={Math.abs(value) >= threshold ? 'warning' : 'success'}
-                            >
-                              {value.toFixed(field.precision)}
-                            </Typography.Text>
-                          </Table.Summary.Cell>
-                        );
-                      })}
+                    );
+                  });
+                // full 域（saas/定制）共享一个差额：单行未分配 = 两线差额之和 − 全域输入增量
+                if (lines.length > 1) {
+                  return (
+                    <Table.Summary.Row>
+                      <Table.Summary.Cell index={0}>
+                        <Typography.Text strong>
+                          未分配 · {lines.map((l) => l.businessLineName).join('+')}
+                        </Typography.Text>
+                      </Table.Summary.Cell>
+                      {cells((field) => unallocatedShared(field, lines))}
                     </Table.Summary.Row>
-                  ))}
-                </>
-              )}
+                  );
+                }
+                return (
+                  <>
+                    {lines.map((line) => (
+                      <Table.Summary.Row key={line.businessLineId}>
+                        <Table.Summary.Cell index={0}>
+                          <Typography.Text strong>未分配</Typography.Text>
+                        </Table.Summary.Cell>
+                        {cells((field) => unallocated(field, line))}
+                      </Table.Summary.Row>
+                    ))}
+                  </>
+                );
+              }}
             />
             <div style={{ marginTop: 16 }}>
               <Typography.Text strong>备注</Typography.Text>
@@ -1169,6 +1301,21 @@ export default function ProjectProfitPage() {
         }
         onClose={() => setDetail(undefined)}
       >
+        {detail && detail.lines.length > 1 && (
+          <Segmented
+            size="small"
+            style={{ marginBottom: 12 }}
+            value={detail.line.businessLineId}
+            options={detail.lines.map((l) => ({
+              label: l.businessLineName,
+              value: l.businessLineId,
+            }))}
+            onChange={(value) => {
+              const next = detail.lines.find((l) => l.businessLineId === value);
+              if (next) switchDetailLine(next);
+            }}
+          />
+        )}
         {detail && (
           <Tabs
             activeKey={detail.tab}

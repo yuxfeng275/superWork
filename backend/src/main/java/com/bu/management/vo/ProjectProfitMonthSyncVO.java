@@ -22,6 +22,7 @@ public class ProjectProfitMonthSyncVO {
 
     @Data
     public static class LineAlignment {
+        /** null = full 线（云鹿Saas/定制）共享差额条目（跨线分配，两线合并判定） */
         private Long businessLineId;
         private String businessLineName;
         /** 差额行.营业收入（合计镜像 − Σ明细） */

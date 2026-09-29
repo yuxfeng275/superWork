@@ -389,11 +389,37 @@ public class ProjectProfitService {
         // 2) 业务线利润镜像刷新（合计行权威来源），必须在第 1 步之后：镜像与明细同源同月刷新，差额才是当期真实对齐状态
         logs.add(businessLineProfitService.syncMonth(normalized, "manual"));
 
-        // 3) 对齐计算：复用单月块构建；镜像无该月数据时 lines 为空列表，不报错
+        // 3) 对齐计算：复用单月块构建；镜像无该月数据时 lines 为空列表，不报错。
+        //    full 线（云鹿Saas/定制）跨线分配、共享一个差额：合并为一条对齐结果，按共享差额判定，
+        //    避免单线互斥差额（分给 SAAS 项目导致定制出现相反差额）造成误报。
         Dataset ds = loadDataset(target.getYear());
         ProjectProfitReportVO.Block block = buildMonthBlock(normalized, ds, Filters.NONE);
         List<ProjectProfitMonthSyncVO.LineAlignment> lines = new ArrayList<>();
+        List<ProjectProfitReportVO.Line> fullLines = block.getLines().stream()
+                .filter(l -> MODE_FULL.equals(l.getRevenueMode()))
+                .toList();
+        if (fullLines.size() >= 2) {
+            ProjectProfitMonthSyncVO.LineAlignment shared = new ProjectProfitMonthSyncVO.LineAlignment();
+            shared.setBusinessLineId(null); // null = full 线共享差额（非单线）
+            shared.setBusinessLineName(fullLines.stream()
+                    .map(ProjectProfitReportVO.Line::getBusinessLineName)
+                    .collect(Collectors.joining(" + ")) + "（共享差额）");
+            BigDecimal revenueSum = fullLines.stream()
+                    .map(l -> nz(l.getResidual().getRevenue())).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal costSum = fullLines.stream()
+                    .map(l -> nz(l.getResidual().getCost())).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal hoursSum = fullLines.stream()
+                    .map(l -> nz(l.getResidual().getHours())).reduce(BigDecimal.ZERO, BigDecimal::add);
+            shared.setRevenueResidual(revenueSum);
+            shared.setCostResidual(costSum);
+            shared.setHoursResidual(hoursSum);
+            shared.setAligned(isAligned(revenueSum, costSum, hoursSum));
+            lines.add(shared);
+        }
         for (ProjectProfitReportVO.Line line : block.getLines()) {
+            if (fullLines.size() >= 2 && fullLines.contains(line)) {
+                continue; // full 线已并入共享差额条目
+            }
             ProjectProfitReportVO.Row residual = line.getResidual();
             ProjectProfitMonthSyncVO.LineAlignment alignment = new ProjectProfitMonthSyncVO.LineAlignment();
             alignment.setBusinessLineId(line.getBusinessLineId());
@@ -404,10 +430,7 @@ public class ProjectProfitService {
             alignment.setRevenueResidual(revenueResidual);
             alignment.setCostResidual(costResidual);
             alignment.setHoursResidual(hoursResidual);
-            // 金额差额 <1 元视为换算尾差（÷(1+税率) 逐笔四舍五入），与前端差额行渲染阈值一致
-            alignment.setAligned(revenueResidual.abs().compareTo(BigDecimal.ONE) < 0
-                    && costResidual.abs().compareTo(BigDecimal.ONE) < 0
-                    && hoursResidual.abs().compareTo(new BigDecimal("0.0001")) < 0);
+            alignment.setAligned(isAligned(revenueResidual, costResidual, hoursResidual));
             lines.add(alignment);
         }
 
@@ -417,6 +440,13 @@ public class ProjectProfitService {
         vo.setLogs(logs);
         vo.setLines(lines);
         return vo;
+    }
+
+    /** 对齐判定：金额差额 <1 元视为换算尾差（÷(1+税率) 逐笔四舍五入），与前端差额行渲染阈值一致 */
+    private boolean isAligned(BigDecimal revenueResidual, BigDecimal costResidual, BigDecimal hoursResidual) {
+        return revenueResidual.abs().compareTo(BigDecimal.ONE) < 0
+                && costResidual.abs().compareTo(BigDecimal.ONE) < 0
+                && hoursResidual.abs().compareTo(new BigDecimal("0.0001")) < 0;
     }
 
     // ==================== 差额明细（待分配下钻） ====================

@@ -1002,6 +1002,38 @@ class ProjectProfitServiceTest {
     }
 
     @Test
+    @DisplayName("syncMonth 共享差额：两条 full 线差额互斥时合并为一条共享对齐结果（aligned 按共享和判定）")
+    void syncMonthSharedResidualForFullLines() {
+        BusinessLine lineA = line(9L, "测试定制", "full", "0");
+        BusinessLine lineB = line(10L, "测试Saas", "full", "0");
+        when(monthCloseMapper.selectCount(any())).thenReturn(0L);
+        when(worktimeMonthlySyncService.syncConfirmedMonths("2026-08", "manual")).thenReturn(List.of());
+        when(businessLineProfitService.syncMonth("2026-08", "manual")).thenReturn(syncLog("bl_profit"));
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(lineA, lineB));
+        when(reportMapper.selectList(any())).thenReturn(List.of(
+                mirror("2026-08", 9L, "1000", "5", "800"),
+                mirror("2026-08", 10L, "500", "3", "300")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-08", 9L, "project", 900L, "5", "800"),
+                cost("2026-08", 10L, "project", 1000L, "3", "300")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(
+                project(900L, 9L, null, "定制项目"), project(1000L, 10L, null, "Saas项目")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "600", "2026-08-15"),    // A 差额 +400
+                contract(10L, 1000L, "900", "2026-08-16"))); // B 差额 −400，互斥抵消
+
+        ProjectProfitMonthSyncVO vo = service.syncMonth("2026-08");
+
+        assertThat(vo.getLines()).hasSize(1);               // 两条 full 线合并为一条
+        ProjectProfitMonthSyncVO.LineAlignment shared = vo.getLines().get(0);
+        assertThat(shared.getBusinessLineId()).isNull();
+        assertThat(shared.getBusinessLineName()).contains("测试定制").contains("测试Saas").contains("共享差额");
+        assertThat(shared.getRevenueResidual()).isEqualByComparingTo("0");
+        assertThat(shared.getAligned()).isTrue();
+    }
+
+    @Test
     @DisplayName("syncMonth 参数校验：非法月份/未来月份抛 IllegalArgumentException")
     void syncMonthValidation() {
         assertThatThrownBy(() -> service.syncMonth("2026-13"))
