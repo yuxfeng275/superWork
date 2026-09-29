@@ -120,6 +120,16 @@ public class ProjectProfitService {
                 categories == null ? Set.of() : Set.copyOf(categories),
                 projectIds == null ? Set.of() : Set.copyOf(projectIds));
 
+        // 在途月份：工时系统对未确认月份返回全零镜像行（同步日志可见 bl_profit success 但全 0）。
+        // 当月镜像全零时视为「未出报」：从月份轴剔除，改由预估块展示；月结同步出真实数据后自动覆盖
+        YearMonth current = YearMonth.now();
+        String currentYm = current.format(MONTH_FMT);
+        if (year == current.getYear() && ds.availableMonths.contains(currentYm)
+                && mirrorAllZero(ds, currentYm)) {
+            ds.availableMonths = ds.availableMonths.stream()
+                    .filter(m -> !m.equals(currentYm)).collect(Collectors.toList());
+        }
+
         ProjectProfitReportVO vo = new ProjectProfitReportVO();
         vo.setYear(year);
         vo.setAvailableMonths(ds.availableMonths);
@@ -150,9 +160,7 @@ public class ProjectProfitService {
                 blocks.add(buildMonthBlock(yearMonth, ds, filters));
             }
         }
-        // 在途月份（当月镜像未同步）：追加预估块；月度完结同步后镜像覆盖，预估块自动消失
-        YearMonth current = YearMonth.now();
-        String currentYm = current.format(MONTH_FMT);
+        // 在途月份（当月镜像未同步或全零占位）：追加预估块；月度完结同步后镜像覆盖，预估块自动消失
         if (year == current.getYear() && !ds.availableMonths.contains(currentYm)
                 && requestedPeriods.isEmpty()
                 && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
@@ -166,6 +174,24 @@ public class ProjectProfitService {
         }
         vo.setBlocks(blocks);
         return vo;
+    }
+
+    /** 当月镜像是否全零占位（工时系统未确认月份返回全零行）：所有 managed 线的全部指标均为 0/null */
+    private boolean mirrorAllZero(Dataset ds, String yearMonth) {
+        for (BusinessLine line : ds.managedLines) {
+            MirrorAcc mirror = ds.mirror(yearMonth, line.getId());
+            if (mirror == null) {
+                continue;
+            }
+            for (BigDecimal v : List.of(nz(mirror.revenue), nz(mirror.smsCost), nz(mirror.directCost),
+                    nz(mirror.platformFee), nz(mirror.compensation), nz(mirror.outsourcing),
+                    nz(mirror.softwareGift), nz(mirror.totalHours), nz(mirror.laborCost1))) {
+                if (v.signum() != 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**

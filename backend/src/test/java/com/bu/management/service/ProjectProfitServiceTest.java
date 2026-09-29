@@ -952,6 +952,34 @@ class ProjectProfitServiceTest {
         assertThat(vo.getBlocks().get(0).getProvisional()).isNull();
     }
 
+    @Test
+    @DisplayName("在途月份：当月镜像为全零占位（工时系统未确认月）时剔除零块、改出预估块")
+    void provisionalReplacesZeroMirror() {
+        YearMonth current = YearMonth.now();
+        YearMonth prev = current.minusMonths(1);
+        String currentYm = current.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(
+                mirror(prev.format(DateTimeFormatter.ofPattern("yyyy-MM")), 9L, "1000", "10", "1000"),
+                mirror(currentYm, 9L, "0", "0", "0")));   // 全零占位行
+        when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "10600", current.atDay(1).toString())));
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        assertThat(vo.getBlocks()).hasSize(2);   // 上月镜像块 + 当月预估块（无全零镜像块）
+        ProjectProfitReportVO.Block block = vo.getBlocks().get(1);
+        assertThat(block.getKey()).isEqualTo(currentYm);
+        assertThat(block.getProvisional()).isTrue();
+        assertThat(lineOf(block, 9L).getTotal().getRevenue()).isEqualByComparingTo("10000");
+        assertThat(vo.getAvailableMonths()).containsExactly(
+                prev.format(DateTimeFormatter.ofPattern("yyyy-MM")), currentYm);
+    }
+
     // ==================== 月度一键同步编排 ====================
 
     private WorktimeSyncLog syncLog(String syncType) {
