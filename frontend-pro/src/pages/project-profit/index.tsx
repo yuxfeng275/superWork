@@ -536,12 +536,15 @@ export default function ProjectProfitPage() {
             row: line.residual,
           });
         }
-        rows.push({
-          key: `${block.key}-${line.businessLineId}-TOTAL`,
-          block,
-          line,
-          row: line.total,
-        });
+        // simple 线（精准）只有一行明细，合计行冗余不渲染（total 仍参与跨业务线汇总行的计算）
+        if (line.revenueMode !== 'simple') {
+          rows.push({
+            key: `${block.key}-${line.businessLineId}-TOTAL`,
+            block,
+            line,
+            row: line.total,
+          });
+        }
       });
       if (block.summary) {
         rows.push({
@@ -686,9 +689,12 @@ export default function ProjectProfitPage() {
       title: '操作',
       width: 48,
       fixed: 'right',
-      // 分配为月度粒度：合计行（常驻入口，差额为 0 时也可调整）与差额行均可打开
+      // 分配为月度粒度：合计行（常驻入口，差额为 0 时也可调整）与差额行均可打开；
+      // simple 线（精准）无合计行，入口放在唯一的项目行上
       render: (_, record) =>
-        (record.row.rowType === 'TOTAL' || record.row.rowType === 'RESIDUAL') &&
+        (record.row.rowType === 'TOTAL' ||
+          record.row.rowType === 'RESIDUAL' ||
+          (record.row.rowType === 'PROJECT' && record.line.revenueMode === 'simple')) &&
         !['H1', 'H2', 'YEAR'].includes(record.block.key) ? (
           <Typography.Link
             className="sw-project-profit-alloc-link"
