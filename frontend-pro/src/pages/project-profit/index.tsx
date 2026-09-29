@@ -165,13 +165,18 @@ const RESIDUAL_NUM_FIELDS = [
   'grossProfit',
 ] as const;
 
-/** full 线共享差额 = 各 full 线差额逐列求和，毛利率重算 */
-const sumResiduals = (lines: ProjectProfitLine[]): ProjectProfitRow => {
+/** full 线共享行 = 各 full 线指定行（差额/合计）逐列求和，毛利率重算。
+ *  合计也合并：full 域内恒有 Σ明细行 + 共享差额 = 共享合计，分配后立即可对平 */
+const sumLineRows = (
+  lines: ProjectProfitLine[],
+  pick: 'total' | 'residual',
+  projectName: string,
+): ProjectProfitRow => {
   const base: ProjectProfitRow = {
-    rowType: 'RESIDUAL',
-    category: '差额',
+    rowType: pick === 'total' ? 'TOTAL' : 'RESIDUAL',
+    category: pick === 'total' ? null : '差额',
     projectId: null,
-    projectName: '共享差额',
+    projectName,
     editable: false,
     revenue: 0,
     smsCost: 0,
@@ -187,7 +192,7 @@ const sumResiduals = (lines: ProjectProfitLine[]): ProjectProfitRow => {
   };
   lines.forEach((line) =>
     RESIDUAL_NUM_FIELDS.forEach((field) => {
-      base[field] = Number(base[field] ?? 0) + Number(line.residual[field] ?? 0);
+      base[field] = Number(base[field] ?? 0) + Number(line[pick][field] ?? 0);
     }),
   );
   base.grossProfitRate =
@@ -621,22 +626,34 @@ export default function ProjectProfitPage() {
     void fetchDetail(detail.yearMonth, line);
   };
 
-  // 平铺行：项目行… → 销售行 → 差额行（仅非零；full 线 ≥2 条时合并为一条「共享差额」行，
-  // 跨线分配自动对消，不再出现互斥差额对） → 合计行（simple 线除外） → 块末「全部业务线」汇总行；
+  // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行（simple 线除外） → 块末「全部业务线」汇总行。
+  // full 线（云鹿Saas/定制）≥2 条时合并差额域：各自的差额行与合计行隐藏，最后一条 full 线之后
+  // 渲染「共享差额」（仅非零）与「共享合计」（两线镜像之和）——域内恒有 Σ明细行 + 共享差额 = 共享合计；
   // 月份/业务线/分类三列按相邻同值合并
   const dataSource = useMemo<FlatRow[]>(() => {
     if (!report) return [];
     const rows: Omit<FlatRow, 'spans'>[] = [];
     report.blocks.forEach((block) => {
       const fullLines = block.lines.filter((l) => l.revenueMode === 'full');
-      const sharedResidual = fullLines.length >= 2 ? sumResiduals(fullLines) : null;
+      const mergeFull = fullLines.length >= 2;
+      const sharedName = fullLines.map((l) => l.businessLineName).join('+');
+      const sharedResidual = mergeFull ? sumLineRows(fullLines, 'residual', '共享差额') : null;
+      const sharedTotal = mergeFull ? sumLineRows(fullLines, 'total', '共享合计') : null;
       const lastFullLine = fullLines[fullLines.length - 1];
+      const pseudoLine = (id: number, row: ProjectProfitRow): ProjectProfitLine => ({
+        businessLineId: id,
+        businessLineName: sharedName,
+        revenueMode: 'full',
+        rows: [],
+        total: row,
+        residual: row,
+      });
       block.lines.forEach((line) => {
+        const mergedFull = mergeFull && line.revenueMode === 'full';
         line.rows.forEach((row) =>
           rows.push({ key: `${block.key}-${line.businessLineId}-${row.rowType}-${row.projectId ?? row.projectName}`, block, line, row }),
         );
-        const hideLineResidual = sharedResidual != null && line.revenueMode === 'full';
-        if (!hideLineResidual && residualVisible(line.residual)) {
+        if (!mergedFull && residualVisible(line.residual)) {
           rows.push({
             key: `${block.key}-${line.businessLineId}-RESIDUAL`,
             block,
@@ -645,7 +662,7 @@ export default function ProjectProfitPage() {
           });
         }
         // simple 线（精准）只有一行明细，合计行冗余不渲染（total 仍参与跨业务线汇总行的计算）
-        if (line.revenueMode !== 'simple') {
+        if (!mergedFull && line.revenueMode !== 'simple') {
           rows.push({
             key: `${block.key}-${line.businessLineId}-TOTAL`,
             block,
@@ -653,22 +670,26 @@ export default function ProjectProfitPage() {
             row: line.total,
           });
         }
-        // 共享差额行跟在最后一条 full 线的合计行之后（伪业务线 id=-2，不与任何业务线合并）
-        if (sharedResidual && line === lastFullLine && residualVisible(sharedResidual)) {
-          rows.push({
-            key: `${block.key}-SHARED-RESIDUAL`,
-            block,
-            line: {
-              businessLineId: -2,
-              businessLineName: fullLines.map((l) => l.businessLineName).join(' + '),
-              revenueMode: 'full',
-              rows: [],
-              total: sharedResidual,
-              residual: sharedResidual,
-            },
-            row: sharedResidual,
-            shared: true,
-          });
+        // 共享差额行 / 共享合计行跟在最后一条 full 线之后（伪业务线 id=-2/-3，不与任何业务线合并）
+        if (mergedFull && line === lastFullLine) {
+          if (sharedResidual && residualVisible(sharedResidual)) {
+            rows.push({
+              key: `${block.key}-SHARED-RESIDUAL`,
+              block,
+              line: pseudoLine(-2, sharedResidual),
+              row: sharedResidual,
+              shared: true,
+            });
+          }
+          if (sharedTotal) {
+            rows.push({
+              key: `${block.key}-SHARED-TOTAL`,
+              block,
+              line: pseudoLine(-3, sharedTotal),
+              row: sharedTotal,
+              shared: true,
+            });
+          }
         }
       });
       if (block.summary) {
@@ -797,7 +818,9 @@ export default function ProjectProfitPage() {
       width: 120,
       ellipsis: true,
       render: (_, record) =>
-        record.row.rowType === 'TOTAL' ? '合计' : record.row.projectName ?? '—',
+        record.row.rowType === 'TOTAL'
+          ? record.row.projectName ?? '合计'
+          : record.row.projectName ?? '—',
     },
     moneyColumn('营业收入', 'revenue', 74, 'revenue'),
     moneyColumn('短信成本', 'smsCost', 60, 'alloc'),
@@ -864,7 +887,8 @@ export default function ProjectProfitPage() {
                 <span>
                   月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税）；
                   项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）；
-                  差额行 = 合计 − 已显示明细行，差额所有项（含营收/工时/成本）可经合计行「分配」分摊到项目/销售子项，
+                  云鹿Saas/定制 共享一组合计与差额（跨线分配，恒有 Σ明细行 + 共享差额 = 共享合计）；
+                  其余业务线差额行 = 合计 − 已显示明细行，差额所有项可经合计行「分配」分摊到项目/销售子项，
                   归零后差额行自动隐藏；每块末行「全部业务线」汇总 = 块内各业务线合计求和。
                   收益单位：金额「万」，工时「人月」。
                 </span>
