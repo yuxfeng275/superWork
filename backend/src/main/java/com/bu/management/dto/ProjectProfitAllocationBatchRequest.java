@@ -20,6 +20,8 @@ public class ProjectProfitAllocationBatchRequest {
 
     @Data
     public static class Target {
+        /** 目标所在业务线：null=请求业务线；full 线（云鹿Saas/定制）之间允许互相跨线分配 */
+        private Long businessLineId;
         /** project/sales/line_other */
         private String targetType;
         /** 主项目ID；非项目目标（销售/业务线/项目集/精准单行）传 0 */

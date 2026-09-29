@@ -16,6 +16,7 @@ import com.bu.management.mapper.ProjectProfitAllocationMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.RevenueCostEntryMapper;
 import com.bu.management.mapper.RevenueMonthCloseMapper;
+import com.bu.management.vo.ProjectProfitDetailVO;
 import com.bu.management.vo.ProjectProfitMonthSyncVO;
 import com.bu.management.vo.ProjectProfitReportVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -603,19 +604,55 @@ class ProjectProfitServiceTest {
     @DisplayName("分配校验：full 线 projectId=0 / simple 线销售目标 / aggregate 线业务线目标均拒绝")
     void allocationTargetValidation() {
         when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        when(businessLineMapper.selectById(3L)).thenReturn(precise);
+        when(businessLineMapper.selectById(2L)).thenReturn(member);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
+
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(1L, "project", 0L, "cost", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("具体项目");
 
-        when(businessLineMapper.selectById(3L)).thenReturn(precise);
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(3L, "sales", 0L, "cost", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("无销售行");
 
-        when(businessLineMapper.selectById(2L)).thenReturn(member);
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(2L, "line_other", 0L, "cost", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("业务线");
+    }
+
+    @Test
+    @DisplayName("跨线分配：full 线（云鹿Saas/定制）之间允许互相分配，记录归目标线")
+    void crossLineAllocationBetweenFullLines() {
+        BusinessLine dingzhi = line(10L, "全域-云鹿定制", "full", "6");
+        when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, dingzhi));
+        when(projectMapper.selectById(1000L)).thenReturn(project(1000L, 10L, null, "定制项目X"));
+
+        ProjectProfitAllocationBatchRequest request = batchRequest(1L, "project", 1000L, "revenue", "500");
+        request.getTargets().get(0).setBusinessLineId(10L);   // 从 saas 抽屉分配到定制线项目
+
+        service.saveAllocations(request);
+
+        ArgumentCaptor<ProjectProfitAllocation> insertCaptor = ArgumentCaptor.forClass(ProjectProfitAllocation.class);
+        verify(allocationMapper).insert(insertCaptor.capture());
+        assertThat(insertCaptor.getValue().getBusinessLineId()).isEqualTo(10L);   // 记录归目标线
+        assertThat(insertCaptor.getValue().getProjectId()).isEqualTo(1000L);
+        assertThat(insertCaptor.getValue().getCostType()).isEqualTo("revenue");
+    }
+
+    @Test
+    @DisplayName("跨线分配：aggregate/simple 线不允许跨线目标")
+    void crossLineAllocationRejectedForAggregate() {
+        when(businessLineMapper.selectById(2L)).thenReturn(member);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
+
+        ProjectProfitAllocationBatchRequest request = batchRequest(2L, "project", 0L, "cost", "100");
+        request.getTargets().get(0).setBusinessLineId(1L);   // 会员通抽屉跨到 saas
+
+        assertThatThrownBy(() -> service.saveAllocations(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("本业务线");
     }
 
     // ==================== 分配 upsert 校验 ====================
@@ -645,6 +682,7 @@ class ProjectProfitServiceTest {
     @DisplayName("分配校验：aggregate/simple 线分配到具体项目ID拒绝")
     void allocationRejectsNonFullLine() {
         when(businessLineMapper.selectById(2L)).thenReturn(member);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(2L, 100L, "direct", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -652,9 +690,10 @@ class ProjectProfitServiceTest {
     }
 
     @Test
-    @DisplayName("分配校验：项目不属于该业务线拒绝")
+    @DisplayName("分配校验：项目不属于目标业务线拒绝")
     void allocationRejectsCrossLineProject() {
         when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
         when(projectMapper.selectById(900L)).thenReturn(project(900L, 2L, null, "别人项目"));
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(1L, 900L, "direct", "100")))
@@ -666,6 +705,7 @@ class ProjectProfitServiceTest {
     @DisplayName("分配校验：非法 costType 拒绝")
     void allocationRejectsBadCostType() {
         when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
         when(projectMapper.selectById(100L)).thenReturn(royal);
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(1L, 100L, "bad_type", "100")))
@@ -677,6 +717,7 @@ class ProjectProfitServiceTest {
     @DisplayName("分配 upsert：唯一键存在则更新，不存在则插入")
     void allocationUpsert() {
         when(businessLineMapper.selectById(1L)).thenReturn(saas);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas, member, precise));
         when(projectMapper.selectById(100L)).thenReturn(royal);
         ProjectProfitAllocation existing = allocation("2026-01", 1L, 100L, "direct", "1");
         existing.setId(5L);
@@ -699,6 +740,65 @@ class ProjectProfitServiceTest {
         verify(allocationMapper).insert(insertCaptor.capture());
         assertThat(insertCaptor.getValue().getCostType()).isEqualTo("sms");
         assertThat(insertCaptor.getValue().getAmount()).isEqualByComparingTo("50");
+    }
+
+    // ==================== 差额明细下钻 ====================
+
+    @Test
+    @DisplayName("营收明细：镜像 vs OA 合同逐条（计入/记到别线标记），差额 = 镜像 − 已交付 − 已分配")
+    void revenueDetailAssembly() {
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectById(9L)).thenReturn(line);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "1000", "5", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 9L, 900L, "revenue", "100")));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "600", "2026-01-15"),   // 计入本线（税率 0 → 未税 600）
+                contract(9L, null, "300", "2026-01-20")));  // 记到本线但无法归桶（线索行）
+
+        ProjectProfitDetailVO vo = service.revenueDetail("2026-01", 9L);
+
+        assertThat(vo.getMirrorRevenue()).isEqualByComparingTo("1000");
+        assertThat(vo.getOaDeliveredExTax()).isEqualByComparingTo("600");
+        assertThat(vo.getRevenueAllocated()).isEqualByComparingTo("100");
+        assertThat(vo.getRevenueGap()).isEqualByComparingTo("300");   // 1000−600−100
+        assertThat(vo.getRevenueRows()).hasSize(2);
+        ProjectProfitDetailVO.RevenueRow counted = vo.getRevenueRows().get(0);
+        assertThat(counted.getCounted()).isTrue();
+        assertThat(counted.getRootProjectName()).isEqualTo("项目A");
+        assertThat(counted.getExTaxAmount()).isEqualByComparingTo("600");
+        ProjectProfitDetailVO.RevenueRow clue = vo.getRevenueRows().get(1);
+        assertThat(clue.getCounted()).isFalse();                      // 差额来源线索
+        assertThat(clue.getExTaxAmount()).isEqualByComparingTo("300");
+    }
+
+    @Test
+    @DisplayName("工时/成本明细：镜像 vs 成本分析逐条（根项目归并名），分配列合计")
+    void laborDetailAssembly() {
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectById(9L)).thenReturn(line);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "1000", "10", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-01", 9L, "project", 900L, "4", "400"),
+                cost("2026-01", 9L, "sales", null, "1", "100")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 9L, "sales", 0L, "hours", "5")));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of());
+
+        ProjectProfitDetailVO vo = service.laborDetail("2026-01", 9L);
+
+        assertThat(vo.getMirrorHours()).isEqualByComparingTo("10");
+        assertThat(vo.getMirrorLaborCost()).isEqualByComparingTo("800");
+        assertThat(vo.getLaborRows()).hasSize(2);
+        assertThat(vo.getLaborRows().get(0).getRootProjectName()).isEqualTo("项目A");
+        assertThat(vo.getLaborRows().get(1).getRootProjectName()).isEqualTo("销售");
+        assertThat(vo.getHoursAllocated()).isEqualByComparingTo("5");
+        assertThat(vo.getCostAllocated()).isEqualByComparingTo("0");
     }
 
     // ==================== 月度一键同步编排 ====================

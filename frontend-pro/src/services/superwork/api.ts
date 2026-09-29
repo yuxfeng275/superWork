@@ -1101,6 +1101,59 @@ export interface ProjectProfitMonthSyncResult {
   lines: ProjectProfitLineAlignment[];
 }
 
+/** 差额明细下钻（type=revenue 用 revenue 系字段与 revenueRows；type=labor 用 mirror/labor 系字段与 laborRows） */
+export interface ProjectProfitDetail {
+  yearMonth: string;
+  businessLineId: number;
+  businessLineName: string;
+  type: "revenue" | "labor";
+  /** 镜像营收（财报未税） */
+  mirrorRevenue: number | null;
+  /** OA 已交付未税合计（计入本线项目行） */
+  oaDeliveredExTax: number | null;
+  /** 本线 revenue 手动分配合计 */
+  revenueAllocated: number | null;
+  /** 差额 = 镜像 − OA 已交付 − 手动分配 */
+  revenueGap: number | null;
+  revenueRows: ProjectProfitRevenueRow[] | null;
+  mirrorHours: number | null;
+  mirrorLaborCost: number | null;
+  hoursAllocated: number | null;
+  costAllocated: number | null;
+  laborRows: ProjectProfitLaborRow[] | null;
+}
+
+export interface ProjectProfitRevenueRow {
+  contractNo: string | null;
+  contractName: string | null;
+  customer: string | null;
+  deliveryDate: string | null;
+  /** 应收金额（含税） */
+  receivableAmount: number | null;
+  /** 折算未税 */
+  exTaxAmount: number | null;
+  contractBizLineId: number | null;
+  contractBizLineName: string | null;
+  rootProjectId: number | null;
+  rootProjectName: string | null;
+  rootLineId: number | null;
+  rootLineName: string | null;
+  /** 是否计入本线项目行；false=记到别线/无法归桶（差额来源线索） */
+  counted: boolean;
+}
+
+export interface ProjectProfitLaborRow {
+  workType: string | null;
+  salesKind: string | null;
+  projectNameRaw: string | null;
+  projectId: number | null;
+  /** 归并后的根项目名/销售/业务线（其他事项）/未匹配项目 */
+  rootProjectName: string | null;
+  employeeCount: number | null;
+  hours: number | null;
+  costAmount: number | null;
+}
+
 
 export type MeetingStatus =
   | "UPLOADED"
@@ -3253,17 +3306,19 @@ export const superworkApi = {
       `/api/finance/project-profit/sync-logs?limit=${limit}`
     );
   },
-  getProjectProfitAllocations(yearMonth: string, businessLineId: number) {
+  getProjectProfitAllocations(yearMonth: string, businessLineId?: number) {
     return requestJson<ProjectProfitAllocation[]>(
       `/api/finance/project-profit/allocations?yearMonth=${encodeURIComponent(
         yearMonth
-      )}&businessLineId=${businessLineId}`
+      )}${businessLineId != null ? `&businessLineId=${businessLineId}` : ""}`
     );
   },
   saveProjectProfitAllocations(body: {
     yearMonth: string;
     businessLineId: number;
     targets: {
+      /** 目标所在业务线：缺省=请求业务线；full 线（云鹿Saas/定制）之间可互相跨线 */
+      businessLineId?: number;
       /** project/sales/line_other */
       targetType: string;
       /** 主项目ID；非项目目标传 0 */
@@ -3280,6 +3335,20 @@ export const superworkApi = {
     return requestJson<void>(`/api/finance/project-profit/allocations/${id}`, {
       method: "DELETE",
     });
+  },
+  getProjectProfitRevenueDetail(yearMonth: string, businessLineId: number) {
+    return requestJson<ProjectProfitDetail>(
+      `/api/finance/project-profit/revenue-detail?yearMonth=${encodeURIComponent(
+        yearMonth
+      )}&businessLineId=${businessLineId}`
+    );
+  },
+  getProjectProfitLaborDetail(yearMonth: string, businessLineId: number) {
+    return requestJson<ProjectProfitDetail>(
+      `/api/finance/project-profit/labor-detail?yearMonth=${encodeURIComponent(
+        yearMonth
+      )}&businessLineId=${businessLineId}`
+    );
   },
   getMeetings(
     params: { page?: number; size?: number; status?: MeetingStatus } = {}

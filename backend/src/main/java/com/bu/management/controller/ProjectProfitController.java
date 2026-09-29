@@ -6,6 +6,7 @@ import com.bu.management.entity.ProjectProfitAllocation;
 import com.bu.management.entity.WorktimeSyncLog;
 import com.bu.management.service.BusinessLineProfitService;
 import com.bu.management.service.ProjectProfitService;
+import com.bu.management.vo.ProjectProfitDetailVO;
 import com.bu.management.vo.ProjectProfitMonthSyncVO;
 import com.bu.management.vo.ProjectProfitReportVO;
 import com.bu.management.vo.Result;
@@ -70,6 +71,22 @@ public class ProjectProfitController {
     @RequirePermission({"project-profit:view"})
     public Result<List<WorktimeSyncLog>> syncLogs(@RequestParam(defaultValue = "10") int limit) {
         return Result.success(profitService.recentSyncLogs(limit));
+    }
+
+    @GetMapping("/revenue-detail")
+    @Operation(summary = "营收差额明细：镜像营收 vs OA 已交付合同逐条（含记到别线/无法归桶线索）")
+    @RequirePermission({"project-profit:view"})
+    public Result<ProjectProfitDetailVO> revenueDetail(@RequestParam String yearMonth,
+                                                      @RequestParam Long businessLineId) {
+        return Result.success(projectProfitService.revenueDetail(yearMonth, businessLineId));
+    }
+
+    @GetMapping("/labor-detail")
+    @Operation(summary = "工时/人工成本差额明细：镜像 vs 工时系统成本分析逐条")
+    @RequirePermission({"project-profit:view"})
+    public Result<ProjectProfitDetailVO> laborDetail(@RequestParam String yearMonth,
+                                                    @RequestParam Long businessLineId) {
+        return Result.success(projectProfitService.laborDetail(yearMonth, businessLineId));
     }
 
     @GetMapping("/allocations")
