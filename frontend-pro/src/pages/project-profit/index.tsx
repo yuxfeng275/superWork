@@ -995,19 +995,35 @@ export default function ProjectProfitPage() {
 
       {report && report.availableMonths.length > 0 && (
         <>
+          {/* 月份平铺为 pill 按钮（按月块多时比下拉更快）；分类/项目仍为下拉 */}
+          {viewMode === 'month' && (
+            <div className="sw-project-profit-pills">
+              <button
+                type="button"
+                className={selectedMonths.length === 0 ? 'is-active' : ''}
+                onClick={() => setSelectedMonths([])}
+              >
+                全部月份
+              </button>
+              {monthFilterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={selectedMonths.includes(option.value) ? 'is-active' : ''}
+                  onClick={() =>
+                    setSelectedMonths((prev) =>
+                      prev.includes(option.value)
+                        ? prev.filter((m) => m !== option.value)
+                        : [...prev, option.value],
+                    )
+                  }
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           <Space wrap size={8} style={{ marginBottom: 8 }}>
-            {viewMode === 'month' && (
-              <Select
-                mode="multiple"
-                allowClear
-                size="small"
-                placeholder="月份（默认全部）"
-                style={{ minWidth: 180 }}
-                value={selectedMonths}
-                options={monthFilterOptions}
-                onChange={(value) => setSelectedMonths(value)}
-              />
-            )}
             <Select
               mode="multiple"
               allowClear
