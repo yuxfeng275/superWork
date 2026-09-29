@@ -228,7 +228,7 @@ public class ProjectProfitService {
                 addLabor(row, entry);
             }
             applyMirror(row, mirror);
-            applyAllocations(row, ds.allocations(yearMonth, TARGET_PROJECT, 0L));
+            applyAllocations(row, ds.allocations(yearMonth, line.getId(), TARGET_PROJECT, 0L));
             finalizeRow(row);
             rows.add(row);
             return rows;
@@ -247,11 +247,11 @@ public class ProjectProfitService {
                 }
             }
             applyMirror(agg, mirror);
-            applyAllocations(agg, ds.allocations(yearMonth, TARGET_PROJECT, 0L));
+            applyAllocations(agg, ds.allocations(yearMonth, line.getId(), TARGET_PROJECT, 0L));
             finalizeRow(agg);
             rows.add(agg);
             ProjectProfitReportVO.Row sales = salesRow(salesHours, salesCost);
-            applyAllocations(sales, ds.allocations(yearMonth, TARGET_SALES, 0L));
+            applyAllocations(sales, ds.allocations(yearMonth, line.getId(), TARGET_SALES, 0L));
             finalizeRow(sales);
             rows.add(sales);
             return rows;
@@ -261,7 +261,7 @@ public class ProjectProfitService {
         for (Project root : ds.rootProjects(line.getId())) {
             ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), true);
             row.setRevenue(exTax(ds.contractInclTax(yearMonth, root.getId()), ds.taxDivisor(line.getId())));
-            applyAllocations(row, ds.allocations(yearMonth, TARGET_PROJECT, root.getId()));
+            applyAllocations(row, ds.allocations(yearMonth, line.getId(), TARGET_PROJECT, root.getId()));
             projectRows.put(root.getId(), row);
         }
         ProjectProfitReportVO.Row sales = salesRow(BigDecimal.ZERO, BigDecimal.ZERO);
@@ -283,8 +283,8 @@ public class ProjectProfitService {
             }
             // 项目缺失/跨线等无法归桶的行落入差额行（合计 − Σ明细）暴露
         }
-        applyAllocations(sales, ds.allocations(yearMonth, TARGET_SALES, 0L));
-        applyAllocations(lineOther, ds.allocations(yearMonth, TARGET_LINE_OTHER, 0L));
+        applyAllocations(sales, ds.allocations(yearMonth, line.getId(), TARGET_SALES, 0L));
+        applyAllocations(lineOther, ds.allocations(yearMonth, line.getId(), TARGET_LINE_OTHER, 0L));
         projectRows.values().forEach(this::finalizeRow);
         finalizeRow(sales);
         finalizeRow(lineOther);
@@ -572,11 +572,13 @@ public class ProjectProfitService {
             for (ProjectProfitAllocation allocation : allocationMapper.selectList(
                     new LambdaQueryWrapper<ProjectProfitAllocation>()
                             .in(ProjectProfitAllocation::getYearMonth, ds.availableMonths))) {
-                // 目标键 = targetType:projectId（非项目目标 projectId=0）；老数据 target_type 默认 'project'
+                // 键 = 月 × 业务线 × 目标（targetType:projectId，非项目目标 projectId=0）：
+                // 必须带 business_line_id——project:0/sales:0 这类目标键跨业务线相同，不带会互相串线
                 String targetKey = (StringUtils.hasText(allocation.getTargetType())
                         ? allocation.getTargetType() : TARGET_PROJECT)
                         + ":" + (allocation.getProjectId() == null ? 0L : allocation.getProjectId());
                 ds.allocations.computeIfAbsent(allocation.getYearMonth(), k -> new HashMap<>())
+                        .computeIfAbsent(allocation.getBusinessLineId(), k -> new HashMap<>())
                         .computeIfAbsent(targetKey, k -> new HashMap<>())
                         .merge(allocation.getCostType(), nz(allocation.getAmount()), BigDecimal::add);
             }
@@ -910,8 +912,8 @@ public class ProjectProfitService {
         Map<String, Map<Long, List<RevenueCostEntry>>> costs = new HashMap<>();
         /** 月 → 根项目ID → OA 已交付含税金额 */
         Map<String, Map<Long, BigDecimal>> contractInclTax = new HashMap<>();
-        /** 月 → 目标键（targetType:projectId） → (列 → 数量) */
-        Map<String, Map<String, Map<String, BigDecimal>>> allocations = new HashMap<>();
+        /** 月 → 业务线ID → 目标键（targetType:projectId） → (列 → 数量) */
+        Map<String, Map<Long, Map<String, Map<String, BigDecimal>>>> allocations = new HashMap<>();
         Map<Long, Project> projectsById = Map.of();
         Map<Long, Long> aliasToRoot = Map.of();
         /** 业务线ID → 根项目（别名源已排除，按 ID 升序） */
@@ -931,8 +933,8 @@ public class ProjectProfitService {
             return contractInclTax.getOrDefault(yearMonth, Map.of()).get(rootProjectId);
         }
 
-        Map<String, BigDecimal> allocations(String yearMonth, String targetType, Long projectId) {
-            return allocations.getOrDefault(yearMonth, Map.of())
+        Map<String, BigDecimal> allocations(String yearMonth, Long lineId, String targetType, Long projectId) {
+            return allocations.getOrDefault(yearMonth, Map.of()).getOrDefault(lineId, Map.of())
                     .getOrDefault(targetType + ":" + (projectId == null ? 0L : projectId), Map.of());
         }
 

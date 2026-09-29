@@ -581,6 +581,25 @@ class ProjectProfitServiceTest {
     }
 
     @Test
+    @DisplayName("分配隔离：line1 销售目标的分配不泄漏到同月其他业务线的同名目标（sales:0/project:0）")
+    void allocationIsolatedPerBusinessLine() {
+        stubFullDataset();
+        // 覆盖 stubFullDataset 内部分配：仅 line1 销售目标 hours+5；line2/line3 同月同名目标必须不受影响
+        when(allocationMapper.selectList(any())).thenReturn(List.of(
+                allocation("2026-01", 1L, "sales", 0L, "hours", "5")));
+
+        ProjectProfitReportVO vo = service.query(2026, List.of(1), null, null, null, null);
+
+        ProjectProfitReportVO.Line saasLine = lineOf(vo.getBlocks().get(0), 1L);
+        assertThat(rowOf(saasLine, "SALES", null).getHours()).isEqualByComparingTo("5.5"); // 0.5 + 5
+        ProjectProfitReportVO.Line memberLine = lineOf(vo.getBlocks().get(0), 2L);
+        assertThat(rowOf(memberLine, "SALES", null).getHours()).isEqualByComparingTo("0.2"); // 不泄漏
+        assertThat(rowOf(memberLine, "PROJECT", "项目集").getHours()).isEqualByComparingTo("5");
+        ProjectProfitReportVO.Line preciseLine = lineOf(vo.getBlocks().get(0), 3L);
+        assertThat(preciseLine.getRows().get(0).getHours()).isEqualByComparingTo("2");      // 不泄漏
+    }
+
+    @Test
     @DisplayName("分配校验：full 线 projectId=0 / simple 线销售目标 / aggregate 线业务线目标均拒绝")
     void allocationTargetValidation() {
         when(businessLineMapper.selectById(1L)).thenReturn(saas);
