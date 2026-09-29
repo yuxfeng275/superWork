@@ -404,8 +404,9 @@ public class ProjectProfitService {
             alignment.setRevenueResidual(revenueResidual);
             alignment.setCostResidual(costResidual);
             alignment.setHoursResidual(hoursResidual);
-            alignment.setAligned(revenueResidual.abs().compareTo(new BigDecimal("0.01")) < 0
-                    && costResidual.abs().compareTo(new BigDecimal("0.01")) < 0
+            // 金额差额 <1 元视为换算尾差（÷(1+税率) 逐笔四舍五入），与前端差额行渲染阈值一致
+            alignment.setAligned(revenueResidual.abs().compareTo(BigDecimal.ONE) < 0
+                    && costResidual.abs().compareTo(BigDecimal.ONE) < 0
                     && hoursResidual.abs().compareTo(new BigDecimal("0.0001")) < 0);
             lines.add(alignment);
         }
