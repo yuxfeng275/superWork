@@ -873,6 +873,85 @@ class ProjectProfitServiceTest {
                 assertThat(reason.getText()).contains("pending").contains("3"));
     }
 
+    // ==================== 在途月份预估块 ====================
+
+    /** 与后端 workdays 同口径的周一至周五计数（测试用） */
+    private int weekdays(java.time.LocalDate from, java.time.LocalDate to) {
+        int days = 0;
+        for (java.time.LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (d.getDayOfWeek() != java.time.DayOfWeek.SATURDAY
+                    && d.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
+                days++;
+            }
+        }
+        return days;
+    }
+
+    @Test
+    @DisplayName("在途月份：当月镜像未同步时生成预估块（营收=OA本月交付含税转未税 软件13%/其余6%；成本=上月镜像÷上月工作日×本月已过工作日）")
+    void provisionalBlockForCurrentMonth() {
+        YearMonth current = YearMonth.now();
+        YearMonth prev = current.minusMonths(1);
+        String currentYm = current.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(
+                mirror(prev.format(DateTimeFormatter.ofPattern("yyyy-MM")), 9L, "1000", "10", "1000")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        String delivery = current.atDay(1).toString();
+        RevenueContractEntry normal = contract(9L, 900L, "10600", delivery);
+        RevenueContractEntry software = contract(9L, 900L, "11300", delivery);
+        software.setItemDesc("云鹿软件 License");
+        RevenueContractEntry unmapped = contract(9L, null, "1060", delivery); // 无法归桶 → 营收差额
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(normal, software, unmapped));
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        ProjectProfitReportVO.Block block = vo.getBlocks().stream()
+                .filter(b -> b.getKey().equals(currentYm)).findFirst().orElseThrow();
+        assertThat(block.getProvisional()).isTrue();
+        assertThat(block.getProvisionalNote()).contains("软件").contains("工作日");
+        assertThat(vo.getAvailableMonths()).contains(currentYm);
+        ProjectProfitReportVO.Line out = lineOf(block, 9L);
+        // 项目行：10600÷1.06 + 11300÷1.13 = 20000
+        assertThat(rowOf(out, "PROJECT", "项目A").getRevenue()).isEqualByComparingTo("20000");
+        // 合计：营收 21000（含未归桶 1000）；成本 = 1000÷上月工作日×本月已过工作日
+        assertThat(out.getTotal().getRevenue()).isEqualByComparingTo("21000");
+        java.math.BigDecimal expectedCost = new java.math.BigDecimal("1000")
+                .divide(new java.math.BigDecimal(weekdays(prev.atDay(1), prev.atEndOfMonth())), 4,
+                        java.math.RoundingMode.HALF_UP)
+                .multiply(new java.math.BigDecimal(weekdays(current.atDay(1), LocalDate.now())))
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+        assertThat(out.getTotal().getCost()).isEqualByComparingTo(expectedCost);
+        // 差额仅保留营收维度
+        assertThat(out.getResidual().getRevenue()).isEqualByComparingTo("1000");
+        assertThat(out.getResidual().getCost()).isEqualByComparingTo("0");
+        assertThat(out.getResidual().getHours()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("在途月份：当月镜像已同步则不生成预估块（真实数据覆盖）")
+    void provisionalSkippedWhenMirrorExists() {
+        YearMonth current = YearMonth.now();
+        String currentYm = current.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror(currentYm, 9L, "1000", "5", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost(currentYm, 9L, "project", 900L, "5", "800")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of());
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        assertThat(vo.getBlocks()).hasSize(1);
+        assertThat(vo.getBlocks().get(0).getKey()).isEqualTo(currentYm);
+        assertThat(vo.getBlocks().get(0).getProvisional()).isNull();
+    }
+
     // ==================== 月度一键同步编排 ====================
 
     private WorktimeSyncLog syncLog(String syncType) {

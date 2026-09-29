@@ -1044,6 +1044,10 @@ export interface ProjectProfitBlock {
   lines: ProjectProfitLine[];
   /** 跨业务线汇总行（rowType=SUMMARY）= Σ 块内各业务线合计，随业务线过滤联动；块内无业务线时为 null */
   summary: ProjectProfitRow | null;
+  /** true=在途月份预估块（当月镜像未同步）：营收=OA 本月已交付转未税，人工成本按上月镜像×工作日比例估算；月结同步后自动覆盖 */
+  provisional?: boolean | null;
+  /** 预估口径说明 */
+  provisionalNote?: string | null;
 }
 
 export interface ProjectProfitProjectOption {

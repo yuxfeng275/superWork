@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -149,8 +150,137 @@ public class ProjectProfitService {
                 blocks.add(buildMonthBlock(yearMonth, ds, filters));
             }
         }
+        // 在途月份（当月镜像未同步）：追加预估块；月度完结同步后镜像覆盖，预估块自动消失
+        YearMonth current = YearMonth.now();
+        String currentYm = current.format(MONTH_FMT);
+        if (year == current.getYear() && !ds.availableMonths.contains(currentYm)
+                && requestedPeriods.isEmpty()
+                && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
+            ProjectProfitReportVO.Block provisional = buildProvisionalBlock(currentYm, ds, filters);
+            if (provisional != null) {
+                blocks.add(provisional);
+                List<String> axis = new ArrayList<>(vo.getAvailableMonths());
+                axis.add(currentYm);
+                vo.setAvailableMonths(axis);
+            }
+        }
         vo.setBlocks(blocks);
         return vo;
+    }
+
+    /**
+     * 在途月份预估块（当月镜像未同步时）：
+     * <ul>
+     *   <li>营收 = OA 合同本月已交付（revenue_contract_entry，每日自动同步，与工时系统销售报表
+     *       「本月交付总金额」同源同口径）含税转未税：item_desc/合同名含「软件」按 13%，其余按 6%；</li>
+     *   <li>人工成本（仅合计维度，不分配到项目）= 上月镜像 labor_cost_1 ÷ 上月工作日 × 本月已过工作日；</li>
+     *   <li>差额行仅保留营收维度（未归桶合同的金额），工时/成本差额恒为 0（成本本就是线级估计）。</li>
+     * </ul>
+     */
+    private ProjectProfitReportVO.Block buildProvisionalBlock(String yearMonth, Dataset ds, Filters filters) {
+        YearMonth ym = YearMonth.parse(yearMonth);
+        YearMonth prev = ym.minusMonths(1);
+        int prevWorkdays = workdays(prev.atDay(1), prev.atEndOfMonth());
+        int elapsedWorkdays = workdays(ym.atDay(1), LocalDate.now());
+
+        ProjectProfitReportVO.Block block = new ProjectProfitReportVO.Block();
+        block.setKey(yearMonth);
+        block.setLabel(ym.getMonthValue() + "月");
+        block.setProvisional(true);
+        block.setProvisionalNote("在途预估：营收 = OA 合同本月已交付（含税转未税，软件产品 13%、其余 6%），"
+                + "与工时系统销售报表「本月交付总金额」同源；人工成本 = 上月成本 ÷ 上月工作日 × 本月已过工作日"
+                + "（仅业务线合计维度）；月度完结同步后自动覆盖为真实数据");
+
+        List<ProjectProfitReportVO.Line> lines = new ArrayList<>();
+        for (BusinessLine line : ds.managedLines) {
+            if (!filters.businessLineIds.isEmpty() && !filters.businessLineIds.contains(line.getId())) {
+                continue;
+            }
+            // 营收：booked（合同业务线=本线）为线级口径；项目行按根项目归集，未归桶部分留差额
+            List<RevenueContractEntry> booked = ds.contractsRaw(yearMonth).stream()
+                    .filter(e -> Objects.equals(e.getBizLineId(), line.getId()))
+                    .toList();
+            MirrorAcc prevMirror = ds.mirror(prev.format(MONTH_FMT), line.getId());
+            BigDecimal costEst = prevMirror == null || prevMirror.laborCost1 == null || prevWorkdays == 0
+                    ? BigDecimal.ZERO
+                    : prevMirror.laborCost1
+                            .divide(new BigDecimal(prevWorkdays), 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal(elapsedWorkdays))
+                            .setScale(2, RoundingMode.HALF_UP);
+            if (booked.isEmpty() && costEst.signum() == 0) {
+                continue; // 该线当月无任何预估数据
+            }
+
+            Map<Long, BigDecimal> revenueByRoot = new LinkedHashMap<>();
+            BigDecimal lineRevenue = BigDecimal.ZERO;
+            for (RevenueContractEntry entry : booked) {
+                BigDecimal exTax = provisionalExTax(entry);
+                lineRevenue = lineRevenue.add(exTax);
+                Long root = ds.rootOf(entry.getProjectId());
+                if (root != null) {
+                    revenueByRoot.merge(root, exTax, BigDecimal::add);
+                }
+            }
+
+            String mode = modeOf(line);
+            List<ProjectProfitReportVO.Row> rows = new ArrayList<>();
+            if (MODE_FULL.equals(mode)) {
+                for (Project root : ds.rootProjects(line.getId())) {
+                    BigDecimal revenue = revenueByRoot.get(root.getId());
+                    if (revenue == null) {
+                        continue; // 在途月只显示有交付的项目
+                    }
+                    ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), false);
+                    row.setRevenue(revenue);
+                    rows.add(row);
+                }
+            } else {
+                // aggregate/simple：单行（项目集/业务线名）
+                String name = MODE_AGGREGATE.equals(mode) ? "项目集" : line.getName();
+                ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", null, name, false);
+                row.setRevenue(lineRevenue);
+                rows.add(row);
+            }
+            rows.forEach(this::finalizeRow);
+
+            ProjectProfitReportVO.Row total = newRow(ROW_TOTAL, null, null, "合计", false);
+            total.setRevenue(lineRevenue);
+            total.setHours(null);   // 在途月无工时数据
+            total.setCost(costEst);
+            finalizeRow(total);
+
+            ProjectProfitReportVO.Line out = assembleLine(line, rows, total, filters);
+            // 在途月差额仅保留营收维度（人工成本是线级估计，不进差额）
+            out.getResidual().setHours(BigDecimal.ZERO);
+            out.getResidual().setCost(BigDecimal.ZERO);
+            finalizeRow(out.getResidual());
+            lines.add(out);
+        }
+        if (lines.isEmpty()) {
+            return null;
+        }
+        block.setLines(lines);
+        block.setSummary(buildSummary(lines));
+        return block;
+    }
+
+    /** 在途月含税→未税：item_desc 或合同名含「软件」按 13%，其余按 6%（用户拍板的预估口径） */
+    private BigDecimal provisionalExTax(RevenueContractEntry entry) {
+        String text = (entry.getItemDesc() == null ? "" : entry.getItemDesc())
+                + (entry.getContractName() == null ? "" : entry.getContractName());
+        BigDecimal divisor = text.contains("软件") ? new BigDecimal("1.13") : new BigDecimal("1.06");
+        return nz(entry.getReceivableAmount()).divide(divisor, 2, RoundingMode.HALF_UP);
+    }
+
+    /** 工作日（周一至周五）计数，闭区间 */
+    private int workdays(LocalDate from, LocalDate to) {
+        int days = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY) {
+                days++;
+            }
+        }
+        return days;
     }
 
     /**

@@ -49,6 +49,12 @@ public class ProjectProfitReportVO {
         /** 跨业务线汇总行（rowType=SUMMARY）：Σ 当前块内各业务线合计行（镜像值求和），毛利/率按公式重算；
          *  随 businessLineIds 过滤联动（只汇总块内返回的业务线）；块内无业务线时为 null */
         private Row summary;
+        /** true=在途月份预估块（当月镜像未同步）：营收取 OA 合同本月已交付（含税转未税），
+         *  人工成本按上月镜像成本 ÷ 上月工作日 × 本月已过工作日 估算（仅合计维度）；
+         *  月度完结同步后该块自动被镜像数据覆盖 */
+        private Boolean provisional;
+        /** 预估口径说明（前端悬浮展示） */
+        private String provisionalNote;
     }
 
     @Data

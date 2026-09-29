@@ -770,6 +770,7 @@ export default function ProjectProfitPage() {
     rendered: ReactNode,
   ) =>
     tab &&
+    !record.block.provisional &&
     record.row.rowType === 'RESIDUAL' &&
     !['H1', 'H2', 'YEAR'].includes(record.block.key) &&
     value != null &&
@@ -810,7 +811,19 @@ export default function ProjectProfitPage() {
       title: '月份',
       width: 48,
       onCell: (record) => ({ rowSpan: record.spans.month }),
-      render: (_, record) => record.block.label,
+      render: (_, record) =>
+        record.block.provisional ? (
+          <Tooltip title={record.block.provisionalNote}>
+            <Space size={2}>
+              {record.block.label}
+              <Tag color="orange" style={{ marginInlineEnd: 0 }}>
+                预估
+              </Tag>
+            </Space>
+          </Tooltip>
+        ) : (
+          record.block.label
+        ),
     },
     {
       title: '业务线',
@@ -861,8 +874,10 @@ export default function ProjectProfitPage() {
       width: 48,
       fixed: 'right',
       // 分配为月度粒度：合计行（常驻入口，差额为 0 时也可调整）与差额行均可打开；
-      // simple 线（精准）无合计行，入口放在唯一的项目行上；共享差额行以块内第一条 full 线为宿主打开
+      // simple 线（精准）无合计行，入口放在唯一的项目行上；共享差额行以块内第一条 full 线为宿主打开；
+      // 在途预估块不提供分配（数据是估计值，月结后再分配）
       render: (_, record) =>
+        !record.block.provisional &&
         (record.row.rowType === 'TOTAL' ||
           record.row.rowType === 'RESIDUAL' ||
           (record.row.rowType === 'PROJECT' && record.line.revenueMode === 'simple')) &&
