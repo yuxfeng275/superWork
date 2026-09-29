@@ -1121,6 +1121,15 @@ export interface ProjectProfitDetail {
   hoursAllocated: number | null;
   costAllocated: number | null;
   laborRows: ProjectProfitLaborRow[] | null;
+  /** 差额原因诊断（后端逐列生成） */
+  reasons: ProjectProfitReason[] | null;
+}
+
+export interface ProjectProfitReason {
+  /** revenue/hours/cost/… */
+  costType: string;
+  level: "info" | "warning" | "success";
+  text: string;
 }
 
 export interface ProjectProfitRevenueRow {

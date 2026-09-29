@@ -41,6 +41,18 @@ public class ProjectProfitDetailVO {
     private BigDecimal costAllocated;
     private List<LaborRow> laborRows;
 
+    /** 差额原因诊断（逐列给出，level: info/warning/success） */
+    private List<Reason> reasons;
+
+    @Data
+    public static class Reason {
+        /** revenue/hours/cost/…（ALLOCATABLE_FIELDS 同口径） */
+        private String costType;
+        /** info | warning | success */
+        private String level;
+        private String text;
+    }
+
     @Data
     public static class RevenueRow {
         private String contractNo;

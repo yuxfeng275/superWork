@@ -801,6 +801,78 @@ class ProjectProfitServiceTest {
         assertThat(vo.getCostAllocated()).isEqualByComparingTo("0");
     }
 
+    @Test
+    @DisplayName("营收原因诊断：隐含税率 6% vs 配置 4.07% → 提示税率口径差异并重算尾差")
+    void revenueDetailReasonsTaxMismatch() {
+        BusinessLine line = line(9L, "测试Saas", "full", "4.07");
+        when(businessLineMapper.selectById(9L)).thenReturn(line);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "58596", "5", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "逢时")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "62112", "2026-01-15")));
+
+        ProjectProfitDetailVO vo = service.revenueDetail("2026-01", 9L);
+
+        assertThat(vo.getReasons()).anySatisfy(reason -> {
+            assertThat(reason.getLevel()).isEqualTo("warning");
+            assertThat(reason.getText()).contains("税率口径差异").contains("6%").contains("尾差");
+        });
+    }
+
+    @Test
+    @DisplayName("营收原因诊断：他线差额与本线互为相反数 → 提示疑似跨线记账")
+    void revenueDetailReasonsCrossLine() {
+        BusinessLine lineA = line(9L, "测试定制", "full", "0");
+        BusinessLine lineB = line(10L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectById(9L)).thenReturn(lineA);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(lineA, lineB));
+        when(reportMapper.selectList(any())).thenReturn(List.of(
+                mirror("2026-01", 9L, "1000", "5", "800"),
+                mirror("2026-01", 10L, "500", "3", "300")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of());
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(
+                project(900L, 9L, null, "定制项目"), project(1000L, 10L, null, "Saas项目")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "600", "2026-01-15"),
+                contract(10L, 1000L, "900", "2026-01-16")));  // B 线 OA 超出镜像 400，与 A 的 +400 互斥
+
+        ProjectProfitDetailVO vo = service.revenueDetail("2026-01", 9L);
+
+        assertThat(vo.getReasons()).anySatisfy(reason -> {
+            assertThat(reason.getLevel()).isEqualTo("info");
+            assertThat(reason.getText()).contains("疑似跨线记账").contains("测试Saas");
+        });
+    }
+
+    @Test
+    @DisplayName("工时成本原因诊断：未匹配项目与 pending 未确认记录均给出提示")
+    void laborDetailReasonsUnmatchedAndPending() {
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectById(9L)).thenReturn(line);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(mirror("2026-01", 9L, "1000", "10", "800")));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost("2026-01", 9L, "project", 900L, "4", "400"),
+                cost("2026-01", 9L, "project", 999L, "2", "200")));  // 999 不在项目表 → 未匹配
+        when(costEntryMapper.selectCount(any())).thenReturn(3L);
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of());
+
+        ProjectProfitDetailVO vo = service.laborDetail("2026-01", 9L);
+
+        assertThat(vo.getReasons()).anySatisfy(reason -> {
+            assertThat(reason.getLevel()).isEqualTo("warning");
+            assertThat(reason.getText()).contains("未匹配到本系统项目").contains("2");
+        });
+        assertThat(vo.getReasons()).anySatisfy(reason ->
+                assertThat(reason.getText()).contains("pending").contains("3"));
+    }
+
     // ==================== 月度一键同步编排 ====================
 
     private WorktimeSyncLog syncLog(String syncType) {

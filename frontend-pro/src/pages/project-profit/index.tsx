@@ -34,6 +34,7 @@ import {
   type ProjectProfitDetail,
   type ProjectProfitLine,
   type ProjectProfitMonthSyncResult,
+  type ProjectProfitReason,
   type ProjectProfitReport,
   type ProjectProfitRow,
   superworkApi,
@@ -215,6 +216,27 @@ const residualVisible = (row: ProjectProfitRow) => {
     (row.hours != null && Math.abs(Number(row.hours)) >= 0.0001)
   );
 };
+
+/** 差额原因诊断列表（后端生成，逐条 Alert 展示） */
+const ReasonAlerts = ({ reasons }: { reasons?: ProjectProfitReason[] | null }) =>
+  reasons && reasons.length > 0 ? (
+    <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 12 }}>
+      {reasons.map((reason, index) => (
+        <Alert
+          key={index}
+          type={
+            reason.level === 'success'
+              ? 'success'
+              : reason.level === 'warning'
+                ? 'warning'
+                : 'info'
+          }
+          showIcon
+          message={reason.text}
+        />
+      ))}
+    </Space>
+  ) : null;
 
 /** 同步目标月选项：选中年的 YYYY-01..12 且不大于当前自然月，降序 */
 const syncMonthOptions = (year: number) => {
@@ -1159,6 +1181,7 @@ export default function ProjectProfitPage() {
                 label: '营收明细',
                 children: (
                   <>
+                    <ReasonAlerts reasons={revenueDetail?.reasons} />
                     <Descriptions size="small" bordered column={2} style={{ marginBottom: 12 }}>
                       <Descriptions.Item label="镜像营收（未税）">
                         {formatYuan(revenueDetail?.mirrorRevenue)}
@@ -1252,6 +1275,7 @@ export default function ProjectProfitPage() {
                 label: '工时/成本明细',
                 children: (
                   <>
+                    <ReasonAlerts reasons={laborDetail?.reasons} />
                     <Descriptions size="small" bordered column={2} style={{ marginBottom: 12 }}>
                       <Descriptions.Item label="镜像工时（人月）">
                         {formatHours(laborDetail?.mirrorHours)}
@@ -1328,7 +1352,39 @@ export default function ProjectProfitPage() {
                 key: 'alloc',
                 label: '分配记录',
                 children: (
-                  <Table
+                  <>
+                    {(() => {
+                      // 6 个成本列的未分配提示（前端即时有差额行数据，无需后端诊断）
+                      const hints = ALLOC_FIELDS.filter(
+                        (field) => !['revenue', 'hours', 'cost'].includes(field.costType),
+                      )
+                        .map((field) => ({
+                          label: field.label,
+                          value: Number(detail.line.residual[field.key] ?? 0),
+                        }))
+                        .filter((hint) => Math.abs(hint.value) >= 0.01);
+                      return (
+                        <Alert
+                          type={hints.length > 0 ? 'info' : 'success'}
+                          showIcon
+                          style={{ marginBottom: 12 }}
+                          message={
+                            hints.length > 0
+                              ? `未分配：${hints
+                                  .map(
+                                    (hint) =>
+                                      `${hint.label} ${hint.value.toLocaleString('zh-CN', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                      })} 元`,
+                                  )
+                                  .join('；')}——在「分配」抽屉拆分到项目/销售行即可消除`
+                              : '6 个成本列均已分配完毕，无待分配差额'
+                          }
+                        />
+                      );
+                    })()}
+                    <Table
                     size="small"
                     bordered
                     loading={detailLoading}
@@ -1375,6 +1431,7 @@ export default function ProjectProfitPage() {
                       },
                     ]}
                   />
+                  </>
                 ),
               },
             ]}

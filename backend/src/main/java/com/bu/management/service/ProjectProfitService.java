@@ -475,6 +475,7 @@ public class ProjectProfitService {
         vo.setOaDeliveredExTax(oaSum);
         vo.setRevenueAllocated(allocated);
         vo.setRevenueGap(mirror == null ? null : nz(mirror.revenue).subtract(oaSum).subtract(allocated));
+        vo.setReasons(revenueReasons(ds, ym, line, mirror, rows, oaSum, allocated));
         return vo;
     }
 
@@ -515,6 +516,7 @@ public class ProjectProfitService {
         vo.setLaborRows(rows);
         vo.setHoursAllocated(sumAllocation(ds, ym, businessLineId, "hours"));
         vo.setCostAllocated(sumAllocation(ds, ym, businessLineId, "cost"));
+        vo.setReasons(laborReasons(ym, businessLineId, mirror, rows, vo.getHoursAllocated(), vo.getCostAllocated()));
         return vo;
     }
 
@@ -546,6 +548,162 @@ public class ProjectProfitService {
                 .map(byType -> byType.get(costType))
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private ProjectProfitDetailVO.Reason reason(String costType, String level, String text) {
+        ProjectProfitDetailVO.Reason reason = new ProjectProfitDetailVO.Reason();
+        reason.setCostType(costType);
+        reason.setLevel(level);
+        reason.setText(text);
+        return reason;
+    }
+
+    private String money(BigDecimal value) {
+        return value == null ? "0" : value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    private String hoursText(BigDecimal value) {
+        return value == null ? "0" : value.stripTrailingZeros().toPlainString();
+    }
+
+    /** 某线当月营收差额（与报表差额行同口径：镜像 − OA已交付未税 − 手动分配）；无镜像返回 null */
+    private BigDecimal revenueResidualOf(Dataset ds, String yearMonth, BusinessLine line) {
+        MirrorAcc mirror = ds.mirror(yearMonth, line.getId());
+        if (mirror == null) {
+            return null;
+        }
+        BigDecimal oa = BigDecimal.ZERO;
+        for (Project root : ds.rootProjects(line.getId())) {
+            oa = oa.add(exTax(ds.contractInclTax(yearMonth, root.getId()), ds.taxDivisor(line.getId())));
+        }
+        return nz(mirror.revenue).subtract(oa)
+                .subtract(sumAllocation(ds, yearMonth, line.getId(), "revenue"));
+    }
+
+    /** 营收差额原因诊断：税率口径 / OA 漏录 / 未计入线索 / 跨线互斥 */
+    private List<ProjectProfitDetailVO.Reason> revenueReasons(Dataset ds, String yearMonth, BusinessLine line,
+                                                              MirrorAcc mirror,
+                                                              List<ProjectProfitDetailVO.RevenueRow> rows,
+                                                              BigDecimal oaExTaxSum, BigDecimal allocated) {
+        List<ProjectProfitDetailVO.Reason> reasons = new ArrayList<>();
+        if (mirror == null) {
+            reasons.add(reason("revenue", "warning",
+                    "本月无财报镜像数据：营收差额以镜像为基准，请先用右上角「同步月度数据」拉取该月业务线利润镜像"));
+            return reasons;
+        }
+        BigDecimal mirrorRevenue = nz(mirror.revenue);
+        BigDecimal gap = mirrorRevenue.subtract(oaExTaxSum).subtract(allocated);
+        BigDecimal oaIncl = rows.stream()
+                .filter(row -> Boolean.TRUE.equals(row.getCounted()))
+                .map(row -> nz(row.getReceivableAmount()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal targetRevenue = mirrorRevenue.subtract(allocated);
+        BigDecimal lineRate = line.getTaxRate() == null ? BigDecimal.ZERO : line.getTaxRate();
+        if (oaIncl.signum() > 0 && targetRevenue.signum() > 0) {
+            // 隐含税率 = OA含税 ÷ 财报侧 − 1：与配置税率不一致说明是换算口径问题而非真实差额
+            BigDecimal implied = oaIncl.divide(targetRevenue, 6, RoundingMode.HALF_UP)
+                    .subtract(BigDecimal.ONE).multiply(BigDecimal.valueOf(100));
+            if (implied.subtract(lineRate).abs().compareTo(new BigDecimal("0.3")) > 0) {
+                if (implied.subtract(BigDecimal.valueOf(6)).abs().compareTo(new BigDecimal("0.2")) <= 0) {
+                    BigDecimal oaAt6 = oaIncl.divide(new BigDecimal("1.06"), 2, RoundingMode.HALF_UP);
+                    BigDecimal gapAt6 = mirrorRevenue.subtract(oaAt6).subtract(allocated);
+                    reasons.add(reason("revenue", "warning",
+                            "税率口径差异：本线税率配置 " + hoursText(lineRate) + "%，财报实际按约 6% 换算。"
+                                    + "按 6% 重算后差额 = " + money(gapAt6) + " 元（当前 " + money(gap) + " 元）"
+                                    + (gapAt6.abs().compareTo(BigDecimal.ONE) < 0
+                                            ? "，仅为换算尾差，可忽略" : "，剩余部分为真实差额，见其他原因")));
+                } else {
+                    reasons.add(reason("revenue", "warning",
+                            "按 OA 含税与财报未税推算的隐含税率为 " + money(implied)
+                                    + "%（非常规税率）——不是单纯税率问题，请结合下方合同明细逐笔排查"));
+                }
+            }
+        }
+        if (oaIncl.signum() == 0 && targetRevenue.signum() != 0) {
+            reasons.add(reason("revenue", "warning",
+                    "本月财报有营收，但 OA 没有任何已交付合同记录——可能合同漏录、未录交付日期或交付月份错位"));
+        }
+        List<ProjectProfitDetailVO.RevenueRow> uncounted = rows.stream()
+                .filter(row -> !Boolean.TRUE.equals(row.getCounted())).toList();
+        if (!uncounted.isEmpty()) {
+            BigDecimal clueSum = uncounted.stream()
+                    .map(row -> nz(row.getExTaxAmount()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            reasons.add(reason("revenue", "info",
+                    uncounted.size() + " 笔 OA 合同（未税合计 " + money(clueSum)
+                            + " 元）记入本线但项目归属别线或无法归桶，未计入项目行（见下表橙色行），是差额来源线索"));
+        }
+        // 跨线互斥检测：其他业务线同月营收差额与本线互为相反数 → 疑似财报记错线
+        for (BusinessLine other : ds.managedLines) {
+            if (other.getId().equals(line.getId())) {
+                continue;
+            }
+            BigDecimal otherResidual = revenueResidualOf(ds, yearMonth, other);
+            if (otherResidual == null || otherResidual.signum() == 0 || gap.signum() == 0) {
+                continue;
+            }
+            BigDecimal tolerance = gap.abs().multiply(new BigDecimal("0.01")).max(BigDecimal.ONE);
+            if (gap.add(otherResidual).abs().compareTo(tolerance) <= 0) {
+                reasons.add(reason("revenue", "info",
+                        "疑似跨线记账：「" + other.getName() + "」同月营收差额 " + money(otherResidual)
+                                + " 元与本线互为相反数——可在「分配」抽屉中跨线调整（云鹿Saas/定制互通）"));
+            }
+        }
+        if (gap.abs().compareTo(new BigDecimal("0.01")) < 0) {
+            reasons.add(reason("revenue", "success", "营收差额为 0：镜像与明细已对齐"));
+        }
+        return reasons;
+    }
+
+    /** 工时/成本差额原因诊断：未匹配项目 / pending 未确认 / 明细与镜像差异 */
+    private List<ProjectProfitDetailVO.Reason> laborReasons(String yearMonth, Long businessLineId,
+                                                            MirrorAcc mirror,
+                                                            List<ProjectProfitDetailVO.LaborRow> rows,
+                                                            BigDecimal hoursAllocated, BigDecimal costAllocated) {
+        List<ProjectProfitDetailVO.Reason> reasons = new ArrayList<>();
+        if (mirror == null) {
+            reasons.add(reason("hours", "warning",
+                    "本月无财报镜像数据：工时/成本差额以镜像为基准，请先用右上角「同步月度数据」拉取该月业务线利润镜像"));
+            return reasons;
+        }
+        BigDecimal detailHours = rows.stream().map(row -> nz(row.getHours()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal detailCost = rows.stream().map(row -> nz(row.getCostAmount()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal gapHours = nz(mirror.totalHours).subtract(detailHours).subtract(nz(hoursAllocated));
+        BigDecimal gapCost = nz(mirror.laborCost1).subtract(detailCost).subtract(nz(costAllocated));
+
+        List<ProjectProfitDetailVO.LaborRow> unmatched = rows.stream()
+                .filter(row -> row.getProjectId() != null && "未匹配项目".equals(row.getRootProjectName()))
+                .toList();
+        if (!unmatched.isEmpty()) {
+            BigDecimal unmatchedHours = unmatched.stream().map(row -> nz(row.getHours()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal unmatchedCost = unmatched.stream().map(row -> nz(row.getCostAmount()))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            reasons.add(reason("hours", "warning",
+                    unmatched.size() + " 条成本记录的项目未匹配到本系统项目（合计 " + hoursText(unmatchedHours)
+                            + " 人月 / " + money(unmatchedCost) + " 元），未进项目行、全部落入差额"
+                            + "——请先在项目管理中建立/维护项目映射"));
+        }
+        Long pending = costEntryMapper.selectCount(new LambdaQueryWrapper<RevenueCostEntry>()
+                .eq(RevenueCostEntry::getYearMonth, yearMonth)
+                .eq(RevenueCostEntry::getBusinessLineId, businessLineId)
+                .eq(RevenueCostEntry::getPending, 1));
+        if (pending != null && pending > 0) {
+            reasons.add(reason("hours", "info",
+                    "另有 " + pending + " 条工时成本记录处于 pending（工时系统未确认），未计入明细合计"));
+        }
+        if (gapHours.abs().compareTo(new BigDecimal("0.0001")) < 0
+                && gapCost.abs().compareTo(new BigDecimal("0.01")) < 0) {
+            reasons.add(reason("hours", "success", "工时与成本明细已对齐镜像，无差额"));
+        } else {
+            reasons.add(reason("hours", "info",
+                    "明细与镜像差异 = 工时 " + hoursText(gapHours) + " 人月 / 成本 " + money(gapCost)
+                            + " 元：常见于财报口径含未入工时系统的成本（如外包直接计入）、项目映射差异或销售工时归类不同，"
+                            + "可在「分配」抽屉摊到具体项目/销售行"));
+        }
+        return reasons;
     }
 
     // ==================== 成本手动分配 ====================
