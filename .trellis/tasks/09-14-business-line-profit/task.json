@@ -1,0 +1,14 @@
+{
+  "id": "business-line-profit",
+  "name": "business-line-profit",
+  "title": "业务线月度利润报表（工时系统同步）",
+  "description": "数据分析下新增业务线×月真实营收/利润列表，数据从工时系统业务线利润报表同步",
+  "status": "in_progress",
+  "priority": "P2",
+  "creator": "yuxfeng",
+  "assignee": "yuxfeng",
+  "createdAt": "2026-09-14",
+  "completedAt": null,
+  "base_branch": "bigwork",
+  "current_phase": 1
+}
