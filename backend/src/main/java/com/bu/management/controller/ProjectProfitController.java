@@ -5,13 +5,16 @@ import com.bu.management.dto.ProjectProfitAllocationBatchRequest;
 import com.bu.management.entity.ProjectProfitAllocation;
 import com.bu.management.entity.WorktimeSyncLog;
 import com.bu.management.service.BusinessLineProfitService;
+import com.bu.management.service.PendingDeliveryService;
 import com.bu.management.service.ProjectProfitService;
+import com.bu.management.vo.PendingDeliveryVO;
 import com.bu.management.vo.ProjectProfitDetailVO;
 import com.bu.management.vo.ProjectProfitMonthSyncVO;
 import com.bu.management.vo.ProjectProfitReportVO;
 import com.bu.management.vo.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,6 +30,7 @@ public class ProjectProfitController {
 
     private final ProjectProfitService projectProfitService;
     private final BusinessLineProfitService profitService;
+    private final PendingDeliveryService pendingDeliveryService;
 
     @GetMapping
     @Operation(summary = "项目利润报表（by月 / H1 / H2 / 全年，多选筛选）")
@@ -111,5 +115,40 @@ public class ProjectProfitController {
     public Result<Void> deleteAllocation(@PathVariable Long id) {
         projectProfitService.deleteAllocation(id);
         return Result.success();
+    }
+
+    @GetMapping("/pending-delivery")
+    @Operation(summary = "待交付合同（当年 delivery_date 为空，按预计交付月份分组，含逾期与未定月份）")
+    @RequirePermission({"project-profit:view"})
+    public Result<PendingDeliveryVO> pendingDelivery(@RequestParam(required = false) Integer year) {
+        int targetYear = year == null ? LocalDate.now().getYear() : year;
+        return Result.success(pendingDeliveryService.listYear(targetYear));
+    }
+
+    @PostMapping("/pending-delivery/confirm")
+    @Operation(summary = "批量确认待交付合同明细（确认后计入预估营收与利润）")
+    @RequirePermission({"project-profit:manage"})
+    public Result<Integer> confirmPendingDelivery(@RequestBody Map<String, Object> body,
+                                                  HttpServletRequest request) {
+        return Result.success(pendingDeliveryService.confirm(
+                entryIds(body), (Long) request.getAttribute("userId")));
+    }
+
+    @PostMapping("/pending-delivery/revoke")
+    @Operation(summary = "批量取消确认（取消后该明细仅展示、不计入利润）")
+    @RequirePermission({"project-profit:manage"})
+    public Result<Integer> revokePendingDelivery(@RequestBody Map<String, Object> body,
+                                                 HttpServletRequest request) {
+        return Result.success(pendingDeliveryService.revoke(
+                entryIds(body), (Long) request.getAttribute("userId")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Long> entryIds(Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("entryIds");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            throw new IllegalArgumentException("entryIds 不能为空");
+        }
+        return ((List<Object>) list).stream().map(v -> Long.valueOf(v.toString())).toList();
     }
 }

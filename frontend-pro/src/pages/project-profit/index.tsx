@@ -1,6 +1,7 @@
 import {
   DownloadOutlined,
   InfoCircleOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 import type { TableProps } from 'antd';
@@ -28,6 +29,7 @@ import dayjs from 'dayjs';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
+import PendingDeliveryPanel from './PendingDeliveryPanel';
 import {
   type ProjectProfitAllocation,
   type ProjectProfitBlock,
@@ -343,6 +345,8 @@ export default function ProjectProfitPage() {
     dayjs().subtract(1, 'month').format('YYYY-MM'),
   );
   const [syncResult, setSyncResult] = useState<ProjectProfitMonthSyncResult>();
+  // 待交付确认抽屉
+  const [pendingOpen, setPendingOpen] = useState(false);
   const [drawer, setDrawer] = useState<{
     yearMonth: string;
     block: ProjectProfitBlock;
@@ -847,7 +851,38 @@ export default function ProjectProfitPage() {
           ? record.row.projectName ?? '合计'
           : record.row.projectName ?? '—',
     },
-    moneyColumn('营业收入', 'revenue', 74, 'revenue'),
+    {
+      title: '营业收入',
+      width: 84,
+      align: 'right' as const,
+      render: (_: unknown, record: FlatRow) => {
+        const main = maybeDetailLink(
+          record,
+          'revenue',
+          record.row.revenue,
+          cellNum(formatWan)(record.row.revenue),
+        );
+        // 方案A（预估块）：主数字 = 已确认口径营收；未确认待交付以灰色小字标注，不计入成本与利润
+        const unconfirmed = record.row.unconfirmedRevenue;
+        if (
+          !record.block.provisional ||
+          unconfirmed == null ||
+          Number(unconfirmed) === 0
+        ) {
+          return main;
+        }
+        return (
+          <div>
+            <div>{main}</div>
+            <Tooltip title="待确认合同金额（未税口径）：仅展示，未计入成本与利润；可点右上角「待交付确认」处理">
+              <div className="sw-project-profit-unconfirmed">
+                <QuestionCircleOutlined /> +{formatWan(unconfirmed)} 待确认
+              </div>
+            </Tooltip>
+          </div>
+        );
+      },
+    },
     moneyColumn('短信成本', 'smsCost', 60, 'alloc'),
     moneyColumn('直接成本', 'directCost', 60, 'alloc'),
     moneyColumn(headerBreaks('平台佣金&', '手续费'), 'platformFee', 64, 'alloc'),
@@ -959,6 +994,9 @@ export default function ProjectProfitPage() {
             onClick={() => void syncWholeYear()}
           >
             同步工时系统
+          </Button>
+          <Button size="small" onClick={() => setPendingOpen(true)}>
+            待交付确认
           </Button>
           <Select
             aria-label="同步月份"
@@ -1223,6 +1261,22 @@ export default function ProjectProfitPage() {
           <Typography.Text type="secondary">该月无镜像数据，未产生对齐结果</Typography.Text>
         )}
       </Modal>
+
+      <Drawer
+        title={`待交付确认（${year} 年）`}
+        width={1200}
+        open={pendingOpen}
+        onClose={() => setPendingOpen(false)}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            确认后计入预估营收与利润；未确认仅展示不计利润
+          </Typography.Text>
+        }
+      >
+        {pendingOpen && (
+          <PendingDeliveryPanel year={year} onChanged={() => void loadReport(year)} />
+        )}
+      </Drawer>
 
       <Drawer
         open={!!drawer}

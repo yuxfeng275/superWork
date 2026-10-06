@@ -849,36 +849,7 @@ export interface WeeklyReportVO {
   sheetTargetInfo?: WeeklyReportSheetTargetInfo | null;
 }
 
-/** 按月待交付统计行：月份×业务线×销售 聚合 + 确认状态 */
-export interface PendingDeliveryStatsRow {
-  yearMonth: string;
-  bizLineId?: number | null;
-  bizLineName: string;
-  salesOwner: string;
-  entryCount: number;
-  pendingAmount: number;
-  status: "PENDING" | "CONFIRMABLE" | "UNCONFIRMABLE";
-  remark?: string | null;
-  confirmedByName?: string | null;
-  confirmedAt?: string | null;
-}
-export interface PendingDeliveryEntry {
-  id: number;
-  contractNo?: string | null;
-  contractName?: string | null;
-  customer?: string | null;
-  itemDesc?: string | null;
-  receivableAmount?: number | null;
-  saleMonth?: string | null;
-  deliveryDate?: string | null;
-}
-export interface PendingDeliveryConfirmPayload {
-  yearMonth: string;
-  bizLineId: number;
-  salesOwner?: string;
-  status: "PENDING" | "CONFIRMABLE" | "UNCONFIRMABLE";
-  remark?: string;
-}
+/** 待交付确认功能已迁移至项目利润页（V100 delivery_confirmation，明细级确认）；旧的 月×业务线×销售 聚合确认已下线。 */
 
 export interface WeeklyReportGenerationModel {
   configured: boolean;
@@ -1013,6 +984,8 @@ export interface ProjectProfitRow {
   /** editable=true 仅 full 线真实项目行 */
   editable: boolean;
   revenue: number | null;
+  /** 未确认待交付合同金额（未税，元）：仅预估块有值，仅展示不计入成本与利润 */
+  unconfirmedRevenue?: number | null;
   smsCost: number | null;
   directCost: number | null;
   platformFee: number | null;
@@ -1025,6 +998,48 @@ export interface ProjectProfitRow {
   cost: number | null;
   grossProfit: number | null;
   grossProfitRate: number | null;
+}
+
+export interface PendingDeliveryEntry {
+  /** revenue_contract_entry.id（确认/取消的操作主键） */
+  id: number;
+  contractNo: string | null;
+  contractName: string | null;
+  customer: string | null;
+  itemDesc: string | null;
+  /** 应收金额（含税，元） */
+  receivableAmount: number | null;
+  /** 提交合同的人 = 工时系统承接人（缺省报价人） */
+  salesOwner: string | null;
+  serviceEndDate: string | null;
+  /** 预计交付月份 YYYY-MM；null=未定 */
+  expectedMonth: string | null;
+  businessLineName: string | null;
+  projectName: string | null;
+  overdue: boolean;
+  confirmed: boolean;
+  confirmedByName: string | null;
+  confirmedAt: string | null;
+}
+
+export interface PendingDeliveryGroup {
+  /** 预计交付月份 YYYY-MM；null=未定月份 */
+  month: string | null;
+  label: string;
+  /** overdue=已逾期；unknown=未定月份；null=正常 */
+  warning: 'overdue' | 'unknown' | null;
+  entryCount: number;
+  confirmedCount: number;
+  /** 含税合计（元） */
+  totalAmount: number;
+  confirmedAmount: number;
+  entries: PendingDeliveryEntry[];
+}
+
+export interface PendingDeliveryReport {
+  year: number;
+  currentMonth: string;
+  groups: PendingDeliveryGroup[];
 }
 
 export interface ProjectProfitLine {
@@ -2693,30 +2708,6 @@ export const superworkApi = {
       )}&businessLineId=${businessLineId}&rowKey=${encodeURIComponent(rowKey)}`
     );
   },
-  getPendingDeliveryStats(year: number) {
-    return requestJson<PendingDeliveryStatsRow[]>(
-      `/api/revenue/pending-delivery/stats?year=${year}`
-    );
-  },
-  getPendingDeliveryEntries(params: {
-    month: string;
-    bizLineId?: number | null;
-    salesOwner?: string;
-  }) {
-    return requestJson<PendingDeliveryEntry[]>(
-      `/api/revenue/pending-delivery/entries${query({
-        month: params.month,
-        bizLineId: params.bizLineId ?? undefined,
-        salesOwner: params.salesOwner || undefined,
-      })}`
-    );
-  },
-  confirmPendingDelivery(payload: PendingDeliveryConfirmPayload) {
-    return requestJson<Record<string, unknown>>(
-      "/api/revenue/pending-delivery/confirm",
-      { method: "PUT", body: JSON.stringify(payload) }
-    );
-  },
   resolveRevenuePending(
     type: "worklog" | "cost",
     id: number,
@@ -3361,6 +3352,23 @@ export const superworkApi = {
       `/api/finance/project-profit/labor-detail?yearMonth=${encodeURIComponent(
         yearMonth
       )}&businessLineId=${businessLineId}`
+    );
+  },
+  getPendingDelivery(year: number) {
+    return requestJson<PendingDeliveryReport>(
+      `/api/finance/project-profit/pending-delivery?year=${year}`
+    );
+  },
+  confirmPendingDelivery(entryIds: number[]) {
+    return requestJson<number>(
+      "/api/finance/project-profit/pending-delivery/confirm",
+      { method: "POST", body: JSON.stringify({ entryIds }) }
+    );
+  },
+  revokePendingDelivery(entryIds: number[]) {
+    return requestJson<number>(
+      "/api/finance/project-profit/pending-delivery/revoke",
+      { method: "POST", body: JSON.stringify({ entryIds }) }
     );
   },
   getMeetings(

@@ -23,7 +23,6 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
-import DeliveryConfirm from './DeliveryConfirm';
 import type {
   RevenueCell,
   RevenueCellDetail,
@@ -71,7 +70,6 @@ export default function RevenuePage() {
   const location = useLocation();
   const revenueTabByPath: Record<string, string> = {
     '/revenue/worktime': 'matrix',
-    '/revenue/delivery-confirm': 'confirm',
     '/revenue/import': 'import',
     '/revenue/pending': 'pending',
   };
@@ -80,7 +78,6 @@ export default function RevenuePage() {
   const sectionMeta = (
     {
       matrix: { title: '工时 & 成本', desc: '业务线 × 项目的工时、成本与营收矩阵，含月份结账、单元格明细与营收估算。' },
-      confirm: { title: '待交付确认', desc: '按 服务结束月 × 业务线 × 销售 统计待交付合同（交付日期为空者），与销售逐一确认当月能否交付并记录备注。' },
       import: { title: '数据导入', desc: '工时 / 成本 / 合同明细的 Excel 兜底导入、批次历史与合同归属映射。' },
       pending: { title: '待映射与销售项目', desc: '待人工映射归属的工时/成本记录，以及销售项目与商机的绑定。' },
     } as Record<string, { title: string; desc: string }>
@@ -1252,7 +1249,6 @@ export default function RevenuePage() {
                 )}
               </Card>
       )}
-      {activeTab === 'confirm' && <DeliveryConfirm />}
       {activeTab === 'import' && (
               <Card variant="borderless">
                 <Space orientation="vertical" style={{ width: '100%' }}>

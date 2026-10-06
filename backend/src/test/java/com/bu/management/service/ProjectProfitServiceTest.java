@@ -37,7 +37,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,6 +68,8 @@ class ProjectProfitServiceTest {
     private BusinessLineProfitService businessLineProfitService;
     @Mock
     private RevenueMonthCloseMapper monthCloseMapper;
+    @Mock
+    private PendingDeliveryService pendingDeliveryService;
 
     private ProjectProfitService service;
 
@@ -81,7 +85,11 @@ class ProjectProfitServiceTest {
     void setUp() {
         service = new ProjectProfitService(reportMapper, businessLineMapper, costEntryMapper,
                 contractEntryMapper, allocationMapper, projectMapper,
-                worktimeMonthlySyncService, businessLineProfitService, monthCloseMapper);
+                worktimeMonthlySyncService, businessLineProfitService, monthCloseMapper,
+                pendingDeliveryService);
+        // 默认无待交付合同；需要预估块的用例自行覆盖
+        lenient().when(pendingDeliveryService.forecastEntries(anyInt(), any())).thenReturn(List.of());
+        lenient().when(pendingDeliveryService.activeConfirmations(any())).thenReturn(java.util.Map.of());
         saas = line(1L, "全域-全渠道-全域云鹿Saas", "full", "6");
         member = line(2L, "全域-全渠道-会员通", "aggregate", "6");
         precise = line(3L, "全域-全渠道-全域私域精准", "simple", "6");
@@ -876,19 +884,8 @@ class ProjectProfitServiceTest {
     // ==================== 在途月份预估块 ====================
 
     /** 与后端 workdays 同口径的周一至周五计数（测试用） */
-    private int weekdays(java.time.LocalDate from, java.time.LocalDate to) {
-        int days = 0;
-        for (java.time.LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
-            if (d.getDayOfWeek() != java.time.DayOfWeek.SATURDAY
-                    && d.getDayOfWeek() != java.time.DayOfWeek.SUNDAY) {
-                days++;
-            }
-        }
-        return days;
-    }
-
     @Test
-    @DisplayName("在途月份：当月镜像未同步时生成预估块（营收=OA本月交付含税转未税 软件13%/其余6%；成本=上月镜像÷上月工作日×本月已过工作日）")
+    @DisplayName("在途月份：当月镜像未同步时生成预估块（营收=OA本月交付含税转未税 软件13%/其余6%；成本=近3个已完结月镜像均值）")
     void provisionalBlockForCurrentMonth() {
         YearMonth current = YearMonth.now();
         YearMonth prev = current.minusMonths(1);
@@ -912,19 +909,14 @@ class ProjectProfitServiceTest {
         ProjectProfitReportVO.Block block = vo.getBlocks().stream()
                 .filter(b -> b.getKey().equals(currentYm)).findFirst().orElseThrow();
         assertThat(block.getProvisional()).isTrue();
-        assertThat(block.getProvisionalNote()).contains("软件").contains("工作日");
+        assertThat(block.getProvisionalNote()).contains("软件").contains("已完结");
         assertThat(vo.getAvailableMonths()).contains(currentYm);
         ProjectProfitReportVO.Line out = lineOf(block, 9L);
         // 项目行：10600÷1.06 + 11300÷1.13 = 20000
         assertThat(rowOf(out, "PROJECT", "项目A").getRevenue()).isEqualByComparingTo("20000");
-        // 合计：营收 21000（含未归桶 1000）；成本 = 1000÷上月工作日×本月已过工作日
+        // 合计：营收 21000（含未归桶 1000）；成本 = 近 3 个已完结月镜像人工均值（仅上月一个月 → 1000）
         assertThat(out.getTotal().getRevenue()).isEqualByComparingTo("21000");
-        java.math.BigDecimal expectedCost = new java.math.BigDecimal("1000")
-                .divide(new java.math.BigDecimal(weekdays(prev.atDay(1), prev.atEndOfMonth())), 4,
-                        java.math.RoundingMode.HALF_UP)
-                .multiply(new java.math.BigDecimal(weekdays(current.atDay(1), LocalDate.now())))
-                .setScale(2, java.math.RoundingMode.HALF_UP);
-        assertThat(out.getTotal().getCost()).isEqualByComparingTo(expectedCost);
+        assertThat(out.getTotal().getCost()).isEqualByComparingTo("1000");
         // 差额仅保留营收维度
         assertThat(out.getResidual().getRevenue()).isEqualByComparingTo("1000");
         assertThat(out.getResidual().getCost()).isEqualByComparingTo("0");
@@ -978,6 +970,81 @@ class ProjectProfitServiceTest {
         assertThat(lineOf(block, 9L).getTotal().getRevenue()).isEqualByComparingTo("10000");
         assertThat(vo.getAvailableMonths()).containsExactly(
                 prev.format(DateTimeFormatter.ofPattern("yyyy-MM")), currentYm);
+    }
+
+    private RevenueContractEntry pendingContract(Long id, Long lineId, Long projectId,
+                                                 String receivable, String serviceEnd) {
+        RevenueContractEntry entry = new RevenueContractEntry();
+        entry.setId(id);
+        entry.setBizLineId(lineId);
+        entry.setProjectId(projectId);
+        entry.setReceivableAmount(new BigDecimal(receivable));
+        entry.setServiceEndDate(LocalDate.parse(serviceEnd));
+        entry.setDeliveryDate(null);
+        entry.setPending(0);
+        return entry;
+    }
+
+    @Test
+    @DisplayName("未来月份：已确认待交付计入营收与利润，未确认仅以 unconfirmedRevenue 展示不计利润")
+    void futureMonthProvisionalBlockWithConfirmation() {
+        YearMonth current = YearMonth.now();
+        org.junit.jupiter.api.Assumptions.assumeTrue(current.getMonthValue() < 12, "12 月无当年未来月份");
+        YearMonth future = current.plusMonths(1);
+        String futureYm = future.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of());
+        RevenueContractEntry confirmed = pendingContract(1L, 9L, 900L, "10600", future.atDay(10).toString());
+        RevenueContractEntry unconfirmed = pendingContract(2L, 9L, 900L, "21200", future.atDay(20).toString());
+        when(pendingDeliveryService.forecastEntries(anyInt(), any())).thenReturn(List.of(confirmed, unconfirmed));
+        when(pendingDeliveryService.activeConfirmations(any()))
+                .thenReturn(java.util.Map.of(1L, new com.bu.management.entity.DeliveryConfirmation()));
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        ProjectProfitReportVO.Block block = vo.getBlocks().stream()
+                .filter(b -> b.getKey().equals(futureYm)).findFirst().orElseThrow();
+        assertThat(block.getProvisional()).isTrue();
+        assertThat(vo.getAvailableMonths()).contains(futureYm);
+        ProjectProfitReportVO.Line out = lineOf(block, 9L);
+        // 项目行：已确认 10600÷1.06=10000 计入营收；未确认 21200÷1.06=20000 仅展示
+        ProjectProfitReportVO.Row projectRow = rowOf(out, "PROJECT", "项目A");
+        assertThat(projectRow.getRevenue()).isEqualByComparingTo("10000");
+        assertThat(projectRow.getUnconfirmedRevenue()).isEqualByComparingTo("20000");
+        // 合计：毛利只按已确认营收计算（无镜像 → 预估成本为 0）
+        assertThat(out.getTotal().getRevenue()).isEqualByComparingTo("10000");
+        assertThat(out.getTotal().getUnconfirmedRevenue()).isEqualByComparingTo("20000");
+        assertThat(out.getTotal().getGrossProfit()).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    @DisplayName("逾期未交付（服务结束月早于当月）并入当月预估块；无服务结束时间的合同不进预估块")
+    void overduePendingFoldsIntoCurrentMonth() {
+        YearMonth current = YearMonth.now();
+        String currentYm = current.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(900L, 9L, null, "项目A")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "10600", current.atDay(1).toString())));
+        // 逾期未确认 5300÷1.06=5000 → 当月 unconfirmedRevenue
+        RevenueContractEntry overdue = pendingContract(3L, 9L, 900L, "5300",
+                current.minusMonths(2).atEndOfMonth().toString());
+        when(pendingDeliveryService.forecastEntries(anyInt(), any())).thenReturn(List.of(overdue));
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        ProjectProfitReportVO.Block block = vo.getBlocks().stream()
+                .filter(b -> b.getKey().equals(currentYm)).findFirst().orElseThrow();
+        assertThat(block.getProvisional()).isTrue();
+        ProjectProfitReportVO.Line out = lineOf(block, 9L);
+        assertThat(out.getTotal().getRevenue()).isEqualByComparingTo("10000");
+        assertThat(out.getTotal().getUnconfirmedRevenue()).isEqualByComparingTo("5000");
+        // 服务结束时间为空的合同由 forecastEntries 的 DB 过滤排除（不进预估块），此处不覆盖
     }
 
     // ==================== 月度一键同步编排 ====================

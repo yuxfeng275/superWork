@@ -27,7 +27,6 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -109,6 +108,7 @@ public class ProjectProfitService {
     private final WorktimeMonthlySyncService worktimeMonthlySyncService;
     private final BusinessLineProfitService businessLineProfitService;
     private final RevenueMonthCloseMapper monthCloseMapper;
+    private final PendingDeliveryService pendingDeliveryService;
 
     // ==================== 报表查询 ====================
 
@@ -161,14 +161,36 @@ public class ProjectProfitService {
             }
         }
         // 在途月份（当月镜像未同步或全零占位）：追加预估块；月度完结同步后镜像覆盖，预估块自动消失
-        if (year == current.getYear() && !ds.availableMonths.contains(currentYm)
-                && requestedPeriods.isEmpty()
-                && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
-            ProjectProfitReportVO.Block provisional = buildProvisionalBlock(currentYm, ds, filters);
-            if (provisional != null) {
-                blocks.add(provisional);
-                List<String> axis = new ArrayList<>(vo.getAvailableMonths());
-                axis.add(currentYm);
+        if (year == current.getYear() && requestedPeriods.isEmpty()) {
+            List<String> axis = null;
+            if (!ds.availableMonths.contains(currentYm)
+                    && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
+                ProjectProfitReportVO.Block provisional = buildProvisionalBlock(currentYm, ds, filters);
+                if (provisional != null) {
+                    blocks.add(provisional);
+                    axis = new ArrayList<>(vo.getAvailableMonths());
+                    axis.add(currentYm);
+                }
+            }
+            // 未来月份（当年未发生，含当月之后的月份）：有待交付合同的月份各生成一个预估块
+            for (int m = current.getMonthValue() + 1; m <= 12; m++) {
+                if (months != null && !months.isEmpty() && !months.contains(m)) {
+                    continue;
+                }
+                String yearMonth = String.format("%d-%02d", year, m);
+                if (ds.pendingByMonth.getOrDefault(yearMonth, List.of()).isEmpty()) {
+                    continue;
+                }
+                ProjectProfitReportVO.Block provisional = buildProvisionalBlock(yearMonth, ds, filters);
+                if (provisional != null) {
+                    blocks.add(provisional);
+                    if (axis == null) {
+                        axis = new ArrayList<>(vo.getAvailableMonths());
+                    }
+                    axis.add(yearMonth);
+                }
+            }
+            if (axis != null) {
                 vo.setAvailableMonths(axis);
             }
         }
@@ -195,50 +217,47 @@ public class ProjectProfitService {
     }
 
     /**
-     * 在途月份预估块（当月镜像未同步时）：
+     * 预估块（当月 + 未来月份）：
      * <ul>
-     *   <li>营收 = OA 合同本月已交付（revenue_contract_entry，每日自动同步，与工时系统销售报表
-     *       「本月交付总金额」同源同口径）含税转未税：item_desc/合同名含「软件」按 13%，其余按 6%；</li>
-     *   <li>人工成本（仅合计维度，不分配到项目）= 上月镜像 labor_cost_1 ÷ 上月工作日 × 本月已过工作日；</li>
+     *   <li>营收 = 当月已交付（delivery_date 落月）+ 已确认待交付合同（delivery_date 为空，按服务结束月归月，
+     *       逾期计入当月；含税转未税：item_desc/合同名含「软件」按 13%，其余按 6%）；</li>
+     *   <li>未确认待交付合同仅以 unconfirmedRevenue 展示（前端「+xx 待确认」），不计入成本与利润；</li>
+     *   <li>成本 = 近 3 个已完结月份镜像均值（含 6 成本列 + 人工），仅业务线合计维度，不分配到项目行；</li>
      *   <li>差额行仅保留营收维度（未归桶合同的金额），工时/成本差额恒为 0（成本本就是线级估计）。</li>
      * </ul>
      */
     private ProjectProfitReportVO.Block buildProvisionalBlock(String yearMonth, Dataset ds, Filters filters) {
         YearMonth ym = YearMonth.parse(yearMonth);
-        YearMonth prev = ym.minusMonths(1);
-        int prevWorkdays = workdays(prev.atDay(1), prev.atEndOfMonth());
-        int elapsedWorkdays = workdays(ym.atDay(1), LocalDate.now());
 
         ProjectProfitReportVO.Block block = new ProjectProfitReportVO.Block();
         block.setKey(yearMonth);
         block.setLabel(ym.getMonthValue() + "月");
         block.setProvisional(true);
-        block.setProvisionalNote("在途预估：营收 = OA 合同本月已交付（含税转未税，软件产品 13%、其余 6%），"
-                + "与工时系统销售报表「本月交付总金额」同源；人工成本 = 上月成本 ÷ 上月工作日 × 本月已过工作日"
-                + "（仅业务线合计维度）；月度完结同步后自动覆盖为真实数据");
+        block.setProvisionalNote("预估：营收 = 当月已交付 + 已确认待交付合同（按服务结束月归月，逾期计入当月；"
+                + "含税转未税，软件产品 13%、其余 6%）；未确认待交付仅以「+xx 待确认」展示，不计入成本与利润；"
+                + "成本 = 近 3 个已完结月份均值（业务线级，含全部成本项）；月度完结同步后自动覆盖为真实数据");
 
         List<ProjectProfitReportVO.Line> lines = new ArrayList<>();
         for (BusinessLine line : ds.managedLines) {
             if (!filters.businessLineIds.isEmpty() && !filters.businessLineIds.contains(line.getId())) {
                 continue;
             }
-            // 营收：booked（合同业务线=本线）为线级口径；项目行按根项目归集，未归桶部分留差额
+            // 营收：已交付（booked）+ 已确认待交付；项目行按根项目归集，未归桶部分留差额
             List<RevenueContractEntry> booked = ds.contractsRaw(yearMonth).stream()
                     .filter(e -> Objects.equals(e.getBizLineId(), line.getId()))
                     .toList();
-            MirrorAcc prevMirror = ds.mirror(prev.format(MONTH_FMT), line.getId());
-            BigDecimal costEst = prevMirror == null || prevMirror.laborCost1 == null || prevWorkdays == 0
-                    ? BigDecimal.ZERO
-                    : prevMirror.laborCost1
-                            .divide(new BigDecimal(prevWorkdays), 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal(elapsedWorkdays))
-                            .setScale(2, RoundingMode.HALF_UP);
-            if (booked.isEmpty() && costEst.signum() == 0) {
-                continue; // 该线当月无任何预估数据
+            List<RevenueContractEntry> pendings = ds.pendingByMonth(yearMonth).stream()
+                    .filter(e -> Objects.equals(e.getBizLineId(), line.getId()))
+                    .toList();
+            MirrorAcc avgCost = ds.avgCostByLine.get(line.getId());
+            if (booked.isEmpty() && pendings.isEmpty()) {
+                continue; // 该线当月无已交付/待交付合同（仅成本估计不出块，避免无营收的纯成本块）
             }
 
             Map<Long, BigDecimal> revenueByRoot = new LinkedHashMap<>();
+            Map<Long, BigDecimal> unconfirmedByRoot = new LinkedHashMap<>();
             BigDecimal lineRevenue = BigDecimal.ZERO;
+            BigDecimal lineUnconfirmed = BigDecimal.ZERO;
             for (RevenueContractEntry entry : booked) {
                 BigDecimal exTax = provisionalExTax(entry);
                 lineRevenue = lineRevenue.add(exTax);
@@ -247,17 +266,35 @@ public class ProjectProfitService {
                     revenueByRoot.merge(root, exTax, BigDecimal::add);
                 }
             }
+            for (RevenueContractEntry entry : pendings) {
+                BigDecimal exTax = provisionalExTax(entry);
+                boolean confirmed = ds.confirmedEntryIds.contains(entry.getId());
+                Long root = ds.rootOf(entry.getProjectId());
+                if (confirmed) {
+                    lineRevenue = lineRevenue.add(exTax);
+                    if (root != null) {
+                        revenueByRoot.merge(root, exTax, BigDecimal::add);
+                    }
+                } else {
+                    lineUnconfirmed = lineUnconfirmed.add(exTax);
+                    if (root != null) {
+                        unconfirmedByRoot.merge(root, exTax, BigDecimal::add);
+                    }
+                }
+            }
 
             String mode = modeOf(line);
             List<ProjectProfitReportVO.Row> rows = new ArrayList<>();
             if (MODE_FULL.equals(mode)) {
                 for (Project root : ds.rootProjects(line.getId())) {
                     BigDecimal revenue = revenueByRoot.get(root.getId());
-                    if (revenue == null) {
-                        continue; // 在途月只显示有交付的项目
+                    BigDecimal unconfirmed = unconfirmedByRoot.get(root.getId());
+                    if (revenue == null && unconfirmed == null) {
+                        continue; // 预估月只显示有交付/待交付的项目
                     }
                     ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), false);
-                    row.setRevenue(revenue);
+                    row.setRevenue(nz(revenue));
+                    row.setUnconfirmedRevenue(nz(unconfirmed));
                     rows.add(row);
                 }
             } else {
@@ -265,18 +302,29 @@ public class ProjectProfitService {
                 String name = MODE_AGGREGATE.equals(mode) ? "项目集" : line.getName();
                 ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", null, name, false);
                 row.setRevenue(lineRevenue);
+                row.setUnconfirmedRevenue(lineUnconfirmed);
                 rows.add(row);
             }
             rows.forEach(this::finalizeRow);
 
             ProjectProfitReportVO.Row total = newRow(ROW_TOTAL, null, null, "合计", false);
             total.setRevenue(lineRevenue);
-            total.setHours(null);   // 在途月无工时数据
-            total.setCost(costEst);
+            total.setUnconfirmedRevenue(lineUnconfirmed);
+            total.setHours(null);   // 预估月无工时数据
+            // 成本 = 近 3 个已完结月均值（业务线级）：6 成本列 + 人工成本
+            if (avgCost != null) {
+                total.setSmsCost(nz(avgCost.smsCost));
+                total.setDirectCost(nz(avgCost.directCost));
+                total.setPlatformFee(nz(avgCost.platformFee));
+                total.setCompensation(nz(avgCost.compensation));
+                total.setOutsourcing(nz(avgCost.outsourcing));
+                total.setSoftwareGift(nz(avgCost.softwareGift));
+                total.setCost(nz(avgCost.laborCost1));
+            }
             finalizeRow(total);
 
             ProjectProfitReportVO.Line out = assembleLine(line, rows, total, filters);
-            // 在途月差额仅保留营收维度（人工成本是线级估计，不进差额）
+            // 预估月差额仅保留营收维度（人工成本是线级估计，不进差额）
             out.getResidual().setHours(BigDecimal.ZERO);
             out.getResidual().setCost(BigDecimal.ZERO);
             finalizeRow(out.getResidual());
@@ -298,19 +346,7 @@ public class ProjectProfitService {
         return nz(entry.getReceivableAmount()).divide(divisor, 2, RoundingMode.HALF_UP);
     }
 
-    /** 工作日（周一至周五）计数，闭区间 */
-    private int workdays(LocalDate from, LocalDate to) {
-        int days = 0;
-        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
-            if (d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY) {
-                days++;
-            }
-        }
-        return days;
-    }
-
     /**
-     * 单月块构建（query 路径与 syncMonth 对齐计算共用同一份实现，禁止复制第二份）。
      * 仅纳入当月存在镜像行的业务线；镜像缺失的月份返回空 lines。
      */
     private ProjectProfitReportVO.Block buildMonthBlock(String yearMonth, Dataset ds, Filters filters) {
@@ -1123,7 +1159,60 @@ public class ProjectProfitService {
             ds.contractInclTax.computeIfAbsent(entry.getDeliveryDate().format(MONTH_FMT), k -> new HashMap<>())
                     .merge(root, entry.getReceivableAmount(), BigDecimal::add);
         }
+
+        // 待交付合同（仅当年视图）：delivery_date 为空且 service_end_date 落在当年及以前
+        // （早于当月的逾期合同归并到当月）；service_end_date 为空的「未定月份」不进月份预估块。
+        // 未来年份（如 2027 年服务结束）不归入今年报表。
+        YearMonth current = YearMonth.now();
+        if (year == current.getYear()) {
+            List<RevenueContractEntry> pendings = pendingDeliveryService.forecastEntries(year, managedIds);
+            ds.confirmedEntryIds = pendingDeliveryService.activeConfirmations(
+                    pendings.stream().map(RevenueContractEntry::getId).toList()).keySet();
+            for (RevenueContractEntry entry : pendings) {
+                ds.pendingByMonth.computeIfAbsent(
+                        PendingDeliveryService.effectiveMonth(entry, current), k -> new ArrayList<>()).add(entry);
+            }
+            ds.avgCostByLine = loadAverageCosts(managedIds, current.format(MONTH_FMT));
+        }
         return ds;
+    }
+
+    /**
+     * 预估成本口径：每业务线取当前月之前最近 3 个「已完结」（镜像非全零）月份的镜像均值，
+     * 允许跨年（如 1 月取上年 10~12 月）；不足 3 个月按实际月数平均；一个都没有则无预估成本。
+     * 仅成本字段（6 成本列 + labor_cost_1），营收/工时不估。
+     */
+    private Map<Long, MirrorAcc> loadAverageCosts(Set<Long> managedIds, String currentYm) {
+        List<BizLineProfitReport> rows = reportMapper.selectList(new LambdaQueryWrapper<BizLineProfitReport>()
+                .lt(BizLineProfitReport::getYearMonth, currentYm)
+                .in(BizLineProfitReport::getBusinessLineId, managedIds));
+        // 聚合成 (月, 线) 镜像（同一本系统线可能对应多条工时系统线行）
+        Map<String, Map<Long, MirrorAcc>> byMonthLine = new HashMap<>();
+        for (BizLineProfitReport row : rows) {
+            byMonthLine.computeIfAbsent(row.getYearMonth(), k -> new HashMap<>())
+                    .computeIfAbsent(row.getBusinessLineId(), k -> new MirrorAcc())
+                    .add(row);
+        }
+        List<String> monthsDesc = byMonthLine.keySet().stream()
+                .sorted(Comparator.reverseOrder()).toList();
+        Map<Long, MirrorAcc> result = new HashMap<>();
+        for (Long lineId : managedIds) {
+            List<MirrorAcc> latest = new ArrayList<>();
+            for (String month : monthsDesc) {
+                MirrorAcc acc = byMonthLine.get(month).get(lineId);
+                if (acc == null || acc.allZero()) {
+                    continue;
+                }
+                latest.add(acc);
+                if (latest.size() == 3) {
+                    break;
+                }
+            }
+            if (!latest.isEmpty()) {
+                result.put(lineId, MirrorAcc.average(latest));
+            }
+        }
+        return result;
     }
 
     private List<ProjectProfitReportVO.LineOption> buildLineOptions(Dataset ds) {
@@ -1258,6 +1347,7 @@ public class ProjectProfitService {
 
     private void addInto(ProjectProfitReportVO.Row acc, ProjectProfitReportVO.Row row) {
         acc.setRevenue(acc.getRevenue().add(nz(row.getRevenue())));
+        acc.setUnconfirmedRevenue(nz(acc.getUnconfirmedRevenue()).add(nz(row.getUnconfirmedRevenue())));
         acc.setSmsCost(acc.getSmsCost().add(nz(row.getSmsCost())));
         acc.setDirectCost(acc.getDirectCost().add(nz(row.getDirectCost())));
         acc.setPlatformFee(acc.getPlatformFee().add(nz(row.getPlatformFee())));
@@ -1271,6 +1361,7 @@ public class ProjectProfitService {
     /** acc -= row（数值列） */
     private void subtract(ProjectProfitReportVO.Row acc, ProjectProfitReportVO.Row row) {
         acc.setRevenue(acc.getRevenue().subtract(nz(row.getRevenue())));
+        acc.setUnconfirmedRevenue(nz(acc.getUnconfirmedRevenue()).subtract(nz(row.getUnconfirmedRevenue())));
         acc.setSmsCost(acc.getSmsCost().subtract(nz(row.getSmsCost())));
         acc.setDirectCost(acc.getDirectCost().subtract(nz(row.getDirectCost())));
         acc.setPlatformFee(acc.getPlatformFee().subtract(nz(row.getPlatformFee())));
@@ -1296,7 +1387,7 @@ public class ProjectProfitService {
         return part.multiply(BigDecimal.valueOf(100)).divide(total, 2, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal nz(BigDecimal value) {
+    private static BigDecimal nz(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
     }
 
@@ -1404,6 +1495,41 @@ public class ProjectProfitService {
             if (b == null) return a;
             return a.add(b);
         }
+
+        /** 全部指标为 0/null（工时系统未出报月份的全零占位行） */
+        boolean allZero() {
+            return List.of(nz(revenue), nz(smsCost), nz(directCost), nz(platformFee), nz(compensation),
+                    nz(outsourcing), nz(softwareGift), nz(totalHours), nz(laborCost1)).stream()
+                    .allMatch(v -> v.signum() == 0);
+        }
+
+        /** 成本字段均值（6 成本列 + labor_cost_1，scale=2）；营收/工时不参与预估 */
+        static MirrorAcc average(List<MirrorAcc> accs) {
+            MirrorAcc sum = new MirrorAcc();
+            for (MirrorAcc acc : accs) {
+                sum.smsCost = sum.plus(sum.smsCost, acc.smsCost);
+                sum.directCost = sum.plus(sum.directCost, acc.directCost);
+                sum.platformFee = sum.plus(sum.platformFee, acc.platformFee);
+                sum.compensation = sum.plus(sum.compensation, acc.compensation);
+                sum.outsourcing = sum.plus(sum.outsourcing, acc.outsourcing);
+                sum.softwareGift = sum.plus(sum.softwareGift, acc.softwareGift);
+                sum.laborCost1 = sum.plus(sum.laborCost1, acc.laborCost1);
+            }
+            BigDecimal n = BigDecimal.valueOf(accs.size());
+            MirrorAcc avg = new MirrorAcc();
+            avg.smsCost = divide(sum.smsCost, n);
+            avg.directCost = divide(sum.directCost, n);
+            avg.platformFee = divide(sum.platformFee, n);
+            avg.compensation = divide(sum.compensation, n);
+            avg.outsourcing = divide(sum.outsourcing, n);
+            avg.softwareGift = divide(sum.softwareGift, n);
+            avg.laborCost1 = divide(sum.laborCost1, n);
+            return avg;
+        }
+
+        private static BigDecimal divide(BigDecimal value, BigDecimal n) {
+            return value == null ? null : value.divide(n, 2, RoundingMode.HALF_UP);
+        }
     }
 
     private final class Dataset {
@@ -1418,6 +1544,12 @@ public class ProjectProfitService {
         Map<String, Map<Long, BigDecimal>> contractInclTax = new HashMap<>();
         /** 月 → OA 已交付合同原始行（含无法归桶的，供差额明细下钻） */
         Map<String, List<RevenueContractEntry>> contractsRaw = new HashMap<>();
+        /** 月 → 待交付合同（delivery_date 为空，按服务结束月归月，逾期并入当月；仅当年视图加载） */
+        Map<String, List<RevenueContractEntry>> pendingByMonth = new HashMap<>();
+        /** 已确认待交付的合同明细ID（revoked_at IS NULL） */
+        Set<Long> confirmedEntryIds = Set.of();
+        /** 业务线ID → 近 3 个已完结月份成本均值（预估成本口径） */
+        Map<Long, MirrorAcc> avgCostByLine = Map.of();
         /** 月 → 业务线ID → 目标键（targetType:projectId） → (列 → 数量) */
         Map<String, Map<Long, Map<String, Map<String, BigDecimal>>>> allocations = new HashMap<>();
         Map<Long, Project> projectsById = Map.of();
@@ -1451,6 +1583,10 @@ public class ProjectProfitService {
 
         List<RevenueContractEntry> contractsRaw(String yearMonth) {
             return contractsRaw.getOrDefault(yearMonth, List.of());
+        }
+
+        List<RevenueContractEntry> pendingByMonth(String yearMonth) {
+            return pendingByMonth.getOrDefault(yearMonth, List.of());
         }
 
         List<Project> rootProjects(Long lineId) {

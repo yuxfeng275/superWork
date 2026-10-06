@@ -6,9 +6,7 @@ import com.bu.management.dto.RevenueContractMappingVO;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.RevenueContractImportBatch;
 import com.bu.management.entity.RevenueOtherCost;
-import com.bu.management.entity.RevenueDeliveryConfirmation;
 import com.bu.management.service.RevenueContractImportService;
-import com.bu.management.service.RevenueDeliveryConfirmService;
 import com.bu.management.service.RevenueOtherCostService;
 import com.bu.management.vo.Result;
 import io.swagger.v3.oas.annotations.Operation;
@@ -43,7 +41,6 @@ public class RevenueDeliveryController {
     private final RevenueContractImportService contractImportService;
     private final RevenueOtherCostService otherCostService;
     private final com.bu.management.sync.SyncOrchestrator syncOrchestrator;
-    private final RevenueDeliveryConfirmService deliveryConfirmService;
 
     // ------------------------------------------------------------ 合同导入与待映射
 
@@ -96,35 +93,6 @@ public class RevenueDeliveryController {
     @Operation(summary = "合同导入批次历史")
     public Result<List<RevenueContractImportBatch>> listContractBatches() {
         return Result.success(contractImportService.listBatches());
-    }
-
-    // ------------------------------------------------------------ 按月待交付与销售确认
-
-    @GetMapping("/pending-delivery/stats")
-    @RequirePermission({"revenue:view"})
-    @Operation(summary = "按月待交付统计：月份×业务线×销售 的待交付笔数与金额 + 确认状态")
-    public Result<List<RevenueDeliveryConfirmService.StatsRow>> pendingDeliveryStats(
-            @RequestParam(required = false) Integer year) {
-        return Result.success(deliveryConfirmService.stats(year));
-    }
-
-    @GetMapping("/pending-delivery/entries")
-    @RequirePermission({"revenue:view"})
-    @Operation(summary = "某 月份×业务线×销售 的待交付合同明细")
-    public Result<List<RevenueDeliveryConfirmService.EntryRow>> pendingDeliveryEntries(
-            @RequestParam String month,
-            @RequestParam(required = false) Long bizLineId,
-            @RequestParam(required = false) String salesOwner) {
-        return Result.success(deliveryConfirmService.entries(month, bizLineId, salesOwner));
-    }
-
-    @PutMapping("/pending-delivery/confirm")
-    @RequirePermission({"revenue:manage"})
-    @Operation(summary = "确认待交付（人为与销售一一确认，支持备注；重复确认覆盖）")
-    public Result<RevenueDeliveryConfirmation> confirmPendingDelivery(
-            @RequestBody RevenueDeliveryConfirmService.ConfirmRequest request,
-            @RequestAttribute("userId") Long userId) {
-        return Result.success("已确认", deliveryConfirmService.confirm(request, userId));
     }
 
     // ------------------------------------------------------------ 其他成本

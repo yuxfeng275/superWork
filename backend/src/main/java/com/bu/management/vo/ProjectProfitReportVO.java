@@ -78,6 +78,8 @@ public class ProjectProfitReportVO {
         /** editable=true 仅 full 线真实项目行 */
         private Boolean editable;
         private BigDecimal revenue;
+        /** 未确认待交付合同金额（未税，元）：仅预估块有值，仅展示不计入成本与利润 */
+        private BigDecimal unconfirmedRevenue;
         private BigDecimal smsCost;
         private BigDecimal directCost;
         private BigDecimal platformFee;
