@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getWeeklyHistory: vi.fn(),
   getWeeklyReport: vi.fn(),
   getWeeklyFacts: vi.fn(),
+  getWeeklyGenerationModel: vi.fn(),
   publishWeeklySheet: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ vi.mock('@/services/superwork/api', () => ({
     getWeeklyHistory: mocks.getWeeklyHistory,
     getWeeklyReport: mocks.getWeeklyReport,
     getWeeklyFacts: mocks.getWeeklyFacts,
+    getWeeklyGenerationModel: mocks.getWeeklyGenerationModel,
     publishWeeklySheet: mocks.publishWeeklySheet,
   },
 }));
@@ -33,9 +35,34 @@ const report = (
   ...overrides,
 });
 
+const FACTS = {
+  weekStart: '2026-09-08',
+  periodEnd: '2026-09-12',
+  keyMatters: [],
+  opportunities: [
+    {
+      id: 21,
+      opportunityName: '飞鹤-SCRM系统采购',
+      customer: '飞鹤乳业',
+      follower: '姜涛',
+      status: '商务谈判',
+      content: '客户确认一期预算',
+    },
+  ],
+  finance: {
+    month: '2026-09',
+    newContractAmount: 0,
+    deliveredAmount: 0,
+    cumulativeReceivable: 0,
+  },
+  lastWeekReport: { exists: false },
+};
+
 describe('WeeklyReportPage overview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getWeeklyFacts.mockResolvedValue(FACTS);
+    mocks.getWeeklyGenerationModel.mockResolvedValue({ configured: true });
   });
 
   it('stops the in-progress spinner at zero and splits confirmed vs published', async () => {
@@ -94,7 +121,7 @@ describe('WeeklyReportPage overview', () => {
     expect(document.querySelector('.anticon-loading')).not.toBeNull();
   });
 
-  it('opens publish drawer from 同步 without opening the report editor', async () => {
+  it('opens the workbench drawer at publish anchor from 发布', async () => {
     const published = report({
       id: 6,
       status: 'PUBLISHED',
@@ -105,24 +132,26 @@ describe('WeeklyReportPage overview', () => {
     mocks.getWeeklyReport.mockResolvedValue(published);
 
     render(<WeeklyReportPage />);
-    fireEvent.click(await screen.findByRole('button', { name: '同步' }));
+    fireEvent.click(await screen.findByRole('button', { name: '发布' }));
 
-    expect(await screen.findByText('发布与同步')).toBeTruthy();
-    expect(screen.queryByText('正在加载周报...')).toBeNull();
+    // 双栏工作台：右侧栏含发布通道卡
+    expect(await screen.findByText('发布通道')).toBeTruthy();
     expect(mocks.getWeeklyReport).toHaveBeenCalledWith('2026-09-08');
   });
 
-  it('applies generated report into editor draft while polling', () => {
+  it('keeps generated report applied into draft while polling', () => {
     const source = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), 'index.tsx'),
+      join(dirname(fileURLToPath(import.meta.url)), 'ReportDrawer.tsx'),
       'utf8',
     );
-    expect(source).toMatch(/const applyReport = useCallback\(\(report: WeeklyReportVO\)/);
+    expect(source).toMatch(
+      /const applyReport = useCallback\(\(report: WeeklyReportVO\)/,
+    );
     expect(source).toMatch(/applyReport\(latest\)/);
     expect(source).toMatch(/applyReport\(report\)/);
   });
 
-  it('opens a readable detail view instead of the editor', async () => {
+  it('opens the workbench: document sections plus fixed sidebar inputs', async () => {
     const published = report({
       id: 7,
       status: 'PUBLISHED',
@@ -134,45 +163,33 @@ describe('WeeklyReportPage overview', () => {
     });
     mocks.getWeeklyHistory.mockResolvedValue([published]);
     mocks.getWeeklyReport.mockResolvedValue(published);
-    mocks.getWeeklyFacts.mockResolvedValue({
-      weekStart: '2026-09-08',
-      periodEnd: '2026-09-12',
-      keyMatters: [],
-      opportunities: [
-        {
-          id: 21,
-          opportunityName: '飞鹤-SCRM系统采购',
-          customer: '飞鹤乳业',
-          follower: '姜涛',
-          status: '商务谈判',
-          content: '客户确认一期预算',
-        },
-      ],
-      finance: {
-        month: '2026-09',
-        newContractAmount: 0,
-        deliveredAmount: 0,
-        cumulativeReceivable: 0,
-      },
-      lastWeekReport: { exists: false },
-    });
 
     render(<WeeklyReportPage />);
-    fireEvent.click(await screen.findByRole('button', { name: '查看' }));
+    fireEvent.click(await screen.findByRole('button', { name: '详情' }));
 
-    expect(await screen.findByText(/周报详情/)).toBeTruthy();
-    expect(await screen.findByText('本周核心工作')).toBeInTheDocument();
+    // 左栏文档式正文（查看/编辑一体）
+    expect(await screen.findByText('本周核心工作完成情况')).toBeInTheDocument();
+    expect(
+      await screen.findByText('项目：皇家积分切换完成对账'),
+    ).toBeInTheDocument();
+    // 右侧栏：事实 + 人工输入 + 操作 + 发布通道（统一布局，不再有独立编辑模式）
+    expect(screen.getByText('本周事实')).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText('粘贴企微智能总结…'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('生成 / 重新生成')).toBeInTheDocument();
+    // 商机明细默认折叠，展开「明细」后可见
+    fireEvent.click(screen.getByRole('button', { name: '明细' }));
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('粘贴企微智能总结…')).toBeNull();
   });
 
   it('guides manual sheet fill instead of auto-writing Yuque', () => {
     const source = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), 'index.tsx'),
+      join(dirname(fileURLToPath(import.meta.url)), 'ReportDrawer.tsx'),
       'utf8',
     );
-    expect(source).toMatch(/复制纪要链接/);
-    expect(source).toMatch(/标记已回填/);
+    expect(source).toMatch(/copyMinutesLink/);
+    expect(source).toMatch(/已回填/);
     expect(source).toMatch(/当前语雀 Token 写不进公司汇总表/);
   });
 });
