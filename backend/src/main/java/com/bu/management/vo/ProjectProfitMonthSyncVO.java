@@ -15,6 +15,8 @@ public class ProjectProfitMonthSyncVO {
     private String yearMonth;
     /** 该月已完结：工时/成本重拉被跳过，仅刷新利润镜像 */
     private Boolean monthClosed;
+    /** 该月镜像全零（工时系统未出报）：合计行为 0，报表已按预估口径展示，对齐差额仅供参考 */
+    private Boolean mirrorZero;
     /** worklog / cost / bl_profit 各步骤日志（含失败原因） */
     private List<WorktimeSyncLog> logs;
     /** 每条 managed 业务线的当月对齐结果 */

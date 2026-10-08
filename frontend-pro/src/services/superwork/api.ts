@@ -1116,6 +1116,8 @@ export interface ProjectProfitMonthSyncResult {
   yearMonth: string;
   /** 该月已完结：工时/成本未重拉，仅刷新利润镜像 */
   monthClosed: boolean;
+  /** 该月镜像全零（工时系统未出报）：合计行为 0，报表已按预估口径展示，对齐差额仅供参考 */
+  mirrorZero: boolean;
   logs: WorktimeSyncLog[];
   lines: ProjectProfitLineAlignment[];
 }

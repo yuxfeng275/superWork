@@ -120,14 +120,19 @@ public class ProjectProfitService {
                 categories == null ? Set.of() : Set.copyOf(categories),
                 projectIds == null ? Set.of() : Set.copyOf(projectIds));
 
-        // 在途月份：工时系统对未确认月份返回全零镜像行（同步日志可见 bl_profit success 但全 0）。
-        // 当月镜像全零时视为「未出报」：从月份轴剔除，改由预估块展示；月结同步出真实数据后自动覆盖
+        // 未出报月份：工时系统对未确认月份返回全零镜像行（同步日志可见 bl_profit success 但全 0）。
+        // 任意月份镜像全零（不限当月——已过去但工时系统尚未出报的月份同样命中，如锁定销售交付后
+        // 财报月报未确认的 9 月）都视为「未出报」：从正式月份轴剔除，改按预估块展示（项目行取 OA 合同
+        // 已交付），避免「合计全 0、项目行有数、差额巨额负数」的矛盾展示；工时系统出报并同步后镜像覆盖，预估块自动消失
         YearMonth current = YearMonth.now();
         String currentYm = current.format(MONTH_FMT);
-        if (year == current.getYear() && ds.availableMonths.contains(currentYm)
-                && mirrorAllZero(ds, currentYm)) {
+        List<String> unreportedMonths = ds.availableMonths.stream()
+                .filter(m -> mirrorAllZero(ds, m))
+                .toList();
+        if (!unreportedMonths.isEmpty()) {
+            Set<String> unreported = Set.copyOf(unreportedMonths);
             ds.availableMonths = ds.availableMonths.stream()
-                    .filter(m -> !m.equals(currentYm)).collect(Collectors.toList());
+                    .filter(m -> !unreported.contains(m)).collect(Collectors.toList());
         }
 
         ProjectProfitReportVO vo = new ProjectProfitReportVO();
@@ -160,45 +165,68 @@ public class ProjectProfitService {
                 blocks.add(buildMonthBlock(yearMonth, ds, filters));
             }
         }
-        // 在途月份（当月镜像未同步或全零占位）：追加预估块；月度完结同步后镜像覆盖，预估块自动消失
-        if (year == current.getYear() && requestedPeriods.isEmpty()) {
+        // 预估块：未出报月份（镜像全零，含当月及已过去月份、任意年份）+ 当月未同步 + 当年未来月份
+        // （有待交付合同）。与正式块按月份排序混排，月份轴补回这些月份保证筛选器可选；
+        // 工时系统出报并同步后镜像覆盖，预估块自动消失
+        if (requestedPeriods.isEmpty()) {
             List<String> axis = null;
-            if (!ds.availableMonths.contains(currentYm)
-                    && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
-                ProjectProfitReportVO.Block provisional = buildProvisionalBlock(currentYm, ds, filters);
-                if (provisional != null) {
-                    blocks.add(provisional);
-                    axis = new ArrayList<>(vo.getAvailableMonths());
-                    axis.add(currentYm);
+            List<String> provisionalMonths = new ArrayList<>();
+            for (String unreported : unreportedMonths) {
+                int monthValue = Integer.parseInt(unreported.substring(5));
+                if (months != null && !months.isEmpty() && !months.contains(monthValue)) {
+                    continue;
                 }
+                provisionalMonths.add(unreported);
             }
-            // 未来月份（当年未发生，含当月之后的月份）：有待交付合同的月份各生成一个预估块
-            for (int m = current.getMonthValue() + 1; m <= 12; m++) {
-                if (months != null && !months.isEmpty() && !months.contains(m)) {
-                    continue;
-                }
-                String yearMonth = String.format("%d-%02d", year, m);
-                if (ds.pendingByMonth.getOrDefault(yearMonth, List.of()).isEmpty()) {
-                    continue;
-                }
+            if (year == current.getYear() && !ds.availableMonths.contains(currentYm)
+                    && !provisionalMonths.contains(currentYm)
+                    && (months == null || months.isEmpty() || months.contains(current.getMonthValue()))) {
+                provisionalMonths.add(currentYm);
+            }
+            for (String yearMonth : provisionalMonths) {
                 ProjectProfitReportVO.Block provisional = buildProvisionalBlock(yearMonth, ds, filters);
                 if (provisional != null) {
                     blocks.add(provisional);
                     if (axis == null) {
                         axis = new ArrayList<>(vo.getAvailableMonths());
                     }
-                    axis.add(yearMonth);
+                    if (!axis.contains(yearMonth)) {
+                        axis.add(yearMonth);
+                    }
+                }
+            }
+            // 未来月份（当年未发生，含当月之后的月份）：有待交付合同的月份各生成一个预估块
+            if (year == current.getYear()) {
+                for (int m = current.getMonthValue() + 1; m <= 12; m++) {
+                    if (months != null && !months.isEmpty() && !months.contains(m)) {
+                        continue;
+                    }
+                    String yearMonth = String.format("%d-%02d", year, m);
+                    if (ds.pendingByMonth.getOrDefault(yearMonth, List.of()).isEmpty()) {
+                        continue;
+                    }
+                    ProjectProfitReportVO.Block provisional = buildProvisionalBlock(yearMonth, ds, filters);
+                    if (provisional != null) {
+                        blocks.add(provisional);
+                        if (axis == null) {
+                            axis = new ArrayList<>(vo.getAvailableMonths());
+                        }
+                        axis.add(yearMonth);
+                    }
                 }
             }
             if (axis != null) {
+                axis.sort(null);
                 vo.setAvailableMonths(axis);
             }
+            // 预估块可能落在正式块之前（如已过去的未出报月份），统一按月份键排序
+            blocks.sort(Comparator.comparing(ProjectProfitReportVO.Block::getKey));
         }
         vo.setBlocks(blocks);
         return vo;
     }
 
-    /** 当月镜像是否全零占位（工时系统未确认月份返回全零行）：所有 managed 线的全部指标均为 0/null */
+    /** 镜像是否全零占位（工时系统对未出报月份返回全零行）：所有 managed 线的全部指标均为 0/null */
     private boolean mirrorAllZero(Dataset ds, String yearMonth) {
         for (BusinessLine line : ds.managedLines) {
             MirrorAcc mirror = ds.mirror(yearMonth, line.getId());
@@ -235,7 +263,8 @@ public class ProjectProfitService {
         block.setProvisional(true);
         block.setProvisionalNote("预估：营收 = 当月已交付 + 已确认待交付合同（按服务结束月归月，逾期计入当月；"
                 + "含税转未税，软件产品 13%、其余 6%）；未确认待交付仅以「+xx 待确认」展示，不计入成本与利润；"
-                + "成本 = 近 3 个已完结月份均值（业务线级，含全部成本项）；月度完结同步后自动覆盖为真实数据");
+                + "成本 = 近 3 个已完结月份均值（业务线级，含全部成本项）；"
+                + "工时系统该月财报确认出报后，点「同步月度数据」即覆盖为真实数据");
 
         List<ProjectProfitReportVO.Line> lines = new ArrayList<>();
         for (BusinessLine line : ds.managedLines) {
@@ -586,6 +615,8 @@ public class ProjectProfitService {
         //    full 线（云鹿Saas/定制）跨线分配、共享一个差额：合并为一条对齐结果，按共享差额判定，
         //    避免单线互斥差额（分给 SAAS 项目导致定制出现相反差额）造成误报。
         Dataset ds = loadDataset(target.getYear());
+        // 工时系统未出报识别：镜像行存在但全零 → 合计行为 0，对齐差额仅供参考，提示先在工时系统确认出报
+        boolean mirrorZero = ds.availableMonths.contains(normalized) && mirrorAllZero(ds, normalized);
         ProjectProfitReportVO.Block block = buildMonthBlock(normalized, ds, Filters.NONE);
         List<ProjectProfitMonthSyncVO.LineAlignment> lines = new ArrayList<>();
         List<ProjectProfitReportVO.Line> fullLines = block.getLines().stream()
@@ -630,6 +661,7 @@ public class ProjectProfitService {
         ProjectProfitMonthSyncVO vo = new ProjectProfitMonthSyncVO();
         vo.setYearMonth(normalized);
         vo.setMonthClosed(monthClosed);
+        vo.setMirrorZero(mirrorZero);
         vo.setLogs(logs);
         vo.setLines(lines);
         return vo;

@@ -1215,6 +1215,14 @@ export default function ProjectProfitPage() {
             message="该月已完结，工时/成本未重拉，仅刷新了利润镜像"
           />
         )}
+        {syncResult?.mirrorZero && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="工时系统该月财报未出报（镜像全零）：报表已改按预估口径展示（项目行取 OA 合同已交付），下方对齐差额仅供参考；请在工时系统确认出报后重新同步"
+          />
+        )}
         {syncResult?.logs.some((log) => log.status === 'failed') && (
           <Alert
             type="warning"
