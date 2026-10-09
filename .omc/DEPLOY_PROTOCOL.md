@@ -168,3 +168,4 @@ V48+V50，backend UP、UI 200。V50 记录保留（master jar 无此文件但历
 | 2026-09-27 | 69912d1 | 项目利润表格零值弱化：0/空 显示浅灰短横，去掉满屏 0.00（抽屉仍显示精确元值） | omp agent |
 | 2026-09-27 | 7edec61 | 项目利润表头显式换行（平台佣金&／手续费、协力&／外包、考核／毛利率）+ 表体高度 ResizeObserver 自校正 | omp agent |
 | 2026-10-09 | 5b9f632 | 业务线利润表对齐项目利润：月份单元格合并，支持月度/H1/H2/全年；仅 frontend-pro dist | master agent |
+| 2026-10-09 | 757d8a9 | 五项界面：业务线名去掉「全域-全渠道-」；下线 KPI 周报（V102，V100 已被待交付确认占用）；工时&成本紧凑表；商机不常用操作收进更多；周报详情用顶部 Tab 分开周报与周会纪要。backend jar + frontend-pro dist，备份 deploy-backups/20261009-151159。入口 index.html no-cache，umi.7b2e5424.js | master agent |
