@@ -167,3 +167,4 @@ V48+V50，backend UP、UI 200。V50 记录保留（master jar 无此文件但历
 | 2026-09-27 | 9f0efc4 | 修复项目利润页无限拉取 project-profit 的请求循环（setFilterProjectIds 保持引用）；本地实测 254 次/15s → 2 次/20s | omp agent |
 | 2026-09-27 | 69912d1 | 项目利润表格零值弱化：0/空 显示浅灰短横，去掉满屏 0.00（抽屉仍显示精确元值） | omp agent |
 | 2026-09-27 | 7edec61 | 项目利润表头显式换行（平台佣金&／手续费、协力&／外包、考核／毛利率）+ 表体高度 ResizeObserver 自校正 | omp agent |
+| 2026-10-09 | 5b9f632 | 业务线利润表对齐项目利润：月份单元格合并，支持月度/H1/H2/全年；仅 frontend-pro dist | master agent |
