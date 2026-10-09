@@ -17,8 +17,8 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * KPI 周快照定时任务：每周日 18:00 生成当周快照并扫描预警；
- * 若存在待填写偏差备注且配置了企业微信通知人（kpi.notify-wecom-user），推送提醒。
+ * KPI 周快照定时任务：每周日 18:00 生成当周快照并扫描预警。
+ * KPI 周报页面已下线，提醒不再引导用户打开该页。
  */
 @Slf4j
 @Component
@@ -63,7 +63,7 @@ public class KpiWeeklyScheduler {
         }
         try {
             weComClient.pushText(notifyWeComUser,
-                    "【KPI周报】本周存在 " + pending + " 条环比异常待填写偏差备注，请及时到系统「KPI周报」页处理。");
+                    "【KPI】本周存在 " + pending + " 条环比异常。KPI 周报页面已下线，请通过数据核对处理。");
         } catch (RuntimeException ex) {
             log.warn("KPI 待办提醒推送失败: {}", ex.getMessage());
         }

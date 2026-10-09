@@ -105,7 +105,7 @@ const MODELS_PATH = '/system/models';
 /** 各系统的延伸动作入口；通用连接器没有跳转。 */
 const connectorLinks: Record<string, { label: string; path: string }> = {
   yunxiao: { label: '云效映射', path: '/statistics?tab=integration' },
-  worktime: { label: '工时同步', path: '/kpi-report?tab=worktime' },
+  worktime: { label: '工时同步', path: '/system/sync' },
   oa: { label: 'OA 待办', path: '/oa-affairs' },
   mail: { label: '邮箱账号', path: '/emails' },
 };

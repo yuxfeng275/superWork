@@ -113,22 +113,29 @@ describe('OpportunitiesPage smoke', () => {
     ]);
     mocks.getQuotationPolicies.mockResolvedValue([]);
     mocks.getQuotationPolicyItems.mockResolvedValue([]);
-    mocks.generateQuotation.mockResolvedValue({ id: 99, quotationNo: 'QT-NEW' });
+    mocks.generateQuotation.mockResolvedValue({
+      id: 99,
+      quotationNo: 'QT-NEW',
+    });
     mocks.createSalesOpportunitySupportWorklog.mockResolvedValue({ id: 4 });
   });
 
   it('renders opportunity actions including hours and quotation', async () => {
     render(<OpportunitiesPage />);
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /工时/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /报价/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    expect(
+      await screen.findByRole('menuitem', { name: /工时/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /报价/ })).toBeInTheDocument();
   });
 
   it('opens quotation wizard from opportunity actions with customer prefilled', async () => {
     render(<OpportunitiesPage />);
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /报价/ }));
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /报价/ }));
 
     const dialog = await screen.findByRole('dialog', { name: '新建报价单' });
     expect(within(dialog).getByText('选择报价策略')).toBeInTheDocument();
@@ -137,11 +144,19 @@ describe('OpportunitiesPage smoke', () => {
 
   it('disables hours logging on won opportunities', async () => {
     mocks.getSalesOpportunities.mockResolvedValue([
-      { ...opportunity, id: 13, name: '海普诺凯-数据中台', status: '已成交' as const },
+      {
+        ...opportunity,
+        id: 13,
+        name: '海普诺凯-数据中台',
+        status: '已成交' as const,
+      },
     ]);
     render(<OpportunitiesPage />);
     expect(await screen.findByText('海普诺凯-数据中台')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /工时/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /更多/ }));
+    expect(
+      await screen.findByRole('menuitem', { name: /工时/ }),
+    ).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('lists existing quotations in opportunity detail', async () => {

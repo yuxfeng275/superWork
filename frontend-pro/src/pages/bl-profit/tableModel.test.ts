@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BizLineProfitLineGroup, BizLineProfitRow } from '@/services/superwork/api';
-import { availableMonths, buildBlRows } from './tableModel';
+import { availableMonths, buildBlRows, displayLineName } from './tableModel';
 
 const row = (partial: Partial<BizLineProfitRow> & { yearMonth: string }): BizLineProfitRow => ({
   worktimeBusinessLineName: 'A',
@@ -91,6 +91,15 @@ const lines = (): BizLineProfitLineGroup[] => [
     2,
   ),
 ];
+
+describe('displayLineName', () => {
+  it('strips the org prefix and keeps the product name', () => {
+    expect(displayLineName('全域-全渠道-会员通')).toBe('会员通');
+    expect(displayLineName('全域-全渠道-全域云鹿Saas')).toBe('全域云鹿Saas');
+    expect(displayLineName('全域-全渠道-全域私域精准')).toBe('全域私域精准');
+    expect(displayLineName('全部业务线')).toBe('全部业务线');
+  });
+});
 
 describe('buildBlRows', () => {
   it('lists synced months in order', () => {

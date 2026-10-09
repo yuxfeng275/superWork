@@ -21,6 +21,7 @@ import {
   Space,
   Steps,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -36,14 +37,21 @@ import {
 import { fmtWan, rangeText, statusOf } from './shared';
 
 /** 正文段落定义：key 对应 WeeklyReportVO / 保存接口字段 */
-const SECTION_DEFS = [
+const REPORT_SECTIONS = [
   { key: 'coreWork', title: '本周核心工作完成情况', rows: 8, markdown: false },
   { key: 'kpiSection', title: 'KPI相关情况', rows: 6, markdown: false },
   { key: 'risks', title: '问题/风险与解决办法', rows: 5, markdown: false },
   { key: 'nextWeekPlan', title: '下周工作计划', rows: 5, markdown: false },
-  { key: 'minutesMarkdown', title: '周会纪要', rows: 12, markdown: true },
 ] as const;
+const MINUTES_SECTION = {
+  key: 'minutesMarkdown',
+  title: '周会纪要',
+  rows: 12,
+  markdown: true,
+} as const;
+const SECTION_DEFS = [...REPORT_SECTIONS, MINUTES_SECTION] as const;
 type SectionKey = (typeof SECTION_DEFS)[number]['key'];
+type ContentTab = 'report' | 'minutes';
 
 type Draft = Record<SectionKey, string>;
 
@@ -87,7 +95,7 @@ interface Props {
 
 /**
  * 周报详情双栏工作台（方案甲）：
- * 左栏 = 文档式正文（四段 + 纪要，查看/编辑一体，hover 段落出现编辑，保存即生效）；
+ * 左栏 = 文档式正文（顶部 Tab 分开「周报」四段与「周会纪要」，查看/编辑一体）；
  * 右栏 = 固定侧栏（事实采集 / 人工输入 / 操作 / 发布通道），不随左栏滚动。
  * 顶部 = 周期 + 状态步骤条（生成草稿 → 编辑确认 → 发布）。
  */
@@ -109,6 +117,7 @@ export default function ReportDrawer({
     manualNotes: '',
     generationPrompt: '',
   });
+  const [contentTab, setContentTab] = useState<ContentTab>('report');
   const [editingSection, setEditingSection] = useState<SectionKey | null>(null);
   const [sectionDraft, setSectionDraft] = useState('');
   const [savingSection, setSavingSection] = useState(false);
@@ -174,6 +183,7 @@ export default function ReportDrawer({
     setCurrent(null);
     setFacts(null);
     setFactsExpanded(false);
+    setContentTab('report');
     setEditingSection(null);
     setDetailLoading(true);
     setFactsLoading(true);
@@ -500,16 +510,43 @@ export default function ReportDrawer({
                   message={current.generationError}
                 />
               )}
-            {isGenerating ? (
-              <Card variant="borderless" className="sw-wr-generating">
-                <Skeleton active paragraph={{ rows: 8 }} />
-                <Typography.Text type="secondary">
-                  AI 正在基于本周事实生成草稿，约 30-60 秒，完成后自动刷新…
-                </Typography.Text>
-              </Card>
-            ) : (
-              SECTION_DEFS.map(renderSection)
-            )}
+            <Tabs
+              className="sw-wr-content-tabs"
+              activeKey={contentTab}
+              destroyOnHidden
+              onChange={(key) => {
+                setContentTab(key as ContentTab);
+                setEditingSection(null);
+              }}
+              items={[
+                {
+                  key: 'report',
+                  label: '周报',
+                  children: isGenerating ? (
+                    <Card variant="borderless" className="sw-wr-generating">
+                      <Skeleton active paragraph={{ rows: 8 }} />
+                      <Typography.Text type="secondary">
+                        AI 正在基于本周事实生成草稿，约 30-60
+                        秒，完成后自动刷新…
+                      </Typography.Text>
+                    </Card>
+                  ) : (
+                    REPORT_SECTIONS.map(renderSection)
+                  ),
+                },
+                {
+                  key: 'minutes',
+                  label: '周会纪要',
+                  children: isGenerating ? (
+                    <Card variant="borderless" className="sw-wr-generating">
+                      <Skeleton active paragraph={{ rows: 6 }} />
+                    </Card>
+                  ) : (
+                    renderSection(MINUTES_SECTION)
+                  ),
+                },
+              ]}
+            />
           </div>
 
           {/* 右栏：固定侧栏 */}

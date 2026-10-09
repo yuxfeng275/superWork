@@ -260,7 +260,6 @@ export default function WorkbenchPage() {
     { to: '/opportunities', label: '线索商机', icon: <RiseOutlined /> },
     { to: '/quotations', label: '报价单', icon: <FileTextOutlined /> },
     { to: '/statistics', label: 'BU 驾驶舱', icon: <DashboardOutlined /> },
-    { to: '/kpi-report', label: 'KPI 周报', icon: <DashboardOutlined /> },
   ];
   const greeting = initialState?.currentUser?.realName
     ? `${initialState.currentUser.realName}，今天先看这些。`

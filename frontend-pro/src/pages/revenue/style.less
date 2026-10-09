@@ -4,14 +4,24 @@
   }
 }
 
+.sw-revenue-matrix {
+  .sw-page-header {
+    margin-bottom: 8px;
+  }
+
+  .sw-matrix-stats {
+    margin-bottom: 8px;
+  }
+}
+
 /* 营收矩阵（工时 & 成本）：业务线 / 类型 / 项目合并单元格 + 按月双行数值 */
 .sw-revenue {
   .sw-matrix-filter {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 12px 16px;
-    margin-bottom: 14px;
+    gap: 8px 12px;
+    margin-bottom: 8px;
   }
 
   .sw-matrix-pills {
@@ -61,17 +71,17 @@
 
   .sw-matrix-overview {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 12px;
-    margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
   }
 
   .sw-matrix-overview-cell {
     display: grid;
-    gap: 4px;
-    padding: 12px 16px;
+    gap: 2px;
+    padding: 6px 10px;
     border: 1px solid #e8edf4;
-    border-radius: 12px;
+    border-radius: 10px;
     background: #fff;
 
     span {
@@ -81,7 +91,7 @@
 
     strong {
       color: #0f172a;
-      font-size: 22px;
+      font-size: 16px;
       font-weight: 650;
       line-height: 1.2;
     }
@@ -97,7 +107,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
 
   .sw-matrix-legend {
@@ -124,6 +134,36 @@
     &.estimate {
       border: 1px solid #93c5fd;
       background: #eff6ff;
+    }
+  }
+
+  .sw-matrix-table {
+    .ant-table {
+      font-size: 12px !important;
+    }
+
+    .ant-table-thead > tr > th {
+      padding: 2px 6px !important;
+      font-size: 12px !important;
+      line-height: 1.15;
+      white-space: normal;
+    }
+
+    .ant-table-tbody > tr > td {
+      padding: 0 6px !important;
+      line-height: 1.25;
+    }
+
+    .ant-typography {
+      line-height: 1.25;
+    }
+
+    .ant-table-tbody > tr > td[rowspan] {
+      vertical-align: middle;
+    }
+
+    .sw-matrix-hours {
+      font-size: 11px;
     }
   }
 

@@ -5,6 +5,15 @@ import type {
 
 export type BlViewMode = 'month' | 'H1' | 'H2' | 'YEAR';
 
+/** 工时系统业务线名的组织前缀。表格和筛选项只展示后面的具体名称，筛选值仍用原名。 */
+const LINE_NAME_PREFIX = '全域-全渠道-';
+
+export function displayLineName(name: string): string {
+  return name.startsWith(LINE_NAME_PREFIX)
+    ? name.slice(LINE_NAME_PREFIX.length)
+    : name;
+}
+
 /** 求和列。比率（毛利率/净利率/工时占比）不累加，聚合后按合计重算。 */
 const SUM_FIELDS = [
   'revenue',

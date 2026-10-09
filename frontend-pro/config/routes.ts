@@ -221,12 +221,6 @@ export default [
     component: './revenue',
   },
   {
-    path: '/kpi-report',
-    name: 'KPI 周报',
-    icon: 'lineChart',
-    component: './kpi-report',
-  },
-  {
     path: '/oa-affairs',
     name: 'OA 待办',
     icon: 'checkCircle',

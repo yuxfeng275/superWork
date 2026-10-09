@@ -21,7 +21,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
 import type {
   RevenueCell,
@@ -116,6 +116,8 @@ export default function RevenuePage() {
   const [showEstimates, setShowEstimates] = useState(true);
   const [filterLineIds, setFilterLineIds] = useState<number[]>([]);
   const [filterProjectIds, setFilterProjectIds] = useState<number[]>([]);
+  const matrixTableRef = useRef<HTMLDivElement>(null);
+  const [matrixBodyHeight, setMatrixBodyHeight] = useState(360);
   const [closeToggling, setCloseToggling] = useState('');
   const [cellOpen, setCellOpen] = useState(false);
   const [cellLoading, setCellLoading] = useState(false);
@@ -413,6 +415,40 @@ export default function RevenuePage() {
     }
     return result;
   }, [filteredMatrixLines, filteredMonthTotals, filteredGrandTotal]);
+  useEffect(() => {
+    if (activeTab !== 'matrix') return undefined;
+    const card = matrixTableRef.current;
+    const scroller =
+      (card?.closest('.ant-layout-content') as HTMLElement | null) ?? null;
+    const compute = () => {
+      const el = matrixTableRef.current;
+      if (!el) return;
+      const top = scroller
+        ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        : el.getBoundingClientRect().top;
+      const available = (scroller?.clientHeight ?? window.innerHeight) - top;
+      setMatrixBodyHeight(Math.max(220, Math.round(available - 48)));
+    };
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(scroller ?? document.body);
+    if (card) observer.observe(card);
+    window.addEventListener('resize', compute);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, [
+    activeTab,
+    loading,
+    matrix,
+    error,
+    filterLineIds,
+    filterProjectIds,
+    showEstimates,
+    displayMode,
+    flatMatrixRows.length,
+  ]);
   const projectOptionsOf = (lineIds: number[]) =>
     matrixLines
       .filter(
@@ -1048,7 +1084,9 @@ export default function RevenuePage() {
     };
   }, [cellDetail, drawerEstimates, drawerWorklogs, drawerCosts]);
   return (
-    <div className="sw-page sw-revenue">
+    <div
+      className={`sw-page sw-revenue${activeTab === 'matrix' ? ' sw-revenue-matrix' : ''}`}
+    >
       <div className="sw-page-header">
         <div>
           <Typography.Text className="sw-eyebrow">
@@ -1089,7 +1127,7 @@ export default function RevenuePage() {
         />
       )}
       {activeTab === 'matrix' && (
-      <Space wrap style={{ marginBottom: 14 }}>
+      <Space wrap className="sw-matrix-stats">
         <Card variant="borderless" size="small">
           <Statistic title="导入批次" value={importBatches.length} />
         </Card>
@@ -1221,22 +1259,24 @@ export default function RevenuePage() {
                       </span>
                     </div>
                     {flatMatrixRows.length ? (
-                      <Table
-                        size="small"
-                        bordered
-                        rowKey="key"
-                        columns={matrixCols}
-                        dataSource={flatMatrixRows}
-                        pagination={false}
-                        scroll={{ x: 1720 }}
-                        rowClassName={(record) =>
-                          record.kind === 'line_total'
-                            ? 'sw-matrix-line-total'
-                            : record.kind === 'grand_total'
-                              ? 'sw-matrix-grand-total'
-                              : ''
-                        }
-                      />
+                      <div ref={matrixTableRef} className="sw-matrix-table">
+                        <Table
+                          size="small"
+                          bordered
+                          rowKey="key"
+                          columns={matrixCols}
+                          dataSource={flatMatrixRows}
+                          pagination={false}
+                          scroll={{ x: 1720, y: matrixBodyHeight }}
+                          rowClassName={(record) =>
+                            record.kind === 'line_total'
+                              ? 'sw-matrix-line-total'
+                              : record.kind === 'grand_total'
+                                ? 'sw-matrix-grand-total'
+                                : ''
+                          }
+                        />
+                      </div>
                     ) : (
                       <Empty
                         image={Empty.PRESENTED_IMAGE_SIMPLE}

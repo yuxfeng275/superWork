@@ -59,8 +59,8 @@ public class WorktimeSyncNoticeSource {
     private AiNoticeService.Notice notice(LocalDate today, String detail) {
         return new AiNoticeService.Notice(KIND,
                 "工时系统同步异常",
-                "合同数据自动同步异常：" + detail + "。可在「KPI周报 → 数据同步」查看详情，或让 AI 助手查询同步状态。",
-                "/kpi-report",
+                "合同数据自动同步异常：" + detail + "。可在「系统管理 → 数据集成中心」查看详情，或让 AI 助手查询同步状态。",
+                "/system/sync",
                 today,
                 false);
     }

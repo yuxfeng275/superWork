@@ -181,6 +181,14 @@ describe('WeeklyReportPage overview', () => {
     // 商机明细默认折叠，展开「明细」后可见
     fireEvent.click(screen.getByRole('button', { name: '明细' }));
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
+    expect(
+      screen.queryByText(/电商业务BU周会会议纪要/),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: '周会纪要' }));
+    expect(
+      await screen.findByText(/电商业务BU周会会议纪要/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('本周核心工作完成情况')).not.toBeInTheDocument();
   });
 
   it('guides manual sheet fill instead of auto-writing Yuque', () => {

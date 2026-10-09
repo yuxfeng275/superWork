@@ -621,7 +621,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState }) => {
       [
         "/statistics",
         "/revenue",
-        "/kpi-report",
         "/bl-profit",
         "/project-profit",
         "/system/users",

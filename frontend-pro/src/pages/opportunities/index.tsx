@@ -4,6 +4,7 @@ import {
   EyeOutlined,
   FieldTimeOutlined,
   FileTextOutlined,
+  MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   UserAddOutlined,
@@ -20,6 +21,7 @@ import {
   Descriptions,
   Divider,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
@@ -27,7 +29,6 @@ import {
   List,
   Modal,
   message,
-  Popconfirm,
   Progress,
   Radio,
   Row,
@@ -681,9 +682,9 @@ export default function OpportunitiesPage() {
           {
             title: '操作',
             key: 'action',
-            width: 360,
+            width: 196,
             render: (_: unknown, row: SalesOpportunity) => (
-              <Space size={0} wrap>
+              <Space size={0}>
                 <Button
                   type="link"
                   icon={<EyeOutlined />}
@@ -698,39 +699,54 @@ export default function OpportunitiesPage() {
                 >
                   跟进
                 </Button>
-                <Button
-                  type="link"
-                  icon={<FieldTimeOutlined />}
-                  disabled={!canLogHours(row)}
-                  onClick={() => void openWorklog(row)}
+                <Dropdown
+                  trigger={['click']}
+                  placement="bottomRight"
+                  menu={{
+                    items: [
+                      {
+                        key: 'worklog',
+                        icon: <FieldTimeOutlined />,
+                        label: '工时',
+                        disabled: !canLogHours(row),
+                      },
+                      {
+                        key: 'quote',
+                        icon: <FileTextOutlined />,
+                        label: '报价',
+                      },
+                      {
+                        key: 'edit',
+                        icon: <EditOutlined />,
+                        label: '编辑',
+                      },
+                      {
+                        key: 'delete',
+                        icon: <DeleteOutlined />,
+                        label: '删除',
+                        danger: true,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (key === 'worklog') void openWorklog(row);
+                      if (key === 'quote') openQuote(row);
+                      if (key === 'edit') openEdit(row);
+                      if (key === 'delete') {
+                        Modal.confirm({
+                          title: `删除「${row.name}」吗？`,
+                          okText: '删除',
+                          cancelText: '取消',
+                          okButtonProps: { danger: true },
+                          onOk: () => remove(row),
+                        });
+                      }
+                    },
+                  }}
                 >
-                  工时
-                </Button>
-                <Button
-                  type="link"
-                  icon={<FileTextOutlined />}
-                  onClick={() => openQuote(row)}
-                >
-                  报价
-                </Button>
-                <Button
-                  type="link"
-                  icon={<EditOutlined />}
-                  onClick={() => openEdit(row)}
-                >
-                  编辑
-                </Button>
-                <Popconfirm
-                  title={`删除「${row.name}」吗？`}
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={() => void remove(row)}
-                >
-                  <Button type="link" danger icon={<DeleteOutlined />}>
-                    删除
+                  <Button type="link" icon={<MoreOutlined />}>
+                    更多
                   </Button>
-                </Popconfirm>
+                </Dropdown>
               </Space>
             ),
           },

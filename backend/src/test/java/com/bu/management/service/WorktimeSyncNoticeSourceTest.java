@@ -55,7 +55,7 @@ class WorktimeSyncNoticeSourceTest {
 
         assertThat(notice).isNotNull();
         assertThat(notice.kind()).isEqualTo("WORKTIME_SYNC_FAILED");
-        assertThat(notice.link()).isEqualTo("/kpi-report");
+        assertThat(notice.link()).isEqualTo("/system/sync");
     }
 
     @Test

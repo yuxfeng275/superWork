@@ -34,6 +34,7 @@ import {
   type BlMetrics,
   type BlViewMode,
   buildBlRows,
+  displayLineName,
 } from './tableModel';
 
 const currentYear = new Date().getFullYear();
@@ -204,9 +205,15 @@ export default function BlProfitPage() {
     },
     {
       title: '业务线',
-      width: 108,
-      ellipsis: true,
-      render: (_, record) => record.lineName,
+      width: 128,
+      render: (_, record) => {
+        const label = displayLineName(record.lineName);
+        return label === record.lineName ? (
+          label
+        ) : (
+          <span title={record.lineName}>{label}</span>
+        );
+      },
     },
     metricColumn('营业收入', 'revenue', 72, formatWan),
     metricColumn('短信成本', 'smsCost', 52, formatWan),
@@ -336,6 +343,7 @@ export default function BlProfitPage() {
                   className={
                     filterLineNames.includes(line.businessLineName) ? 'is-active' : ''
                   }
+                  title={line.businessLineName}
                   onClick={() =>
                     setFilterLineNames((current) =>
                       current.includes(line.businessLineName)
@@ -344,7 +352,7 @@ export default function BlProfitPage() {
                     )
                   }
                 >
-                  {line.businessLineName}
+                  {displayLineName(line.businessLineName)}
                 </button>
               ))}
             </div>

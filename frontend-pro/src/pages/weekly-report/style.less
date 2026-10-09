@@ -34,12 +34,29 @@
   background: #f7f8fa;
 }
 
-/* 左栏：文档式正文 */
+/* 左栏：文档式正文。周报与周会纪要用顶部 Tab 分开，Tab 贴在滚动区顶部。 */
 .sw-wr-main {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 20px 28px 48px;
+  padding: 0 0 32px;
+
+  > .ant-alert {
+    margin: 12px 28px 0;
+  }
+}
+.sw-wr-content-tabs {
+  .ant-tabs-nav {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0;
+    padding: 8px 28px 0;
+    background: #f7f8fa;
+  }
+  .ant-tabs-content-holder {
+    padding: 16px 28px 0;
+  }
 }
 .sw-wr-generating { max-width: 720px; margin: 24px auto; }
 
