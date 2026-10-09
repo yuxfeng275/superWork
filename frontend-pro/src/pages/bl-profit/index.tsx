@@ -1,4 +1,8 @@
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  DownloadOutlined,
+  InfoCircleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import type { TableProps } from 'antd';
 import {
   Alert,
@@ -6,60 +10,92 @@ import {
   Card,
   Empty,
   message,
+  Segmented,
   Select,
   Space,
+  Spin,
   Table,
+  Tooltip,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
 import {
   type BizLineProfitReport,
-  type BizLineProfitRow,
   superworkApi,
   type WorktimeSyncLog,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
+import {
+  availableMonths,
+  type BlFlatRow,
+  type BlMetrics,
+  type BlViewMode,
+  buildBlRows,
+} from './tableModel';
 
 const currentYear = new Date().getFullYear();
 const yearOptions = [currentYear - 1, currentYear, currentYear + 1].map(
   (value) => ({ label: `${value}年`, value }),
 );
 
-type ProfitRow = BizLineProfitRow & { lineName: string; isYtd: boolean };
-
 const formatWan = (value?: number | null) => {
   if (value == null) return '—';
-  const num = Number(value) / 10000;
-  if (num === 0) return '—';
-  return (Math.round(num * 100) / 100).toLocaleString('zh-CN');
+  const wan = Math.round((Number(value) / 10000) * 100) / 100;
+  return wan.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 };
 const formatRate = (value?: number | null) =>
   value == null ? '—' : `${Number(value).toFixed(1)}%`;
 const formatHours = (value?: number | null) => {
   if (value == null) return '—';
-  const num = Number(value);
-  if (num === 0) return '—';
-  return String(Math.round(num * 100) / 100);
+  return (Math.round(Number(value) * 100) / 100).toFixed(2);
 };
-const isNegative = (value?: number | null) =>
-  value != null && Number(value) < 0;
-const num =
-  (render: (value?: number | null) => string) => (value: number | null) => (
-    <Typography.Text type={isNegative(value) ? 'danger' : undefined}>
-      {render(value)}
-    </Typography.Text>
-  );
+const isNegative = (value?: number | null) => value != null && Number(value) < 0;
+/** 0 与空统一为灰色短横；仅真实数字着色 */
+const cellNum =
+  (render: (value?: number | null) => string) => (value: number | null) =>
+    value == null || Number(value) === 0 ? (
+      <Typography.Text className="sw-bl-profit-zero">-</Typography.Text>
+    ) : (
+      <Typography.Text type={isNegative(value) ? 'danger' : undefined}>
+        {render(value)}
+      </Typography.Text>
+    );
+
+const headerBreaks = (first: string, second: string) => (
+  <>
+    {first}
+    <br />
+    {second}
+  </>
+);
+
+type MetricField = keyof BlMetrics;
+
+const PERIOD_EMPTY: Record<BlViewMode, string> = {
+  month: '所选月份暂无已同步数据',
+  H1: '上半年暂无已同步数据',
+  H2: '下半年暂无已同步数据',
+  YEAR: '本年暂无已同步数据',
+};
 
 export default function BlProfitPage() {
   const [year, setYear] = useState(currentYear);
+  const [viewMode, setViewMode] = useState<BlViewMode>('month');
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [report, setReport] = useState<BizLineProfitReport>();
   const [syncLogs, setSyncLogs] = useState<WorktimeSyncLog[]>([]);
   const [filterLineNames, setFilterLineNames] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const tableCardRef = useRef<HTMLDivElement>(null);
+  const [tableBodyHeight, setTableBodyHeight] = useState(320);
 
   const loadReport = useCallback(async (targetYear: number) => {
     setLoading(true);
@@ -68,9 +104,7 @@ export default function BlProfitPage() {
       const result = await superworkApi.getBlProfitReport(targetYear);
       setReport(result);
       const valid = new Set(result.lines.map((line) => line.businessLineName));
-      setFilterLineNames((current) =>
-        current.filter((name) => valid.has(name)),
-      );
+      setFilterLineNames((current) => current.filter((name) => valid.has(name)));
     } catch (e) {
       setError(e instanceof Error ? e.message : '业务线利润报表加载失败');
     } finally {
@@ -89,18 +123,17 @@ export default function BlProfitPage() {
     void loadSyncLogs();
   }, [loadReport, loadSyncLogs, year]);
 
-  // 手动同步：整年逐月从工时系统拉取（整月覆盖），完成后刷新报表
   const syncFromWorktime = async () => {
     setSyncing(true);
     try {
       const logs = await superworkApi.syncBlProfit({ year });
       const success = logs.filter((log) => log.status === 'success').length;
       const failed = logs.filter((log) => log.status === 'failed');
-      if (failed.length > 0)
+      if (failed.length > 0) {
         message.warning(
           `同步完成：${success} 个月成功，${failed.length} 个月失败（${failed[0].scope}: ${failed[0].message ?? ''}）`,
         );
-      else message.success(`同步完成：${success} 个月份已更新`);
+      } else message.success(`同步完成：${success} 个月份已更新`);
       await Promise.all([loadReport(year), loadSyncLogs()]);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '同步失败');
@@ -109,101 +142,142 @@ export default function BlProfitPage() {
     }
   };
 
-  const filteredLines = useMemo(() => {
-    if (!report) return [];
-    if (!filterLineNames.length) return report.lines;
-    return report.lines.filter((line) =>
-      filterLineNames.includes(line.businessLineName),
-    );
-  }, [filterLineNames, report]);
+  const months = useMemo(
+    () => (report ? availableMonths(report.lines) : []),
+    [report],
+  );
+  const dataSource = useMemo(
+    () =>
+      report
+        ? buildBlRows({
+            lines: report.lines,
+            viewMode,
+            selectedMonths,
+            filterLineNames,
+          })
+        : [],
+    [filterLineNames, report, selectedMonths, viewMode],
+  );
   const latestSyncLog = syncLogs[0];
 
-  const dataSource = useMemo<ProfitRow[]>(
-    () =>
-      filteredLines.flatMap((line) => [
-        ...line.months.map((month) => ({
-          ...month,
-          lineName: line.businessLineName,
-          isYtd: false,
-        })),
-        { ...line.ytd, lineName: line.businessLineName, isYtd: true },
-      ]),
-    [filteredLines],
-  );
+  useEffect(() => {
+    const card = tableCardRef.current;
+    const scroller = (card?.closest('.ant-layout-content') as HTMLElement | null) ?? null;
+    const compute = () => {
+      if (!tableCardRef.current) return;
+      const el = tableCardRef.current;
+      const top = scroller
+        ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+        : el.getBoundingClientRect().top;
+      const available = (scroller?.clientHeight ?? window.innerHeight) - top;
+      setTableBodyHeight(Math.max(220, Math.round(available - 78)));
+    };
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(scroller ?? document.body);
+    if (card) observer.observe(card);
+    window.addEventListener('resize', compute);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', compute);
+    };
+  }, [report, viewMode, error, filterLineNames, selectedMonths, dataSource.length]);
 
-  const columns: TableProps<ProfitRow>['columns'] = [
-    { title: '业务线', dataIndex: 'lineName', className: 'col-line' },
+  const metricColumn = (
+    title: ReactNode,
+    field: MetricField,
+    width: number,
+    render: (value?: number | null) => string,
+  ) => ({
+    title,
+    width,
+    align: 'right' as const,
+    render: (_: unknown, record: BlFlatRow) => cellNum(render)(record.metrics[field]),
+  });
+
+  const columns: TableProps<BlFlatRow>['columns'] = [
     {
-      title: '月',
-      dataIndex: 'yearMonth',
-      width: 100,
-      render: (value, row) => (row.isYtd ? 'YTD' : value || '—'),
+      title: '月份',
+      width: 44,
+      onCell: (record) => ({ rowSpan: record.spans.period }),
+      render: (_, record) => record.periodLabel,
     },
     {
-      title: '营业收入(万)',
-      dataIndex: 'revenue',
-      align: 'right',
-      render: num(formatWan),
+      title: '业务线',
+      width: 108,
+      ellipsis: true,
+      render: (_, record) => record.lineName,
     },
-    {
-      title: '考核毛利(万)',
-      dataIndex: 'grossProfit',
-      align: 'right',
-      render: num(formatWan),
-    },
-    {
-      title: '考核毛利率',
-      dataIndex: 'grossProfitRate',
-      align: 'right',
-      render: num(formatRate),
-    },
-    {
-      title: '净利润(万)',
-      dataIndex: 'netProfit',
-      align: 'right',
-      render: num(formatWan),
-    },
-    {
-      title: '净利率',
-      dataIndex: 'netProfitRate',
-      align: 'right',
-      render: num(formatRate),
-    },
-    {
-      title: '工时(人月)',
-      dataIndex: 'totalHours',
-      align: 'right',
-      render: num(formatHours),
-    },
+    metricColumn('营业收入', 'revenue', 72, formatWan),
+    metricColumn('短信成本', 'smsCost', 52, formatWan),
+    metricColumn('直接成本', 'directCost', 56, formatWan),
+    metricColumn(headerBreaks('平台佣金&', '手续费'), 'platformFee', 58, formatWan),
+    metricColumn('赔付', 'compensation', 44, formatWan),
+    metricColumn(headerBreaks('协力&', '外包'), 'outsourcing', 60, formatWan),
+    metricColumn('软件赠送', 'softwareGift', 52, formatWan),
+    metricColumn('工时', 'totalHours', 60, formatHours),
+    metricColumn(headerBreaks('工时', '占比(%)'), 'hoursRatio', 52, formatRate),
+    metricColumn('费用1', 'expense1', 52, formatWan),
+    metricColumn(headerBreaks('人工', '成本1'), 'laborCost1', 52, formatWan),
+    metricColumn('考核毛利', 'grossProfit', 64, formatWan),
+    metricColumn(headerBreaks('考核', '毛利率(%)'), 'grossProfitRate', 68, formatRate),
+    metricColumn('净利润', 'netProfit', 64, formatWan),
+    metricColumn(headerBreaks('净利率', '(%)'), 'netProfitRate', 52, formatRate),
   ];
+  const tableWidth = columns.reduce((sum, column) => sum + Number(column?.width ?? 0), 0);
 
   return (
     <div className="sw-page sw-bl-profit">
-      <div className="sw-page-header">
+      <div className="sw-page-header sw-bl-profit-header">
         <div>
-          <Typography.Text className="sw-eyebrow">FINANCE</Typography.Text>
-          <Typography.Title level={2}>业务线利润</Typography.Title>
-          <Typography.Paragraph type="secondary">
-            业务线 × 月
-            真实营收与利润，数据源自工时系统业务线利润报表；每业务线各月合计即
-            YTD。
-          </Typography.Paragraph>
-          <SyncCutoff domains={['contract', 'worklog', 'cost']} />
+          <Space align="baseline" size={8} wrap={false}>
+            <span className="sw-eyebrow">FINANCE</span>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              业务线利润
+            </Typography.Title>
+            <Tooltip
+              title={
+                <span>
+                  期间 × 业务线。月度按月展开，同一月份的业务线与「全部业务线」合计合并月份单元格；
+                  H1 为 1–6 月、H2 为 7–12 月、全年为 1–12 月，金额与工时跨月求和，毛利率、净利率按合计重算。
+                  工时占比的分母是公司全部业务线工时。金额单位：万，工时：人月。
+                  数据源自工时系统业务线利润报表。
+                </span>
+              }
+            >
+              <InfoCircleOutlined className="sw-bl-profit-info" />
+            </Tooltip>
+          </Space>
         </div>
-        <Space>
+        <SyncCutoff domains={['contract', 'worklog', 'cost']} />
+        <Space wrap size={8}>
           <Select
             aria-label="选择年份"
-            style={{ width: 130 }}
+            size="small"
+            style={{ width: 92 }}
             value={year}
             options={yearOptions}
             onChange={(value) => setYear(value)}
           />
+          <Segmented<BlViewMode>
+            size="small"
+            value={viewMode}
+            onChange={(value) => setViewMode(value)}
+            options={[
+              { label: '月度', value: 'month' },
+              { label: 'H1', value: 'H1' },
+              { label: 'H2', value: 'H2' },
+              { label: '全年', value: 'YEAR' },
+            ]}
+          />
           <Button
+            size="small"
             icon={<ReloadOutlined />}
             aria-label="刷新"
             onClick={() => void loadReport(year)}
           />
           <Button
+            size="small"
             type="primary"
             icon={<DownloadOutlined />}
             loading={syncing}
@@ -213,6 +287,7 @@ export default function BlProfitPage() {
           </Button>
         </Space>
       </div>
+
       {latestSyncLog && (
         <Typography.Paragraph
           type={latestSyncLog.status === 'failed' ? 'danger' : 'secondary'}
@@ -233,6 +308,7 @@ export default function BlProfitPage() {
           showIcon
           message="业务线利润报表加载失败"
           description={error}
+          style={{ marginBottom: 8 }}
           action={
             <Button size="small" onClick={() => void loadReport(year)}>
               重试
@@ -240,78 +316,108 @@ export default function BlProfitPage() {
           }
         />
       )}
-      {report && report.lines.length > 0 ? (
+
+      {report && months.length > 0 && (
         <>
-          <div className="sw-bl-profit-pills">
-            <button
-              type="button"
-              className={!filterLineNames.length ? 'is-active' : ''}
-              onClick={() => setFilterLineNames([])}
-            >
-              全部业务线
-            </button>
-            {report.lines.map((line) => (
+          <div className="sw-bl-profit-filter-row">
+            <span className="sw-bl-profit-filter-label">业务线</span>
+            <div className="sw-bl-profit-pills">
               <button
                 type="button"
-                key={line.businessLineName}
-                className={
-                  filterLineNames.includes(line.businessLineName)
-                    ? 'is-active'
-                    : ''
-                }
-                onClick={() =>
-                  setFilterLineNames((current) =>
-                    current.includes(line.businessLineName)
-                      ? current.filter((name) => name !== line.businessLineName)
-                      : [...current, line.businessLineName],
-                  )
-                }
+                className={!filterLineNames.length ? 'is-active' : ''}
+                onClick={() => setFilterLineNames([])}
               >
-                {line.businessLineName}
+                全部业务线
               </button>
-            ))}
+              {report.lines.map((line) => (
+                <button
+                  type="button"
+                  key={line.businessLineName}
+                  className={
+                    filterLineNames.includes(line.businessLineName) ? 'is-active' : ''
+                  }
+                  onClick={() =>
+                    setFilterLineNames((current) =>
+                      current.includes(line.businessLineName)
+                        ? current.filter((name) => name !== line.businessLineName)
+                        : [...current, line.businessLineName],
+                    )
+                  }
+                >
+                  {line.businessLineName}
+                </button>
+              ))}
+            </div>
           </div>
-          <Card variant="borderless" className="sw-table-card">
-            <Table<ProfitRow>
-              rowKey={(row) => `${row.lineName}-${row.yearMonth ?? 'total'}`}
+          {viewMode === 'month' && (
+            <div className="sw-bl-profit-filter-row">
+              <span className="sw-bl-profit-filter-label">月份</span>
+              <div className="sw-bl-profit-pills">
+                <button
+                  type="button"
+                  className={selectedMonths.length === 0 ? 'is-active' : ''}
+                  onClick={() => setSelectedMonths([])}
+                >
+                  全部月份
+                </button>
+                {months.map((yearMonth) => {
+                  const month = Number(yearMonth.slice(5));
+                  return (
+                    <button
+                      type="button"
+                      key={yearMonth}
+                      className={selectedMonths.includes(month) ? 'is-active' : ''}
+                      onClick={() =>
+                        setSelectedMonths((current) =>
+                          current.includes(month)
+                            ? current.filter((value) => value !== month)
+                            : [...current, month],
+                        )
+                      }
+                    >
+                      {month}月
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {report && report.lines.length > 0 ? (
+        dataSource.length > 0 ? (
+          <Card
+            variant="borderless"
+            className="sw-table-card"
+            ref={tableCardRef}
+            styles={{ body: { padding: 12 } }}
+          >
+            <Table<BlFlatRow>
+              rowKey={(row) => row.key}
               loading={loading}
               columns={columns}
               dataSource={dataSource}
               pagination={false}
-              scroll={{ x: 1000 }}
-              rowClassName={(row) => (row.isYtd ? 'sw-bl-profit-ytd-row' : '')}
-              summary={() => {
-                const total = report.totalYtd;
-                return (
-                  <Table.Summary.Row className="sw-bl-profit-total-row">
-                    <Table.Summary.Cell index={0}>合计</Table.Summary.Cell>
-                    <Table.Summary.Cell index={1}>YTD</Table.Summary.Cell>
-                    <Table.Summary.Cell index={2} align="right">
-                      {num(formatWan)(total.revenue)}
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={3} align="right">
-                      {num(formatWan)(total.grossProfit)}
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={4} align="right">
-                      {num(formatRate)(total.grossProfitRate)}
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={5} align="right">
-                      {num(formatWan)(total.netProfit)}
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">
-                      {num(formatRate)(total.netProfitRate)}
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} align="right">
-                      {num(formatHours)(total.totalHours)}
-                    </Table.Summary.Cell>
-                  </Table.Summary.Row>
-                );
-              }}
+              scroll={{ x: tableWidth, y: tableBodyHeight }}
+              size="small"
+              rowClassName={(row) => (row.summary ? 'sw-bl-profit-summary-row' : '')}
             />
           </Card>
-        </>
+        ) : (
+          !loading && (
+            <Card variant="borderless">
+              <Empty description={PERIOD_EMPTY[viewMode]} />
+            </Card>
+          )
+        )
+      ) : loading ? (
+        <Card variant="borderless">
+          <div style={{ padding: 48, textAlign: 'center' }}>
+            <Spin />
+          </div>
+        </Card>
       ) : (
-        !loading &&
         !error && (
           <Card variant="borderless">
             <Empty description="暂无数据，点击右上角「同步工时系统」拉取业务线利润报表" />
