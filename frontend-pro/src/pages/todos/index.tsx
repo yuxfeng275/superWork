@@ -73,9 +73,13 @@ export default function TodosPage() {
   };
 
   const currentUserId = Number(initialState?.currentUser?.id);
+  const viewingAll =
+    initialState?.currentUser?.username === "admin" && !viewingOthers;
   const title = viewingOthers
     ? `${userToken || "该同事"}的待办`
-    : "待办";
+    : viewingAll
+      ? "全部待办"
+      : "待办";
 
   return (
     <div className="sw-page sw-todos">
@@ -86,7 +90,9 @@ export default function TodosPage() {
           <Typography.Paragraph type="secondary">
             {viewingOthers
               ? "来自周进展 / 周会中的 @ 提及。"
-              : "周进展和周会里被 @ 到的事项会汇到这里，处理后可标记完成。"}
+              : viewingAll
+                ? "管理员可以查看所有人在周进展和周会里被 @ 到的事项。"
+                : "周进展和周会里被 @ 到的事项会汇到这里，处理后可标记完成。"}
           </Typography.Paragraph>
         </div>
         <Space>
@@ -110,7 +116,13 @@ export default function TodosPage() {
           locale={{
             emptyText: (
               <Empty
-                description={viewingOthers ? "该同事暂无待办" : "暂无被 @ 的待办"}
+                description={
+                  viewingOthers
+                    ? "该同事暂无待办"
+                    : viewingAll
+                      ? "暂无待办"
+                      : "暂无被 @ 的待办"
+                }
               />
             ),
           }}
@@ -127,6 +139,16 @@ export default function TodosPage() {
                 </Space>
               ),
             },
+            ...(viewingAll
+              ? [
+                  {
+                    title: "负责人",
+                    dataIndex: "mentionToken",
+                    width: 120,
+                    render: (value: string) => value || "—",
+                  },
+                ]
+              : []),
             {
               title: "状态",
               dataIndex: "status",

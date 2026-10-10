@@ -6,12 +6,15 @@ const mocks = vi.hoisted(() => ({
   completeTodo: vi.fn(),
   push: vi.fn(),
   search: "",
+  username: "lisi",
 }));
 
 vi.mock("@umijs/max", () => ({
   history: { push: mocks.push },
   useLocation: () => ({ search: mocks.search }),
-  useModel: () => ({ initialState: { currentUser: { id: 8 } } }),
+  useModel: () => ({
+    initialState: { currentUser: { id: 8, username: mocks.username } },
+  }),
 }));
 
 vi.mock("@/services/superwork/api", () => ({
@@ -27,6 +30,7 @@ describe("TodosPage smoke", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.search = "";
+    mocks.username = "lisi";
     mocks.getTodos.mockResolvedValue([
       {
         id: 9,
@@ -57,5 +61,24 @@ describe("TodosPage smoke", () => {
         user: undefined,
       })
     );
+  });
+
+  it("shows every assignee when the viewer is admin", async () => {
+    mocks.username = "admin";
+    mocks.getTodos.mockResolvedValue([
+      {
+        id: 12,
+        assigneeId: 3,
+        mentionToken: "王五",
+        title: "姜涛 在「会员通」中提到了你",
+        excerpt: "请 @王五 核对账单",
+        status: "OPEN",
+        createdAt: "2026-09-18T02:00:00",
+      },
+    ]);
+    render(<TodosPage />);
+    expect(await screen.findByText("全部待办")).toBeTruthy();
+    expect(screen.getByText("王五")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /完成/ })).toBeNull();
   });
 });

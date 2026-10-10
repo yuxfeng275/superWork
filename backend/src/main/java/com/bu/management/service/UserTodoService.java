@@ -79,6 +79,21 @@ public class UserTodoService {
         return listForAssignee(userId, status);
     }
 
+    /** 平台管理员账号可以看到全部待办，其他人只看指派给自己的。 */
+    public boolean canViewAll(Long userId) {
+        User user = userId == null ? null : userMapper.selectById(userId);
+        return user != null && "admin".equals(user.getUsername());
+    }
+
+    public List<UserTodo> listAll(String status) {
+        LambdaQueryWrapper<UserTodo> query = new LambdaQueryWrapper<UserTodo>()
+                .orderByDesc(UserTodo::getCreatedAt);
+        if (StringUtils.hasText(status)) {
+            query.eq(UserTodo::getStatus, status);
+        }
+        return todoMapper.selectList(query);
+    }
+
     public List<UserTodo> listForAssignee(Long assigneeId, String status) {
         LambdaQueryWrapper<UserTodo> query = new LambdaQueryWrapper<UserTodo>()
                 .eq(UserTodo::getAssigneeId, assigneeId)

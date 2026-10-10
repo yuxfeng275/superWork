@@ -93,6 +93,16 @@ class UserTodoServiceTest {
     }
 
     @Test
+    void adminAccountCanViewEveryTodo() {
+        when(userMapper.selectById(1L)).thenReturn(user(1L, "admin", "管理员"));
+        when(userMapper.selectById(8L)).thenReturn(user(8L, "lisi", "李四"));
+
+        assertThat(service.canViewAll(1L)).isTrue();
+        assertThat(service.canViewAll(8L)).isFalse();
+        assertThat(service.canViewAll(null)).isFalse();
+    }
+
+    @Test
     void completeMarksTodoDoneForOwner() {
         UserTodo todo = new UserTodo();
         todo.setId(9L);

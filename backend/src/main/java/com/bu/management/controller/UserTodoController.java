@@ -35,6 +35,9 @@ public class UserTodoController {
             }
             assigneeId = matched.getId();
         }
+        if (assigneeId == null && userTodoService.canViewAll(userId)) {
+            return Result.success(userTodoService.listAll(status));
+        }
         if (assigneeId == null) {
             assigneeId = userId;
         }
