@@ -188,6 +188,17 @@ describe('WeeklyReportPage overview', () => {
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith('项目：皇家积分切换完成对账'),
     );
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: /^复制$/ })[1]);
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith('copy'));
     // 商机明细默认折叠，展开「明细」后可见
     fireEvent.click(screen.getByRole('button', { name: '明细' }));
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();

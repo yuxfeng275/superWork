@@ -300,18 +300,40 @@ export default function ReportDrawer({
     }
   };
 
+  const copyText = async (text: string, success: string) => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        message.success(success);
+        return;
+      }
+    } catch {
+      // HTTP 页面没有剪贴板接口，改走选区复制。
+    }
+    try {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(area);
+      if (!ok) throw new Error('copy failed');
+      message.success(success);
+    } catch {
+      message.error('复制失败');
+    }
+  };
+
   const copySection = async (body?: string) => {
     const text = body?.trim();
     if (!text) {
       message.warning('暂无内容');
       return;
     }
-    try {
-      await navigator.clipboard.writeText(text);
-      message.success('已复制');
-    } catch {
-      message.error('复制失败');
-    }
+    await copyText(text, '已复制');
   };
 
   const copyReport = async () => {
@@ -328,8 +350,7 @@ export default function ReportDrawer({
       message.warning('周报内容为空');
       return;
     }
-    await navigator.clipboard.writeText(text);
-    message.success('周报全文已复制');
+    await copyText(text, '周报全文已复制');
   };
 
   const publishYuque = async () => {
@@ -350,8 +371,7 @@ export default function ReportDrawer({
       message.warning('请先发布语雀纪要');
       return;
     }
-    await navigator.clipboard.writeText(url);
-    message.success('纪要链接已复制');
+    await copyText(url, '纪要链接已复制');
   };
   const markSheet = () => {
     if (!current) return;
