@@ -2,6 +2,8 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.config.EmailIntegrationRuntimeConfig;
+import com.bu.management.entity.BizLineProfitReport;
+import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Connector;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.SalesOpportunity;
@@ -10,6 +12,8 @@ import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DeepSeekDigestClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
+import com.bu.management.mapper.BizLineProfitReportMapper;
+import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -30,7 +34,9 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -56,6 +62,8 @@ public class WeeklyReportService {
     private final WeComClient weComClient;
     private final BuKeyMatterService keyMatterService;
     private final RevenueContractEntryMapper contractEntryMapper;
+    private final BizLineProfitReportMapper profitReportMapper;
+    private final BusinessLineMapper businessLineMapper;
     private final SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     private final SalesOpportunityMapper salesOpportunityMapper;
     private final SystemConfigService configService;
@@ -194,10 +202,10 @@ public class WeeklyReportService {
             BuKeyMatterWeeklyUpdateView update = matter.getCurrentWeekUpdate() != null
                     ? matter.getCurrentWeekUpdate() : matter.getLatestUpdate();
             if (update != null) {
-                row.put("progressSummary", clip(update.getProgressSummary(), 80));
-                row.put("issues", clip(update.getIssues(), 60));
-                row.put("nextWeekPlan", clip(update.getNextWeekPlan(), 60));
-                row.put("supportNeeded", clip(update.getSupportNeeded(), 40));
+                row.put("progressSummary", clip(update.getProgressSummary(), 200));
+                row.put("issues", clip(update.getIssues(), 160));
+                row.put("nextWeekPlan", clip(update.getNextWeekPlan(), 160));
+                row.put("supportNeeded", clip(update.getSupportNeeded(), 120));
             }
             return row;
         }).toList();
@@ -237,8 +245,8 @@ public class WeeklyReportService {
             row.put("follower", item.getFollower());
             row.put("status", item.getStatus());
             row.put("probability", item.getProbability());
-            row.put("content", clip(item.getContent(), 80));
-            row.put("nextFollowUp", clip(item.getNextFollowUp(), 40));
+            row.put("content", clip(item.getContent(), 200));
+            row.put("nextFollowUp", clip(item.getNextFollowUp(), 120));
             row.put("followUpAt", item.getFollowUpAt() != null ? item.getFollowUpAt().toString() : null);
             return row;
         }).toList();
@@ -318,7 +326,7 @@ public class WeeklyReportService {
             validateResult(result);
 
             report.setCoreWork(result.path("coreWork").asText());
-            report.setKpiSection(result.path("kpiSection").asText());
+            report.setKpiSection(buildKpiSection(weekStart));
             report.setRisks(result.path("risks").asText());
             report.setNextWeekPlan(result.path("nextWeekPlan").asText());
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
@@ -338,14 +346,53 @@ public class WeeklyReportService {
         }
     }
 
+    /**
+     * KPI 由业务线利润表计算，生成后覆盖模型输出。
+     * 只保留启用且配置了 kpi_report_group 的业务线，口径与业务线利润页一致。
+     */
+    String buildKpiSection(LocalDate weekStart) {
+        try {
+            Set<Long> managed = businessLineMapper.selectList(
+                            new LambdaQueryWrapper<BusinessLine>()
+                                    .eq(BusinessLine::getStatus, 1)
+                                    .isNotNull(BusinessLine::getKpiReportGroup))
+                    .stream()
+                    .map(BusinessLine::getId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            YearMonth month = YearMonth.from(weekStart);
+            List<String> months = new ArrayList<>();
+            for (int i = 0; i <= 3; i++) {
+                months.add(month.minusMonths(i).toString());
+            }
+            List<BizLineProfitReport> rows = profitReportMapper.selectList(
+                    new LambdaQueryWrapper<BizLineProfitReport>()
+                            .in(BizLineProfitReport::getYearMonth, months));
+            if (rows == null) {
+                rows = List.of();
+            }
+            if (!managed.isEmpty()) {
+                rows = rows.stream()
+                        .filter(row -> row.getBusinessLineId() != null && managed.contains(row.getBusinessLineId()))
+                        .toList();
+            }
+            return WeeklyReportKpiBuilder.render(weekStart, LocalDate.now(), rows);
+        } catch (Exception e) {
+            log.warn("周报 KPI 计算失败 weekStart={}: {}", weekStart, e.getMessage());
+            return "当月毛利暂无法计算：" + e.getMessage();
+        }
+    }
+
     private String buildUserInput(WeeklyReport report, String factsJson) {
         StringBuilder sb = new StringBuilder();
         sb.append("== 自动采集事实 ==\n").append(factsJson).append("\n\n");
         if (StringUtils.hasText(report.getWecomSummary())) {
-            sb.append("== 企微智能总结 ==\n").append(report.getWecomSummary()).append("\n\n");
+            sb.append("== 企微智能总结（必用，不得忽略） ==\n")
+                    .append(report.getWecomSummary()).append("\n\n");
         }
         if (StringUtils.hasText(report.getManualNotes())) {
-            sb.append("== 人为补充信息 ==\n").append(report.getManualNotes()).append("\n\n");
+            sb.append("== 人为补充信息（必用，不得忽略） ==\n")
+                    .append(report.getManualNotes()).append("\n\n");
         }
         if (StringUtils.hasText(report.getGenerationPrompt())) {
             sb.append("== 生成指引（用户提示词，优先遵循其侧重点要求） ==\n")
@@ -368,7 +415,7 @@ public class WeeklyReportService {
         }
     }
 
-    /** 生成前提炼：大事儿 highlights + 本周商机跟进（最多 4 条）。 */
+    /** 生成前提炼：大事儿 highlights 最多 12 条，本周商机跟进最多 8 条。 */
     public Map<String, Object> distillFactsForGeneration(Map<String, Object> facts) {
         Map<String, Object> distilled = new LinkedHashMap<>(facts);
         Object raw = facts.get("keyMatters");
@@ -382,7 +429,7 @@ public class WeeklyReportService {
                     })
                     .filter(this::isHighlightMatter)
                     .sorted((a, b) -> Integer.compare(highlightScore(b), highlightScore(a)))
-                    .limit(6)
+                    .limit(12)
                     .toList();
             distilled.put("keyMatters", ranked);
             distilled.put("omittedMatterCount", Math.max(0, list.size() - ranked.size()));
@@ -397,12 +444,12 @@ public class WeeklyReportService {
                         return row;
                     })
                     .filter(this::isHighlightOpportunity)
-                    .limit(4)
+                    .limit(8)
                     .toList();
             distilled.put("opportunities", rankedOpps);
             distilled.put("omittedOpportunityCount", Math.max(0, opportunityList.size() - rankedOpps.size()));
         }
-        distilled.put("instruction", "只写 highlights，不要复述被省略的事项或商机");
+        distilled.put("instruction", "自动事实只保留重点。企微智能总结和人为补充不受 omitted 计数限制，必须采纳");
         return distilled;
     }
 
@@ -457,28 +504,27 @@ public class WeeklyReportService {
         return compact.length() <= max ? compact : compact.substring(0, max);
     }
 
-    /** 生成提示词：只提炼管理层该看的重点，不是工作流水账。 */
+    /** 生成提示词：企微和人为补充必须写入，篇幅按事项展开；KPI 数字由系统覆盖。 */
     public String generationSystemPrompt() {
-        return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，不是工作流水账。只提炼本周真正变化的重点。\n"
-                + "\n== 取舍 ==\n"
-                + "1. 只写：本周有结果、有风险/阻塞、需协调、商机阶段变化、或下周必须拍板的事项。\n"
-                + "2. 不写：日常推进、无状态变化、排班、内部技术细节、被省略的事项。\n"
-                + "3. 事实里 omittedMatterCount / omittedOpportunityCount 表示已丢弃的日常项，禁止补回去。\n"
-                + "4. opportunities 是本周商机跟进，必须纳入 coreWork 或风险/下周计划，不要只写大事儿。\n"
+        return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，保留本周有信息量的进展，不要写成只有几条口号的简报。\n"
+                + "\n== 材料 ==\n"
+                + "1. 企微智能总结、人为补充信息是必用材料。里面的进展、结论、风险、待决策和下周动作都要写进周报或纪要，不得因为自动事实做了省略就丢掉。\n"
+                + "2. 自动采集事实补充大事儿和商机。opportunities 必须纳入 coreWork 或风险/下周计划。\n"
+                + "3. 不写纯寒暄、排班、无变化的日常项。omitted 计数只约束自动事实，不约束企微和人为补充。\n"
                 + "\n== 周报 ==\n"
-                + "四段纯文本，禁止 Markdown。coreWork 分两行标题：项目： / 产品：；有商机跟进时再加 商机：。\n"
-                + "coreWork 全篇最多 5 条；项目优先皇家/标品，产品优先云鹿/AI，商机写客户+阶段变化。\n"
-                + "每条一行：「- 事项：结果或卡点。下一步+日期」，不超过 28 字。\n"
-                + "KPI 只写财务两个数：本月新增合同、本月交付口径（万元）；其它维度无数字就省略。\n"
-                + "风险最多 2 条；下周计划最多 3 条。四段合计不超过 450 字。\n"
+                + "四段纯文本，禁止 Markdown。coreWork 用标题行「项目：」「产品：」，有商机再加「商机：」。\n"
+                + "每个标题下按事项列点，覆盖本周主要项目和产品，最多 12 条。\n"
+                + "每条一行：「- 事项：结果或卡点。下一步+日期」，写清负责人和关键数字，不超过 80 字。\n"
+                + "kpiSection 固定写「系统计算」，不要自拟财务数字，系统会用业务线利润覆盖这一段。\n"
+                + "风险最多 5 条；下周计划最多 6 条，写清时间和交付物。\n"
                 + "\n== 纪要 ==\n"
                 + "首行：# 电商业务BU周会会议纪要\n"
                 + "次行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日\n"
-                + "只保留与周报同一批重点，按项目/产品分组，无内容不建章节。每组最多 2 条，每条不超过 28 字。\n"
-                + "末尾 ## 下周重点工作计划，HTML <table> 三列：序号、工作项、预计时间，最多 3 行。\n"
-                + "纪要正文不超过 600 字。\n"
+                + "按项目/产品分组，覆盖与周报相同的重点，无内容不建章节。每组最多 4 条，每条不超过 80 字。\n"
+                + "末尾 ## 下周重点工作计划，HTML <table> 三列：序号、工作项、预计时间，最多 6 行。\n"
+                + "纪要正文不超过 1500 字。\n"
                 + "\n== 输出 ==\n"
-                + "严格 JSON：{\"coreWork\":\"...\",\"kpiSection\":\"...\",\"risks\":\"...\",\"nextWeekPlan\":\"...\",\"minutesMarkdown\":\"...\"}";
+                + "严格 JSON：{\"coreWork\":\"...\",\"kpiSection\":\"系统计算\",\"risks\":\"...\",\"nextWeekPlan\":\"...\",\"minutesMarkdown\":\"...\"}";
     }
 
     // ==================== 发布：语雀 ====================

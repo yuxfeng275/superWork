@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WeeklyReportVO } from '@/services/superwork/api';
 
@@ -177,6 +177,17 @@ describe('WeeklyReportPage overview', () => {
       screen.getByPlaceholderText('粘贴企微智能总结…'),
     ).toBeInTheDocument();
     expect(screen.getByText('生成 / 重新生成')).toBeInTheDocument();
+    const copyButtons = screen.getAllByRole('button', { name: /^复制$/ });
+    expect(copyButtons).toHaveLength(4);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    fireEvent.click(copyButtons[0]);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('项目：皇家积分切换完成对账'),
+    );
     // 商机明细默认折叠，展开「明细」后可见
     fireEvent.click(screen.getByRole('button', { name: '明细' }));
     expect(await screen.findByText('飞鹤-SCRM系统采购')).toBeInTheDocument();
@@ -188,6 +199,7 @@ describe('WeeklyReportPage overview', () => {
       await screen.findByText(/电商业务BU周会会议纪要/),
     ).toBeInTheDocument();
     expect(screen.queryByText('本周核心工作完成情况')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^复制$/ })).not.toBeInTheDocument();
   });
 
   it('guides manual sheet fill instead of auto-writing Yuque', () => {

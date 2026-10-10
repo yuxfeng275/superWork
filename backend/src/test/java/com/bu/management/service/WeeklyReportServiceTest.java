@@ -8,14 +8,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.entity.BizLineProfitReport;
+import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.YuqueMcpClient;
+import com.bu.management.mapper.BizLineProfitReportMapper;
+import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.mapper.WeeklyReportMapper;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,6 +39,8 @@ class WeeklyReportServiceTest {
     @Mock private SystemConfigService configService;
     @Mock private BuKeyMatterService keyMatterService;
     @Mock private RevenueContractEntryMapper contractEntryMapper;
+    @Mock private BizLineProfitReportMapper profitReportMapper;
+    @Mock private BusinessLineMapper businessLineMapper;
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
 
@@ -52,15 +59,47 @@ class WeeklyReportServiceTest {
     }
 
     @Test
-    void generationPromptAsksForHighlightsNotCatalog() {
+    void generationPromptRequiresWecomAndKeepsDetail() {
         String prompt = service.generationSystemPrompt();
-        assertThat(prompt).contains("不是工作流水账");
-        assertThat(prompt).contains("全篇最多 5 条");
-        assertThat(prompt).contains("600 字");
+        assertThat(prompt).contains("企微智能总结");
+        assertThat(prompt).contains("人为补充");
+        assertThat(prompt).contains("最多 12 条");
+        assertThat(prompt).contains("1500 字");
+        assertThat(prompt).contains("系统计算");
+        assertThat(prompt).doesNotContain("全篇最多 5 条");
         assertThat(prompt).doesNotContain("千人千面");
         assertThat(prompt).doesNotContain("各最多 4 条");
         assertThat(prompt).contains("商机");
         assertThat(prompt).contains("opportunities");
+    }
+
+    @Test
+    void kpiSectionUsesManagedBusinessLinesOnly() {
+        BusinessLine line = new BusinessLine();
+        line.setId(9L);
+        line.setStatus(1);
+        line.setKpiReportGroup("会员通");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+
+        BizLineProfitReport current = new BizLineProfitReport();
+        current.setBusinessLineId(9L);
+        current.setYearMonth("2026-10");
+        current.setWorktimeBusinessLineName("全域-全渠道-会员通");
+        current.setRevenue(new BigDecimal("100000"));
+        current.setGrossProfit(BigDecimal.ZERO);
+        BizLineProfitReport ignored = new BizLineProfitReport();
+        ignored.setBusinessLineId(3L);
+        ignored.setYearMonth("2026-10");
+        ignored.setWorktimeBusinessLineName("其他公司线");
+        ignored.setRevenue(new BigDecimal("999999"));
+        ignored.setGrossProfit(BigDecimal.ZERO);
+        when(profitReportMapper.selectList(any())).thenReturn(List.of(current, ignored));
+
+        String text = service.buildKpiSection(LocalDate.of(2026, 10, 5));
+
+        assertThat(text).contains("会员通：营收 10.00 万，毛利 10.00 万");
+        assertThat(text).doesNotContain("其他公司线");
+        assertThat(text).doesNotContain("全域-全渠道-");
     }
 
     @Test

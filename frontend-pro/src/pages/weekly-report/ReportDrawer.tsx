@@ -300,6 +300,20 @@ export default function ReportDrawer({
     }
   };
 
+  const copySection = async (body?: string) => {
+    const text = body?.trim();
+    if (!text) {
+      message.warning('暂无内容');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success('已复制');
+    } catch {
+      message.error('复制失败');
+    }
+  };
+
   const copyReport = async () => {
     const text = [
       ['本周核心工作完成情况', current?.coreWork],
@@ -391,15 +405,31 @@ export default function ReportDrawer({
           ) : (
             <h3>{def.title}</h3>
           )}
-          {!editing && editable && !isGenerating && (
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              className="sw-wr-section-edit"
-              onClick={() => startEditSection(def.key)}
-            />
-          )}
+          <span className="sw-wr-section-actions">
+            {!def.markdown && !editing && !isGenerating && (
+              <Button
+                type="text"
+                size="small"
+                aria-label="复制"
+                icon={<CopyOutlined />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void copySection(draft[def.key]);
+                }}
+              >
+                复制
+              </Button>
+            )}
+            {!editing && editable && !isGenerating && (
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                className="sw-wr-section-edit"
+                onClick={() => startEditSection(def.key)}
+              />
+            )}
+          </span>
         </header>
         {editing ? (
           <>
