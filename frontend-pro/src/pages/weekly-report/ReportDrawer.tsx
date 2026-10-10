@@ -27,13 +27,13 @@ import {
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SimpleMarkdown } from '@/components/SimpleMarkdown';
 import {
   superworkApi,
   type WeeklyReportFacts,
   type WeeklyReportGenerationModel,
   type WeeklyReportVO,
 } from '@/services/superwork/api';
+import { MinutesBody, ReportBody } from './contentView';
 import { fmtWan, rangeText, statusOf } from './shared';
 
 /** 正文段落定义：key 对应 WeeklyReportVO / 保存接口字段 */
@@ -383,10 +383,14 @@ export default function ReportDrawer({
     return (
       <section
         key={def.key}
-        className={`sw-wr-section${editing ? ' editing' : ''}`}
+        className={`sw-wr-section${def.markdown ? ' sw-wr-minutes' : ''}${editing ? ' editing' : ''}`}
       >
         <header>
-          <h3>{def.title}</h3>
+          {def.markdown ? (
+            <span className="sw-wr-kicker">周会纪要</span>
+          ) : (
+            <h3>{def.title}</h3>
+          )}
           {!editing && editable && !isGenerating && (
             <Button
               type="text"
@@ -424,14 +428,25 @@ export default function ReportDrawer({
             className="sw-wr-section-body"
             onClick={() => startEditSection(def.key)}
           >
-            <SimpleMarkdown
-              value={draft[def.key]}
-              empty={
-                <Typography.Text type="secondary">
-                  {editable ? '暂无内容，点击编辑' : '暂无内容'}
-                </Typography.Text>
-              }
-            />
+            {def.markdown ? (
+              <MinutesBody
+                value={draft[def.key]}
+                empty={
+                  <Typography.Text type="secondary">
+                    {editable ? '暂无内容，点击编辑' : '暂无内容'}
+                  </Typography.Text>
+                }
+              />
+            ) : (
+              <ReportBody
+                value={draft[def.key]}
+                empty={
+                  <Typography.Text type="secondary">
+                    {editable ? '暂无内容，点击编辑' : '暂无内容'}
+                  </Typography.Text>
+                }
+              />
+            )}
           </div>
         )}
       </section>

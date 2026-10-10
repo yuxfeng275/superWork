@@ -169,9 +169,8 @@ describe('WeeklyReportPage overview', () => {
 
     // 左栏文档式正文（查看/编辑一体）
     expect(await screen.findByText('本周核心工作完成情况')).toBeInTheDocument();
-    expect(
-      await screen.findByText('项目：皇家积分切换完成对账'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('项目：')).toBeInTheDocument();
+    expect(screen.getByText('皇家积分切换完成对账')).toBeInTheDocument();
     // 右侧栏：事实 + 人工输入 + 操作 + 发布通道（统一布局，不再有独立编辑模式）
     expect(screen.getByText('本周事实')).toBeInTheDocument();
     expect(
