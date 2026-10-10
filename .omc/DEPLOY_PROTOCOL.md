@@ -172,3 +172,4 @@ V48+V50，backend UP、UI 200。V50 记录保留（master jar 无此文件但历
 | 2026-10-10 | 8031f7a | 周报详情：Tab 与正文拉开间距；周报按项目/产品分组，纪要标题、章节和计划表按文档排开。仅 frontend-pro dist。备份 deploy-backups/20261010-030318，umi.150da87b.js | master agent |
 | 2026-10-10 | 9e2f4b3 | 周报生成把企微智能总结和人为补充作为必用材料并放宽篇幅；KPI 按当月营收与近 3 个月月均考核成本计算截止目前毛利，按业务线输出；周报四张卡片可复制。backend jar + frontend-pro dist。备份 deploy-backups/20261010-123255，umi.0d1edde1.js | master agent |
 | 2026-10-10 | 610476d | 周报复制在 HTTP 入口改用选区复制（卡片、全文、纪要链接）。仅 frontend-pro dist，backend jar 仍为 9e2f4b3。umi.43bfd743.js | master agent |
+| 2026-10-10 | 2e6dfb5 | admin 打开待办页查看全部 @ 待办并显示负责人。backend jar + frontend-pro dist。备份 deploy-backups/20261010-135222，umi.462c27c7.js | master agent |
