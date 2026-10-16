@@ -33,6 +33,7 @@ import {
   type WeeklyReportGenerationModel,
   type WeeklyReportVO,
 } from '@/services/superwork/api';
+import { copyTextToClipboard } from '@/utils/clipboard';
 import { MinutesBody, ReportBody } from './contentView';
 import { fmtWan, rangeText, statusOf } from './shared';
 
@@ -301,30 +302,9 @@ export default function ReportDrawer({
   };
 
   const copyText = async (text: string, success: string) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        message.success(success);
-        return;
-      }
-    } catch {
-      // HTTP 页面没有剪贴板接口，改走选区复制。
-    }
-    try {
-      const area = document.createElement('textarea');
-      area.value = text;
-      area.setAttribute('readonly', '');
-      area.style.position = 'fixed';
-      area.style.left = '-9999px';
-      document.body.appendChild(area);
-      area.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(area);
-      if (!ok) throw new Error('copy failed');
-      message.success(success);
-    } catch {
-      message.error('复制失败');
-    }
+    const ok = await copyTextToClipboard(text);
+    if (ok) message.success(success);
+    else message.error('复制失败');
   };
 
   const copySection = async (body?: string) => {
