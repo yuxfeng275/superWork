@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 /**
  * 项目利润手动分配（月 × 目标 × 列，金额单位：元、工时单位：人月，允许负数作调整项）。
  * 目标：target_type=project（full 线根项目 / aggregate 项目集 / simple 单行，后两者 project_id=0）、
- * sales（销售行，project_id=0）、line_other（full 线「业务线」行，project_id=0）。
+ * sales（销售行，project_id=0）、line_other（full 线「其他事项」行，project_id=0）。
  * 列（cost_type）：revenue/sms/direct/platform_fee/compensation/outsourcing/software_gift/hours/cost，
  * 差额所有项均可分配，差额归零后前端自动隐藏差额行。
  */

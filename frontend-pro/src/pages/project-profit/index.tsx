@@ -1,9 +1,11 @@
 import {
-  DownloadOutlined,
+  CloudSyncOutlined,
+  FileExcelOutlined,
   InfoCircleOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
+import { history } from '@umijs/max';
 import type { TableProps } from 'antd';
 import {
   Alert,
@@ -15,7 +17,6 @@ import {
   Input,
   InputNumber,
   message,
-  Modal,
   Segmented,
   Select,
   Space,
@@ -25,7 +26,6 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import dayjs from 'dayjs';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SyncCutoff from '@/components/SyncCutoff';
@@ -35,7 +35,6 @@ import {
   type ProjectProfitBlock,
   type ProjectProfitDetail,
   type ProjectProfitLine,
-  type ProjectProfitMonthSyncResult,
   type ProjectProfitReason,
   type ProjectProfitReport,
   type ProjectProfitRow,
@@ -71,7 +70,7 @@ type CostKey = AllocField['key'];
 /** 差额明细下钻 Tab：营收明细 / 工时成本明细 / 分配记录 */
 type DetailTab = 'revenue' | 'labor' | 'alloc';
 
-/** 分配目标：项目行/项目集/精准单行（project）、销售行（sales）、业务线行（line_other） */
+/** 分配目标：项目行/项目集/精准单行（project）、销售行（sales）、其他事项行（line_other） */
 interface AllocTarget {
   businessLineId: number;
   businessLineName: string;
@@ -85,7 +84,7 @@ interface AllocTarget {
 const targetKey = (target: AllocTarget) =>
   `${target.businessLineId}:${target.targetType}:${target.projectId}`;
 
-/** 单线的可分配目标 = 当前显示的项目行 + 销售行（销售/业务线） */
+/** 单线的可分配目标 = 当前显示的项目行 + 销售行（销售/其他事项） */
 const lineTargets = (line: ProjectProfitLine): AllocTarget[] =>
   line.rows
     .filter(
@@ -122,18 +121,12 @@ const targetsOfDomain = (block: ProjectProfitBlock, line: ProjectProfitLine): Al
 const firstFullLineOf = (block: ProjectProfitBlock) =>
   block.lines.find((l) => l.revenueMode === 'full') ?? block.lines[0];
 
-const SYNC_TYPE_LABELS: Record<string, string> = {
-  worklog: '工时明细',
-  cost: '成本分析（含销售工时）',
-  bl_profit: '业务线利润镜像',
-  contract: '合同明细',
-};
 
 /** 分配记录里的目标类型 → 展示名 */
 const TARGET_TYPE_LABELS: Record<string, string> = {
   project: '项目',
   sales: '销售',
-  line_other: '业务线',
+  line_other: '其他事项',
 };
 
 /** 合并单元格跨度：仅组内首行有值（= 组内行数），其余行为 0 表示被上行吞并 */
@@ -177,35 +170,40 @@ const compactSharedName = (lines: ProjectProfitLine[]) => {
   return i === 0 ? `${a}+${b}` : `${a.slice(0, i)}（${a.slice(i)}+${b.slice(i)}）`;
 };
 
-/** full 线共享行 = 各 full 线指定行（差额/合计）逐列求和，毛利率重算。
- *  差额合并为一条（跨线分配对消），同时保留各线镜像合计行 + 末尾「全渠道合计」；
- *  域内恒有 Σ明细行 + 共享差额 = 全渠道合计 = 各线合计之和，分配后立即可对平 */
-const sumLineRows = (
-  lines: ProjectProfitLine[],
-  pick: 'total' | 'residual',
+const blankMoneyRow = (
+  rowType: ProjectProfitRow['rowType'],
+  category: string | null,
+  projectName: string,
+): ProjectProfitRow => ({
+  rowType,
+  category,
+  projectId: null,
+  projectName,
+  editable: false,
+  revenue: 0,
+  smsCost: 0,
+  directCost: 0,
+  platformFee: 0,
+  compensation: 0,
+  outsourcing: 0,
+  softwareGift: 0,
+  hours: 0,
+  cost: 0,
+  grossProfit: 0,
+  grossProfitRate: null,
+});
+
+/** 若干行逐列相加，毛利率按合计重算。 */
+const sumMoneyRows = (
+  rows: ProjectProfitRow[],
+  rowType: ProjectProfitRow['rowType'],
+  category: string | null,
   projectName: string,
 ): ProjectProfitRow => {
-  const base: ProjectProfitRow = {
-    rowType: pick === 'total' ? 'TOTAL' : 'RESIDUAL',
-    category: pick === 'total' ? null : '差额',
-    projectId: null,
-    projectName,
-    editable: false,
-    revenue: 0,
-    smsCost: 0,
-    directCost: 0,
-    platformFee: 0,
-    compensation: 0,
-    outsourcing: 0,
-    softwareGift: 0,
-    hours: 0,
-    cost: 0,
-    grossProfit: 0,
-    grossProfitRate: null,
-  };
-  lines.forEach((line) =>
+  const base = blankMoneyRow(rowType, category, projectName);
+  rows.forEach((row) =>
     RESIDUAL_NUM_FIELDS.forEach((field) => {
-      base[field] = Number(base[field] ?? 0) + Number(line[pick][field] ?? 0);
+      base[field] = Number(base[field] ?? 0) + Number(row[field] ?? 0);
     }),
   );
   base.grossProfitRate =
@@ -214,6 +212,21 @@ const sumLineRows = (
       : null;
   return base;
 };
+
+/** full 线（云鹿定制/SaaS）合计 = 本线明细之和。跨线分配记在分到的线上，差额不进各线合计。 */
+const lineDisplayTotal = (line: ProjectProfitLine): ProjectProfitRow =>
+  line.revenueMode === 'full'
+    ? sumMoneyRows(line.rows, 'TOTAL', null, '合计')
+    : line.total;
+
+/** full 线共享差额 = 各线差额逐列求和（跨线分配对消），毛利率重算。 */
+const sumResidualRows = (lines: ProjectProfitLine[], projectName: string): ProjectProfitRow =>
+  sumMoneyRows(
+    lines.map((line) => line.residual),
+    'RESIDUAL',
+    '差额',
+    projectName,
+  );
 
 /** 连续相同取值的分组跨度（依赖行序：块 → 业务线 → 行） */
 const spanCounts = <T,>(list: T[], keyOf: (item: T) => string) => {
@@ -251,13 +264,6 @@ const formatYuan = (value?: number | null) =>
         maximumFractionDigits: 2,
       });
 const isNegative = (value?: number | null) => value != null && Number(value) < 0;
-/** 抽屉/同步结果等需要精确数字的地方：0 也显示 0.00 */
-const num =
-  (render: (value?: number | null) => string) => (value: number | null) => (
-    <Typography.Text type={isNegative(value) ? 'danger' : undefined}>
-      {render(value)}
-    </Typography.Text>
-  );
 /** 表格单元格：0 与空统一弱化为灰色短横，避免整屏 0.00 干扰读数；仅真实数字着色 */
 const cellNum =
   (render: (value?: number | null) => string) => (value: number | null) =>
@@ -308,17 +314,6 @@ const ReasonAlerts = ({ reasons }: { reasons?: ProjectProfitReason[] | null }) =
     </Space>
   ) : null;
 
-/** 同步目标月选项：选中年的 YYYY-01..12 且不大于当前自然月，降序 */
-const syncMonthOptions = (year: number) => {
-  const currentMonth = dayjs().format('YYYY-MM');
-  const options: { label: string; value: string }[] = [];
-  for (let m = 12; m >= 1; m -= 1) {
-    const value = `${year}-${String(m).padStart(2, '0')}`;
-    if (value <= currentMonth) options.push({ label: `${m}月`, value });
-  }
-  return options;
-};
-
 /** 长表头显式换行：避免浏览器在字间断成「平台佣金&手续 / 费」这类难看断点 */
 const headerBreaks = (first: string, second: string) => (
   <>
@@ -338,13 +333,8 @@ export default function ProjectProfitPage() {
   const [report, setReport] = useState<ProjectProfitReport>();
   const [syncLogs, setSyncLogs] = useState<WorktimeSyncLog[]>([]);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncingYear, setSyncingYear] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
-  const [syncTargetMonth, setSyncTargetMonth] = useState(() =>
-    dayjs().subtract(1, 'month').format('YYYY-MM'),
-  );
-  const [syncResult, setSyncResult] = useState<ProjectProfitMonthSyncResult>();
   // 待交付确认抽屉
   const [pendingOpen, setPendingOpen] = useState(false);
   const [drawer, setDrawer] = useState<{
@@ -428,14 +418,6 @@ export default function ProjectProfitPage() {
     void loadSyncLogs();
   }, [loadSyncLogs]);
 
-  // 同步目标月默认上月；切换年份后若当前值不在可选范围则取第一个
-  const monthOptions = useMemo(() => syncMonthOptions(year), [year]);
-  useEffect(() => {
-    if (!monthOptions.some((option) => option.value === syncTargetMonth)) {
-      setSyncTargetMonth(monthOptions[0]?.value ?? '');
-    }
-  }, [monthOptions, syncTargetMonth]);
-
   // 表格可视高度：随 视图/筛选/错误提示/数据 变化重算，保证页面不出现外层滚动、表头常驻
   useEffect(() => {
     const card = tableCardRef.current;
@@ -461,45 +443,6 @@ export default function ProjectProfitPage() {
       window.removeEventListener('resize', compute);
     };
   }, [report, viewMode, error, filterLineIds, filterCategories, filterProjectIds, selectedMonths]);
-
-  // 月度一键同步（决策4）：完成后弹结果 Modal，关闭后刷新报表与日志
-  const syncMonth = async () => {
-    if (!syncTargetMonth) return;
-    setSyncing(true);
-    try {
-      const result = await superworkApi.syncProjectProfitMonth(syncTargetMonth);
-      setSyncResult(result);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '同步失败');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const closeSyncResult = () => {
-    setSyncResult(undefined);
-    void Promise.all([loadReport(year), loadSyncLogs()]);
-  };
-
-  // 整年回填（次要按钮，行为与业务线利润页一致）
-  const syncWholeYear = async () => {
-    setSyncingYear(true);
-    try {
-      const logs = await superworkApi.syncProjectProfit({ year });
-      const success = logs.filter((log) => log.status === 'success').length;
-      const failed = logs.filter((log) => log.status === 'failed');
-      if (failed.length > 0)
-        message.warning(
-          `同步完成：${success} 个月成功，${failed.length} 个月失败（${failed[0].scope}: ${failed[0].message ?? ''}）`,
-        );
-      else message.success(`同步完成：${success} 个月份已更新`);
-      await Promise.all([loadReport(year), loadSyncLogs()]);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '同步失败');
-    } finally {
-      setSyncingYear(false);
-    }
-  };
 
   // 分配 Drawer（月×业务线粒度；full 线合并 saas/定制两线目标域支持跨线分配）：
   // 拉取当月全部线的分配记录（跨线记录归目标线），初始化矩阵输入
@@ -642,9 +585,8 @@ export default function ProjectProfitPage() {
   };
 
   // 平铺行：项目行… → 销售行 → 差额行（仅非零） → 合计行（simple 线除外） → 块末「全部业务线」汇总行。
-  // full 线（云鹿Saas/定制）≥2 条时合并差额域：各自的差额行与合计行隐藏，最后一条 full 线之后
-  // 渲染「共享差额」（仅非零）与「共享合计」（两线镜像之和）——域内恒有 Σ明细行 + 共享差额 = 共享合计；
-  // 月份/业务线/分类三列按相邻同值合并
+  // full 线合计 = 本线明细之和，差额不计入。两线同时展示时差额相加，对消为零则不画差额行。
+  // 「全渠道合计」= 两条 full 线的明细合计之和。月份/业务线/分类三列按相邻同值合并
   const dataSource = useMemo<FlatRow[]>(() => {
     if (!report) return [];
     const rows: Omit<FlatRow, 'spans'>[] = [];
@@ -652,8 +594,15 @@ export default function ProjectProfitPage() {
       const fullLines = block.lines.filter((l) => l.revenueMode === 'full');
       const mergeFull = fullLines.length >= 2;
       const sharedName = compactSharedName(fullLines);
-      const sharedResidual = mergeFull ? sumLineRows(fullLines, 'residual', '共享差额') : null;
-      const sharedTotal = mergeFull ? sumLineRows(fullLines, 'total', '全渠道合计') : null;
+      const sharedResidual = mergeFull ? sumResidualRows(fullLines, '未分配') : null;
+      const sharedTotal = mergeFull
+        ? sumMoneyRows(
+            fullLines.map((line) => lineDisplayTotal(line)),
+            'TOTAL',
+            null,
+            '全渠道合计',
+          )
+        : null;
       const lastFullLine = fullLines[fullLines.length - 1];
       const pseudoLine = (id: number, row: ProjectProfitRow): ProjectProfitLine => ({
         businessLineId: id,
@@ -664,11 +613,12 @@ export default function ProjectProfitPage() {
         residual: row,
       });
       block.lines.forEach((line) => {
-        const mergedFull = mergeFull && line.revenueMode === 'full';
         line.rows.forEach((row) =>
           rows.push({ key: `${block.key}-${line.businessLineId}-${row.rowType}-${row.projectId ?? row.projectName}`, block, line, row }),
         );
-        if (!mergedFull && residualVisible(line.residual)) {
+        // full 域不单列各线差额：单列会得到一对相反数，加总后才是真实待分配。
+        // 只剩一条 full 线（筛选掉姊妹线）时仍按本线差额展示。
+        if (!(mergeFull && line.revenueMode === 'full') && residualVisible(line.residual)) {
           rows.push({
             key: `${block.key}-${line.businessLineId}-RESIDUAL`,
             block,
@@ -677,17 +627,17 @@ export default function ProjectProfitPage() {
           });
         }
         // simple 线（精准）只有一行明细，合计行冗余不渲染（total 仍参与跨业务线汇总行的计算）；
-        // full 线保留各自的镜像合计行（合并域内差额并入「共享差额」，末尾另有「全渠道合计」）
+        // full 线合计取本线明细之和，末尾另有「全渠道合计」
         if (line.revenueMode !== 'simple') {
           rows.push({
             key: `${block.key}-${line.businessLineId}-TOTAL`,
             block,
             line,
-            row: line.total,
+            row: lineDisplayTotal(line),
           });
         }
-        // 共享差额行 / 全渠道合计行跟在最后一条 full 线的合计行之后（伪业务线 id=-2/-3，不与任何业务线合并）
-        if (mergedFull && line === lastFullLine) {
+        // 共享差额（伪业务线 id=-2）与全渠道合计（id=-3）跟在最后一条 full 线之后，不并入任一业务线
+        if (mergeFull && line.revenueMode === 'full' && line === lastFullLine) {
           if (sharedResidual && residualVisible(sharedResidual)) {
             rows.push({
               key: `${block.key}-SHARED-RESIDUAL`,
@@ -742,6 +692,19 @@ export default function ProjectProfitPage() {
   }, [report]);
 
   const latestSyncLog = syncLogs[0];
+
+  const exportExcel = async () => {
+    if (dataSource.length === 0) return;
+    setExporting(true);
+    try {
+      const { downloadProjectProfitExcel } = await import('./exportExcel');
+      await downloadProjectProfitExcel({ year, view: viewMode, rows: dataSource });
+    } catch {
+      message.error('导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const projectOptions = useMemo(() => {
     if (!report) return [];
@@ -947,12 +910,13 @@ export default function ProjectProfitPage() {
             <Tooltip
               title={
                 <span>
-                  月份 × 业务线 × 分类 × 项目；合计取工时系统财报镜像（未税）；
-                  项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）；
-                  云鹿Saas/定制 共享一个差额行（跨线分配），两线合计之和 = 全渠道合计，恒有 Σ明细行 + 共享差额 = 全渠道合计；
-                  其余业务线差额行 = 合计 − 已显示明细行，差额所有项可经合计行「分配」分摊到项目/销售子项，
-                  归零后差额行自动隐藏；每块末行「全部业务线」汇总 = 块内各业务线合计求和。
-                  收益单位：金额「万」，工时「人月」。
+                  月份 × 业务线 × 分类 × 项目。全年、H1、H2 都是各月金额精确相加。
+                  项目行营收为 OA 已交付（含税 ÷(1+税率) 换算未税）。
+                  云鹿定制、SaaS 的合计等于本线明细之和，跨线分配记在分到的那条线上。
+                  两条线明细加总等于全渠道合计；两条线差额对消为零时不显示差额行。
+                  其他业务线合计取工时系统财报镜像（未税），差额归零后自动隐藏。
+                  每块末行「全部业务线」汇总是各业务线财报镜像合计之和。
+                  金额单位：万，工时：人月。
                 </span>
               }
             >
@@ -983,39 +947,28 @@ export default function ProjectProfitPage() {
           />
           <Button
             size="small"
+            icon={<FileExcelOutlined />}
+            loading={exporting}
+            disabled={dataSource.length === 0}
+            onClick={() => void exportExcel()}
+          >
+            导出
+          </Button>
+          <Button
+            size="small"
             icon={<ReloadOutlined />}
             aria-label="刷新"
             onClick={() => void loadReport(year)}
           />
           <Button
             size="small"
-            icon={<DownloadOutlined />}
-            loading={syncingYear}
-            onClick={() => void syncWholeYear()}
+            icon={<CloudSyncOutlined />}
+            onClick={() => history.push('/system/sync')}
           >
-            同步工时系统
+            去数据集成中心同步
           </Button>
           <Button size="small" onClick={() => setPendingOpen(true)}>
             待交付确认
-          </Button>
-          <Select
-            aria-label="同步月份"
-            size="small"
-            style={{ width: 92 }}
-            value={syncTargetMonth || undefined}
-            options={monthOptions}
-            placeholder="月份"
-            onChange={(value) => setSyncTargetMonth(value)}
-          />
-          <Button
-            size="small"
-            type="primary"
-            icon={<DownloadOutlined />}
-            loading={syncing}
-            disabled={!syncTargetMonth}
-            onClick={() => void syncMonth()}
-          >
-            同步月度数据
           </Button>
         </Space>
       </div>
@@ -1196,79 +1149,9 @@ export default function ProjectProfitPage() {
       ) : (
         !loading &&
         !error && (
-          <Empty description="暂无数据，请先用右上角「同步月度数据」选择月份拉取工时系统数据" />
+          <Empty description="暂无数据，请到「数据集成中心」同步工时系统后再查看" />
         )
       )}
-
-      <Modal
-        open={!!syncResult}
-        title={`月度同步结果（${syncResult?.yearMonth ?? ''}）`}
-        footer={<Button type="primary" onClick={closeSyncResult}>关闭</Button>}
-        onCancel={closeSyncResult}
-        width={640}
-      >
-        {syncResult?.monthClosed && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="该月已完结，工时/成本未重拉，仅刷新了利润镜像"
-          />
-        )}
-        {syncResult?.mirrorZero && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="工时系统该月财报未出报（镜像全零）：报表已改按预估口径展示（项目行取 OA 合同已交付），下方对齐差额仅供参考；请在工时系统确认出报后重新同步"
-          />
-        )}
-        {syncResult?.logs.some((log) => log.status === 'failed') && (
-          <Alert
-            type="warning"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="部分同步失败，对齐结果基于现有数据计算"
-          />
-        )}
-        <Typography.Title level={5}>同步步骤</Typography.Title>
-        <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
-          {syncResult?.logs.map((log) => (
-            <div key={log.id ?? log.syncType}>
-              <Tag color={log.status === 'success' ? 'green' : 'red'}>
-                {log.status === 'success' ? '成功' : '失败'}
-              </Tag>
-              {SYNC_TYPE_LABELS[log.syncType] ?? log.syncType} · 写入 {log.upsertCount ?? 0} 行
-              {log.status === 'failed' && log.message && (
-                <Typography.Text type="danger">（{log.message}）</Typography.Text>
-              )}
-            </div>
-          ))}
-        </Space>
-        <Typography.Title level={5}>逐业务线对齐</Typography.Title>
-        {syncResult && syncResult.lines.length > 0 ? (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {syncResult.lines.map((line) => (
-              <div key={line.businessLineId ?? 'shared'}>
-                {line.aligned ? (
-                  <>
-                    <Tag color="green">✓ 已对齐</Tag>
-                    {line.businessLineName}
-                  </>
-                ) : (
-                  <>
-                    <Tag color="orange">有差额</Tag>
-                    {line.businessLineName}：营收差额 {num(formatWan)(line.revenueResidual)} 万 · 成本差额{' '}
-                    {num(formatWan)(line.costResidual)} 万 · 工时差额 {num(formatHours)(line.hoursResidual)} 人月
-                  </>
-                )}
-              </div>
-            ))}
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">该月无镜像数据，未产生对齐结果</Typography.Text>
-        )}
-      </Modal>
 
       <Drawer
         title={`待交付确认（${year} 年）`}
@@ -1320,7 +1203,7 @@ export default function ProjectProfitPage() {
               style={{ marginBottom: 12 }}
               message={
                 domainLines(drawer.block, drawer.line).length > 1
-                  ? '差额所有项均可分配到项目/销售子项；云鹿Saas 与 云鹿定制 之间支持跨线分配（写入目标所在线）。金额单位「元」（财报未税口径），工时单位「人月」。表底「未分配」按线分行、随输入实时联动，全部归零后差额行自动隐藏。'
+                  ? '差额所有项均可分配到项目/销售子项；云鹿Saas 与 云鹿定制 之间支持跨线分配（写入目标所在线）。金额单位「元」（财报未税口径），工时单位「人月」。表底「未分配」为两条线差额之和，随输入实时联动；对消后为零即没有待分配差额。'
                   : '差额所有项均可分配到项目/销售子项：金额单位「元」（财报未税口径），工时单位「人月」。表底「未分配」= 差额 − 本次调整，随输入实时联动；全部归零后差额行自动隐藏。'
               }
             />
@@ -1652,13 +1535,17 @@ export default function ProjectProfitPage() {
                 children: (
                   <>
                     {(() => {
-                      // 6 个成本列的未分配提示（前端即时有差额行数据，无需后端诊断）
+                      // 6 个成本列的未分配提示。full 域（定制+SaaS）按两条线差额之和，单线相反数不是待分配。
+                      const residualScope = detail.lines.length > 1 ? detail.lines : [detail.line];
                       const hints = ALLOC_FIELDS.filter(
                         (field) => !['revenue', 'hours', 'cost'].includes(field.costType),
                       )
                         .map((field) => ({
                           label: field.label,
-                          value: Number(detail.line.residual[field.key] ?? 0),
+                          value: residualScope.reduce(
+                            (sum, line) => sum + Number(line.residual[field.key] ?? 0),
+                            0,
+                          ),
                         }))
                         .filter((hint) => Math.abs(hint.value) >= 0.01);
                       return (

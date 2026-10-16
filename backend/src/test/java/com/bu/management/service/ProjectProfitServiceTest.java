@@ -175,7 +175,7 @@ class ProjectProfitServiceTest {
                 cost("2026-01", 1L, "project", 101L, "2", "300"),   // 子项目 → 皇家
                 cost("2026-01", 1L, "project", 201L, "1", "100"),   // 佳贝艾特 → 澳优
                 cost("2026-01", 1L, "sales", null, "0.5", "50"),
-                cost("2026-01", 1L, "project", null, "0.3", "30"),  // 业务线级 → 销售-业务线
+                cost("2026-01", 1L, "project", null, "0.3", "30"),  // 无项目工时 → 其他事项
                 cost("2026-02", 1L, "project", 100L, "1", "100"),
                 cost("2026-01", 2L, "project", null, "5", "290"),
                 cost("2026-01", 2L, "sales", null, "0.2", "10"),
@@ -238,15 +238,22 @@ class ProjectProfitServiceTest {
 
         ProjectProfitReportVO vo = service.query(2026, null, null, null, null, null);
 
-        assertThat(vo.getAvailableMonths()).containsExactly("2026-01", "2026-02");
+        // 镜像月份 + 当年未出报的当前月（完整项目/销售结构）。镜像缺失的 2026-03 不出块。
+        java.util.List<String> expected = new java.util.ArrayList<>(java.util.List.of("2026-01", "2026-02"));
+        YearMonth now = YearMonth.now();
+        if (now.getYear() == 2026) {
+            expected.add(now.format(DateTimeFormatter.ofPattern("yyyy-MM")));
+        }
+        assertThat(vo.getAvailableMonths()).containsExactlyElementsOf(expected);
         assertThat(vo.getBlocks()).extracting(ProjectProfitReportVO.Block::getKey)
-                .containsExactly("2026-01", "2026-02");
+                .containsExactlyElementsOf(expected);
+        assertThat(vo.getBlocks()).extracting(ProjectProfitReportVO.Block::getKey).doesNotContain("2026-03");
     }
 
     // ==================== full 线组装 ====================
 
     @Test
-    @DisplayName("full 线：子项目工时归并根项目、别名（佳贝艾特→澳优）合并、合同含税÷1.06、销售/业务线行拆分")
+    @DisplayName("full 线：子项目工时归并根项目、别名（佳贝艾特→澳优）合并、合同含税÷1.06、销售/其他事项行拆分")
     void fullLineAssembly() {
         stubFullDataset();
 
@@ -284,7 +291,7 @@ class ProjectProfitServiceTest {
         assertThat(sales.getGrossProfitRate()).isNull();                 // 营收 0 → 率 null
 
         ProjectProfitReportVO.Row lineOther = rowOf(line, "LINE_OTHER", null);
-        assertThat(lineOther.getProjectName()).isEqualTo("业务线");
+        assertThat(lineOther.getProjectName()).isEqualTo("其他事项");
         assertThat(lineOther.getHours()).isEqualByComparingTo("0.3");    // project_id 为空的 project 行
         assertThat(lineOther.getCost()).isEqualByComparingTo("30");
 
@@ -312,7 +319,7 @@ class ProjectProfitServiceTest {
     }
 
     @Test
-    @DisplayName("aggregate 线：项目集行继承镜像营收与 6 成本列，销售行单列，无业务线行")
+    @DisplayName("aggregate 线：项目集行继承镜像营收与 6 成本列，销售行单列，无其他事项行")
     void aggregateLineAssembly() {
         stubFullDataset();
 
@@ -626,7 +633,7 @@ class ProjectProfitServiceTest {
 
         assertThatThrownBy(() -> service.saveAllocations(batchRequest(2L, "line_other", 0L, "cost", "100")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("业务线");
+                .hasMessageContaining("其他事项");
     }
 
     @Test
@@ -921,6 +928,43 @@ class ProjectProfitServiceTest {
         assertThat(out.getResidual().getRevenue()).isEqualByComparingTo("1000");
         assertThat(out.getResidual().getCost()).isEqualByComparingTo("0");
         assertThat(out.getResidual().getHours()).isEqualByComparingTo("0");
+        // 无营收的项目和销售行也保留
+        assertThat(rowOf(out, "SALES", "销售").getRevenue()).isEqualByComparingTo("0");
+        assertThat(rowOf(out, "LINE_OTHER", "其他事项").getRevenue()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    @DisplayName("在途月份：没有营收的项目、销售、其他事项行仍完整列出，工时记到对应行")
+    void provisionalMonthKeepsRowsWithoutRevenue() {
+        YearMonth current = YearMonth.now();
+        String currentYm = current.format(DateTimeFormatter.ofPattern("yyyy-MM"));
+        BusinessLine line = line(9L, "测试Saas", "full", "0");
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(line));
+        when(reportMapper.selectList(any())).thenReturn(List.of(
+                mirror(currentYm, 9L, "0", "0", "0")));
+        when(projectMapper.selectList(any())).thenReturn(List.of(
+                project(900L, 9L, null, "项目A"),
+                project(901L, 9L, null, "项目B")));
+        when(contractEntryMapper.selectList(any())).thenReturn(List.of(
+                contract(9L, 900L, "10600", current.atDay(1).toString())));
+        when(costEntryMapper.selectList(any())).thenReturn(List.of(
+                cost(currentYm, 9L, "project", 901L, "1.5", "300"),
+                cost(currentYm, 9L, "sales", null, "0.4", "80"),
+                cost(currentYm, 9L, "project", null, "0.2", "40")));
+        when(allocationMapper.selectList(any())).thenReturn(List.of());
+
+        ProjectProfitReportVO vo = service.query(current.getYear(), null, null, null, null, null);
+
+        ProjectProfitReportVO.Line out = lineOf(vo.getBlocks().stream()
+                .filter(b -> b.getKey().equals(currentYm)).findFirst().orElseThrow(), 9L);
+        assertThat(rowOf(out, "PROJECT", "项目A").getRevenue()).isEqualByComparingTo("10000");
+        ProjectProfitReportVO.Row quiet = rowOf(out, "PROJECT", "项目B");
+        assertThat(quiet.getRevenue()).isEqualByComparingTo("0");
+        assertThat(quiet.getHours()).isEqualByComparingTo("1.5");
+        assertThat(quiet.getCost()).isEqualByComparingTo("300");
+        assertThat(rowOf(out, "SALES", "销售").getHours()).isEqualByComparingTo("0.4");
+        assertThat(rowOf(out, "SALES", "销售").getCost()).isEqualByComparingTo("80");
+        assertThat(rowOf(out, "LINE_OTHER", "其他事项").getCost()).isEqualByComparingTo("40");
     }
 
     @Test

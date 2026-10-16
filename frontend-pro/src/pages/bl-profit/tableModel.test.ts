@@ -186,8 +186,95 @@ describe('buildBlRows', () => {
     });
     expect(year[0].periodLabel).toBe('全年');
     expect(year[0].metrics.revenue).toBe(250);
+    expect(year[0].metrics.smsCost).toBe(1);
+    expect(year[0].metrics.grossProfit).toBe(75);
+    expect(year[0].metrics.totalHours).toBe(25);
     expect(year[2].metrics.revenue).toBe(450);
     expect(year.every((item) => item.periodKey === 'YEAR')).toBe(true);
+  });
+
+  it('keeps the full-year cost totals as the exact yuan sum', () => {
+    const yearLines = [
+      line(
+        '会员通',
+        [
+          row({
+            yearMonth: '2026-01',
+            revenue: 1306358,
+            directCost: 4746,
+            softwareGift: 2729,
+            laborCost1: 436724,
+            grossProfit: 862159,
+          }),
+        ],
+        3,
+      ),
+      line(
+        '全域-全渠道-全域云鹿Saas',
+        [
+          row({
+            yearMonth: '2026-01',
+            revenue: 97999,
+            directCost: 8933,
+            laborCost1: 615003,
+            grossProfit: -525937,
+          }),
+        ],
+        2,
+      ),
+      line(
+        '全域-全渠道-全域云鹿定制',
+        [
+          row({
+            yearMonth: '2026-01',
+            revenue: 1000000,
+            directCost: 136800,
+            outsourcing: 199804,
+            softwareGift: 3197,
+            laborCost1: 1850237,
+          }),
+          row({
+            yearMonth: '2026-02',
+            revenue: 1156544,
+            directCost: 136800,
+            grossProfit: -170294,
+          }),
+        ],
+        1,
+      ),
+      line(
+        '精准',
+        [
+          row({
+            yearMonth: '2026-01',
+            revenue: 231923,
+            smsCost: 167648,
+            laborCost1: 17184,
+            grossProfit: 47091,
+          }),
+        ],
+        6,
+      ),
+    ];
+    const year = buildBlRows({
+      lines: yearLines,
+      viewMode: 'YEAR',
+      selectedMonths: [],
+      filterLineNames: [],
+    });
+    const byName = Object.fromEntries(year.map((item) => [item.lineName, item.metrics]));
+    const custom = byName['全域-全渠道-全域云鹿定制'];
+    expect(custom.directCost).toBe(273600);
+    expect(custom.revenue).toBe(2156544);
+    expect(custom.outsourcing).toBe(199804);
+    expect(custom.softwareGift).toBe(3197);
+    expect(custom.laborCost1).toBe(1850237);
+    expect(byName['全域-全渠道-全域云鹿Saas'].directCost).toBe(8933);
+    expect(byName['精准'].smsCost).toBe(167648);
+    expect(byName['全部业务线'].directCost).toBe(287279);
+    expect(byName['全部业务线'].smsCost).toBe(167648);
+    expect(byName['全部业务线'].softwareGift).toBe(5926);
+    expect(byName['全部业务线'].revenue).toBe(3792824);
   });
 
   it('filters business lines without changing a month row taken from the mirror', () => {

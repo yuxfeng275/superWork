@@ -1,15 +1,15 @@
 import {
-  DownloadOutlined,
+  CloudSyncOutlined,
   InfoCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
+import { history } from '@umijs/max';
 import type { TableProps } from 'antd';
 import {
   Alert,
   Button,
   Card,
   Empty,
-  message,
   Segmented,
   Select,
   Space,
@@ -90,7 +90,6 @@ export default function BlProfitPage() {
   const [viewMode, setViewMode] = useState<BlViewMode>('month');
   const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [report, setReport] = useState<BizLineProfitReport>();
   const [syncLogs, setSyncLogs] = useState<WorktimeSyncLog[]>([]);
   const [filterLineNames, setFilterLineNames] = useState<string[]>([]);
@@ -123,25 +122,6 @@ export default function BlProfitPage() {
     void loadReport(year);
     void loadSyncLogs();
   }, [loadReport, loadSyncLogs, year]);
-
-  const syncFromWorktime = async () => {
-    setSyncing(true);
-    try {
-      const logs = await superworkApi.syncBlProfit({ year });
-      const success = logs.filter((log) => log.status === 'success').length;
-      const failed = logs.filter((log) => log.status === 'failed');
-      if (failed.length > 0) {
-        message.warning(
-          `同步完成：${success} 个月成功，${failed.length} 个月失败（${failed[0].scope}: ${failed[0].message ?? ''}）`,
-        );
-      } else message.success(`同步完成：${success} 个月份已更新`);
-      await Promise.all([loadReport(year), loadSyncLogs()]);
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '同步失败');
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const months = useMemo(
     () => (report ? availableMonths(report.lines) : []),
@@ -246,7 +226,7 @@ export default function BlProfitPage() {
               title={
                 <span>
                   期间 × 业务线。月度按月展开，同一月份的业务线与「全部业务线」合计合并月份单元格；
-                  H1 为 1–6 月、H2 为 7–12 月、全年为 1–12 月，金额与工时跨月求和，毛利率、净利率按合计重算。
+                  H1 为 1–6 月、H2 为 7–12 月、全年为 1–12 月，金额与工时跨月精确求和，毛利率、净利率按合计重算。
                   工时占比的分母是公司全部业务线工时。金额单位：万，工时：人月。
                   数据源自工时系统业务线利润报表。
                 </span>
@@ -285,12 +265,10 @@ export default function BlProfitPage() {
           />
           <Button
             size="small"
-            type="primary"
-            icon={<DownloadOutlined />}
-            loading={syncing}
-            onClick={() => void syncFromWorktime()}
+            icon={<CloudSyncOutlined />}
+            onClick={() => history.push('/system/sync')}
           >
-            同步工时系统
+            去数据集成中心同步
           </Button>
         </Space>
       </div>
@@ -428,7 +406,7 @@ export default function BlProfitPage() {
       ) : (
         !error && (
           <Card variant="borderless">
-            <Empty description="暂无数据，点击右上角「同步工时系统」拉取业务线利润报表" />
+            <Empty description="暂无数据，请到「数据集成中心」同步工时系统后再查看" />
           </Card>
         )
       )}

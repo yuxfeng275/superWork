@@ -15,7 +15,7 @@ public class ProjectProfitAllocationBatchRequest {
     /** YYYY-MM */
     private String yearMonth;
     private Long businessLineId;
-    /** 分配目标列表：项目行/项目集/精准单行（project）、销售行（sales）、业务线行（line_other） */
+    /** 分配目标列表：项目行/项目集/精准单行（project）、销售行（sales）、其他事项行（line_other） */
     private List<Target> targets;
 
     @Data

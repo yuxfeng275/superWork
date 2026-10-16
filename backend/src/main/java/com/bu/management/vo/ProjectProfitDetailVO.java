@@ -82,7 +82,7 @@ public class ProjectProfitDetailVO {
         private String salesKind;
         private String projectNameRaw;
         private Long projectId;
-        /** 归并后的根项目名；project_id 为空为「业务线（其他事项）」 */
+        /** 归并后的根项目名；project_id 为空为「销售」或「其他事项」 */
         private String rootProjectName;
         private Integer employeeCount;
         /** 工时（人月） */

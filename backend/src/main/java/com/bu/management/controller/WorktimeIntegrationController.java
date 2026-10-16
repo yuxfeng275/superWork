@@ -9,8 +9,7 @@ import com.bu.management.integration.WorktimeApiClient;
 import com.bu.management.mapper.WorktimeSyncLogMapper;
 import com.bu.management.service.WorktimeConfigService;
 import com.bu.management.sync.SyncOrchestrator;
-import com.bu.management.sync.collector.WorktimeContractCollector;
-import com.bu.management.sync.collector.WorktimeMonthlyCollector;
+import com.bu.management.sync.collector.WorktimeFullSyncCollector;
 import com.bu.management.vo.Result;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -62,21 +61,12 @@ public class WorktimeIntegrationController {
 
     // ==================== 手动同步 ====================
 
-    @PostMapping("/sync/contracts")
-    @Operation(summary = "手动同步合同明细（默认当年），经统一同步编排器执行")
-    public Result<List<DataSyncLog>> syncContracts(@RequestParam(required = false) Integer year,
-                                                   @RequestAttribute("userId") Long userId) {
-        String scope = year == null ? null : String.valueOf(year);
-        return Result.success("合同明细同步完成",
-                syncOrchestrator.run(WorktimeContractCollector.TASK_CODE, scope, "manual", userId));
-    }
-
-    @PostMapping("/sync/monthly")
-    @Operation(summary = "手动同步工时/成本（forceMonth=YYYY-MM 时强制重拉该月），经统一同步编排器执行")
-    public Result<List<DataSyncLog>> syncMonthly(@RequestParam(required = false) String forceMonth,
-                                                 @RequestAttribute("userId") Long userId) {
-        return Result.success("月度数据同步完成",
-                syncOrchestrator.run(WorktimeMonthlyCollector.TASK_CODE, forceMonth, "manual", userId));
+    @PostMapping("/sync")
+    @Operation(summary = "一键同步工时系统：合同明细 + 工时/成本 + 业务线利润月报（month=YYYY-MM 可强制某月）")
+    public Result<List<DataSyncLog>> sync(@RequestParam(required = false) String month,
+                                          @RequestAttribute("userId") Long userId) {
+        return Result.success("工时系统同步完成",
+                syncOrchestrator.run(WorktimeFullSyncCollector.TASK_CODE, month, "manual", userId));
     }
 
     // ==================== 同步日志 ====================

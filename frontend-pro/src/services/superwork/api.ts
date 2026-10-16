@@ -1177,7 +1177,7 @@ export interface ProjectProfitLaborRow {
   salesKind: string | null;
   projectNameRaw: string | null;
   projectId: number | null;
-  /** 归并后的根项目名/销售/业务线（其他事项）/未匹配项目 */
+  /** 归并后的根项目名/销售/其他事项/未匹配项目 */
   rootProjectName: string | null;
   employeeCount: number | null;
   hours: number | null;
@@ -2568,17 +2568,10 @@ export const superworkApi = {
   getWorktimeStatus() {
     return requestJson<Record<string, unknown>>("/api/worktime/status");
   },
-  syncWorktimeContracts(year?: number) {
-    return requestJson<Record<string, unknown>>(
-      `/api/worktime/sync/contracts${year ? `?year=${year}` : ""}`,
-      { method: "POST" }
-    );
-  },
-  syncWorktimeMonthly(forceMonth?: string) {
+  /** 一键同步工时系统：合同明细 + 工时/成本 + 业务线利润月报（month=YYYY-MM 可强制某月） */
+  syncWorktime(month?: string) {
     return requestJson<Record<string, unknown>[]>(
-      `/api/worktime/sync/monthly${
-        forceMonth ? `?forceMonth=${forceMonth}` : ""
-      }`,
+      `/api/worktime/sync${month ? `?month=${month}` : ""}`,
       { method: "POST" }
     );
   },

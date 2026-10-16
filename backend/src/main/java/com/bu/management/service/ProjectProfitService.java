@@ -53,10 +53,10 @@ import java.util.stream.Collectors;
  *   <li>full 线（云鹿Saas/定制）项目行营收 = OA 合同已交付金额（含税，receivable_amount 按 delivery_date 落月、
  *       交付日期不超过今天）÷(1+业务线 taxRate/100) 换算为未税，
  *       与镜像合计（财报未税）同口径可比；差额所有项（9 列：营收/6 成本列/工时/人工成本）支持按
- *       月×目标（项目/销售/业务线行，project_profit_allocation）手动分配，分配后差额归零即自动消行。</li>
+ *       月×目标（项目/销售/其他事项行，project_profit_allocation）手动分配，分配后差额归零即自动消行。</li>
  *   <li>aggregate 线（会员通）「项目集」行、simple 线（精准）单行：营收与 6 成本列直接取镜像线级值（该行即整线）。</li>
- *   <li>销售行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「业务线」= work_type=project 且
- *       project_id 为空的工时成本（投入到其他事项）；aggregate 线无「业务线」行（并入项目集），simple 线无销售行。</li>
+ *   <li>销售分类下两行：「销售」= 该线全部 work_type=sales 工时成本（营收为 0）；「其他事项」= work_type=project 且
+ *       project_id 为空的工时成本；aggregate 线无「其他事项」行（并入项目集），simple 线无销售行。</li>
  *   <li>差额行 = 合计 − Σ全部明细行（固定口径，不随筛选变化；筛选只影响显示哪些行）。</li>
  *   <li>块级汇总行（SUMMARY）= Σ 块内各业务线合计行（镜像值求和），毛利/率按公式重算，
  *       随 businessLineIds 过滤联动；月度、H1/H2、全年块均提供。</li>
@@ -76,7 +76,7 @@ public class ProjectProfitService {
             "revenue", "sms", "direct", "platform_fee", "compensation", "outsourcing", "software_gift",
             "hours", "cost");
 
-    /** 分配目标类型：project=项目行/项目集/精准单行；sales=销售行；line_other=full 线「业务线」行。
+    /** 分配目标类型：project=项目行/项目集/精准单行；sales=销售行；line_other=full 线「其他事项」行。
      *  非项目目标（sales/line_other/项目集/精准单行）的 project_id 一律为 0 */
     public static final String TARGET_PROJECT = "project";
     public static final String TARGET_SALES = "sales";
@@ -94,6 +94,8 @@ public class ProjectProfitService {
     private static final String ROW_PROJECT = "PROJECT";
     private static final String ROW_SALES = "SALES";
     private static final String ROW_LINE_OTHER = "LINE_OTHER";
+    /** full 线「其他事项」行的展示名（无项目的项目工时） */
+    private static final String NAME_LINE_OTHER = "其他事项";
     private static final String ROW_TOTAL = "TOTAL";
     private static final String ROW_RESIDUAL = "RESIDUAL";
     private static final String ROW_SUMMARY = "SUMMARY";
@@ -251,6 +253,8 @@ public class ProjectProfitService {
      *       逾期计入当月；含税转未税：item_desc/合同名含「软件」按 13%，其余按 6%）；</li>
      *   <li>未确认待交付合同仅以 unconfirmedRevenue 展示（前端「+xx 待确认」），不计入成本与利润；</li>
      *   <li>成本 = 近 3 个已完结月份镜像均值（含 6 成本列 + 人工），仅业务线合计维度，不分配到项目行；</li>
+     *   <li>项目行、销售行、其他事项行按已完结月份的结构完整列出，没有营收的行也保留；
+     *       已同步的工时成本记到对应项目/销售/其他事项行；</li>
      *   <li>差额行仅保留营收维度（未归桶合同的金额），工时/成本差额恒为 0（成本本就是线级估计）。</li>
      * </ul>
      */
@@ -279,9 +283,6 @@ public class ProjectProfitService {
                     .filter(e -> Objects.equals(e.getBizLineId(), line.getId()))
                     .toList();
             MirrorAcc avgCost = ds.avgCostByLine.get(line.getId());
-            if (booked.isEmpty() && pendings.isEmpty()) {
-                continue; // 该线当月无已交付/待交付合同（仅成本估计不出块，避免无营收的纯成本块）
-            }
 
             Map<Long, BigDecimal> revenueByRoot = new LinkedHashMap<>();
             Map<Long, BigDecimal> unconfirmedByRoot = new LinkedHashMap<>();
@@ -312,28 +313,8 @@ public class ProjectProfitService {
                 }
             }
 
-            String mode = modeOf(line);
-            List<ProjectProfitReportVO.Row> rows = new ArrayList<>();
-            if (MODE_FULL.equals(mode)) {
-                for (Project root : ds.rootProjects(line.getId())) {
-                    BigDecimal revenue = revenueByRoot.get(root.getId());
-                    BigDecimal unconfirmed = unconfirmedByRoot.get(root.getId());
-                    if (revenue == null && unconfirmed == null) {
-                        continue; // 预估月只显示有交付/待交付的项目
-                    }
-                    ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), false);
-                    row.setRevenue(nz(revenue));
-                    row.setUnconfirmedRevenue(nz(unconfirmed));
-                    rows.add(row);
-                }
-            } else {
-                // aggregate/simple：单行（项目集/业务线名）
-                String name = MODE_AGGREGATE.equals(mode) ? "项目集" : line.getName();
-                ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", null, name, false);
-                row.setRevenue(lineRevenue);
-                row.setUnconfirmedRevenue(lineUnconfirmed);
-                rows.add(row);
-            }
+            List<ProjectProfitReportVO.Row> rows = provisionalDetailRows(
+                    line, yearMonth, ds, revenueByRoot, unconfirmedByRoot, lineRevenue, lineUnconfirmed);
             rows.forEach(this::finalizeRow);
 
             ProjectProfitReportVO.Row total = newRow(ROW_TOTAL, null, null, "合计", false);
@@ -365,6 +346,74 @@ public class ProjectProfitService {
         block.setLines(lines);
         block.setSummary(buildSummary(lines));
         return block;
+    }
+
+    /**
+     * 预估月明细行：结构与已完结月份一致（full = 全部根项目 + 销售 + 其他事项，
+     * aggregate = 项目集 + 销售，simple = 单行）。营收取本月已交付/已确认待交付，没有营收的项目行保留为 0；
+     * 工时成本取该月已同步的 cost entry，没有则行上为 0。
+     */
+    private List<ProjectProfitReportVO.Row> provisionalDetailRows(
+            BusinessLine line, String yearMonth, Dataset ds,
+            Map<Long, BigDecimal> revenueByRoot, Map<Long, BigDecimal> unconfirmedByRoot,
+            BigDecimal lineRevenue, BigDecimal lineUnconfirmed) {
+        String mode = modeOf(line);
+        List<RevenueCostEntry> costs = ds.costs(yearMonth, line.getId());
+        List<ProjectProfitReportVO.Row> rows = new ArrayList<>();
+        if (MODE_SIMPLE.equals(mode)) {
+            ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", null, line.getName(), false);
+            row.setRevenue(lineRevenue);
+            row.setUnconfirmedRevenue(lineUnconfirmed);
+            for (RevenueCostEntry entry : costs) {
+                addLabor(row, entry);
+            }
+            rows.add(row);
+            return rows;
+        }
+        if (MODE_AGGREGATE.equals(mode)) {
+            ProjectProfitReportVO.Row agg = newRow(ROW_PROJECT, "项目", null, "项目集", false);
+            agg.setRevenue(lineRevenue);
+            agg.setUnconfirmedRevenue(lineUnconfirmed);
+            ProjectProfitReportVO.Row sales = salesRow(BigDecimal.ZERO, BigDecimal.ZERO);
+            for (RevenueCostEntry entry : costs) {
+                if (isSales(entry.getWorkType())) {
+                    addLabor(sales, entry);
+                } else {
+                    addLabor(agg, entry);
+                }
+            }
+            rows.add(agg);
+            rows.add(sales);
+            return rows;
+        }
+        Map<Long, ProjectProfitReportVO.Row> projectRows = new LinkedHashMap<>();
+        for (Project root : ds.rootProjects(line.getId())) {
+            ProjectProfitReportVO.Row row = newRow(ROW_PROJECT, "项目", root.getId(), root.getName(), false);
+            row.setRevenue(nz(revenueByRoot.get(root.getId())));
+            row.setUnconfirmedRevenue(nz(unconfirmedByRoot.get(root.getId())));
+            projectRows.put(root.getId(), row);
+        }
+        ProjectProfitReportVO.Row sales = salesRow(BigDecimal.ZERO, BigDecimal.ZERO);
+        ProjectProfitReportVO.Row lineOther = newRow(ROW_LINE_OTHER, "销售", null, NAME_LINE_OTHER, false);
+        for (RevenueCostEntry entry : costs) {
+            if (isSales(entry.getWorkType())) {
+                addLabor(sales, entry);
+                continue;
+            }
+            if (entry.getProjectId() == null) {
+                addLabor(lineOther, entry);
+                continue;
+            }
+            Long root = ds.rootOf(entry.getProjectId());
+            ProjectProfitReportVO.Row row = root == null ? null : projectRows.get(root);
+            if (row != null) {
+                addLabor(row, entry);
+            }
+        }
+        rows.addAll(projectRows.values());
+        rows.add(sales);
+        rows.add(lineOther);
+        return rows;
     }
 
     /** 在途月含税→未税：item_desc 或合同名含「软件」按 13%，其余按 6%（用户拍板的预估口径） */
@@ -437,7 +486,7 @@ public class ProjectProfitService {
         return block;
     }
 
-    /** 单线单月明细行（项目行… → 销售行 → 业务线行），未过滤、未算差额 */
+    /** 单线单月明细行（项目行… → 销售行 → 其他事项行），未过滤、未算差额 */
     private List<ProjectProfitReportVO.Row> buildMonthRows(BusinessLine line, String yearMonth,
                                                            Dataset ds, MirrorAcc mirror) {
         String mode = modeOf(line);
@@ -487,14 +536,14 @@ public class ProjectProfitService {
             projectRows.put(root.getId(), row);
         }
         ProjectProfitReportVO.Row sales = salesRow(BigDecimal.ZERO, BigDecimal.ZERO);
-        ProjectProfitReportVO.Row lineOther = newRow(ROW_LINE_OTHER, "销售", null, "业务线", false);
+        ProjectProfitReportVO.Row lineOther = newRow(ROW_LINE_OTHER, "销售", null, NAME_LINE_OTHER, false);
         for (RevenueCostEntry entry : costs) {
             if (isSales(entry.getWorkType())) {
                 addLabor(sales, entry);
                 continue;
             }
             if (entry.getProjectId() == null) {
-                // 业务线级项目工时（投入到其他事项）→「销售-业务线」行
+                // 无项目的项目工时 →「其他事项」行
                 addLabor(lineOther, entry);
                 continue;
             }
@@ -754,7 +803,7 @@ public class ProjectProfitService {
             row.setProjectNameRaw(entry.getProjectNameRaw());
             row.setProjectId(entry.getProjectId());
             if (entry.getProjectId() == null) {
-                row.setRootProjectName(isSales(entry.getWorkType()) ? "销售" : "业务线（其他事项）");
+                row.setRootProjectName(isSales(entry.getWorkType()) ? "销售" : NAME_LINE_OTHER);
             } else {
                 Long root = ds.rootOf(entry.getProjectId());
                 Project rootProject = root == null ? null : ds.projectsById.get(root);
@@ -1087,7 +1136,7 @@ public class ProjectProfitService {
             }
             case TARGET_LINE_OTHER -> {
                 if (!MODE_FULL.equals(mode)) {
-                    throw new IllegalArgumentException("仅 full 模式业务线（云鹿Saas/定制）有「业务线」行");
+                    throw new IllegalArgumentException("仅 full 模式业务线（云鹿Saas/定制）有「其他事项」行");
                 }
             }
             default -> { /* 上面已校验 */ }

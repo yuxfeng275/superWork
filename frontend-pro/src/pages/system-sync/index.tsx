@@ -33,9 +33,11 @@ import '../workbench/style.less';
 import './style.less';
 
 const DOMAIN_LABELS: Record<string, string> = {
+  worktime: '工时系统',
   contract: '合同',
   worklog: '工时',
   cost: '成本',
+  bl_profit: '业务线利润',
   org: '组织',
   member: '人员',
 };
@@ -60,13 +62,9 @@ const TRIGGER_LABELS: Record<string, string> = {
 
 /** 各任务手动触发时的 scope 提示（空=不需要 scope） */
 const SCOPE_HINTS: Record<string, { label: string; placeholder: string }> = {
-  'worktime-contract': {
-    label: '同步年份',
-    placeholder: '如 2026，留空为当年',
-  },
-  'worktime-monthly': {
-    label: '强制月份',
-    placeholder: '如 2026-08，留空按已确认月份自动扫描',
+  'worktime-sync': {
+    label: '强制月份（可选）',
+    placeholder: '如 2026-08，留空则拉齐当年全部',
   },
   'oa-contract': { label: '同步范围', placeholder: '留空为当前年' },
 };
@@ -104,6 +102,7 @@ export default function SystemSyncPage() {
   const [editTask, setEditTask] = useState<SyncTask>();
   const [editCron, setEditCron] = useState('');
   const [savingCron, setSavingCron] = useState(false);
+  const [syncingWorktime, setSyncingWorktime] = useState(false);
 
   const loadLogs = useCallback(async (domain?: string, status?: string) => {
     setLogLoading(true);
@@ -175,6 +174,28 @@ export default function SystemSyncPage() {
       message.error(e instanceof Error ? e.message : '同步失败');
     } finally {
       setRunning(false);
+    }
+  };
+
+  const syncWorktimeAll = async () => {
+    setSyncingWorktime(true);
+    try {
+      const result = await superworkApi.syncWorktime();
+      const failed = result.filter((item) => item.status === 'failed');
+      if (result.length === 0) {
+        message.info('未执行（工时系统未配置或已停用）');
+      } else if (failed.length > 0) {
+        message.warning(
+          `同步完成但有失败：${failed[0].message || failed[0].domain}`,
+        );
+      } else {
+        message.success('工时系统同步完成（合同 + 工时/成本 + 业务线利润）');
+      }
+      load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '同步失败');
+    } finally {
+      setSyncingWorktime(false);
     }
   };
 
@@ -359,9 +380,20 @@ export default function SystemSyncPage() {
             导入仅作兜底补录
           </Typography.Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<CloudSyncOutlined />}
+            loading={syncingWorktime}
+            disabled={!canManage}
+            onClick={() => void syncWorktimeAll()}
+          >
+            同步工时系统（全部）
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <Row gutter={[16, 16]} className="sw-stat-row">
