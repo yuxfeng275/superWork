@@ -42,37 +42,49 @@ public class WorktimeMonthlySyncService {
      */
     public List<WorktimeSyncLog> syncConfirmedMonths(String forceMonth, String triggeredBy) {
         List<WorktimeSyncLog> logs = new ArrayList<>();
+        String forced = StringUtils.hasText(forceMonth) ? forceMonth.trim() : null;
         JsonNode months = apiClient.fetchAvailableMonths();
-        if (!months.isArray()) {
-            return logs;
-        }
         // 账号可见业务线（工时系统 id 列表），导出工时明细用
         List<Long> wtBlIds = new ArrayList<>();
         apiClient.testConnection().path("business_lines")
                 .forEach(bl -> wtBlIds.add(bl.path("id").asLong()));
 
-        for (JsonNode monthNode : months) {
-            String yearMonth = monthNode.path("year_month").asText(null);
-            String status = monthNode.path("status").asText(null);
-            if (!StringUtils.hasText(yearMonth)) {
-                continue;
+        boolean forcedHandled = false;
+        if (months.isArray()) {
+            for (JsonNode monthNode : months) {
+                String yearMonth = monthNode.path("year_month").asText(null);
+                String status = monthNode.path("status").asText(null);
+                if (!StringUtils.hasText(yearMonth)) {
+                    continue;
+                }
+                boolean force = yearMonth.equals(forced);
+                if (force) {
+                    forcedHandled = true;
+                }
+                if (!force && !"confirmed".equals(status)) {
+                    continue;
+                }
+                if (isMonthClosed(yearMonth)) {
+                    continue;
+                }
+                if (!force && alreadySynced("worklog", yearMonth) && alreadySynced("cost", yearMonth)) {
+                    continue;
+                }
+                if (force || !alreadySynced("worklog", yearMonth)) {
+                    logs.add(syncWorklog(yearMonth, wtBlIds, triggeredBy));
+                }
+                if (force || !alreadySynced("cost", yearMonth)) {
+                    logs.add(syncCost(yearMonth, triggeredBy));
+                }
             }
-            boolean force = yearMonth.equals(forceMonth);
-            if (!force && !"confirmed".equals(status)) {
-                continue;
-            }
-            if (isMonthClosed(yearMonth)) {
-                continue;
-            }
-            if (!force && alreadySynced("worklog", yearMonth) && alreadySynced("cost", yearMonth)) {
-                continue;
-            }
-            if (force || !alreadySynced("worklog", yearMonth)) {
-                logs.add(syncWorklog(yearMonth, wtBlIds, triggeredBy));
-            }
-            if (force || !alreadySynced("cost", yearMonth)) {
-                logs.add(syncCost(yearMonth, triggeredBy));
-            }
+        }
+        // 指定月份不在 available-months 时仍强制重拉：该列表只反映工时系统当前月度确认周期
+        // （通常仅最新月），历史月份确认期结束后会从列表消失，但工时明细导出 / 成本分析接口
+        // 仍可正常返回该月数据（如 9 月财报已出、10 月列表只剩 2026-10）。月度一键同步的
+        // forceMonth 语义就是「无条件重拉该月」，不能被该列表静默吞掉。已完结月仍按既有规则跳过。
+        if (forced != null && !forcedHandled && !isMonthClosed(forced)) {
+            logs.add(syncWorklog(forced, wtBlIds, triggeredBy));
+            logs.add(syncCost(forced, triggeredBy));
         }
         return logs;
     }
