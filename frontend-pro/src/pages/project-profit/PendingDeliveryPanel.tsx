@@ -1,16 +1,16 @@
+import { QuestionCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
   Empty,
+  message,
   Space,
   Spin,
   Table,
   Tag,
   Tooltip,
   Typography,
-  message,
 } from 'antd';
-import { QuestionCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type PendingDeliveryEntry,
@@ -18,6 +18,8 @@ import {
   type PendingDeliveryReport,
   superworkApi,
 } from '@/services/superwork/api';
+import { copyTextToClipboard } from '@/utils/clipboard';
+import { pendingDeliveryCopyText } from './pendingDeliveryCopy';
 
 /** 元 → 万（与项目利润表同口径展示） */
 const formatWan = (value?: number | null) => {
@@ -40,6 +42,8 @@ interface Props {
  * 支持按明细勾选批量确认、按提交人一键确认；已确认可取消。
  * 确认后计入项目利润预估块的营收与利润；未确认仅以「+xx 待确认」展示，不计入利润。
  * 「未定月份」（服务结束时间缺失）仅展示标记，不进任何月份预估。
+ * 每条/每组可「复制」合同号、合同名称、客户、款项内容、服务结束时间、提交人，
+ * 粘给对应销售确认是否可交付使用。
  */
 export default function PendingDeliveryPanel({ year, onChanged }: Props) {
   const [data, setData] = useState<PendingDeliveryReport | null>(null);
@@ -75,7 +79,10 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
     [data],
   );
 
-  const runAction = async (action: 'confirm' | 'revoke', entryIds: number[]) => {
+  const runAction = async (
+    action: 'confirm' | 'revoke',
+    entryIds: number[],
+  ) => {
     if (entryIds.length === 0) return;
     setActionLoading(true);
     try {
@@ -83,7 +90,9 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
         action === 'confirm'
           ? await superworkApi.confirmPendingDelivery(entryIds)
           : await superworkApi.revokePendingDelivery(entryIds);
-      message.success(action === 'confirm' ? `已确认 ${count} 条` : `已取消确认 ${count} 条`);
+      message.success(
+        action === 'confirm' ? `已确认 ${count} 条` : `已取消确认 ${count} 条`,
+      );
       await load();
       onChanged();
     } catch (e) {
@@ -91,6 +100,16 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const copyEntries = async (
+    entries: PendingDeliveryEntry[],
+    success: string,
+  ) => {
+    if (entries.length === 0) return;
+    const ok = await copyTextToClipboard(pendingDeliveryCopyText(entries));
+    if (ok) message.success(success);
+    else message.error('复制失败');
   };
 
   const renderGroup = (group: PendingDeliveryGroup) => {
@@ -101,7 +120,9 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
       const owner = entry.salesOwner || '未填写';
       byOwner.set(owner, [...(byOwner.get(owner) ?? []), entry]);
     }
-    const groupSelectable = group.entries.filter((e) => !e.confirmed).map((e) => e.id);
+    const groupSelectable = group.entries
+      .filter((e) => !e.confirmed)
+      .map((e) => e.id);
 
     return (
       <div key={group.month ?? 'unknown'} style={{ marginBottom: 24 }}>
@@ -120,9 +141,24 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
             </Tag>
           )}
           <Typography.Text type="secondary">
-            共 {group.entryCount} 笔 · 含税合计 {formatWan(group.totalAmount)} 万 · 已确认{' '}
-            {group.confirmedCount} 笔 / {formatWan(group.confirmedAmount)} 万
+            共 {group.entryCount} 笔 · 含税合计 {formatWan(group.totalAmount)}{' '}
+            万 · 已确认 {group.confirmedCount} 笔 /{' '}
+            {formatWan(group.confirmedAmount)} 万
           </Typography.Text>
+          {groupSelectable.length > 0 && (
+            <Button
+              size="small"
+              disabled={actionLoading}
+              onClick={() =>
+                void copyEntries(
+                  group.entries.filter((e) => !e.confirmed),
+                  `已复制 ${groupSelectable.length} 笔待交付合同`,
+                )
+              }
+            >
+              复制未确认（{groupSelectable.length} 笔）
+            </Button>
+          )}
         </Space>
         {group.warning === 'unknown' && (
           <Alert
@@ -141,14 +177,33 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
                 0,
               );
               return (
-                <Button
-                  key={owner}
-                  size="small"
-                  disabled={actionLoading}
-                  onClick={() => void runAction('confirm', entries.map((e) => e.id))}
-                >
-                  {owner}（{entries.length} 笔 / {formatWan(amount)} 万）确认全部
-                </Button>
+                <Space key={owner} size={4}>
+                  <Button
+                    size="small"
+                    disabled={actionLoading}
+                    onClick={() =>
+                      void runAction(
+                        'confirm',
+                        entries.map((e) => e.id),
+                      )
+                    }
+                  >
+                    {owner}（{entries.length} 笔 / {formatWan(amount)}{' '}
+                    万）确认全部
+                  </Button>
+                  <Button
+                    size="small"
+                    disabled={actionLoading}
+                    onClick={() =>
+                      void copyEntries(
+                        entries,
+                        `已复制 ${owner} 的 ${entries.length} 笔待交付合同`,
+                      )
+                    }
+                  >
+                    复制
+                  </Button>
+                </Space>
               );
             })}
           </Space>
@@ -222,7 +277,9 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
               width: 160,
               ellipsis: true,
               render: (_, entry) =>
-                [entry.businessLineName, entry.projectName].filter(Boolean).join(' / ') || '—',
+                [entry.businessLineName, entry.projectName]
+                  .filter(Boolean)
+                  .join(' / ') || '—',
             },
             {
               title: '状态',
@@ -240,23 +297,32 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
             },
             {
               title: '操作',
-              width: 90,
-              render: (_, entry) =>
-                entry.confirmed ? (
+              width: 130,
+              render: (_, entry) => (
+                <Space size={8}>
                   <Typography.Link
                     disabled={actionLoading}
-                    onClick={() => void runAction('revoke', [entry.id])}
+                    onClick={() => void copyEntries([entry], '已复制合同信息')}
                   >
-                    取消确认
+                    复制
                   </Typography.Link>
-                ) : (
-                  <Typography.Link
-                    disabled={actionLoading}
-                    onClick={() => void runAction('confirm', [entry.id])}
-                  >
-                    确认
-                  </Typography.Link>
-                ),
+                  {entry.confirmed ? (
+                    <Typography.Link
+                      disabled={actionLoading}
+                      onClick={() => void runAction('revoke', [entry.id])}
+                    >
+                      取消确认
+                    </Typography.Link>
+                  ) : (
+                    <Typography.Link
+                      disabled={actionLoading}
+                      onClick={() => void runAction('confirm', [entry.id])}
+                    >
+                      确认
+                    </Typography.Link>
+                  )}
+                </Space>
+              ),
             },
           ]}
         />
@@ -264,7 +330,9 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
     );
   };
 
-  const selectedCount = [...selected].filter((id) => selectableIds.has(id)).length;
+  const selectedCount = [...selected].filter((id) =>
+    selectableIds.has(id),
+  ).length;
 
   return (
     <Spin spinning={loading}>
@@ -273,7 +341,7 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
         showIcon
         icon={<QuestionCircleOutlined />}
         style={{ marginBottom: 16 }}
-        message="待交付 = 工时系统销售合同中交付时间为空的明细；预计交付月份 = 服务结束时间所在月（早于当月的已逾期合同并入当月预估）。确认后计入项目利润预估营收与利润；未确认仅以「+xx 待确认」展示，不计入利润。合同实际交付后自动从本列表消失。"
+        message="待交付 = 工时系统销售合同中交付时间为空的明细；预计交付月份 = 服务结束时间所在月（早于当月的已逾期合同并入当月预估）。确认后计入项目利润预估营收与利润；未确认仅以「+xx 待确认」展示，不计入利润。「复制」会带上合同号/合同名称/客户/款项内容/服务结束时间/提交人，可发给对应销售确认是否可交付使用。合同实际交付后自动从本列表消失。"
       />
       {data && data.groups.length === 0 && (
         <Empty description={`${year} 年暂无待交付合同`} />
@@ -294,7 +362,12 @@ export default function PendingDeliveryPanel({ year, onChanged }: Props) {
             type="primary"
             size="small"
             loading={actionLoading}
-            onClick={() => void runAction('confirm', [...selected].filter((id) => selectableIds.has(id)))}
+            onClick={() =>
+              void runAction(
+                'confirm',
+                [...selected].filter((id) => selectableIds.has(id)),
+              )
+            }
           >
             批量确认
           </Button>
