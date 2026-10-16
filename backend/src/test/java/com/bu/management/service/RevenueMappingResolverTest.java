@@ -161,8 +161,30 @@ class RevenueMappingResolverTest {
     }
 
     @Test
-    void otherMatterGoesToSalesOther() {
+    void otherMatterDeliveryGoesToLineOtherOnCustomLine() {
+        // 其他事项【交付】→ 定制线「其他事项」行（work_type=project, projectId=null），不再进销售
+        RevenueMappingResolver.Resolved resolved = resolver.resolve("全域-全渠道-全域云鹿定制", "其他事项【交付】");
+        assertThat(resolved.workType()).isEqualTo("project");
+        assertThat(resolved.projectId()).isNull();
+        assertThat(resolved.salesKind()).isNull();
+        assertThat(resolved.businessLineId()).isEqualTo(1L);
+        assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void otherMatterRndGoesToLineOtherOnSaasLine() {
+        // 其他事项【产研】→ SAAS 线「其他事项」行
         RevenueMappingResolver.Resolved resolved = resolver.resolve("全域-全渠道-全域云鹿Saas", "其他事项【产研】");
+        assertThat(resolved.workType()).isEqualTo("project");
+        assertThat(resolved.projectId()).isNull();
+        assertThat(resolved.salesKind()).isNull();
+        assertThat(resolved.businessLineId()).isEqualTo(2L);
+        assertThat(resolved.pending()).isFalse();
+    }
+
+    @Test
+    void plainOtherMatterGoesToSalesOther() {
+        RevenueMappingResolver.Resolved resolved = resolver.resolve("全域-全渠道-全域云鹿Saas", "其他事项【销售】");
         assertThat(resolved.workType()).isEqualTo("sales");
         assertThat(resolved.salesKind()).isEqualTo("other");
         assertThat(resolved.pending()).isFalse();

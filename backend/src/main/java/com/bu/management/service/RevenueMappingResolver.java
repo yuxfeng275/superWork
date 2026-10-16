@@ -24,7 +24,9 @@ import java.util.regex.Pattern;
 /**
  * 营收导入的归属解析：把 Excel 原始业务线/项目名映射到系统业务线与项目。
  * 规则来自《BU业务营收管理.xlsx》说明：
- * - 【交付】【产研】归为「项目」；【销售】归为「销售」；「其他事项」归为销售下的「其他」
+ * - 【交付】【产研】归为「项目」；【销售】归为「销售」
+ * - 「其他事项【交付】/【产研】」是交付/产研的线级其他工时，落各业务线「其他事项」行（work_type=project 且 projectId=null）；
+ *   裸「其他事项」或「其他事项【销售】」仍归销售下的「其他」
  * - 业务线级【销售】（项目名=业务线名）归「商机集合」，按工作说明打品牌/项目/商机标签
  * - 「京博【销售】」这类具体名称注册为销售项目，可手动关联商机
  * - 匹配不上业务线或项目的行标记 pending，进待映射清单
@@ -79,6 +81,12 @@ public class RevenueMappingResolver {
         }
 
         if (OTHER_NAME.equals(projectPart)) {
+            // 交付/产研的线级「其他事项」→ work_type=project（projectId=null）落业务线「其他事项」行；
+            // 其余「其他事项」（如【销售】/无后缀）仍归销售下的「其他」
+            if ("交付".equals(tag) || "产研".equals(tag)) {
+                return new Resolved(businessLineId, null, null, "project", null, projectPart, false,
+                        businessLineId == null);
+            }
             return new Resolved(businessLineId, null, null, "sales",
                     SalesKind.OTHER.name().toLowerCase(), projectPart, false, businessLineId == null);
         }
