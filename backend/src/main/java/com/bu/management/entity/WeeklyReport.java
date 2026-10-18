@@ -1,6 +1,8 @@
 package com.bu.management.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -63,5 +65,11 @@ public class WeeklyReport {
     private Long createdBy;
     private Long publishedBy;
     private LocalDateTime createdAt;
+    /**
+     * 仅由数据库 ON UPDATE CURRENT_TIMESTAMP 维护。
+     * 若让 MyBatis 把读出来的旧值回写进 SET 子句，会显式赋值旧的 updated_at，
+     * MySQL 的自动更新时间不再生效，updated_at 会永远停在建行那一刻。
+     */
+    @TableField(updateStrategy = FieldStrategy.NEVER)
     private LocalDateTime updatedAt;
 }
