@@ -47,12 +47,13 @@ class WeeklyReportKpiBuilderTest {
     }
 
     @Test
-    void explainsWhenCurrentMonthRevenueIsMissing() {
+    void returnsNullWhenCurrentMonthRevenueIsMissing() {
         String text = WeeklyReportKpiBuilder.render(
                 LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 10),
                 List.of(row("2026-09", "会员通", "100000", "40000")));
 
-        assertThat(text).contains("当月营收尚未同步");
+        // 系统没有当月营收时不产出报错文案，由调用方用生成指引/模型口径兜底
+        assertThat(text).isNull();
     }
 
     private static BizLineProfitReport row(String month, String name, String revenue, String gross) {

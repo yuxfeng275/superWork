@@ -17,6 +17,9 @@ import java.util.Map;
  * 周报 KPI：当月营收取业务线利润表，成本取此前 3 个自然月的月均考核成本。
  * 月份未结束时，按已过天数把月均成本折成截止当日的成本，再算毛利。
  * 考核成本 = 营收 − 考核毛利；没有毛利字段时退回各项成本之和。
+ *
+ * 当月营收尚未同步到利润表时返回 {@code null}，表示系统没有可用的 KPI 数字，
+ * 由调用方决定用生成指引/模型口径兜底，不要在这里产出报错文案（那会把用户填的 KPI 指引顶掉）。
  */
 public final class WeeklyReportKpiBuilder {
 
@@ -63,8 +66,7 @@ public final class WeeklyReportKpiBuilder {
                 .sorted(Comparator.comparing(line -> displayName(line.rawName)))
                 .toList();
         if (visible.stream().noneMatch(line -> line.current)) {
-            return "当月营收尚未同步到业务线利润表，无法按业务线计算截止 "
-                    + asOf + " 的毛利。";
+            return null;
         }
         int day = asOf.getDayOfMonth();
         int length = asOf.lengthOfMonth();

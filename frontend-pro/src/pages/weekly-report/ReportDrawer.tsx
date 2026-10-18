@@ -195,7 +195,7 @@ export default function ReportDrawer({
         if (report.status === 'GENERATING') {
           startPolling(report.weekStartDate);
         } else if (autoGenerate) {
-          // 「创建并立即生成」：加载后直接触发一次生成（generate 内部先落库输入再触发）
+          // 「创建并立即生成」：直接触发生成，采用库里已有的人工输入（本分支不落库，需要保存输入请用「生成 / 重新生成」按钮）
           void superworkApi
             .generateWeeklyReport(report.id)
             .then((next) => {

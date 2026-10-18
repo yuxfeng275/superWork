@@ -321,12 +321,16 @@ public class WeeklyReportService {
             if (!config.isDeepSeekConfigured()) {
                 throw new IllegalStateException("摘要模型未配置或未启用，请在「模型管理」勾选「摘要使用」的模型并补全接口地址");
             }
-            String userInput = buildUserInput(report, factsJson);
+            String systemKpi = buildKpiSection(weekStart);
+            if (systemKpi == null) {
+                log.info("周报 KPI 无当月营收数据，kpiSection 采用模型输出（生成指引/企微口径优先） weekStart={}", weekStart);
+            }
+            String userInput = buildUserInput(report, factsJson, systemKpi);
             JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
             validateResult(result);
 
             report.setCoreWork(result.path("coreWork").asText());
-            report.setKpiSection(buildKpiSection(weekStart));
+            report.setKpiSection(resolveKpiSection(systemKpi, result));
             report.setRisks(result.path("risks").asText());
             report.setNextWeekPlan(result.path("nextWeekPlan").asText());
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
@@ -349,6 +353,8 @@ public class WeeklyReportService {
     /**
      * KPI 由业务线利润表计算，生成后覆盖模型输出。
      * 只保留启用且配置了 kpi_report_group 的业务线，口径与业务线利润页一致。
+     * 当月营收未同步（系统没有可用数字）时返回 {@code null}，此时保留模型输出，
+     * 让「生成指引」里写的 KPI 口径不被报错文案顶掉。
      */
     String buildKpiSection(LocalDate weekStart) {
         try {
@@ -379,13 +385,28 @@ public class WeeklyReportService {
             return WeeklyReportKpiBuilder.render(weekStart, LocalDate.now(), rows);
         } catch (Exception e) {
             log.warn("周报 KPI 计算失败 weekStart={}: {}", weekStart, e.getMessage());
-            return "当月毛利暂无法计算：" + e.getMessage();
+            return null;
         }
     }
 
-    private String buildUserInput(WeeklyReport report, String factsJson) {
+    /** 系统 KPI 有数字时以其为准（数字必须准确）；没有系统 KPI 时采用模型输出，让生成指引/企微口径生效。 */
+    static String resolveKpiSection(String systemKpi, JsonNode result) {
+        if (StringUtils.hasText(systemKpi)) {
+            return systemKpi;
+        }
+        return result.path("kpiSection").asText();
+    }
+
+    /**
+     * 拼装模型输入，顺序即权重：自动事实 → 系统 KPI（有则原样沿用）→ 企微总结 → 人为补充 → 生成指引（最后，权重最高）。
+     */
+    String buildUserInput(WeeklyReport report, String factsJson, String systemKpi) {
         StringBuilder sb = new StringBuilder();
         sb.append("== 自动采集事实 ==\n").append(factsJson).append("\n\n");
+        if (StringUtils.hasText(systemKpi)) {
+            sb.append("== 系统 KPI（有本段时必须原样写入 kpiSection，数字不得改写） ==\n")
+                    .append(systemKpi).append("\n\n");
+        }
         if (StringUtils.hasText(report.getWecomSummary())) {
             sb.append("== 企微智能总结（必用，不得忽略） ==\n")
                     .append(report.getWecomSummary()).append("\n\n");
@@ -504,18 +525,20 @@ public class WeeklyReportService {
         return compact.length() <= max ? compact : compact.substring(0, max);
     }
 
-    /** 生成提示词：企微和人为补充必须写入，篇幅按事项展开；KPI 数字由系统覆盖。 */
+    /** 生成提示词：生成指引优先级最高，企微和人为补充必须写入，篇幅按事项展开；KPI 数字由系统覆盖。 */
     public String generationSystemPrompt() {
         return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，保留本周有信息量的进展，不要写成只有几条口号的简报。\n"
                 + "\n== 材料 ==\n"
-                + "1. 企微智能总结、人为补充信息是必用材料。里面的进展、结论、风险、待决策和下周动作都要写进周报或纪要，不得因为自动事实做了省略就丢掉。\n"
-                + "2. 自动采集事实补充大事儿和商机。opportunities 必须纳入 coreWork 或风险/下周计划。\n"
-                + "3. 不写纯寒暄、排班、无变化的日常项。omitted 计数只约束自动事实，不约束企微和人为补充。\n"
+                + "1. 生成指引是用户对本次生成的硬性要求，优先级最高：侧重点、取舍口径、排除项都要逐条落实；与本提示词其它条目冲突时以生成指引为准。\n"
+                + "2. 企微智能总结、人为补充信息是必用材料。里面的进展、结论、风险、待决策和下周动作都要写进周报或纪要，不得因为自动事实做了省略就丢掉。\n"
+                + "3. 自动采集事实补充大事儿和商机。opportunities 必须纳入 coreWork 或风险/下周计划。\n"
+                + "4. 不写纯寒暄、排班、无变化的日常项。omitted 计数只约束自动事实，不约束企微和人为补充。\n"
                 + "\n== 周报 ==\n"
                 + "四段纯文本，禁止 Markdown。coreWork 用标题行「项目：」「产品：」，有商机再加「商机：」。\n"
                 + "每个标题下按事项列点，覆盖本周主要项目和产品，最多 12 条。\n"
                 + "每条一行：「- 事项：结果或卡点。下一步+日期」，写清负责人和关键数字，不超过 80 字。\n"
-                + "kpiSection 固定写「系统计算」，不要自拟财务数字，系统会用业务线利润覆盖这一段。\n"
+                + "kpiSection：材料里有「系统 KPI」段落时写「系统计算」，系统会用业务线利润覆盖这一段；"
+                + "没有「系统 KPI」段落时，按生成指引和企微总结的口径写 KPI（可写预估），不要写「系统计算」，也不要声称没有数据。\n"
                 + "风险最多 5 条；下周计划最多 6 条，写清时间和交付物。\n"
                 + "\n== 纪要 ==\n"
                 + "首行：# 电商业务BU周会会议纪要\n"

@@ -20,6 +20,8 @@ import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.mapper.WeeklyReportMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -71,6 +73,9 @@ class WeeklyReportServiceTest {
         assertThat(prompt).doesNotContain("各最多 4 条");
         assertThat(prompt).contains("商机");
         assertThat(prompt).contains("opportunities");
+        assertThat(prompt).contains("生成指引");
+        assertThat(prompt).contains("优先级最高");
+        assertThat(prompt).contains("没有「系统 KPI」段落时");
     }
 
     @Test
@@ -209,5 +214,49 @@ class WeeklyReportServiceTest {
         assertThatThrownBy(() -> service.fillSheet(3L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("语雀");
+    }
+
+    @Test
+    void buildUserInputKeepsGuidanceAndSystemKpi() {
+        report.setWecomSummary("企微智能总结正文");
+        report.setManualNotes("人为补充正文");
+        report.setGenerationPrompt("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
+
+        String input = service.buildUserInput(report, "{\"weekStart\":\"2026-10-12\"}", "合计：营收 10.00 万");
+
+        assertThat(input).contains("企微智能总结正文");
+        assertThat(input).contains("人为补充正文");
+        assertThat(input).contains("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
+        assertThat(input).contains("== 系统 KPI");
+        assertThat(input).contains("合计：营收 10.00 万");
+        // 生成指引排在最后，权重最高
+        assertThat(input.indexOf("生成指引")).isGreaterThan(input.indexOf("系统 KPI"));
+    }
+
+    @Test
+    void buildUserInputOmitsSystemKpiWhenProfitTableHasNoCurrentMonth() {
+        report.setGenerationPrompt("按 9 月口径写 KPI：YTD 毛利 44 万");
+
+        String input = service.buildUserInput(report, "{}", null);
+
+        assertThat(input).doesNotContain("系统 KPI");
+        assertThat(input).contains("按 9 月口径写 KPI：YTD 毛利 44 万");
+    }
+
+    @Test
+    void kpiSectionFallsBackToModelOutputWhenSystemHasNoNumbers() throws Exception {
+        JsonNode result = new ObjectMapper().readTree(
+                "{\"kpiSection\":\"KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万\"}");
+
+        assertThat(WeeklyReportService.resolveKpiSection(null, result))
+                .isEqualTo("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
+    }
+
+    @Test
+    void systemKpiSectionStillOverridesModelNumbers() throws Exception {
+        JsonNode result = new ObjectMapper().readTree("{\"kpiSection\":\"系统计算\"}");
+
+        assertThat(WeeklyReportService.resolveKpiSection("合计：营收 10.00 万，毛利 3.23 万", result))
+                .isEqualTo("合计：营收 10.00 万，毛利 3.23 万");
     }
 }
