@@ -43,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * BG 周报与周会纪要：事实采集、AI 生成、语雀发布、企微提醒、汇总表回填标记。
@@ -328,9 +330,10 @@ public class WeeklyReportService {
             String userInput = buildUserInput(report, factsJson, systemKpi);
             JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
             validateResult(result);
+            result = regenerateIfOffTemplate(config, userInput, result, weekStart);
 
             report.setCoreWork(result.path("coreWork").asText());
-            report.setKpiSection(resolveKpiSection(systemKpi, result));
+            report.setKpiSection(composeKpiSection(systemKpi, result.path("kpiSection").asText()));
             report.setRisks(result.path("risks").asText());
             report.setNextWeekPlan(result.path("nextWeekPlan").asText());
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
@@ -389,12 +392,126 @@ public class WeeklyReportService {
         }
     }
 
-    /** 系统 KPI 有数字时以其为准（数字必须准确）；没有系统 KPI 时采用模型输出，让生成指引/企微口径生效。 */
-    static String resolveKpiSection(String systemKpi, JsonNode result) {
-        if (StringUtils.hasText(systemKpi)) {
-            return systemKpi;
+    /**
+     * kpiSection 由「KPI：」+「商机：」两段组成（见 docs/weekly-report-template.md）。
+     * 系统 KPI 有数字时以其为准（数字必须准确），没有系统数字时用模型按生成指引写的口径；
+     * 商机始终用模型输出（它汇总了企微、人为补充、生成指引与自动事实里的 opportunities）。
+     */
+    static String composeKpiSection(String systemKpi, String modelSection) {
+        String opportunities = blockAfter(modelSection, "商机");
+        String kpi = StringUtils.hasText(systemKpi) ? systemKpi : blockAfter(modelSection, "KPI");
+        if (!StringUtils.hasText(kpi) && !StringUtils.hasText(opportunities)) {
+            // 模型没按模版输出，原样保留，避免把内容弄丢
+            return modelSection;
         }
-        return result.path("kpiSection").asText();
+        StringBuilder sb = new StringBuilder();
+        if (StringUtils.hasText(kpi)) {
+            sb.append("KPI：\n").append(kpi.trim());
+        }
+        if (StringUtils.hasText(opportunities)) {
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append("商机：\n").append(opportunities.trim());
+        }
+        return sb.toString();
+    }
+
+    /** 取「标题：」行之后到下一个标题行之前的正文；没有该标题行返回 null。 */
+    private static String blockAfter(String text, String label) {
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+        StringBuilder buf = new StringBuilder();
+        boolean inside = false;
+        for (String raw : text.split("\n")) {
+            String line = raw.trim();
+            if (isHeaderLine(line, label)) {
+                inside = true;
+                continue;
+            }
+            if (inside && isHeaderLine(line, null)) {
+                break;
+            }
+            if (inside) {
+                buf.append(line).append('\n');
+            }
+        }
+        String out = buf.toString().trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    /** 标题行：不以「- 」开头、以「：」结尾；给定 label 时要求标题名完全匹配。 */
+    private static boolean isHeaderLine(String line, String label) {
+        if (line.startsWith("- ")) {
+            return false;
+        }
+        if (label != null) {
+            return line.equals(label + "：") || line.equals(label + ":");
+        }
+        return line.endsWith("：") && line.length() <= 14;
+    }
+
+    /** 下周计划里不允许出现的具体日期：10/23、10月23日、2026-10-23。 */
+    private static final Pattern PLAN_DATE = Pattern.compile(
+            "\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日|\\d{1,2}\\s*/\\s*\\d{1,2}");
+
+    /**
+     * 生成后按固定模版自检（见 docs/weekly-report-template.md），返回不合规项；空列表表示合规。
+     */
+    static List<String> templateIssues(JsonNode result) {
+        List<String> issues = new ArrayList<>();
+        String coreWork = result.path("coreWork").asText("");
+        if (!hasAnyHeader(coreWork, List.of("项目", "产品", "会员通"))) {
+            issues.add("coreWork 缺少「项目：/产品：/会员通：」标题行");
+        }
+        if (hasAnyHeader(coreWork, List.of("商机"))) {
+            issues.add("coreWork 不应再出现「商机：」，商机统一放到 kpiSection");
+        }
+        String kpi = result.path("kpiSection").asText("");
+        if (!hasAnyHeader(kpi, List.of("KPI"))) {
+            issues.add("kpiSection 缺少「KPI：」标题行");
+        }
+        if (!hasAnyHeader(kpi, List.of("商机"))) {
+            issues.add("kpiSection 缺少「商机：」标题行");
+        }
+        if (!hasAnyHeader(result.path("risks").asText(""), List.of("项目", "会员通"))) {
+            issues.add("risks 缺少「项目：/会员通：」标题行");
+        }
+        Matcher matcher = PLAN_DATE.matcher(result.path("nextWeekPlan").asText(""));
+        if (matcher.find()) {
+            issues.add("nextWeekPlan 不应出现具体日期：" + matcher.group());
+        }
+        return issues;
+    }
+
+    private static boolean hasAnyHeader(String text, List<String> labels) {
+        return text.lines().map(String::trim)
+                .anyMatch(line -> labels.stream().anyMatch(label -> isHeaderLine(line, label)));
+    }
+
+    /** 模版不合规时按不合规项补一轮提示重试；重试仍不合规则保留首次结果。 */
+    private JsonNode regenerateIfOffTemplate(EmailIntegrationRuntimeConfig config, String userInput,
+                                             JsonNode result, LocalDate weekStart) {
+        List<String> issues = templateIssues(result);
+        if (issues.isEmpty()) {
+            return result;
+        }
+        log.warn("周报输出不符合固定模版，重试一次 weekStart={} issues={}", weekStart, issues);
+        try {
+            JsonNode retry = deepSeekClient.chatCompletion(config, generationSystemPrompt(),
+                    userInput + "\n\n== 上次输出不符合固定模版，必须逐条修正 ==\n- "
+                            + String.join("\n- ", issues) + "\n");
+            validateResult(retry);
+            List<String> remaining = templateIssues(retry);
+            if (remaining.isEmpty()) {
+                return retry;
+            }
+            log.warn("周报重试后仍不符合模版，保留首次结果 weekStart={} issues={}", weekStart, remaining);
+        } catch (Exception e) {
+            log.warn("周报模版重试失败，保留首次结果 weekStart={}: {}", weekStart, e.getMessage());
+        }
+        return result;
     }
 
     /**
@@ -525,21 +642,30 @@ public class WeeklyReportService {
         return compact.length() <= max ? compact : compact.substring(0, max);
     }
 
-    /** 生成提示词：生成指引优先级最高，企微和人为补充必须写入，篇幅按事项展开；KPI 数字由系统覆盖。 */
+    /** 生成提示词：固定模版（见 docs/weekly-report-template.md），生成指引优先级最高，KPI 数字由系统覆盖。 */
     public String generationSystemPrompt() {
         return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，保留本周有信息量的进展，不要写成只有几条口号的简报。\n"
                 + "\n== 材料 ==\n"
                 + "1. 生成指引是用户对本次生成的硬性要求，优先级最高：侧重点、取舍口径、排除项都要逐条落实；与本提示词其它条目冲突时以生成指引为准。\n"
                 + "2. 企微智能总结、人为补充信息是必用材料。里面的进展、结论、风险、待决策和下周动作都要写进周报或纪要，不得因为自动事实做了省略就丢掉。\n"
-                + "3. 自动采集事实补充大事儿和商机。opportunities 必须纳入 coreWork 或风险/下周计划。\n"
+                + "3. 自动采集事实补充大事儿和商机。opportunities 必须纳入 kpiSection 的商机段。\n"
                 + "4. 不写纯寒暄、排班、无变化的日常项。omitted 计数只约束自动事实，不约束企微和人为补充。\n"
-                + "\n== 周报 ==\n"
-                + "四段纯文本，禁止 Markdown。coreWork 用标题行「项目：」「产品：」，有商机再加「商机：」。\n"
-                + "每个标题下按事项列点，覆盖本周主要项目和产品，最多 12 条。\n"
-                + "每条一行：「- 事项：结果或卡点。下一步+日期」，写清负责人和关键数字，不超过 80 字。\n"
-                + "kpiSection：材料里有「系统 KPI」段落时写「系统计算」，系统会用业务线利润覆盖这一段；"
-                + "没有「系统 KPI」段落时，按生成指引和企微总结的口径写 KPI（可写预估），不要写「系统计算」，也不要声称没有数据。\n"
-                + "风险最多 5 条；下周计划最多 6 条，写清时间和交付物。\n"
+                + "\n== 周报排版（四段纯文本，禁止 Markdown） ==\n"
+                + "一级标题顶格并以「：」结尾；二级分类缩进两个空格并以「：」结尾；条目以「- 」开头，一行一条。\n"
+                + "某组本周无事项时，整组（含标题行）不要出现。\n"
+                + "\n【coreWork 本周核心工作完成情况】固定三个一级标题，顺序如下：\n"
+                + "项目：按客户交付项目做二级分类（如 皇家项目 / 飞鹤 / 佳贝艾特 / 黄天鹅 / Speedo / 澳优 / 逢时，取事实里的 projectName），每个子分类 1-3 条。\n"
+                + "产品：只允许两个二级分类，名称必须原样照抄：全渠道产品、海外产品。云鹿全渠道产品/CDP/MA/BI/AI 的事项一律归「全渠道产品」，海外产品研发的事项归「海外产品」；每个子分类 1-4 条。\n"
+                + "会员通：不分子集，直接平铺条目。\n"
+                + "coreWork 全篇最多 12 条，每条不超过 80 字，格式「- 事项：结果或卡点。下一步：动作」；本段不要再出现「商机：」。\n"
+                + "\n【kpiSection KPI相关情况】固定两个一级标题，两个都要出现：\n"
+                + "KPI：材料里有「系统 KPI」段落时，这一行下面写「系统计算」（系统会用业务线利润原文替换）；没有「系统 KPI」段落时，按生成指引和企微总结的口径写 KPI（可写预估），不要写「系统计算」，也不要声称没有数据。\n"
+                + "商机：opportunities 全部放这里，一行一条「- 客户或商机：阶段变化/金额」。\n"
+                + "\n【risks 问题/风险与解决办法】固定两个一级标题，无事项的整组不出现：\n"
+                + "项目：与 coreWork 相同的客户项目做二级分类；会员通：不分子集直接平铺。\n"
+                + "每条「- 风险：影响。解决办法：动作」，最多 5 条。\n"
+                + "\n【nextWeekPlan 下周工作计划】只写条目「- 工作项」，最多 6 条。\n"
+                + "不要出现任何具体日期（如 10/23、11月13日、2026-10-23），需要表达时间就用「下周」「月底前」「双十一后」。\n"
                 + "\n== 纪要 ==\n"
                 + "首行：# 电商业务BU周会会议纪要\n"
                 + "次行：**会议周期：** YYYY年MM月DD日 - YYYY年MM月DD日\n"
@@ -547,7 +673,12 @@ public class WeeklyReportService {
                 + "末尾 ## 下周重点工作计划，HTML <table> 三列：序号、工作项、预计时间，最多 6 行。\n"
                 + "纪要正文不超过 1500 字。\n"
                 + "\n== 输出 ==\n"
-                + "严格 JSON：{\"coreWork\":\"...\",\"kpiSection\":\"系统计算\",\"risks\":\"...\",\"nextWeekPlan\":\"...\",\"minutesMarkdown\":\"...\"}";
+                + "严格 JSON，五个字段的字符串里都必须带上述标题行，换行用 \\n 转义：\n"
+                + "{\"coreWork\":\"项目：…\\n  项目名：\\n  - 事项：…\","
+                + "\"kpiSection\":\"KPI：…\\n\\n商机：…\","
+                + "\"risks\":\"项目：…\\n  项目名：\\n  - 风险：…\","
+                + "\"nextWeekPlan\":\"- 工作项\","
+                + "\"minutesMarkdown\":\"# 电商业务BU周会会议纪要\\n…\"}";
     }
 
     // ==================== 发布：语雀 ====================

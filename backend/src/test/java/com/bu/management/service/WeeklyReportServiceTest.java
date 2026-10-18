@@ -22,6 +22,7 @@ import com.bu.management.mapper.SalesOpportunityMapper;
 import com.bu.management.mapper.WeeklyReportMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -76,6 +77,13 @@ class WeeklyReportServiceTest {
         assertThat(prompt).contains("生成指引");
         assertThat(prompt).contains("优先级最高");
         assertThat(prompt).contains("没有「系统 KPI」段落时");
+        assertThat(prompt).contains("项目：");
+        assertThat(prompt).contains("产品：");
+        assertThat(prompt).contains("会员通：");
+        assertThat(prompt).contains("全渠道产品");
+        assertThat(prompt).contains("海外产品");
+        assertThat(prompt).contains("商机：");
+        assertThat(prompt).contains("不要出现任何具体日期");
     }
 
     @Test
@@ -244,19 +252,84 @@ class WeeklyReportServiceTest {
     }
 
     @Test
-    void kpiSectionFallsBackToModelOutputWhenSystemHasNoNumbers() throws Exception {
-        JsonNode result = new ObjectMapper().readTree(
-                "{\"kpiSection\":\"KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万\"}");
+    void composeKpiSectionKeepsModelKpiWhenSystemHasNoNumbers() {
+        String model = "KPI：\n9月数据已与财报拉齐，YTD 毛利 44 万\n\n商机：\n- 皇家 TM 处方签：16.5 万中标";
 
-        assertThat(WeeklyReportService.resolveKpiSection(null, result))
-                .isEqualTo("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
+        String section = WeeklyReportService.composeKpiSection(null, model);
+
+        assertThat(section).contains("KPI：");
+        assertThat(section).contains("YTD 毛利 44 万");
+        assertThat(section).contains("商机：");
+        assertThat(section).contains("皇家 TM 处方签");
     }
 
     @Test
-    void systemKpiSectionStillOverridesModelNumbers() throws Exception {
-        JsonNode result = new ObjectMapper().readTree("{\"kpiSection\":\"系统计算\"}");
+    void composeKpiSectionKeepsSystemNumbersAndModelOpportunities() {
+        String model = "KPI：\n系统计算\n\n商机：\n- 库博全渠道：进入招投标阶段";
 
-        assertThat(WeeklyReportService.resolveKpiSection("合计：营收 10.00 万，毛利 3.23 万", result))
-                .isEqualTo("合计：营收 10.00 万，毛利 3.23 万");
+        String section = WeeklyReportService.composeKpiSection("合计：营收 10.00 万，毛利 3.23 万", model);
+
+        assertThat(section).contains("KPI：\n合计：营收 10.00 万，毛利 3.23 万");
+        assertThat(section).contains("商机：");
+        assertThat(section).contains("库博全渠道");
+        assertThat(section).doesNotContain("系统计算");
+    }
+
+    @Test
+    void composeKpiSectionFallsBackToRawTextWhenNothingParses() {
+        String model = "本周 KPI 与商机均无变化。";
+
+        assertThat(WeeklyReportService.composeKpiSection(null, model)).isEqualTo(model);
+    }
+
+    @Test
+    void templateIssuesAcceptsConfirmedTemplate() throws Exception {
+        JsonNode result = templateJson(CONFIRMED_CORE_WORK,
+                "KPI：\n系统计算\n\n商机：\n- 皇家 TM 处方签：16.5 万中标",
+                "项目：\n  皇家项目：\n  - 标品升级 4800 差异。解决办法：拉张野协助出分类清单",
+                "- 输出云鹿 OS 场景清单");
+
+        assertThat(WeeklyReportService.templateIssues(result)).isEmpty();
+    }
+
+    @Test
+    void templateIssuesFlagsMissingHeadersAndConcreteDates() throws Exception {
+        JsonNode result = templateJson("皇家项目：积分异常",
+                "9 月数据已与财报拉齐",
+                "标品升级有风险",
+                "- 10/23 前完成飞鹤接口改造");
+
+        assertThat(WeeklyReportService.templateIssues(result))
+                .anyMatch(issue -> issue.contains("coreWork"))
+                .anyMatch(issue -> issue.contains("kpiSection 缺少「商机：」"))
+                .anyMatch(issue -> issue.contains("risks"))
+                .anyMatch(issue -> issue.contains("具体日期"));
+    }
+
+    @Test
+    void templateIssuesRejectsOpportunitiesInsideCoreWork() throws Exception {
+        JsonNode result = templateJson(CONFIRMED_CORE_WORK + "\n商机：\n- 皇家 TM 处方签",
+                "KPI：\n系统计算\n\n商机：\n- 皇家 TM 处方签",
+                "会员通：\n  - 京东 account 缺失。解决办法：批量补全工具",
+                "- 完成验收测试");
+
+        assertThat(WeeklyReportService.templateIssues(result))
+                .anyMatch(issue -> issue.contains("coreWork 不应再出现"));
+    }
+
+    private static final String CONFIRMED_CORE_WORK =
+            "项目：\n  皇家项目：\n  - 积分异常：定位为活动配置。下一步：持续监控\n"
+                    + "产品：\n  全渠道产品：\n  - 开放平台：第一版 80%。下一步：联调评审\n"
+                    + "  海外产品：\n  - Lifecycle AI EDM MVP：85%。下一步：验收测试\n"
+                    + "会员通：\n  - 京东 omid 升级：完成切换";
+
+    private static JsonNode templateJson(String coreWork, String kpi, String risks, String nextPlan) {
+        ObjectNode node = new ObjectMapper().createObjectNode();
+        node.put("coreWork", coreWork);
+        node.put("kpiSection", kpi);
+        node.put("risks", risks);
+        node.put("nextWeekPlan", nextPlan);
+        node.put("minutesMarkdown", "# 电商业务BU周会会议纪要\n**会议周期：** ...");
+        return node;
     }
 }
