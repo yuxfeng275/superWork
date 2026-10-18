@@ -5,6 +5,7 @@ import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Connector;
+import com.bu.management.entity.Project;
 import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
@@ -14,6 +15,7 @@ import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
+import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -37,6 +39,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,6 +60,13 @@ public class WeeklyReportService {
     private static final String CONFIG_GROUP = "weekly-report";
     private static final String MINUTES_TITLE = "# 电商业务BU周会会议纪要";
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
+    /** 「产品：」段只允许的两个二级分类。 */
+    private static final List<String> PRODUCT_GROUPS = List.of("全渠道产品", "海外产品");
+    /** 一级标题固定名称（coreWork / kpiSection / risks 共用）。 */
+    private static final List<String> LEVEL1_GROUPS = List.of("项目", "产品", "会员通", "KPI", "商机");
+    /** 项目主数据读不到时的项目分组白名单兜底。 */
+    private static final List<String> DEFAULT_PROJECT_GROUPS =
+            List.of("皇家项目", "飞鹤", "佳贝艾特", "海普诺凯", "黄天鹅", "Speedo", "澳优", "逢时");
 
     private final WeeklyReportMapper reportMapper;
     private final DeepSeekDigestClient deepSeekClient;
@@ -66,6 +76,7 @@ public class WeeklyReportService {
     private final RevenueContractEntryMapper contractEntryMapper;
     private final BizLineProfitReportMapper profitReportMapper;
     private final BusinessLineMapper businessLineMapper;
+    private final ProjectMapper projectMapper;
     private final SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     private final SalesOpportunityMapper salesOpportunityMapper;
     private final SystemConfigService configService;
@@ -327,14 +338,15 @@ public class WeeklyReportService {
             if (systemKpi == null) {
                 log.info("周报 KPI 无当月营收数据，kpiSection 采用模型输出（生成指引/企微口径优先） weekStart={}", weekStart);
             }
-            String userInput = buildUserInput(report, factsJson, systemKpi);
+            List<String> projectGroups = projectGroupWhitelist();
+            String userInput = buildUserInput(report, factsJson, systemKpi, projectGroups);
             JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
             validateResult(result);
             result = regenerateIfOffTemplate(config, userInput, result, weekStart);
 
-            report.setCoreWork(result.path("coreWork").asText());
+            report.setCoreWork(normalizeGroups(result.path("coreWork").asText(), projectGroups));
             report.setKpiSection(composeKpiSection(systemKpi, result.path("kpiSection").asText()));
-            report.setRisks(result.path("risks").asText());
+            report.setRisks(normalizeGroups(result.path("risks").asText(), projectGroups));
             report.setNextWeekPlan(result.path("nextWeekPlan").asText());
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
             report.setStatus(WeeklyReport.STATUS_DRAFT);
@@ -515,14 +527,108 @@ public class WeeklyReportService {
     }
 
     /**
-     * 拼装模型输入，顺序即权重：自动事实 → 系统 KPI（有则原样沿用）→ 企微总结 → 人为补充 → 生成指引（最后，权重最高）。
+     * 「项目：」二级分类白名单：取全渠道云鹿（定制 / SAAS）业务线下的一级项目名，
+     * 即可用项目主数据维护、不用改代码；也可用系统配置 weekly-report/core-work.project-groups 直接覆盖（逗号分隔）。
      */
-    String buildUserInput(WeeklyReport report, String factsJson, String systemKpi) {
+    List<String> projectGroupWhitelist() {
+        String override = configService.getValue(CONFIG_GROUP, "core-work.project-groups", null);
+        if (StringUtils.hasText(override)) {
+            List<String> configured = Arrays.stream(override.split("[,，、]"))
+                    .map(String::trim).filter(StringUtils::hasText).distinct().toList();
+            if (!configured.isEmpty()) {
+                return configured;
+            }
+        }
+        try {
+            List<Long> lineIds = businessLineMapper.selectList(new LambdaQueryWrapper<BusinessLine>()
+                            .eq(BusinessLine::getStatus, 1)
+                            .like(BusinessLine::getName, "云鹿"))
+                    .stream().map(BusinessLine::getId).toList();
+            if (lineIds.isEmpty()) {
+                return DEFAULT_PROJECT_GROUPS;
+            }
+            List<String> names = projectMapper.selectList(new LambdaQueryWrapper<Project>()
+                            .in(Project::getBusinessLineId, lineIds)
+                            .eq(Project::getLevel, 1))
+                    .stream().map(Project::getName).filter(StringUtils::hasText).distinct().toList();
+            return names.isEmpty() ? DEFAULT_PROJECT_GROUPS : names;
+        } catch (Exception e) {
+            log.warn("周报项目分组白名单读取失败，回退默认值: {}", e.getMessage());
+            return DEFAULT_PROJECT_GROUPS;
+        }
+    }
+
+    /**
+     * 二级分类白名单校正（模版见 docs/weekly-report-template.md）：
+     * 「项目：」段只保留白名单里的客户项目名，「产品：」段只保留 全渠道产品 / 海外产品，
+     * 「会员通：」段不允许子分类。不合规的子分类行删掉、其下的条目保留，避免丢内容。
+     */
+    static String normalizeGroups(String text, List<String> projectGroups) {
+        if (!StringUtils.hasText(text)) {
+            return text;
+        }
+        StringBuilder out = new StringBuilder();
+        String section = "";
+        for (String raw : text.split("\n", -1)) {
+            String line = raw.strip();
+            String level1 = fixedLevel1Name(line);
+            if (level1 != null) {
+                section = level1;
+                out.append(raw.stripTrailing()).append('\n');
+                continue;
+            }
+            String group = indentedGroupName(raw);
+            if (group != null) {
+                List<String> allowed = switch (section) {
+                    case "项目" -> projectGroups;
+                    case "产品" -> PRODUCT_GROUPS;
+                    default -> List.of();
+                };
+                if (!allowed.contains(group)) {
+                    continue;
+                }
+            }
+            out.append(raw.stripTrailing()).append('\n');
+        }
+        return out.toString().strip();
+    }
+
+    private static String fixedLevel1Name(String line) {
+        for (String name : LEVEL1_GROUPS) {
+            if (line.equals(name + "：") || line.equals(name + ":")) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    /** 二级分类行：缩进至少两个空格、以「：」结尾、不是「- 」条目；返回去掉冒号的名称。 */
+    private static String indentedGroupName(String raw) {
+        String line = raw.strip();
+        boolean colonEnded = line.endsWith("：") || line.endsWith(":");
+        if (line.isEmpty() || line.startsWith("-") || !colonEnded) {
+            return null;
+        }
+        if (raw.length() - raw.stripLeading().length() < 2) {
+            return null;
+        }
+        String name = line.substring(0, line.length() - 1).strip();
+        return name.isEmpty() || name.length() > 20 ? null : name;
+    }
+
+    /**
+     * 拼装模型输入，顺序即权重：自动事实 → 系统 KPI（有则原样沿用）→ 项目分组白名单 → 企微总结 → 人为补充 → 生成指引（最后，权重最高）。
+     */
+    String buildUserInput(WeeklyReport report, String factsJson, String systemKpi, List<String> projectGroups) {
         StringBuilder sb = new StringBuilder();
         sb.append("== 自动采集事实 ==\n").append(factsJson).append("\n\n");
         if (StringUtils.hasText(systemKpi)) {
             sb.append("== 系统 KPI（有本段时必须原样写入 kpiSection，数字不得改写） ==\n")
                     .append(systemKpi).append("\n\n");
+        }
+        if (projectGroups != null && !projectGroups.isEmpty()) {
+            sb.append("== 项目分组白名单（「项目：」的二级分类只能取这里面的项目名，不要自建其它客户分组） ==\n")
+                    .append(String.join("、", projectGroups)).append("\n\n");
         }
         if (StringUtils.hasText(report.getWecomSummary())) {
             sb.append("== 企微智能总结（必用，不得忽略） ==\n")

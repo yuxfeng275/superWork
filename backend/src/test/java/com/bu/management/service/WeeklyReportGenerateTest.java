@@ -3,6 +3,7 @@ package com.bu.management.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,7 @@ import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
+import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -51,6 +53,7 @@ class WeeklyReportGenerateTest {
     @Mock private RevenueContractEntryMapper contractEntryMapper;
     @Mock private BizLineProfitReportMapper profitReportMapper;
     @Mock private BusinessLineMapper businessLineMapper;
+    @Mock private ProjectMapper projectMapper;
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
     @Mock private SystemConfigService configService;
@@ -75,6 +78,8 @@ class WeeklyReportGenerateTest {
         report.setStatus(WeeklyReport.STATUS_PENDING);
         when(reportMapper.selectOne(any())).thenReturn(report);
         when(keyMatterService.meeting(any())).thenReturn(List.of());
+        when(configService.getValue(eq("weekly-report"), eq("core-work.project-groups"), any()))
+                .thenReturn("皇家项目,飞鹤,佳贝艾特,海普诺凯,黄天鹅,Speedo,澳优,逢时");
         when(integrationConfigService.getRuntimeConfig()).thenReturn(config);
         when(aiModelConfigService.digestModel()).thenReturn(Optional.empty());
     }
@@ -155,6 +160,36 @@ class WeeklyReportGenerateTest {
 
         String kpi = savedReport().getKpiSection();
         assertThat(kpi).contains("KPI：").contains("系统计算").contains("商机：");
+    }
+
+    @Test
+    void stripsOffWhitelistCustomerGroupButKeepsItsItems() throws Exception {
+        ObjectNode withExtraGroup = compliant();
+        withExtraGroup.put("coreWork",
+                "项目：\n  皇家项目：\n  - 积分异常：已定位。下一步：持续监控\n"
+                        + "  中升：\n  - MCP 测试：初版完成\n"
+                        + "产品：\n  全渠道产品：\n  - 开放平台：第一版 80%\n"
+                        + "  海外产品：\n  - EDM MVP：85%\n"
+                        + "会员通：\n  - 京东 omid 升级：完成");
+        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(withExtraGroup);
+
+        service.generate(WEEK_START);
+
+        String coreWork = savedReport().getCoreWork();
+        assertThat(coreWork).contains("  皇家项目：").contains("  全渠道产品：").contains("  海外产品：");
+        assertThat(coreWork).contains("- MCP 测试：初版完成");
+        assertThat(coreWork).doesNotContain("中升");
+    }
+
+    @Test
+    void sendsProjectGroupWhitelistToModel() throws Exception {
+        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(compliant());
+
+        service.generate(WEEK_START);
+
+        ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
+        verify(deepSeekClient).chatCompletion(any(), anyString(), userInput.capture());
+        assertThat(userInput.getValue()).contains("项目分组白名单").contains("皇家项目、飞鹤");
     }
 
     private WeeklyReport savedReport() {

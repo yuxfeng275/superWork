@@ -10,12 +10,14 @@ import static org.mockito.Mockito.when;
 
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
+import com.bu.management.entity.Project;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
+import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.mapper.RevenueContractEntryMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -44,6 +46,7 @@ class WeeklyReportServiceTest {
     @Mock private RevenueContractEntryMapper contractEntryMapper;
     @Mock private BizLineProfitReportMapper profitReportMapper;
     @Mock private BusinessLineMapper businessLineMapper;
+    @Mock private ProjectMapper projectMapper;
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
 
@@ -230,13 +233,15 @@ class WeeklyReportServiceTest {
         report.setManualNotes("人为补充正文");
         report.setGenerationPrompt("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
 
-        String input = service.buildUserInput(report, "{\"weekStart\":\"2026-10-12\"}", "合计：营收 10.00 万");
+        String input = service.buildUserInput(report, "{\"weekStart\":\"2026-10-12\"}", "合计：营收 10.00 万",
+                List.of("皇家项目", "飞鹤"));
 
         assertThat(input).contains("企微智能总结正文");
         assertThat(input).contains("人为补充正文");
         assertThat(input).contains("KPI 相关情况：9 月数据已与财报拉齐，YTD 毛利 44 万");
         assertThat(input).contains("== 系统 KPI");
         assertThat(input).contains("合计：营收 10.00 万");
+        assertThat(input).contains("项目分组白名单").contains("皇家项目、飞鹤");
         // 生成指引排在最后，权重最高
         assertThat(input.indexOf("生成指引")).isGreaterThan(input.indexOf("系统 KPI"));
     }
@@ -245,9 +250,10 @@ class WeeklyReportServiceTest {
     void buildUserInputOmitsSystemKpiWhenProfitTableHasNoCurrentMonth() {
         report.setGenerationPrompt("按 9 月口径写 KPI：YTD 毛利 44 万");
 
-        String input = service.buildUserInput(report, "{}", null);
+        String input = service.buildUserInput(report, "{}", null, List.of());
 
         assertThat(input).doesNotContain("系统 KPI");
+        assertThat(input).doesNotContain("项目分组白名单");
         assertThat(input).contains("按 9 月口径写 KPI：YTD 毛利 44 万");
     }
 
@@ -315,6 +321,57 @@ class WeeklyReportServiceTest {
 
         assertThat(WeeklyReportService.templateIssues(result))
                 .anyMatch(issue -> issue.contains("coreWork 不应再出现"));
+    }
+
+    @Test
+    void normalizeGroupsDropsUnknownCustomerGroupsButKeepsTheirItems() {
+        String text = "项目：\n  皇家项目：\n- 积分异常：已定位。下一步：持续监控\n  中升：\n- MCP 测试：初版完成\n产品：\n  全渠道产品：\n- 开放平台：第一版 80%";
+
+        String normalized = WeeklyReportService.normalizeGroups(text, List.of("皇家项目", "飞鹤"));
+
+        assertThat(normalized).contains("  皇家项目：").contains("  全渠道产品：");
+        assertThat(normalized).contains("- MCP 测试：初版完成");
+        assertThat(normalized).doesNotContain("中升");
+    }
+
+    @Test
+    void normalizeGroupsRestrictsProductAndMemberGroups() {
+        String text = "产品：\n  云鹿AI：\n- 鼠标跟随：设计 40%\n  海外产品：\n- EDM MVP：85%\n"
+                + "会员通：\n  京东：\n- 积分中断：已打补丁";
+
+        String normalized = WeeklyReportService.normalizeGroups(text, List.of("皇家项目"));
+
+        assertThat(normalized).doesNotContain("云鹿AI").doesNotContain("  京东：");
+        assertThat(normalized).contains("  海外产品：")
+                .contains("- 鼠标跟随：设计 40%")
+                .contains("- 积分中断：已打补丁");
+    }
+
+    @Test
+    void normalizeGroupsKeepsCompliantTextUntouched() {
+        String text = "项目：\n  皇家项目：\n  - 积分异常：已定位。下一步：持续监控\n"
+                + "产品：\n  全渠道产品：\n  - 开放平台：80%\n  海外产品：\n  - EDM MVP：85%\n"
+                + "会员通：\n  - omid 升级：完成";
+
+        assertThat(WeeklyReportService.normalizeGroups(text, List.of("皇家项目"))).isEqualTo(text);
+    }
+
+    @Test
+    void projectWhitelistComesFromProjectMasterData() {
+        BusinessLine saas = new BusinessLine();
+        saas.setId(2L);
+        when(businessLineMapper.selectList(any())).thenReturn(List.of(saas));
+        Project royal = new Project();
+        royal.setId(1L);
+        royal.setName("皇家项目");
+        royal.setLevel(1);
+        Project feihe = new Project();
+        feihe.setId(7L);
+        feihe.setName("飞鹤");
+        feihe.setLevel(1);
+        when(projectMapper.selectList(any())).thenReturn(List.of(royal, feihe));
+
+        assertThat(service.projectGroupWhitelist()).containsExactly("皇家项目", "飞鹤");
     }
 
     private static final String CONFIRMED_CORE_WORK =
