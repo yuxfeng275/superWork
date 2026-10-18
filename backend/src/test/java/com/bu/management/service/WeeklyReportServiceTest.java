@@ -324,14 +324,32 @@ class WeeklyReportServiceTest {
     }
 
     @Test
-    void normalizeGroupsDropsUnknownCustomerGroupsButKeepsTheirItems() {
-        String text = "项目：\n  皇家项目：\n- 积分异常：已定位。下一步：持续监控\n  中升：\n- MCP 测试：初版完成\n产品：\n  全渠道产品：\n- 开放平台：第一版 80%";
+    void normalizeGroupsMovesOffWhitelistCustomersIntoOthers() {
+        String text = "项目：\n  皇家项目：\n- 积分异常：已定位。下一步：持续监控\n"
+                + "  中升：\n- MCP 测试：初版完成\n  合生元：\n- 数据看板：需求已对齐\n"
+                + "产品：\n  全渠道产品：\n- 开放平台：第一版 80%";
 
         String normalized = WeeklyReportService.normalizeGroups(text, List.of("皇家项目", "飞鹤"));
 
         assertThat(normalized).contains("  皇家项目：").contains("  全渠道产品：");
-        assertThat(normalized).contains("- MCP 测试：初版完成");
+        assertThat(normalized).contains("  其他项目：");
+        assertThat(normalized).contains("- MCP 测试：初版完成").contains("- 数据看板：需求已对齐");
+        assertThat(normalized).doesNotContain("中升").doesNotContain("合生元");
+        // 多个白名单外分组合并成一个「其他项目：」
+        assertThat(normalized.split("其他项目：", -1)).hasSize(2);
+    }
+
+    @Test
+    void normalizeGroupsKeepsExistingOthersGroupOnce() {
+        String text = "项目：\n  其他项目：\n- MCP 测试：初版完成\n  中升：\n- 数据看板：需求已对齐";
+
+        String normalized = WeeklyReportService.normalizeGroups(text, List.of("皇家项目"));
+
+        assertThat(normalized).contains("  其他项目：")
+                .contains("- MCP 测试：初版完成")
+                .contains("- 数据看板：需求已对齐");
         assertThat(normalized).doesNotContain("中升");
+        assertThat(normalized.split("其他项目：", -1)).hasSize(2);
     }
 
     @Test

@@ -62,6 +62,8 @@ public class WeeklyReportService {
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
     /** 「产品：」段只允许的两个二级分类。 */
     private static final List<String> PRODUCT_GROUPS = List.of("全渠道产品", "海外产品");
+    /** 白名单外客户事项的兜底分组名。 */
+    private static final String OTHERS_GROUP = "其他项目";
     /** 一级标题固定名称（coreWork / kpiSection / risks 共用）。 */
     private static final List<String> LEVEL1_GROUPS = List.of("项目", "产品", "会员通", "KPI", "商机");
     /** 项目主数据读不到时的项目分组白名单兜底。 */
@@ -560,8 +562,9 @@ public class WeeklyReportService {
 
     /**
      * 二级分类白名单校正（模版见 docs/weekly-report-template.md）：
-     * 「项目：」段只保留白名单里的客户项目名，「产品：」段只保留 全渠道产品 / 海外产品，
-     * 「会员通：」段不允许子分类。不合规的子分类行删掉、其下的条目保留，避免丢内容。
+     * 「项目：」段只保留白名单里的客户项目名，**白名单外的客户统一归到「其他项目」**（多个合并成一个标题）；
+     * 「产品：」段只保留 全渠道产品 / 海外产品；「会员通：」段不允许子分类。
+     * 被改名的分组其下条目全部保留，不丢内容。
      */
     static String normalizeGroups(String text, List<String> projectGroups) {
         if (!StringUtils.hasText(text)) {
@@ -569,24 +572,41 @@ public class WeeklyReportService {
         }
         StringBuilder out = new StringBuilder();
         String section = "";
+        boolean othersEmitted = false;
         for (String raw : text.split("\n", -1)) {
             String line = raw.strip();
             String level1 = fixedLevel1Name(line);
             if (level1 != null) {
                 section = level1;
+                othersEmitted = false;
                 out.append(raw.stripTrailing()).append('\n');
                 continue;
             }
             String group = indentedGroupName(raw);
             if (group != null) {
-                List<String> allowed = switch (section) {
-                    case "项目" -> projectGroups;
-                    case "产品" -> PRODUCT_GROUPS;
-                    default -> List.of();
-                };
-                if (!allowed.contains(group)) {
+                if ("项目".equals(section)) {
+                    if (projectGroups.contains(group)) {
+                        out.append(raw.stripTrailing()).append('\n');
+                    } else if (OTHERS_GROUP.equals(group)) {
+                        if (!othersEmitted) {
+                            othersEmitted = true;
+                            out.append("  ").append(OTHERS_GROUP).append("：\n");
+                        }
+                    } else if (!othersEmitted) {
+                        // 系统里没有的客户：第一个改名成「其他项目」，其余合并进去
+                        othersEmitted = true;
+                        out.append("  ").append(OTHERS_GROUP).append("：\n");
+                    }
                     continue;
                 }
+                if ("产品".equals(section)) {
+                    if (PRODUCT_GROUPS.contains(group)) {
+                        out.append(raw.stripTrailing()).append('\n');
+                    }
+                    continue;
+                }
+                // 会员通 / KPI / 商机：不分子集，子分类标题行删掉，条目保留
+                continue;
             }
             out.append(raw.stripTrailing()).append('\n');
         }
@@ -627,8 +647,8 @@ public class WeeklyReportService {
                     .append(systemKpi).append("\n\n");
         }
         if (projectGroups != null && !projectGroups.isEmpty()) {
-            sb.append("== 项目分组白名单（「项目：」的二级分类只能取这里面的项目名，不要自建其它客户分组） ==\n")
-                    .append(String.join("、", projectGroups)).append("\n\n");
+            sb.append("== 项目分组白名单（「项目：」的二级分类只能取下面的项目名，排在最后的「其他项目」用于收纳白名单外的客户，不要自建其它分组名） ==\n")
+                    .append(String.join("、", projectGroups)).append("、").append(OTHERS_GROUP).append("\n\n");
         }
         if (StringUtils.hasText(report.getWecomSummary())) {
             sb.append("== 企微智能总结（必用，不得忽略） ==\n")
@@ -760,7 +780,7 @@ public class WeeklyReportService {
                 + "一级标题顶格并以「：」结尾；二级分类缩进两个空格并以「：」结尾；条目以「- 」开头，一行一条。\n"
                 + "某组本周无事项时，整组（含标题行）不要出现。\n"
                 + "\n【coreWork 本周核心工作完成情况】固定三个一级标题，顺序如下：\n"
-                + "项目：按客户交付项目做二级分类（如 皇家项目 / 飞鹤 / 佳贝艾特 / 黄天鹅 / Speedo / 澳优 / 逢时，取事实里的 projectName），每个子分类 1-3 条。\n"
+                + "项目：按客户交付项目做二级分类，只能取材料里「项目分组白名单」给出的项目名（如 皇家项目 / 飞鹤 / 佳贝艾特 / 黄天鹅 / Speedo / 澳优 / 逢时），每个子分类 1-3 条；不属于白名单客户的进展（系统里没建项目的客户）一律收进「其他项目」子分类并排在最后，不要自建其它分组名。\n"
                 + "产品：只允许两个二级分类，名称必须原样照抄：全渠道产品、海外产品。云鹿全渠道产品/CDP/MA/BI/AI 的事项一律归「全渠道产品」，海外产品研发的事项归「海外产品」；每个子分类 1-4 条。\n"
                 + "会员通：不分子集，直接平铺条目。\n"
                 + "coreWork 全篇最多 12 条，每条不超过 80 字，格式「- 事项：结果或卡点。下一步：动作」；本段不要再出现「商机：」。\n"

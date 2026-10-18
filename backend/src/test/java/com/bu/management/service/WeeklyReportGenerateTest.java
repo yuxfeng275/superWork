@@ -163,7 +163,7 @@ class WeeklyReportGenerateTest {
     }
 
     @Test
-    void stripsOffWhitelistCustomerGroupButKeepsItsItems() throws Exception {
+    void movesOffWhitelistCustomerGroupIntoOthers() throws Exception {
         ObjectNode withExtraGroup = compliant();
         withExtraGroup.put("coreWork",
                 "项目：\n  皇家项目：\n  - 积分异常：已定位。下一步：持续监控\n"
@@ -177,7 +177,7 @@ class WeeklyReportGenerateTest {
 
         String coreWork = savedReport().getCoreWork();
         assertThat(coreWork).contains("  皇家项目：").contains("  全渠道产品：").contains("  海外产品：");
-        assertThat(coreWork).contains("- MCP 测试：初版完成");
+        assertThat(coreWork).contains("  其他项目：").contains("- MCP 测试：初版完成");
         assertThat(coreWork).doesNotContain("中升");
     }
 
@@ -189,7 +189,9 @@ class WeeklyReportGenerateTest {
 
         ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
         verify(deepSeekClient).chatCompletion(any(), anyString(), userInput.capture());
-        assertThat(userInput.getValue()).contains("项目分组白名单").contains("皇家项目、飞鹤");
+        assertThat(userInput.getValue()).contains("项目分组白名单")
+                .contains("皇家项目、飞鹤")
+                .contains("其他项目");
     }
 
     private WeeklyReport savedReport() {
