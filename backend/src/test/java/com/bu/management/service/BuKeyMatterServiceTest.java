@@ -203,6 +203,28 @@ class BuKeyMatterServiceTest {
     }
 
     @Test
+    void weeklyUpdateAllowsBlankOptionalSections() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        BuKeyMatterWeeklyUpdate existing = weekly(21L, 11L, week, "推进中", 40);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
+        BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("推进中", 50, "只填本周进展");
+        request.setIssues("");
+        request.setNextWeekPlan(null);
+        request.setSupportNeeded("   ");
+
+        BuKeyMatterWeeklyUpdate saved =
+                service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng");
+
+        assertThat(saved.getProgressSummary()).isEqualTo("只填本周进展");
+        assertThat(saved.getIssues()).isNull();
+        assertThat(saved.getNextWeekPlan()).isNull();
+        assertThat(saved.getSupportNeeded()).isNull();
+    }
+
+    @Test
     void completedMatterRejectsCreatingWeeklyUpdate() {
         LocalDate week = LocalDate.of(2026, 8, 3);
         BuKeyMatter matter = matter(11L, "P1", "已完成", 100,

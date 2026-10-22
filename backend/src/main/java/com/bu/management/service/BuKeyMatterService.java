@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -206,11 +207,13 @@ public class BuKeyMatterService {
                 matter.getTitle(),
                 "/key-matters?matterId=" + matter.getId(),
                 update.getWeekStartDate(),
-                List.of(
+                Stream.of(
                         update.getProgressSummary(),
                         update.getIssues(),
                         update.getSupportNeeded(),
-                        update.getNextWeekPlan()));
+                        update.getNextWeekPlan())
+                        .filter(StringUtils::hasText)
+                        .toList());
     }
 
     @Transactional
