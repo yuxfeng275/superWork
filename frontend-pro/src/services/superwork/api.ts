@@ -633,6 +633,7 @@ export type SalesOpportunityStatus =
   | "需求确认"
   | "方案报价"
   | "商务谈判"
+  | "暂停推进"
   | "已成交"
   | "已流失";
 

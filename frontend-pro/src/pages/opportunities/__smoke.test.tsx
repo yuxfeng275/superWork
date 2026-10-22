@@ -142,6 +142,24 @@ describe('OpportunitiesPage smoke', () => {
     expect(within(dialog).getByText('飞鹤乳业')).toBeInTheDocument();
   });
 
+  it('supports paused opportunities and keeps them out of the progressing count', async () => {
+    mocks.getSalesOpportunities.mockResolvedValue([
+      opportunity,
+      {
+        ...opportunity,
+        id: 14,
+        name: '暂停推进-数据治理',
+        status: '暂停推进' as const,
+      },
+    ]);
+    render(<OpportunitiesPage />);
+    expect(await screen.findByText('暂停推进-数据治理')).toBeInTheDocument();
+    expect(screen.getAllByText('暂停推进').length).toBeGreaterThan(0);
+    const progressingCard = screen.getByText('跟进中').closest('.sw-stat-card');
+    expect(progressingCard).not.toBeNull();
+    expect(within(progressingCard as HTMLElement).getByText('1')).toBeInTheDocument();
+  });
+
   it('disables hours logging on won opportunities', async () => {
     mocks.getSalesOpportunities.mockResolvedValue([
       {

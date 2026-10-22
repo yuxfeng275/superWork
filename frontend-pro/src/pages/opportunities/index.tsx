@@ -60,6 +60,7 @@ const statuses: SalesOpportunityStatus[] = [
   '需求确认',
   '方案报价',
   '商务谈判',
+  '暂停推进',
   '已成交',
   '已流失',
 ];
@@ -68,6 +69,7 @@ const statusColor: Record<SalesOpportunityStatus, string> = {
   需求确认: 'processing',
   方案报价: 'warning',
   商务谈判: 'warning',
+  暂停推进: 'purple',
   已成交: 'success',
   已流失: 'error',
 };
@@ -370,7 +372,7 @@ export default function OpportunitiesPage() {
     () => ({
       total: rows.length,
       progressing: rows.filter(
-        (row) => !['已成交', '已流失'].includes(row.status),
+        (row) => !['已成交', '已流失', '暂停推进'].includes(row.status),
       ).length,
       won: rows.filter((row) => row.status === '已成交').length,
       stages: rows.filter((row) => row.type === '商机').length,

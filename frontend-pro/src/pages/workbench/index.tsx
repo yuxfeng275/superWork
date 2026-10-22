@@ -73,6 +73,7 @@ const matterTone = (status?: string) => {
 const oppTone = (status?: string) => {
   if (status === '已成交') return 'success';
   if (status === '已流失') return 'error';
+  if (status === '暂停推进') return 'default';
   if (status === '方案报价' || status === '商务谈判') return 'warning';
   return 'processing';
 };
