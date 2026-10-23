@@ -38,8 +38,21 @@
 | b.ai 中转 | `api.b.ai` | **直连超时**（8s 无响应），必须走代理 |
 | b.ai 中转 | 经 `mihomo:7890` | 可达（返回 401），代理配置 `{"proxy":"http://mihomo:7890"}` 有效 |
 
-结论：241 上做兜底优先选**直连可达**的提供方（DeepSeek、智谱 GLM）；选 b.ai 这类必须确认
-连接器 `extra.proxy` 已配且 mihomo 健康，否则它的候选一定失败。
+结论：241 上做兜底优先选**直连可达**的提供方；选 b.ai 这类必须确认连接器 `extra.proxy`
+已配且 mihomo 健康，否则它的候选一定失败。
+
+### 当前兜底链（2026-10-23 起，线上生效）
+
+| 顺序 | 候选 | 接入方式 | 摘要用途 |
+|---|---|---|---|
+| 1 | `deepseek / deepseek-flash` | 直连 `api.deepseek.com` | ✅ |
+| 2 | `bai / deepseek-v4.1-flash` | 经 `mihomo:7890` 代理 | ✅ |
+
+实测：把 deepseek 摘要临时关掉后重新生成 2026-10-19 周报，35 秒完成、状态 DRAFT、
+`generation_provider=bai`、`generation_error` 为空、正文 752 字 —— 说明 b.ai 经代理
+不仅连通，也能正常吃 `response_format: json_object` 的长文本生成，是可用备胎。
+（该验证为一次性临时切换，已恢复 deepseek 摘要开启。）
+
 
 
 ## 三、AI 助手用量统计

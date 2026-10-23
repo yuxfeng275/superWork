@@ -87,6 +87,27 @@ class DigestLlmClientTest {
     }
 
     @Test
+    void fallsBackToProxiedCandidateWhenDirectOneIsUnreachable() throws Exception {
+        // 生产场景：deepseek 直连超时 → 换 bai（必须走代理）
+        AtomicInteger proxyHits = new AtomicInteger();
+        second = stub(200, chatResponse("{\"summary\":\"from-bai\"}"), proxyHits);
+        AiModelConfigService models = mock(AiModelConfigService.class);
+        when(models.digestModels()).thenReturn(List.of(
+                new AiModelConfigService.DigestModel("deepseek", "http://127.0.0.1:1/v1",
+                        "deepseek-flash", "sk-a"),
+                new AiModelConfigService.DigestModel("bai", "http://127.0.0.1:1/v1",
+                        "deepseek-v4.1-flash", "sk-b")));
+        when(models.proxyFor("deepseek")).thenReturn(null);
+        when(models.proxyFor("bai")).thenReturn(baseUrl(second));
+
+        DigestLlmClient.ChatResult result = new DigestLlmClient(models, objectMapper).chat("s", "u");
+
+        assertThat(proxyHits.get()).isEqualTo(1);
+        assertThat(result.providerCode()).isEqualTo("bai");
+        assertThat(result.json().path("summary").asText()).isEqualTo("from-bai");
+    }
+
+    @Test
     void refusesToCallWithoutCandidate() {
         DigestLlmClient client = new DigestLlmClient(candidates(), objectMapper,
                 java.net.http.HttpClient.newHttpClient());
