@@ -27,7 +27,7 @@ import {
   type Requirement,
   type SalesOpportunity,
   superworkApi,
-  type WorkItemRecord, type AiProactiveSuggestion } from '@/services/superwork/api';
+  type WorkItemRecord, type AiProactiveSuggestion, type AiProactiveStats } from '@/services/superwork/api';
 import './style.less';
 
 type Matter = Record<string, unknown>;
@@ -83,6 +83,7 @@ export default function WorkbenchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
+  const [suggestionStats, setSuggestionStats] = useState<AiProactiveStats>();
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -158,7 +159,12 @@ export default function WorkbenchPage() {
   }, [load]);
   const loadSuggestions = useCallback(async () => {
     try {
-      setSuggestions(await superworkApi.getAiProactiveSuggestions());
+      const [list, stats] = await Promise.all([
+        superworkApi.getAiProactiveSuggestions(),
+        superworkApi.getAiProactiveStats().catch(() => undefined),
+      ]);
+      setSuggestions(list);
+      setSuggestionStats(stats);
     } catch {
       setSuggestions([]);
     }
@@ -348,9 +354,17 @@ export default function WorkbenchPage() {
             </Space>
           }
           extra={
-            <Link to="/ai-assistant">
-              打开助手 <ArrowRightOutlined />
-            </Link>
+            <Space size={12}>
+              {suggestionStats && suggestionStats.done + suggestionStats.dismissed > 0 && (
+                <Typography.Text type="secondary">
+                  近 {suggestionStats.days} 天：采纳 {suggestionStats.adoptRate}% ·
+                  忽略 {suggestionStats.noiseRate}%
+                </Typography.Text>
+              )}
+              <Link to="/ai-assistant">
+                打开助手 <ArrowRightOutlined />
+              </Link>
+            </Space>
           }
         >
           <div className="sw-workbench-ai-list">

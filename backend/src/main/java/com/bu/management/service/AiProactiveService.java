@@ -50,6 +50,10 @@ public class AiProactiveService {
     private static final String KIND_KEY_MATTER = "key_matter_week";
     private static final String KIND_MEETING = "meeting_todos";
     private static final String KIND_EMAIL = "email_digest";
+    private static final String KIND_WEEKLY_TOC = "weekly_toc";
+    private static final String KIND_MATTER_OVERDUE = "key_matter_overdue";
+    /** 语雀目录挂载成功状态值（周报发布后由发布流程回写）。 */
+    private static final String TOC_VERIFIED = "VERIFIED";
 
     /** 前端展示用。 */
     public record Suggestion(Long id, String kind, String title, String body, String prompt,
@@ -123,6 +127,8 @@ public class AiProactiveService {
         runRule(userId, today, () -> keyMatterRule(userId, monday));
         runRule(userId, today, () -> meetingTodoRule(userId, monday));
         runRule(userId, today, () -> emailDigestRule(userId, today.minusDays(1)));
+        runRule(userId, today, () -> weeklyTocRule(monday));
+        runRule(userId, today, () -> overdueMatterRule(userId, monday));
     }
 
     private void runRule(Long userId, LocalDate today, Rule rule) {
@@ -250,6 +256,55 @@ public class AiProactiveService {
             row.setStatus(AiProactiveSuggestion.STATUS_DISMISSED);
             suggestionMapper.updateById(row);
         }
+    }
+
+    /** 周报已发布但语雀纪要目录没挂上（线上出现过 TOC 挂载失败仍算发布）。 */
+    private Draft weeklyTocRule(LocalDate monday) {
+        List<WeeklyReport> recent = weeklyReportService.history(6);
+        if (recent == null) {
+            return null;
+        }
+        WeeklyReport broken = recent.stream()
+                .filter(report -> WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus()))
+                .filter(report -> !TOC_VERIFIED.equals(report.getYuqueTocStatus()))
+                .findFirst().orElse(null);
+        if (broken == null || broken.getWeekStartDate() == null) {
+            return null;
+        }
+        String week = broken.getWeekStartDate().toString();
+        return new Draft(KIND_WEEKLY_TOC, "语雀目录:" + week,
+                "周会纪要没挂到语雀部门会议目录",
+                week + " 周报已发布，但语雀 TOC 状态是 "
+                        + (broken.getYuqueTocStatus() == null ? "空" : broken.getYuqueTocStatus()),
+                "检查" + week + " 周报的语雀纪要发布结果：先确认语雀 MCP Token 权限与「部门会议」父目录是否存在，"
+                        + "再给出重新发布并挂载 TOC 的步骤；不要直接改已发布正文",
+                "/weekly-report?week=" + week + "&anchor=publish", 80);
+    }
+
+    /** 我负责的已逾期大事儿。 */
+    private Draft overdueMatterRule(Long userId, LocalDate monday) {
+        List<BuKeyMatterView> matters = keyMatterService.meeting(monday);
+        if (matters == null) {
+            return null;
+        }
+        List<BuKeyMatterView> overdue = matters.stream()
+                .filter(matter -> userId.equals(matter.getOwnerId()))
+                .filter(BuKeyMatterView::isOverdue)
+                .filter(matter -> !"已完成".equals(matter.getStatus()))
+                .toList();
+        if (overdue.isEmpty()) {
+            return null;
+        }
+        String titles = overdue.stream().map(BuKeyMatterView::getTitle).limit(3)
+                .reduce((a, b) -> a + "、" + b).orElse("");
+        String target = overdue.get(0).getId() == null
+                ? "/key-matters" : "/key-matters?matterId=" + overdue.get(0).getId();
+        return new Draft(KIND_MATTER_OVERDUE, "逾期:" + monday,
+                overdue.size() + " 个大事儿已逾期",
+                titles + (overdue.size() > 3 ? " 等" : ""),
+                "列出我已逾期的大事事儿，逐项给出：延期原因（缺资源/等外部/需求变更）、新的预计完成时间、需要谁协调，"
+                        + "最后问我要不要直接写回系统",
+                target, 85 + overdue.size());
     }
 
     private static int size(JsonNode node) {

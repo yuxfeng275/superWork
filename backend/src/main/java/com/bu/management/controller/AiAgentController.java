@@ -9,6 +9,7 @@ import com.bu.management.service.AiAgentAttachmentService;
 import com.bu.management.service.AiAgentToolService;
 import com.bu.management.service.AiAgentUsageService;
 import com.bu.management.service.AiProactivePushService;
+import com.bu.management.service.AiProactiveStatsService;
 import com.bu.management.service.AiProactiveService;
 import com.bu.management.service.JevDecisionService;
 import com.bu.management.service.ConnectorRegistryService;
@@ -85,6 +86,7 @@ public class AiAgentController {
     private final AiAgentUsageService usageService;
     private final AiProactiveService proactiveService;
     private final AiProactivePushService proactivePushService;
+    private final AiProactiveStatsService proactiveStatsService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -134,6 +136,14 @@ public class AiAgentController {
             @PathVariable Long id) {
         proactiveService.dismiss(userId, id);
         return Result.success();
+    }
+
+    /** 主动建议效果指标：采纳率 / 打扰率 / 推送成功率（默认近 30 天）。 */
+    @GetMapping("/proactive/stats")
+    public Result<AiProactiveStatsService.Stats> proactiveStats(
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "30") int days) {
+        return Result.success(proactiveStatsService.stats(userId, days));
     }
 
     /** 把今天的建议推到自己企业微信（不在系统里也能收到；每天一条）。 */

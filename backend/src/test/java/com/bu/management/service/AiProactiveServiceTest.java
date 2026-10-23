@@ -185,12 +185,51 @@ class AiProactiveServiceTest {
 
     private BuKeyMatterView matter(Long id, Long ownerId, String title, boolean updated,
                                    String status) {
+        return matter(id, ownerId, title, updated, status, false);
+    }
+
+    private BuKeyMatterView matter(Long id, Long ownerId, String title, boolean updated,
+                                   String status, boolean overdue) {
         BuKeyMatterView view = new BuKeyMatterView();
         view.setId(id);
         view.setOwnerId(ownerId);
         view.setTitle(title);
         view.setCurrentWeekUpdated(updated);
         view.setStatus(status);
+        view.setOverdue(overdue);
         return view;
+    }
+
+    @Test
+    void reportsPublishedReportWhoseYuqueTocIsNotMounted() {
+        WeeklyReport published = new WeeklyReport();
+        published.setWeekStartDate(monday.minusDays(7));
+        published.setStatus(WeeklyReport.STATUS_PUBLISHED);
+        published.setYuqueTocStatus("NOT_FOUND");
+        when(weeklyReportService.history(any(Integer.class))).thenReturn(List.of(published));
+
+        service.scan(7L);
+
+        AiProactiveSuggestion toc = insertedRows().stream()
+                .filter(row -> row.getKind().equals("weekly_toc")).findFirst().orElseThrow();
+        assertThat(toc.getTitle()).isEqualTo("周会纪要没挂到语雀部门会议目录");
+        assertThat(toc.getBody()).contains("NOT_FOUND");
+        assertThat(toc.getTargetPath()).contains("anchor=publish");
+        assertThat(toc.getScore()).isEqualTo(80);
+    }
+
+    @Test
+    void reportsOverdueMattersWithHigherPriority() {
+        when(keyMatterService.meeting(any())).thenReturn(List.of(
+                matter(9L, 7L, "逾期项目 A", true, "有风险", true),
+                matter(10L, 7L, "正常项目 B", true, "推进中", false)));
+
+        service.scan(7L);
+
+        AiProactiveSuggestion overdue = insertedRows().stream()
+                .filter(row -> row.getKind().equals("key_matter_overdue")).findFirst().orElseThrow();
+        assertThat(overdue.getTitle()).isEqualTo("1 个大事儿已逾期");
+        assertThat(overdue.getTargetPath()).isEqualTo("/key-matters?matterId=9");
+        assertThat(overdue.getScore()).isEqualTo(86);
     }
 }

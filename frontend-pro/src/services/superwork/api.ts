@@ -454,6 +454,26 @@ export interface AiProactiveSuggestion {
   targetPath?: string | null;
   score: number;
 }
+export interface AiProactiveStats {
+  days: number;
+  total: number;
+  done: number;
+  dismissed: number;
+  open: number;
+  adoptRate: number;
+  noiseRate: number;
+  pushes: number;
+  pushesSent: number;
+  byKind: {
+    kind: string;
+    total: number;
+    done: number;
+    dismissed: number;
+    open: number;
+    adoptRate: number;
+    noiseRate: number;
+  }[];
+}
 export interface AiAgentAttachmentItem {
   id: number;
   fileName: string;
@@ -2186,6 +2206,11 @@ export const superworkApi = {
   },
   getAiProactiveSuggestions() {
     return requestJson<AiProactiveSuggestion[]>("/api/ai-agent/proactive");
+  },
+  getAiProactiveStats(days = 30) {
+    return requestJson<AiProactiveStats>(
+      `/api/ai-agent/proactive/stats?days=${days}`
+    );
   },
   acceptAiProactive(id: number) {
     return requestJson<void>(`/api/ai-agent/proactive/${id}/accept`, {
