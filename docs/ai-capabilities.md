@@ -26,6 +26,21 @@
 - 周报的 `generation_provider` / `generation_model` 记录**实际成功**使用的模型。
 - 候选为空时提示「请在模型管理勾选摘要使用」，不再依赖 email-integration 旧配置里的 DeepSeek 参数。
 - 至少配两个摘要模型并在模型管理里排好顺序，才能真正兜底。
+- **需要出网代理的提供方**（如 `bai`）按同名连接器的 `extra.proxy` 走 HTTP CONNECT 前代；
+  客户端按 proxy 缓存连接池，失败信息会标注「（经代理 http://mihomo:7890）」。
+
+### 241 网络可达性实测（2026-10-23，容器内直连）
+
+| 提供方 | 地址 | 结果 |
+|---|---|---|
+| DeepSeek | `api.deepseek.com` | 直连可达，158ms（401 = 需鉴权） |
+| 智谱 GLM | `open.bigmodel.cn` | 直连可达，113ms（401 = 需鉴权） |
+| b.ai 中转 | `api.b.ai` | **直连超时**（8s 无响应），必须走代理 |
+| b.ai 中转 | 经 `mihomo:7890` | 可达（返回 401），代理配置 `{"proxy":"http://mihomo:7890"}` 有效 |
+
+结论：241 上做兜底优先选**直连可达**的提供方（DeepSeek、智谱 GLM）；选 b.ai 这类必须确认
+连接器 `extra.proxy` 已配且 mihomo 健康，否则它的候选一定失败。
+
 
 ## 三、AI 助手用量统计
 

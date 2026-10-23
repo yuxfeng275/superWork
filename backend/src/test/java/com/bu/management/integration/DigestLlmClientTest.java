@@ -70,6 +70,23 @@ class DigestLlmClientTest {
     }
 
     @Test
+    void honorsConnectorProxyForCandidatesThatNeedIt() throws Exception {
+        // 代理桩本身就是转发目标：若客户端没走代理，直连 127.0.0.1:1 必失败
+        AtomicInteger proxyHits = new AtomicInteger();
+        second = stub(200, chatResponse("{\"summary\":\"proxied\"}"), proxyHits);
+        AiModelConfigService models = mock(AiModelConfigService.class);
+        when(models.digestModels()).thenReturn(List.of(new AiModelConfigService.DigestModel(
+                "bai", "http://127.0.0.1:1/v1", "deepseek-v4.1-flash", "sk-b")));
+        when(models.proxyFor("bai")).thenReturn(baseUrl(second));
+
+        DigestLlmClient.ChatResult result = new DigestLlmClient(models, objectMapper).chat("s", "u");
+
+        assertThat(proxyHits.get()).isEqualTo(1);
+        assertThat(result.json().path("summary").asText()).isEqualTo("proxied");
+        assertThat(result.providerCode()).isEqualTo("bai");
+    }
+
+    @Test
     void refusesToCallWithoutCandidate() {
         DigestLlmClient client = new DigestLlmClient(candidates(), objectMapper,
                 java.net.http.HttpClient.newHttpClient());

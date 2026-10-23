@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -36,19 +37,22 @@ public class DigestLlmClient {
 
     private final AiModelConfigService modelConfigService;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    /** 直连客户端（无 proxy 的候选）。 */
+    private final HttpClient directClient;
+    /** 每个代理地址一个客户端（如 bai 这类需要出网代理的提供方）。 */
+    private final Map<String, HttpClient> proxyClients = new ConcurrentHashMap<>();
 
     @Autowired
     public DigestLlmClient(AiModelConfigService modelConfigService, ObjectMapper objectMapper) {
-        this(modelConfigService, objectMapper,
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+        this(modelConfigService, objectMapper, null);
     }
 
+    /** httpClient 非 null 时强制直连（测试注入口）；否则按候选的连接器 proxy 配置逐次解析。 */
     DigestLlmClient(AiModelConfigService modelConfigService, ObjectMapper objectMapper,
                     HttpClient httpClient) {
         this.modelConfigService = modelConfigService;
         this.objectMapper = objectMapper;
-        this.httpClient = httpClient;
+        this.directClient = httpClient != null ? httpClient : newClient(null);
     }
 
     /** 可用摘要模型数量；0 表示「模型管理」里没有可用的摘要模型。 */
@@ -112,11 +116,14 @@ public class DigestLlmClient {
         } catch (IOException e) {
             throw new IllegalStateException("请求构建失败：" + e.getMessage(), e);
         }
+        // 需要出网代理的提供方（如 bai）在连接器 extra.proxy 里配；未配则直连
+        String proxy = modelConfigService.proxyFor(model.providerCode());
         HttpResponse<String> response;
         try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            response = clientFor(proxy).send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
-            throw new IllegalStateException("调用失败：" + e.getMessage(), e);
+            throw new IllegalStateException("调用失败" + (proxy != null ? "（经代理 " + proxy + "）" : "")
+                    + "：" + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("调用被中断", e);
@@ -143,6 +150,27 @@ public class DigestLlmClient {
         } catch (IOException e) {
             throw new IllegalStateException("返回内容不是合法 JSON：" + e.getMessage(), e);
         }
+    }
+
+    /** 按代理地址取客户端：null = 直连；同一代理复用，避免每个候选都新建连接池。 */
+    private HttpClient clientFor(String proxy) {
+        if (proxy == null) {
+            return directClient;
+        }
+        return proxyClients.computeIfAbsent(proxy, this::newClient);
+    }
+
+    private HttpClient newClient(String proxy) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10));
+        if (proxy != null) {
+            URI uri = URI.create(proxy.trim());
+            int port = uri.getPort() > 0 ? uri.getPort()
+                    : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 7890;
+            builder.proxy(java.net.ProxySelector.of(
+                    new java.net.InetSocketAddress(uri.getHost(), port)));
+        }
+        return builder.build();
     }
 
     /** 错误体截断后带进异常信息，让「余额不足 / 鉴权失败」一眼可见。 */
