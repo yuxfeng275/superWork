@@ -51,6 +51,11 @@ public class WeeklyReport {
     private String generationProvider;
     /** AI|RULES|NONE */
     private String generationMode;
+    /**
+     * 上次生成失败的原因。生成成功时必须能写回 NULL，
+     * 所以显式指定 ALWAYS（默认 NOT_NULL 会把 null 跳过，旧错误文案永远清不掉）。
+     */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String generationError;
     private Integer yuqueDocId;
     private String yuqueDocSlug;
