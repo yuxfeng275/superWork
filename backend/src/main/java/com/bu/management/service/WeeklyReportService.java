@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -89,6 +90,13 @@ public class WeeklyReportService {
 
     @Resource(name = "emailTaskExecutor")
     private Executor taskExecutor;
+
+    /** 生成失败时的企微告警接收人（与周五自动生成用同一个配置）。 */
+    @Value("${weekly.report-notify-wecom-user:}")
+    private String notifyWeComUser;
+
+    @Value("${app.public-base-url:}")
+    private String publicBaseUrl;
 
     // ==================== 基础 ====================
 
@@ -366,6 +374,29 @@ public class WeeklyReportService {
             String message = String.valueOf(e.getMessage());
             report.setGenerationError(message.length() > 500 ? message.substring(0, 500) : message);
             reportMapper.updateById(report);
+            notifyFailure(weekStart, message);
+        }
+    }
+
+    /**
+     * 生成失败即时企微告警：周五 17:00 挂了不必等到第二天早上才被人发现。
+     * 未配置接收人则跳过；告警失败不得覆盖原始错误。
+     */
+    private void notifyFailure(LocalDate weekStart, String message) {
+        if (!StringUtils.hasText(notifyWeComUser)) {
+            return;
+        }
+        try {
+            String link = StringUtils.hasText(publicBaseUrl)
+                    ? publicBaseUrl.replaceAll("/+$", "") + "/weekly-report"
+                    : "/weekly-report";
+            String detail = message == null ? "未知错误" : message;
+            weComClient.pushText(notifyWeComUser,
+                    "本周周报自动生成失败（周起始 " + weekStart + "）：\n"
+                            + (detail.length() > 300 ? detail.substring(0, 300) : detail)
+                            + "\n重新生成或手工补：" + link);
+        } catch (Exception e) {
+            log.warn("周报失败告警推送失败 weekStart={}: {}", weekStart, e.getMessage());
         }
     }
 

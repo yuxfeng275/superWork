@@ -61,9 +61,12 @@ class WeeklyReportGenerateTest {
     @InjectMocks private WeeklyReportService service;
 
     private static final LocalDate WEEK_START = LocalDate.of(2026, 11, 2);
+    private static final String NOTIFY_USER = "yufeng";
 
     @BeforeEach
     void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", NOTIFY_USER);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "publicBaseUrl", "https://bu.example.com");
         WeeklyReport report = new WeeklyReport();
         report.setId(9L);
         report.setWeekStartDate(WEEK_START);
@@ -192,6 +195,34 @@ class WeeklyReportGenerateTest {
         assertThat(userInput.getValue()).contains("项目分组白名单")
                 .contains("皇家项目、飞鹤")
                 .contains("其他项目");
+    }
+
+    @Test
+    void notifiesWecomAsSoonAsGenerationFails() {
+        when(digestLlmClient.chat(anyString(), anyString())).thenThrow(new IllegalStateException(
+                "所有摘要模型均失败：bai/deepseek-v4.1-flash 调用失败（经代理 http://mihomo:7890）：request timed out"));
+
+        service.generate(WEEK_START);
+
+        ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
+        verify(weComClient).pushText(eq(NOTIFY_USER), content.capture());
+        assertThat(content.getValue())
+                .contains("周报自动生成失败")
+                .contains("2026-11-02")
+                .contains("所有摘要模型均失败")
+                .contains("https://bu.example.com/weekly-report");
+        assertThat(savedReport().getStatus()).isEqualTo(WeeklyReport.STATUS_GENERATION_FAILED);
+    }
+
+    @Test
+    void skipsFailureNoticeWhenNoRecipientConfigured() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", "");
+        when(digestLlmClient.chat(anyString(), anyString()))
+                .thenThrow(new IllegalStateException("模型全挂了"));
+
+        service.generate(WEEK_START);
+
+        verify(weComClient, org.mockito.Mockito.never()).pushText(anyString(), anyString());
     }
 
     private WeeklyReport savedReport() {

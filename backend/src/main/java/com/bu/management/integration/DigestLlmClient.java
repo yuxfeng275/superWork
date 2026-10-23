@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -28,7 +29,9 @@ import org.springframework.util.StringUtils;
 @Component
 public class DigestLlmClient {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(120);
+    /** 单次候选调用超时；bai 这类经代理的候选较慢，默认 180s（ai.digest.timeout-seconds 可调）。 */
+    @Value("${ai.digest.timeout-seconds:180}")
+    private long timeoutSeconds = 180;
     private static final String EMPTY_MODEL_HINT =
             "AI 模型未配置或未启用，请在「模型管理」勾选「摘要使用」的模型并补全接口地址";
 
@@ -108,7 +111,7 @@ public class DigestLlmClient {
         try {
             request = HttpRequest.newBuilder()
                     .uri(URI.create(trimSlash(model.baseUrl()) + "/chat/completions"))
-                    .timeout(TIMEOUT)
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .header("Authorization", "Bearer " + model.apiKey())
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))

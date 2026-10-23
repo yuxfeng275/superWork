@@ -43,10 +43,14 @@
 
 ### 当前兜底链（2026-10-23 起，线上生效）
 
-| 顺序 | 候选 | 接入方式 | 摘要用途 |
-|---|---|---|---|
-| 1 | `deepseek / deepseek-flash` | 直连 `api.deepseek.com` | ✅ |
-| 2 | `bai / deepseek-v4.1-flash` | 经 `mihomo:7890` 代理 | ✅ |
+| 顺序 | 候选 | 接入方式 | 摘要用途 | 助手默认 |
+|---|---|---|---|---|
+| 1 | `bai / deepseek-v4.1-flash` | 经 `mihomo:7890` 代理 | ✅ | ✅ |
+| 2 | `deepseek / deepseek-flash` | 直连 `api.deepseek.com` | ✅ | — |
+
+2026-10-23 起 **bai 优先**（sort_order 10，deepseek 降到 100）；`ai.digest.timeout-seconds`
+默认 180s（经代理的候选较慢，原 120s 余量太薄）。实测 bai 主路径生成 2026-10-19 周报
+成功（`generation_provider=bai`、无错误、810 字）。
 
 实测：把 deepseek 摘要临时关掉后重新生成 2026-10-19 周报，35 秒完成、状态 DRAFT、
 `generation_provider=bai`、`generation_error` 为空、正文 752 字 —— 说明 b.ai 经代理
@@ -62,6 +66,15 @@
 - `GET /api/ai-agent/usage` 返回当前用户今日 / 近 30 天 / 累计 的次数、token 与估算成本；
   助手页头部展示「本月 N 次 · X tokens」。
 - 成本为侧车按模型定价估算的美元值，仅作趋势参考。
+
+## 三之二、周报生成失败即时告警
+
+`generate()` 入 catch 分支后立刻向 `weekly.report-notify-wecom-user` 推企微：
+包含周起始日、失败原因（截断 300 字）与 `/weekly-report` 链接，避免周五 17:00 挂了
+等到第二天早上才被发现；未配置接收人则静默跳过，告警失败不影响错误落库。
+
+> 前置条件：241 需设置 `WEEKLY_NOTIFY_WECOM_USER`（企微 userid）与 `APP_PUBLIC_BASE_URL`，
+> 否则本告警与周报成功通知都不会发出。
 
 ## 四、Jev（TypeSafe System One）决策层
 
