@@ -160,6 +160,8 @@ public class AiProactiveService {
                     "本周周报生成失败过，先用 weekly_report_facts 核对事实，再重新起草一版",
                     "/weekly-report", 96);
         }
+        // 本周周报已有草稿/已确认/已发布：清掉之前提过的「没草稿 / 生成失败」，避免让人做已完成的事
+        dismissStale(userId, List.of("周报:" + monday, "周报失败:" + monday));
         return null;
     }
 
@@ -229,6 +231,22 @@ public class AiProactiveService {
                 "读一下昨天（" + yesterday + "）的邮件摘要，挑出最该今天处理的待办与风险，"
                         + "每条给一句结论和下一步动作，再问我要不要转成任务",
                 "/emails", 55 + Math.min(20, todos + risks));
+    }
+
+    /** 同一周期条件已消失：把还挂着的建议置为忽略（dedupe_key 不复用，下轮不会再生成）。 */
+    private void dismissStale(Long userId, List<String> dedupeKeys) {
+        List<AiProactiveSuggestion> stale = suggestionMapper.selectList(
+                new LambdaQueryWrapper<AiProactiveSuggestion>()
+                        .eq(AiProactiveSuggestion::getUserId, userId)
+                        .eq(AiProactiveSuggestion::getStatus, AiProactiveSuggestion.STATUS_NEW)
+                        .in(AiProactiveSuggestion::getDedupeKey, dedupeKeys));
+        if (stale == null || stale.isEmpty()) {
+            return;
+        }
+        for (AiProactiveSuggestion row : stale) {
+            row.setStatus(AiProactiveSuggestion.STATUS_DISMISSED);
+            suggestionMapper.updateById(row);
+        }
     }
 
     private static int size(JsonNode node) {

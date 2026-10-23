@@ -85,6 +85,26 @@ class AiProactiveServiceTest {
     }
 
     @Test
+    void dismissesStaleWeeklySuggestionOnceDraftExists() {
+        WeeklyReport draft = new WeeklyReport();
+        draft.setWeekStartDate(monday);
+        draft.setStatus(WeeklyReport.STATUS_DRAFT);
+        when(weeklyReportService.history(any(Integer.class))).thenReturn(List.of(draft));
+        AiProactiveSuggestion stale = new AiProactiveSuggestion();
+        stale.setId(31L);
+        stale.setUserId(7L);
+        stale.setDedupeKey("周报失败:" + monday);
+        stale.setStatus(AiProactiveSuggestion.STATUS_NEW);
+        when(suggestionMapper.selectList(any(Wrapper.class))).thenReturn(List.of(stale));
+
+        service.scan(7L);
+
+        assertThat(stale.getStatus()).isEqualTo(AiProactiveSuggestion.STATUS_DISMISSED);
+        verify(suggestionMapper).updateById(stale);
+        verify(suggestionMapper, never()).insert(any(AiProactiveSuggestion.class));
+    }
+
+    @Test
     void proposesMatterProgressOnlyForMyUnupdatedMatters() {
         when(keyMatterService.meeting(any())).thenReturn(List.of(
                 matter(1L, 7L, "皇家会员体系", false, "推进中"),
