@@ -1,6 +1,7 @@
 import {
   CloudUploadOutlined,
   MailOutlined,
+  BulbOutlined,
   MessageOutlined,
   PaperClipOutlined,
   SearchOutlined,
@@ -42,11 +43,17 @@ import {
   type AiAgentSession,
   type AiAgentSessionSummary,
   type AiAgentStreamEvent,
+  type AiAgentUsageSummary,
   type AiConnectorStatus,
+  type AiProactiveSuggestion,
   superworkApi,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
+
+/** token 展示：1200 → 1.2k */
+const formatTokens = (value: number) =>
+  value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 
 type ChatItem = {
   id: string;
@@ -114,6 +121,8 @@ export default function AiAssistantPage() {
   const [models, setModels] = useState<AiAgentModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [connectors, setConnectors] = useState<AiConnectorStatus[]>([]);
+  const [usage, setUsage] = useState<AiAgentUsageSummary>();
+  const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -132,6 +141,47 @@ export default function AiAssistantPage() {
       setError(e instanceof Error ? e.message : '会话列表加载失败');
     }
   }, []);
+  const loadSuggestions = useCallback(async () => {
+    try {
+      setSuggestions(await superworkApi.getAiProactiveSuggestions());
+    } catch {
+      setSuggestions([]);
+    }
+  }, []);
+  /** 点「去做」：标记已处理，把建议里的提示词填进输入框，由用户确认发送。 */
+  const useSuggestion = async (suggestion: AiProactiveSuggestion) => {
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    setDraft(suggestion.prompt);
+    void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
+  };
+  /** 不发到手机上也行：一键把今天的建议推到自己的企业微信。 */
+  const pushToWecom = async () => {
+    try {
+      const result = await superworkApi.pushAiProactive();
+      if (result.status === 'SENT') {
+        message.success('已推送到企业微信，打开即可继续对话');
+      } else {
+        message.info(result.reason || '暂无可推送内容');
+      }
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '推送失败');
+    }
+  };
+  const dismissSuggestion = async (suggestion: AiProactiveSuggestion) => {
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    void superworkApi.dismissAiProactive(suggestion.id).catch(() => undefined);
+  };
+  const loadUsage = useCallback(async () => {
+    try {
+      setUsage(await superworkApi.getAiAgentUsage());
+    } catch {
+      setUsage(undefined);
+    }
+  }, []);
   useEffect(() => {
     // 通知中心深链：?prefill=… 填入输入框并清理 query（对齐旧系统 applyPrefillFromRoute）
     const prefill = new URLSearchParams(window.location.search).get('prefill');
@@ -147,6 +197,8 @@ export default function AiAssistantPage() {
   useEffect(() => {
     void Promise.all([
       loadSessions(),
+      loadUsage(),
+      loadSuggestions(),
       superworkApi
         .getAiAgentModels()
         .then((list) => {
@@ -159,7 +211,7 @@ export default function AiAssistantPage() {
         .then(setConnectors)
         .catch(() => undefined),
     ]);
-  }, [loadSessions]);
+  }, [loadSessions, loadUsage, loadSuggestions]);
   useEffect(() => {
     if (messageBox.current)
       messageBox.current.scrollTop = messageBox.current.scrollHeight;
@@ -371,6 +423,7 @@ export default function AiAssistantPage() {
         },
         abort.signal,
         uploadedIds.length ? uploadedIds : undefined,
+        window.location.pathname,
       );
       if (!streamFailed && !abort.signal.aborted)
         await resyncSession(sessionId);
@@ -380,6 +433,7 @@ export default function AiAssistantPage() {
     } finally {
       setStreaming(false);
       controller.current = undefined;
+      void loadUsage();
     }
   };
   const stop = () => controller.current?.abort();
@@ -517,6 +571,12 @@ export default function AiAssistantPage() {
               </Typography.Text>
             </div>
             <Space>
+              {usage && usage.totalRuns > 0 && (
+                <Typography.Text type="secondary">
+                  本月 {usage.monthRuns} 次 · {formatTokens(usage.monthTokens)}{' '}
+                  tokens
+                </Typography.Text>
+              )}
               <Select
                 size="small"
                 value={selectedModel || undefined}
@@ -538,6 +598,50 @@ export default function AiAssistantPage() {
             </Space>
           </div>
           {error && <Alert type="error" message={error} showIcon />}
+          {suggestions.length > 0 && (
+            <div className="sw-ai-suggestions">
+              <Space size={8}>
+                <Typography.Text type="secondary">
+                  现在可以做（也可
+                  <Typography.Link onClick={() => void pushToWecom()}>
+                    发到企业微信
+                  </Typography.Link>
+                  ，不登录也能收到）
+                </Typography.Text>
+              </Space>
+              {suggestions.slice(0, 3).map((suggestion) => (
+                <div key={suggestion.id} className="sw-ai-suggestion">
+                  <span className="sw-ai-suggestion-text">
+                    <Typography.Text strong>
+                      <BulbOutlined /> {suggestion.title}
+                    </Typography.Text>
+                    {suggestion.body && (
+                      <Typography.Text type="secondary" ellipsis>
+                        {suggestion.body}
+                      </Typography.Text>
+                    )}
+                  </span>
+                  <Space size={4}>
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      onClick={() => void useSuggestion(suggestion)}
+                    >
+                      去做
+                    </Button>
+                    <Button
+                      size="small"
+                      type="text"
+                      onClick={() => void dismissSuggestion(suggestion)}
+                    >
+                      忽略
+                    </Button>
+                  </Space>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="sw-ai-messages" ref={messageBox}>
             {!active || !items.length ? (
               <div className="sw-ai-welcome">

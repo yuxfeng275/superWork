@@ -377,6 +377,25 @@ public class AiModelConfigService {
         return Optional.empty();
     }
 
+    /**
+     * 摘要用途的候选模型（按排序），供兜底链逐个尝试：
+     * 首选 402/401/超时后自动换下一个，避免单点额度问题拖垮周报与会议纪要。
+     */
+    public List<DigestModel> digestModels() {
+        List<DigestModel> candidates = new ArrayList<>();
+        for (AiModel entity : orderedBySort()) {
+            if (!available(entity, false) || isDecisionProtocol(entity)) continue;
+            try {
+                Endpoint endpoint = resolveEndpoint(entity);
+                candidates.add(new DigestModel(entity.getProviderCode(), endpoint.baseUrl(),
+                        entity.getModel(), endpoint.apiKey()));
+            } catch (IllegalStateException ignored) {
+                // 接入未就绪，跳过
+            }
+        }
+        return candidates;
+    }
+
     /** 决策层模型：启用 + 勾选决策 + 接入就绪，按排序取第一条。 */
     public Optional<DecisionModel> decisionModel() {
         for (AiModel entity : orderedBySort()) {

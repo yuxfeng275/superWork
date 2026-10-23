@@ -436,6 +436,24 @@ export interface AiAgentStreamEvent {
   type: string;
   [key: string]: unknown;
 }
+export interface AiAgentUsageSummary {
+  todayRuns: number;
+  todayTokens: number;
+  monthRuns: number;
+  monthTokens: number;
+  totalRuns: number;
+  totalTokens: number;
+  totalCostUsd: number;
+}
+export interface AiProactiveSuggestion {
+  id: number;
+  kind: string;
+  title: string;
+  body?: string | null;
+  prompt: string;
+  targetPath?: string | null;
+  score: number;
+}
 export interface AiAgentAttachmentItem {
   id: number;
   fileName: string;
@@ -2163,6 +2181,28 @@ export const superworkApi = {
   getAiAgentConnectors() {
     return requestJson<AiConnectorStatus[]>("/api/ai-agent/connectors");
   },
+  getAiAgentUsage() {
+    return requestJson<AiAgentUsageSummary>("/api/ai-agent/usage");
+  },
+  getAiProactiveSuggestions() {
+    return requestJson<AiProactiveSuggestion[]>("/api/ai-agent/proactive");
+  },
+  acceptAiProactive(id: number) {
+    return requestJson<void>(`/api/ai-agent/proactive/${id}/accept`, {
+      method: "POST",
+    });
+  },
+  dismissAiProactive(id: number) {
+    return requestJson<void>(`/api/ai-agent/proactive/${id}/dismiss`, {
+      method: "POST",
+    });
+  },
+  pushAiProactive() {
+    return requestJson<{ status: string; reason?: string | null }>(
+      "/api/ai-agent/proactive/push",
+      { method: "POST" }
+    );
+  },
   getAiAgentSessions() {
     return requestJson<AiAgentSessionSummary[]>("/api/ai-agent/sessions");
   },
@@ -2200,19 +2240,22 @@ export const superworkApi = {
     content: string,
     onEvent: (event: AiAgentStreamEvent) => void,
     signal?: AbortSignal,
-    attachmentIds?: number[]
-  ) {
+    attachmentIds?: number[],
+      pageContext?: string
+    ) {
     const headers = new Headers({ "Content-Type": "application/json" });
     const token = localStorage.getItem("token");
     if (token) headers.set("Authorization", `Bearer ${token}`);
-    const response = await fetch(
+      const response = await fetch(
       `/api/ai-agent/sessions/${sessionId}/messages`,
-      {
+        {
         method: "POST",
         headers,
-        body: JSON.stringify(
-          attachmentIds?.length ? { content, attachmentIds } : { content }
-        ),
+          body: JSON.stringify({
+            content,
+            ...(attachmentIds?.length ? { attachmentIds } : {}),
+            ...(pageContext ? { pageContext } : {}),
+          }),
         signal,
       }
     );

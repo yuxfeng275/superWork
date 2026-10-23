@@ -20,4 +20,8 @@ public class AiAgentSendMessageRequest {
     /** 随消息引用的附件 ID（须为本会话已上传附件，最多 5 个） */
     @Size(max = 5, message = "单条消息最多引用 5 个附件")
     private List<Long> attachmentIds;
+
+    /** 用户当前所在页面路径（如 /weekly-report），用于给模型补业务上下文 */
+    @Size(max = 200, message = "页面上下文过长")
+    private String pageContext;
 }

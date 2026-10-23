@@ -8,11 +8,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.WeeklyReport;
-import com.bu.management.integration.DeepSeekDigestClient;
+import com.bu.management.integration.DigestLlmClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
@@ -28,7 +27,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,7 +44,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WeeklyReportGenerateTest {
 
     @Mock private WeeklyReportMapper reportMapper;
-    @Mock private DeepSeekDigestClient deepSeekClient;
+    @Mock private DigestLlmClient digestLlmClient;
     @Mock private YuqueMcpClient yuqueClient;
     @Mock private WeComClient weComClient;
     @Mock private BuKeyMatterService keyMatterService;
@@ -57,18 +55,12 @@ class WeeklyReportGenerateTest {
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
     @Mock private SystemConfigService configService;
-    @Mock private EmailIntegrationConfigService integrationConfigService;
     @Mock private ConnectorRegistryService registryService;
-    @Mock private AiModelConfigService aiModelConfigService;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks private WeeklyReportService service;
 
     private static final LocalDate WEEK_START = LocalDate.of(2026, 11, 2);
-
-    private final EmailIntegrationRuntimeConfig config = new EmailIntegrationRuntimeConfig(
-            true, "https://api.deepseek.com/v1", "deepseek-flash", "sk-test",
-            false, null, null, null, null, null);
 
     @BeforeEach
     void setUp() {
@@ -80,22 +72,28 @@ class WeeklyReportGenerateTest {
         when(keyMatterService.meeting(any())).thenReturn(List.of());
         when(configService.getValue(eq("weekly-report"), eq("core-work.project-groups"), any()))
                 .thenReturn("皇家项目,飞鹤,佳贝艾特,海普诺凯,黄天鹅,Speedo,澳优,逢时");
-        when(integrationConfigService.getRuntimeConfig()).thenReturn(config);
-        when(aiModelConfigService.digestModel()).thenReturn(Optional.empty());
+        when(digestLlmClient.candidateCount()).thenReturn(1);
+    }
+
+    /** 摘要客户端的成功返回：内容 + 实际使用的模型。 */
+    private static DigestLlmClient.ChatResult chat(JsonNode json) {
+        return new DigestLlmClient.ChatResult(json, "deepseek", "deepseek-flash");
     }
 
     @Test
     void savesCompliantTemplateWithoutRetry() throws Exception {
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(compliant());
+        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
-        verify(deepSeekClient, times(1)).chatCompletion(any(), anyString(), anyString());
+        verify(digestLlmClient, times(1)).chat(anyString(), anyString());
         WeeklyReport saved = savedReport();
         assertThat(saved.getStatus()).isEqualTo(WeeklyReport.STATUS_DRAFT);
         assertThat(saved.getCoreWork()).contains("皇家项目：").contains("全渠道产品：");
         assertThat(saved.getKpiSection()).contains("KPI：").contains("商机：");
         assertThat(saved.getGenerationError()).isNull();
+        assertThat(saved.getGenerationProvider()).isEqualTo("deepseek");
+        assertThat(saved.getGenerationModel()).isEqualTo("deepseek-flash");
     }
 
     @Test
@@ -104,12 +102,13 @@ class WeeklyReportGenerateTest {
         broken.put("nextWeekPlan", "- 10/23 前完成飞鹤接口改造");
         ObjectNode fixed = compliant();
         fixed.put("nextWeekPlan", "- 完成飞鹤接口改造");
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(broken, fixed);
+        when(digestLlmClient.chat(anyString(), anyString()))
+                .thenReturn(chat(broken), chat(fixed));
 
         service.generate(WEEK_START);
 
         ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
-        verify(deepSeekClient, times(2)).chatCompletion(any(), anyString(), userInput.capture());
+        verify(digestLlmClient, times(2)).chat(anyString(), userInput.capture());
         assertThat(userInput.getAllValues().get(1)).contains("不符合固定模版").contains("具体日期");
         assertThat(savedReport().getNextWeekPlan()).isEqualTo("- 完成飞鹤接口改造");
     }
@@ -120,11 +119,12 @@ class WeeklyReportGenerateTest {
         broken.put("nextWeekPlan", "- 10/23 前完成");
         ObjectNode stillBroken = compliant();
         stillBroken.put("nextWeekPlan", "- 10/24 前完成");
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(broken, stillBroken);
+        when(digestLlmClient.chat(anyString(), anyString()))
+                .thenReturn(chat(broken), chat(stillBroken));
 
         service.generate(WEEK_START);
 
-        verify(deepSeekClient, times(2)).chatCompletion(any(), anyString(), anyString());
+        verify(digestLlmClient, times(2)).chat(anyString(), anyString());
         assertThat(savedReport().getNextWeekPlan()).isEqualTo("- 10/23 前完成");
         assertThat(savedReport().getStatus()).isEqualTo(WeeklyReport.STATUS_DRAFT);
     }
@@ -143,7 +143,7 @@ class WeeklyReportGenerateTest {
         row.setRevenue(new BigDecimal("100000"));
         row.setGrossProfit(new BigDecimal("60000"));
         when(profitReportMapper.selectList(any())).thenReturn(List.of(row));
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(compliant());
+        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
@@ -154,7 +154,7 @@ class WeeklyReportGenerateTest {
 
     @Test
     void keepsGuidanceDrivenKpiWhenProfitTableHasNoCurrentMonth() throws Exception {
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(compliant());
+        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
@@ -171,7 +171,7 @@ class WeeklyReportGenerateTest {
                         + "产品：\n  全渠道产品：\n  - 开放平台：第一版 80%\n"
                         + "  海外产品：\n  - EDM MVP：85%\n"
                         + "会员通：\n  - 京东 omid 升级：完成");
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(withExtraGroup);
+        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(withExtraGroup));
 
         service.generate(WEEK_START);
 
@@ -183,12 +183,12 @@ class WeeklyReportGenerateTest {
 
     @Test
     void sendsProjectGroupWhitelistToModel() throws Exception {
-        when(deepSeekClient.chatCompletion(any(), anyString(), anyString())).thenReturn(compliant());
+        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
         ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
-        verify(deepSeekClient).chatCompletion(any(), anyString(), userInput.capture());
+        verify(digestLlmClient).chat(anyString(), userInput.capture());
         assertThat(userInput.getValue()).contains("项目分组白名单")
                 .contains("皇家项目、飞鹤")
                 .contains("其他项目");

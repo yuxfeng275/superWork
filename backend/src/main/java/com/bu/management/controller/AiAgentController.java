@@ -7,6 +7,9 @@ import com.bu.management.service.AiAgentSessionService;
 import com.bu.management.service.AiModelConfigService;
 import com.bu.management.service.AiAgentAttachmentService;
 import com.bu.management.service.AiAgentToolService;
+import com.bu.management.service.AiAgentUsageService;
+import com.bu.management.service.AiProactivePushService;
+import com.bu.management.service.AiProactiveService;
 import com.bu.management.service.JevDecisionService;
 import com.bu.management.service.ConnectorRegistryService;
 import com.bu.management.vo.AiAgentAttachmentVO;
@@ -66,7 +69,10 @@ public class AiAgentController {
             "企业内部管理系统的 AI 助手，可查询当前用户的任务/需求/工时/事项、检索和阅读已同步邮件、"
             + "查询邮件每日摘要，并能把摘要中的待办/风险转成系统任务或事项、经用户确认后用绑定邮箱回复邮件；"
             + "回答简洁专业；工具返回数据用中文简述。"
-            + "涉及写操作（转任务/转事项/发邮件回复）时，必须先向用户复述将要执行的动作并获得确认，再调用工具。";
+            + "涉及写操作（转任务/转事项/发邮件回复）时，必须先向用户复述将要执行的动作并获得确认，再调用工具。"
+            + "主动意识：回答完问题时，若发现下一步有明显可做的事（数据异常、该更新的周报/进展、待转化待办），"
+            + "用一句话指出并给出一个可直接执行的提议；用户只打招呼或没给明确问题时，主动给出当前最值得做的一件事。"
+            + "主动提议只能停在建议层，不得擅自执行写操作或批量查询无关模块。";
     private static final String RUN_TIMEOUT_DATA = "{\"code\":\"RUN_TIMEOUT\"}";
     private static final String SIDECAR_UNAVAILABLE_DATA = "{\"code\":\"SIDECAR_UNAVAILABLE\"}";
 
@@ -76,6 +82,9 @@ public class AiAgentController {
     private final ConnectorRegistryService registryService;
     private final AiAgentAttachmentService attachmentService;
     private final JevDecisionService jevDecisionService;
+    private final AiAgentUsageService usageService;
+    private final AiProactiveService proactiveService;
+    private final AiProactivePushService proactivePushService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -99,6 +108,39 @@ public class AiAgentController {
     @GetMapping("/connectors")
     public Result<List<ConnectorRegistryService.ConnectorStatus>> connectors() {
         return Result.success(registryService.statuses());
+    }
+
+    /** 当前用户的助手用量（今日 / 近 30 天 / 累计的次数、token 与成本）。 */
+    @GetMapping("/usage")
+    public Result<AiAgentUsageService.UsageSummary> usage(@RequestAttribute("userId") Long userId) {
+        return Result.success(usageService.summary(userId));
+    }
+
+    /** 主动建议：打开助手/工作台时拉取，必要时先扫描一轮。 */
+    @GetMapping("/proactive")
+    public Result<List<AiProactiveService.Suggestion>> proactive(@RequestAttribute("userId") Long userId) {
+        return Result.success(proactiveService.list(userId));
+    }
+
+    @PostMapping("/proactive/{id}/accept")
+    public Result<Void> acceptProactive(@RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        proactiveService.accept(userId, id);
+        return Result.success();
+    }
+
+    @PostMapping("/proactive/{id}/dismiss")
+    public Result<Void> dismissProactive(@RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        proactiveService.dismiss(userId, id);
+        return Result.success();
+    }
+
+    /** 把今天的建议推到自己企业微信（不在系统里也能收到；每天一条）。 */
+    @PostMapping("/proactive/push")
+    public Result<AiProactivePushService.PushResult> pushProactive(
+            @RequestAttribute("userId") Long userId) {
+        return Result.success(proactivePushService.pushToday(userId));
     }
 
     @PostMapping("/sessions")
@@ -230,9 +272,17 @@ public class AiAgentController {
             if (StringUtils.hasText(model.proxy())) {
                 body.put("proxy", model.proxy());
             }
-            body.put("systemPrompt", intent.ready()
-                    ? SYSTEM_PROMPT + "\n本轮 TypeSafe Jev 判定：" + intent.summary() + "。优先使用对应工具。"
-                    : SYSTEM_PROMPT);
+            StringBuilder systemPrompt = new StringBuilder(SYSTEM_PROMPT);
+            if (StringUtils.hasText(request.getPageContext())) {
+                systemPrompt.append("\n用户当前页面：")
+                        .append(pageContext(request.getPageContext()))
+                        .append("。优先结合该页面的业务语境回答，并提示下一步可以做什么。");
+            }
+            if (intent.ready()) {
+                systemPrompt.append("\n本轮 TypeSafe Jev 判定：").append(intent.summary())
+                        .append("。优先使用对应工具。");
+            }
+            body.put("systemPrompt", systemPrompt.toString());
             body.set("messages", sidecarMessages);
             body.set("tools", objectMapper.valueToTree(toolService.definitions(intent)));
             body.put("toolCallbackUrl", properties.getToolCallbackUrl());
@@ -317,25 +367,32 @@ public class AiAgentController {
     private void dispatch(String eventName, String dataJson, SseEmitter emitter, AtomicBoolean done,
             String runId, Long sessionId) {
         if ("run_end".equals(eventName)) {
-            persistNewMessages(sessionId, dataJson);
+            persistNewMessages(sessionId, runId, dataJson);
         }
         // error 等事件仅转发，不落库
         forward(emitter, done, eventName, dataJson);
     }
 
     /**
-     * run_end：从 newMessages 提取侧车新增消息并落库。
+     * run_end：从 newMessages 提取侧车新增消息并落库；顺手记录本轮 token 用量。
      */
-    private void persistNewMessages(Long sessionId, String dataJson) {
+    private void persistNewMessages(Long sessionId, String runId, String dataJson) {
         try {
             JsonNode node = objectMapper.readTree(dataJson);
             JsonNode newMessages = node.path("newMessages");
             if (newMessages.isArray() && !newMessages.isEmpty()) {
-                sessionService.appendMessages(sessionId, newMessages.toString());
+                var session = sessionService.appendMessages(sessionId, newMessages.toString());
+                usageService.record(session, runId, newMessages.toString());
             }
         } catch (Exception e) {
             log.error("AI 运行结果落库失败: sessionId={}, error={}", sessionId, e.getMessage());
         }
+    }
+
+    /** 页面上下文清洗：只保留路径字符，去换行并限长，避免外部内容进 prompt 注错位置。 */
+    private static String pageContext(String raw) {
+        String cleaned = raw.replaceAll("[\\r\\n\\t]", " ").trim();
+        return cleaned.length() > 120 ? cleaned.substring(0, 120) : cleaned;
     }
 
     private String toJson(Object value) {

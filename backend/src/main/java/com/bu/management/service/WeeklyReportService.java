@@ -1,7 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.bu.management.config.EmailIntegrationRuntimeConfig;
+
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Connector;
@@ -10,7 +10,7 @@ import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
-import com.bu.management.integration.DeepSeekDigestClient;
+import com.bu.management.integration.DigestLlmClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
@@ -71,7 +71,7 @@ public class WeeklyReportService {
             List.of("皇家项目", "飞鹤", "佳贝艾特", "海普诺凯", "黄天鹅", "Speedo", "澳优", "逢时");
 
     private final WeeklyReportMapper reportMapper;
-    private final DeepSeekDigestClient deepSeekClient;
+    private final DigestLlmClient digestLlmClient;
     private final YuqueMcpClient yuqueClient;
     private final WeComClient weComClient;
     private final BuKeyMatterService keyMatterService;
@@ -82,9 +82,9 @@ public class WeeklyReportService {
     private final SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     private final SalesOpportunityMapper salesOpportunityMapper;
     private final SystemConfigService configService;
-    private final EmailIntegrationConfigService integrationConfigService;
+
     private final ConnectorRegistryService registryService;
-    private final AiModelConfigService aiModelConfigService;
+
     private final ObjectMapper objectMapper;
 
     @Resource(name = "emailTaskExecutor")
@@ -332,9 +332,9 @@ public class WeeklyReportService {
             report.setAutoFactsJson(objectMapper.writeValueAsString(facts));
             String factsJson = objectMapper.writeValueAsString(distillFactsForGeneration(facts));
 
-            EmailIntegrationRuntimeConfig config = integrationConfigService.getRuntimeConfig();
-            if (!config.isDeepSeekConfigured()) {
-                throw new IllegalStateException("摘要模型未配置或未启用，请在「模型管理」勾选「摘要使用」的模型并补全接口地址");
+            if (digestLlmClient.candidateCount() == 0) {
+                throw new IllegalStateException(
+                        "摘要模型未配置或未启用，请在「模型管理」勾选「摘要使用」的模型并补全接口地址");
             }
             String systemKpi = buildKpiSection(weekStart);
             if (systemKpi == null) {
@@ -342,9 +342,12 @@ public class WeeklyReportService {
             }
             List<String> projectGroups = projectGroupWhitelist();
             String userInput = buildUserInput(report, factsJson, systemKpi, projectGroups);
-            JsonNode result = deepSeekClient.chatCompletion(config, generationSystemPrompt(), userInput);
-            validateResult(result);
-            result = regenerateIfOffTemplate(config, userInput, result, weekStart);
+            // 按「模型管理」排序的摘要模型依次尝试，首选额度/鉴权失败时自动换下一个
+            DigestLlmClient.ChatResult chat =
+                    digestLlmClient.chat(generationSystemPrompt(), userInput);
+            validateResult(chat.json());
+            chat = regenerateIfOffTemplate(userInput, chat, weekStart);
+            JsonNode result = chat.json();
 
             report.setCoreWork(normalizeGroups(result.path("coreWork").asText(), projectGroups));
             report.setKpiSection(composeKpiSection(systemKpi, result.path("kpiSection").asText()));
@@ -352,9 +355,8 @@ public class WeeklyReportService {
             report.setNextWeekPlan(result.path("nextWeekPlan").asText());
             report.setMinutesMarkdown(result.path("minutesMarkdown").asText());
             report.setStatus(WeeklyReport.STATUS_DRAFT);
-            report.setGenerationModel(config.deepSeekModel());
-            report.setGenerationProvider(aiModelConfigService.digestModel()
-                    .map(AiModelConfigService.DigestModel::providerCode).orElse(null));
+            report.setGenerationModel(chat.model());
+            report.setGenerationProvider(chat.providerCode());
             report.setGenerationMode("AI");
             report.setGenerationError(null);
             reportMapper.updateById(report);
@@ -505,19 +507,20 @@ public class WeeklyReportService {
     }
 
     /** 模版不合规时按不合规项补一轮提示重试；重试仍不合规则保留首次结果。 */
-    private JsonNode regenerateIfOffTemplate(EmailIntegrationRuntimeConfig config, String userInput,
-                                             JsonNode result, LocalDate weekStart) {
-        List<String> issues = templateIssues(result);
+    private DigestLlmClient.ChatResult regenerateIfOffTemplate(String userInput,
+                                                               DigestLlmClient.ChatResult chat,
+                                                               LocalDate weekStart) {
+        List<String> issues = templateIssues(chat.json());
         if (issues.isEmpty()) {
-            return result;
+            return chat;
         }
         log.warn("周报输出不符合固定模版，重试一次 weekStart={} issues={}", weekStart, issues);
         try {
-            JsonNode retry = deepSeekClient.chatCompletion(config, generationSystemPrompt(),
+            DigestLlmClient.ChatResult retry = digestLlmClient.chat(generationSystemPrompt(),
                     userInput + "\n\n== 上次输出不符合固定模版，必须逐条修正 ==\n- "
                             + String.join("\n- ", issues) + "\n");
-            validateResult(retry);
-            List<String> remaining = templateIssues(retry);
+            validateResult(retry.json());
+            List<String> remaining = templateIssues(retry.json());
             if (remaining.isEmpty()) {
                 return retry;
             }
@@ -525,7 +528,7 @@ public class WeeklyReportService {
         } catch (Exception e) {
             log.warn("周报模版重试失败，保留首次结果 weekStart={}: {}", weekStart, e.getMessage());
         }
-        return result;
+        return chat;
     }
 
     /**
