@@ -62,7 +62,7 @@ class AiProactiveServiceTest {
         assertThat(row.getKind()).isEqualTo("weekly_report");
         assertThat(row.getDedupeKey()).isEqualTo("周报:" + monday);
         assertThat(row.getTitle()).isEqualTo("本周周报还没有草稿");
-        assertThat(row.getTargetPath()).isEqualTo("/weekly-report");
+        assertThat(row.getTargetPath()).isEqualTo("/weekly-report?week=" + monday);
         assertThat(row.getScore()).isEqualTo(90);
         assertThat(row.getStatus()).isEqualTo(AiProactiveSuggestion.STATUS_NEW);
         assertThat(row.getPrompt()).contains("weekly_report_facts");
@@ -119,6 +119,7 @@ class AiProactiveServiceTest {
         assertThat(saved).hasSize(2);
         AiProactiveSuggestion matter = saved.stream()
                 .filter(row -> row.getKind().equals("key_matter_week")).findFirst().orElseThrow();
+        assertThat(matter.getTargetPath()).isEqualTo("/key-matters?matterId=1");
         assertThat(matter.getTitle()).isEqualTo("2 个大事儿本周还没更新进展");
         assertThat(matter.getBody()).contains("皇家会员体系").contains("飞鹤接口改造");
         assertThat(matter.getScore()).isEqualTo(72);

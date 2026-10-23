@@ -37,11 +37,27 @@ export default function WeeklyReportPage() {
   const [listLoading, setListLoading] = useState(false);
   const [error, setError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  /** 深链：/weekly-report?week=YYYY-MM-DD[&anchor=publish][&generate=1] 直接打开该周抽屉。 */
   const [drawer, setDrawer] = useState<{
     weekStart: string;
     anchor: 'content' | 'publish';
     autoGenerate: boolean;
-  } | null>(null);
+  } | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const week = params.get('week');
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) return null;
+    return {
+      weekStart: week,
+      anchor: params.get('anchor') === 'publish' ? 'publish' : 'content',
+      autoGenerate: params.get('generate') === '1',
+    };
+  });
+  useEffect(() => {
+    // 深链参数只用于首次定位，避免刷新/分享时重复触发
+    if (window.location.search.includes('week=')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const loadList = useCallback(async () => {
     setListLoading(true);

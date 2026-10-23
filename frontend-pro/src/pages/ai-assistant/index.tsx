@@ -156,6 +156,15 @@ export default function AiAssistantPage() {
     setDraft(suggestion.prompt);
     void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
   };
+  /** 去页面处理：深链到具体周报/事项（详情抽屉或周报抽屉已就位）。 */
+  const openSuggestionTarget = (suggestion: AiProactiveSuggestion) => {
+    if (!suggestion.targetPath) return;
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
+    window.location.href = suggestion.targetPath;
+  };
   /** 不发到手机上也行：一键把今天的建议推到自己的企业微信。 */
   const pushToWecom = async () => {
     try {
@@ -630,6 +639,15 @@ export default function AiAssistantPage() {
                     >
                       去做
                     </Button>
+                    {suggestion.targetPath && (
+                      <Button
+                        size="small"
+                        type="text"
+                        onClick={() => openSuggestionTarget(suggestion)}
+                      >
+                        去处理
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       type="text"

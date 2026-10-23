@@ -176,6 +176,15 @@ export default function WorkbenchPage() {
       `/ai-assistant?prefill=${encodeURIComponent(suggestion.prompt)}`,
     );
   };
+  /** 去处理：深链到具体周报/事项（抽屉已就位）。 */
+  const openSuggestionTarget = (suggestion: AiProactiveSuggestion) => {
+    if (!suggestion.targetPath) return;
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
+    navigate(suggestion.targetPath);
+  };
   const dismissSuggestion = (suggestion: AiProactiveSuggestion) => {
     setSuggestions((current) =>
       current.filter((item) => item.id !== suggestion.id),
@@ -364,6 +373,15 @@ export default function WorkbenchPage() {
                   >
                     去做
                   </Button>
+                  {suggestion.targetPath && (
+                    <Button
+                      size="small"
+                      type="text"
+                      onClick={() => openSuggestionTarget(suggestion)}
+                    >
+                      去处理
+                    </Button>
+                  )}
                   <Button
                     size="small"
                     type="text"

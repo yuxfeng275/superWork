@@ -150,7 +150,7 @@ public class AiProactiveService {
                     "周五 17:00 自动生成前，可以先让 AI 按固定模版起一版",
                     "用 weekly_report_facts 取本周事实，按固定模版起草周报四段与周会纪要，"
                             + "不确定的地方标注「待补充」而不是编造",
-                    "/weekly-report", 90);
+                    "/weekly-report?week=" + monday, 90);
         }
         if (WeeklyReport.STATUS_GENERATION_FAILED.equals(thisWeek.getStatus())) {
             String error = thisWeek.getGenerationError() == null ? "" : thisWeek.getGenerationError();
@@ -158,7 +158,7 @@ public class AiProactiveService {
                     "本周周报上次生成失败",
                     StringUtils.hasText(error) ? error : "可直接重试生成",
                     "本周周报生成失败过，先用 weekly_report_facts 核对事实，再重新起草一版",
-                    "/weekly-report", 96);
+                    "/weekly-report?week=" + monday, 96);
         }
         // 本周周报已有草稿/已确认/已发布：清掉之前提过的「没草稿 / 生成失败」，避免让人做已完成的事
         dismissStale(userId, List.of("周报:" + monday, "周报失败:" + monday));
@@ -181,12 +181,15 @@ public class AiProactiveService {
         }
         String titles = pending.stream().map(BuKeyMatterView::getTitle).limit(3)
                 .reduce((a, b) -> a + "、" + b).orElse("");
+        // 深链直接打开第一项，省掉「进列表再找」这一步
+        String target = pending.get(0).getId() == null
+                ? "/key-matters" : "/key-matters?matterId=" + pending.get(0).getId();
         return new Draft(KIND_KEY_MATTER, "大事儿:" + monday,
                 pending.size() + " 个大事儿本周还没更新进展",
                 titles + (pending.size() > 3 ? " 等" : ""),
                 "列出我负责但本周未更新进展的大事儿，逐项给出「本周进展 / 问题风险 / 需协调 / 下一步」"
                         + "的草稿，事实不足的地方直接问我",
-                "/key-matters", 70 + pending.size());
+                target, 70 + pending.size());
     }
 
     /** 近 7 天会议纪要里还没转化的待办。 */

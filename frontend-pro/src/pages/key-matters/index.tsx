@@ -2807,4 +2807,13 @@ export default function KeyMattersPage() {
       </Modal>
     </div>
   );
+      // 深链：/key-matters?matterId=xx 直接打开该大事儿详情（企微/建议链接都走这里）
+      useEffect(() => {
+        const matterId = new URLSearchParams(window.location.search).get("matterId");
+        if (!matterId) return;
+        const id = Number(matterId);
+        if (!Number.isFinite(id)) return;
+        void openDetail({ id } as Matter);
+        window.history.replaceState({}, "", window.location.pathname);
+      }, []);
 }
