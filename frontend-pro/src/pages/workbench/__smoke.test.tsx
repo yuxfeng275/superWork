@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   getQuotations: vi.fn(),
 }));
 
+const navigateMock = vi.fn();
 vi.mock('@umijs/max', () => ({
+  useNavigate: () => navigateMock,
   Link: ({
     to,
     children,

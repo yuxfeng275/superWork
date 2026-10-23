@@ -7,9 +7,8 @@ import {
   FlagOutlined,
   ReloadOutlined,
   RiseOutlined,
-  WarningOutlined,
-} from '@ant-design/icons';
-import { Link, useModel } from '@umijs/max';
+  WarningOutlined, BulbOutlined } from '@ant-design/icons';
+import { Link, useModel, useNavigate } from '@umijs/max';
 import {
   Alert,
   Button,
@@ -28,8 +27,7 @@ import {
   type Requirement,
   type SalesOpportunity,
   superworkApi,
-  type WorkItemRecord,
-} from '@/services/superwork/api';
+  type WorkItemRecord, type AiProactiveSuggestion } from '@/services/superwork/api';
 import './style.less';
 
 type Matter = Record<string, unknown>;
@@ -80,9 +78,11 @@ const oppTone = (status?: string) => {
 
 export default function WorkbenchPage() {
   const { initialState } = useModel('@@initialState');
+  const navigate = useNavigate();
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -156,6 +156,32 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  const loadSuggestions = useCallback(async () => {
+    try {
+      setSuggestions(await superworkApi.getAiProactiveSuggestions());
+    } catch {
+      setSuggestions([]);
+    }
+  }, []);
+  useEffect(() => {
+    void loadSuggestions();
+  }, [loadSuggestions]);
+  /** 去做：标记已处理并带着提示词进助手页（输入框已填好，回车即成任务）。 */
+  const useSuggestion = (suggestion: AiProactiveSuggestion) => {
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
+    navigate(
+      `/ai-assistant?prefill=${encodeURIComponent(suggestion.prompt)}`,
+    );
+  };
+  const dismissSuggestion = (suggestion: AiProactiveSuggestion) => {
+    setSuggestions((current) =>
+      current.filter((item) => item.id !== suggestion.id),
+    );
+    void superworkApi.dismissAiProactive(suggestion.id).catch(() => undefined);
+  };
 
   const monthStart = dayjs().startOf('month');
   const kpis = useMemo(() => {
@@ -303,6 +329,54 @@ export default function WorkbenchPage() {
           </Link>
         </Space>
       </div>
+      {suggestions.length > 0 && (
+        <Card
+          variant="borderless"
+          className="sw-workbench-ai"
+          title={
+            <Space size={8}>
+              <BulbOutlined /> AI 建议
+            </Space>
+          }
+          extra={
+            <Link to="/ai-assistant">
+              打开助手 <ArrowRightOutlined />
+            </Link>
+          }
+        >
+          <div className="sw-workbench-ai-list">
+            {suggestions.slice(0, 3).map((suggestion) => (
+              <div className="sw-workbench-ai-item" key={suggestion.id}>
+                <div className="sw-workbench-ai-text">
+                  <Typography.Text strong>{suggestion.title}</Typography.Text>
+                  {suggestion.body && (
+                    <Typography.Text type="secondary" ellipsis>
+                      {suggestion.body}
+                    </Typography.Text>
+                  )}
+                </div>
+                <Space size={4}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    onClick={() => useSuggestion(suggestion)}
+                  >
+                    去做
+                  </Button>
+                  <Button
+                    size="small"
+                    type="text"
+                    onClick={() => dismissSuggestion(suggestion)}
+                  >
+                    忽略
+                  </Button>
+                </Space>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <div className="sw-workbench-kpis">
         {kpis.map((stat) => (
           <Link className="sw-workbench-kpi" to={stat.to} key={stat.label}>
