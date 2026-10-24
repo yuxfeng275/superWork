@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Executor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -192,8 +193,17 @@ public class MeetingPipelineService {
         if (input.length() > TRANSCRIPT_CAP) {
             throw new IllegalStateException("录音过长，请分段上传");
         }
-        JsonNode raw = summaryClient.chatJson(SYSTEM_PROMPT, input);
-        ObjectNode normalized = normalize(raw, segments, meeting, speakerLabels(meetingId, segments));
+        // 字段校验即归一：校验不通过（缺 summary / 待办缺 title / segmentRef 越界）视为该候选失败，
+        // 由 DigestLlmClient 自动换下一个摘要模型；这里把归一结果缓存下来，避免跑两遍
+        java.util.concurrent.atomic.AtomicReference<ObjectNode> normalizedRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Set<String> labels = speakerLabels(meetingId, segments);
+        summaryClient.chatJson(SYSTEM_PROMPT, input, json -> normalizedRef.set(
+                normalize(json, segments, meeting, labels)));
+        ObjectNode normalized = normalizedRef.get();
+        if (normalized == null) {
+            throw new IllegalStateException("会议纪要生成失败：没有候选模型返回可用结果");
+        }
         meeting.setSummaryJson(normalized.toString());
         meeting.setGenerationModel(summaryClient.describeModel());
         meeting.setGenerationError(null);

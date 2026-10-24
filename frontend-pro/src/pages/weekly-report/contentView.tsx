@@ -239,7 +239,7 @@ export function MinutesBody({
           );
         }
         return (
-          <p className={block.meta ? 'sw-wr-doc-meta' : undefined} key={index}>
+          <p className={'meta' in block && block.meta ? 'sw-wr-doc-meta' : undefined} key={index}>
             {rich(block.text)}
           </p>
         );

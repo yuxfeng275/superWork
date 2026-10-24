@@ -177,8 +177,13 @@ class MeetingPipelineServiceTest {
                                 "SPEAKER_00", "先对齐 c d p 项目"))));
         when(correctionService.correct(anyList(), any())).thenReturn(List.of(
                 new MeetingTranscriptCodec.Segment(1, 0, 5000, "SPEAKER_00", "先对齐 CDP 项目", true)));
-        when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(
-                "{\"summary\":\"概览\",\"decisions\":[],\"risks\":[],\"todos\":[]}"));
+        when(summaryClient.chatJson(any(), any(), any())).thenAnswer(inv -> {
+            com.fasterxml.jackson.databind.JsonNode json = objectMapper.readTree(
+                    "{\"summary\":\"概览\",\"decisions\":[],\"risks\":[],\"todos\":[]}");
+            inv.<java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode>>getArgument(2)
+                    .accept(json);
+            return json;
+        });
         when(speakerMapper.selectList(any())).thenReturn(List.of());
         when(todoMapper.delete(any())).thenReturn(1);
         lenient().when(summaryClient.describeModel()).thenReturn("http://glm/glm-4");
@@ -189,14 +194,18 @@ class MeetingPipelineServiceTest {
         assertThat(meeting.getStatus()).isEqualTo("DRAFT");
         assertThat(meeting.getCorrectedTranscriptJson()).contains("CDP");
         ArgumentCaptor<String> inputCaptor = ArgumentCaptor.forClass(String.class);
-        verify(summaryClient).chatJson(any(), inputCaptor.capture());
+        verify(summaryClient).chatJson(any(), inputCaptor.capture(), any());
         assertThat(inputCaptor.getValue()).contains("CDP").doesNotContain("c d p");
     }
 
     private void stubSummary(Meeting meeting, String modelJson) throws Exception {
         when(meetingMapper.selectById(1L)).thenReturn(meeting);
         when(speakerMapper.selectList(any())).thenReturn(List.of());
-        when(summaryClient.chatJson(any(), any())).thenReturn(objectMapper.readTree(modelJson));
+        when(summaryClient.chatJson(any(), any(), any())).thenAnswer(inv -> {
+            com.fasterxml.jackson.databind.JsonNode json = objectMapper.readTree(modelJson);
+            inv.<java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode>>getArgument(2).accept(json);
+            return json;
+        });
         // 失败路径（校验抛错）不会走到 describeModel，放宽该 stub
         lenient().when(summaryClient.describeModel()).thenReturn("http://glm/glm-4");
         lenient().when(meetingMapper.updateById(meeting)).thenReturn(1);

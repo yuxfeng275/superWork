@@ -23,6 +23,7 @@
 所有摘要模型均失败：deepseek/deepseek-flash HTTP 402（{"error":{"message":"Insufficient Balance"}}）；bai/deepseek-v4.1-flash HTTP 500（…）
 ```
 
+- 周报会把五段字段校验（`validateResult`）作为 `strictCheck` 传入；会议纪要把 `normalize`（summary/待办 title/segmentRef 越界）传入。**JSON 合法但字段残缺同样算该候选失败**，自动换下一个，不再整次 FAILED。
 - 周报的 `generation_provider` / `generation_model` 记录**实际成功**使用的模型。
 - 候选为空时提示「请在模型管理勾选摘要使用」，不再依赖 email-integration 旧配置里的 DeepSeek 参数。
 - 至少配两个摘要模型并在模型管理里排好顺序，才能真正兜底。

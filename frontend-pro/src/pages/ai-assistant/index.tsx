@@ -130,6 +130,8 @@ export default function AiAssistantPage() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  /** 深链带来的待填提示词；建好会话后再填，避免落在 disabled 的输入框里 */
+  const [pendingPrefill, setPendingPrefill] = useState('');
   const [error, setError] = useState('');
   const controller = useRef<AbortController | undefined>(undefined);
   const messageBox = useRef<HTMLDivElement>(null);
@@ -192,10 +194,10 @@ export default function AiAssistantPage() {
     }
   }, []);
   useEffect(() => {
-    // 通知中心深链：?prefill=… 填入输入框并清理 query（对齐旧系统 applyPrefillFromRoute）
+    // 通知中心/企微/工作台深链：?prefill=… 先存起来，等会话就绪再填（否则 Sender 是 disabled）
     const prefill = new URLSearchParams(window.location.search).get('prefill');
     if (prefill) {
-      setDraft(prefill);
+      setPendingPrefill(prefill);
       window.history.replaceState(
         {},
         '',
@@ -272,6 +274,15 @@ export default function AiAssistantPage() {
       message.error(e instanceof Error ? e.message : '新建会话失败');
     }
   };
+  // 深链落地：没有任何会话时先建一个，再把提示词填进输入框（回车即可发送）
+  useEffect(() => {
+    if (!pendingPrefill) return;
+    setDraft(pendingPrefill);
+    setPendingPrefill('');
+    if (!active && !syncing) void newChat();
+    // 只在有待填提示词时触发；newChat 每个渲染周期都是新函数，不列入依赖避免重复建会话
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPrefill]);
   const deleteSession = (summary: AiAgentSessionSummary) => {
     Modal.confirm({
       title: '删除会话',
@@ -495,7 +506,7 @@ export default function AiAssistantPage() {
     if (item.text) {
       bubble.footer = (
         <Actions
-          items={[{ key: 'copy', label: '复制', actionRender: Actions.Copy }]}
+          items={[{ key: 'copy', label: '复制' }]}
           onClick={({ key }) => {
             if (key !== 'copy') return;
             void navigator.clipboard.writeText(item.text);

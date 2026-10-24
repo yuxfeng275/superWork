@@ -1,6 +1,7 @@
 package com.bu.management.integration;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.function.Consumer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,16 @@ public class MeetingSummaryClient {
     }
 
     public JsonNode chatJson(String systemPrompt, String userInput) {
-        DigestLlmClient.ChatResult result = digestLlmClient.chat(systemPrompt, userInput);
+        return chatJson(systemPrompt, userInput, json -> { });
+    }
+
+    /**
+     * 带字段校验的调用：strictCheck 抛异常（如缺 summary / segmentRef 越界）视为该候选失败，
+     * 自动换下一个模型，避免弱模型的一次残缺输出把整场会议记为 FAILED。
+     */
+    public JsonNode chatJson(String systemPrompt, String userInput,
+                             Consumer<JsonNode> strictCheck) {
+        DigestLlmClient.ChatResult result = digestLlmClient.chat(systemPrompt, userInput, strictCheck);
         lastUsed = result.providerCode() + "/" + result.model();
         return result.json();
     }
