@@ -40,11 +40,13 @@ public class WeeklyReportScheduler {
         try {
             WeeklyReport report = reportService.generateAsync(weekStart);
             if (report != null && StringUtils.hasText(notifyWeComUser)) {
-                String link = StringUtils.hasText(publicBaseUrl)
-                        ? publicBaseUrl.replaceAll("/+$", "") + "/weekly-report"
-                        : "/weekly-report";
-                weComClient.pushText(notifyWeComUser,
-                        "本周周报草稿已生成，请登录系统审阅并确认：\n" + link);
+                // 没配公网地址就不附链接：企微里打不开相对路径，尽量减少死链
+                String text = StringUtils.hasText(publicBaseUrl)
+                        ? "本周周报草稿已生成，请登录系统审阅并确认：\n"
+                                + publicBaseUrl.replaceAll("/+$", "") + "/weekly-report"
+                        : "本周周报草稿已生成，请登录系统「周报中心」审阅并确认"
+                                + "（未配置 app.public-base-url，未附链接）。";
+                weComClient.pushText(notifyWeComUser, text);
             }
         } catch (Exception e) {
             log.error("周五周报自动生成失败", e);

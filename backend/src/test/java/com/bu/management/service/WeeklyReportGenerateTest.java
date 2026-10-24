@@ -215,6 +215,23 @@ class WeeklyReportGenerateTest {
     }
 
     @Test
+    void stillNotifiesWithoutLinkWhenPublicBaseUrlMissing() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "publicBaseUrl", "");
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("所有摘要模型均失败：bai HTTP 402"));
+
+        service.generate(WEEK_START);
+
+        ArgumentCaptor<String> content = ArgumentCaptor.forClass(String.class);
+        verify(weComClient).pushText(eq(NOTIFY_USER), content.capture());
+        assertThat(content.getValue())
+                .contains("周报自动生成失败")
+                .contains("所有摘要模型均失败")
+                .doesNotContain("/weekly-report")
+                .contains("未配置 app.public-base-url");
+    }
+
+    @Test
     void skipsFailureNoticeWhenNoRecipientConfigured() {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", "");
         when(digestLlmClient.chat(anyString(), anyString(), any()))

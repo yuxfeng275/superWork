@@ -71,11 +71,14 @@
 ## 三之二、周报生成失败即时告警
 
 `generate()` 入 catch 分支后立刻向 `weekly.report-notify-wecom-user` 推企微：
-包含周起始日、失败原因（截断 300 字）与 `/weekly-report` 链接，避免周五 17:00 挂了
+包含周起始日、失败原因（截断 300 字）与 `/weekly-report` 直达链接，避免周五 17:00 挂了
 等到第二天早上才被发现；未配置接收人则静默跳过，告警失败不影响错误落库。
 
-> 前置条件：241 需设置 `WEEKLY_NOTIFY_WECOM_USER`（企微 userid）与 `APP_PUBLIC_BASE_URL`，
-> 否则本告警与周报成功通知都不会发出。
+> 前置条件与降级（与代码一致）：
+> - **只配 `WEEKLY_NOTIFY_WECOM_USER`**（企微 userid）即可收到告警与周五成功通知；
+> - **另配 `APP_PUBLIC_BASE_URL`** 才会带上 `…/weekly-report` 直达链接；
+> - 未配公网地址时**照发告警，只是不带链接**（企微里打不开相对路径），成功通知同理，
+>   不会推出打不开的死链。
 
 ## 四、Jev（TypeSafe System One）决策层
 

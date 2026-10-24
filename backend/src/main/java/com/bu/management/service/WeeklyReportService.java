@@ -380,21 +380,25 @@ public class WeeklyReportService {
 
     /**
      * 生成失败即时企微告警：周五 17:00 挂了不必等到第二天早上才被人发现。
-     * 未配置接收人则跳过；告警失败不得覆盖原始错误。
+     * 未配置接收人则跳过；未配公网地址时照发但**不带链接**（企微里打不开相对链接）；
+     * 告警失败不得覆盖原始错误。
      */
     private void notifyFailure(LocalDate weekStart, String message) {
         if (!StringUtils.hasText(notifyWeComUser)) {
             return;
         }
         try {
-            String link = StringUtils.hasText(publicBaseUrl)
-                    ? publicBaseUrl.replaceAll("/+$", "") + "/weekly-report"
-                    : "/weekly-report";
             String detail = message == null ? "未知错误" : message;
-            weComClient.pushText(notifyWeComUser,
-                    "本周周报自动生成失败（周起始 " + weekStart + "）：\n"
-                            + (detail.length() > 300 ? detail.substring(0, 300) : detail)
-                            + "\n重新生成或手工补：" + link);
+            StringBuilder text = new StringBuilder("本周周报自动生成失败（周起始 ")
+                    .append(weekStart).append("）：\n")
+                    .append(detail.length() > 300 ? detail.substring(0, 300) : detail);
+            if (StringUtils.hasText(publicBaseUrl)) {
+                text.append("\n重新生成或手工补：")
+                        .append(publicBaseUrl.replaceAll("/+$", "")).append("/weekly-report");
+            } else {
+                text.append("\n请登录系统「周报中心」重新生成或手工补（未配置 app.public-base-url，未附直达链接）。");
+            }
+            weComClient.pushText(notifyWeComUser, text.toString());
         } catch (Exception e) {
             log.warn("周报失败告警推送失败 weekStart={}: {}", weekStart, e.getMessage());
         }
