@@ -25,7 +25,7 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class AiAgentUsageService {
 
-    /** 用户用量汇总：今日 / 近 30 天 / 累计 的次数、token 与成本。 */
+    /** 用户用量汇总：今日 / 近 30 天（滚动窗口，不是自然月）/ 累计 的次数、token 与成本。 */
     public record UsageSummary(long todayRuns, long todayTokens, long monthRuns, long monthTokens,
                                long totalRuns, long totalTokens, BigDecimal totalCostUsd) {}
 
@@ -101,7 +101,7 @@ public class AiAgentUsageService {
         }
     }
 
-    /** 当前用户用量汇总。 */
+    /** 当前用户用量汇总；monthRuns/monthTokens 是滚动 30 天，前端文案必须写「近 30 天」。 */
     public UsageSummary summary(Long userId) {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         LocalDateTime monthStart = LocalDate.now().minusDays(29).atStartOfDay();

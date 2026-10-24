@@ -350,10 +350,10 @@ public class WeeklyReportService {
             }
             List<String> projectGroups = projectGroupWhitelist();
             String userInput = buildUserInput(report, factsJson, systemKpi, projectGroups);
-            // 按「模型管理」排序的摘要模型依次尝试，首选额度/鉴权失败时自动换下一个
+            // 按「模型管理」排序的摘要模型依次尝试：额度/鉴权失败、返回非 JSON、
+            // 或 JSON 缺字段（由 validateResult 判）都会自动换下一个候选
             DigestLlmClient.ChatResult chat =
-                    digestLlmClient.chat(generationSystemPrompt(), userInput);
-            validateResult(chat.json());
+                    digestLlmClient.chat(generationSystemPrompt(), userInput, this::validateResult);
             chat = regenerateIfOffTemplate(userInput, chat, weekStart);
             JsonNode result = chat.json();
 
@@ -549,8 +549,7 @@ public class WeeklyReportService {
         try {
             DigestLlmClient.ChatResult retry = digestLlmClient.chat(generationSystemPrompt(),
                     userInput + "\n\n== 上次输出不符合固定模版，必须逐条修正 ==\n- "
-                            + String.join("\n- ", issues) + "\n");
-            validateResult(retry.json());
+                            + String.join("\n- ", issues) + "\n", this::validateResult);
             List<String> remaining = templateIssues(retry.json());
             if (remaining.isEmpty()) {
                 return retry;

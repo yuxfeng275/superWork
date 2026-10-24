@@ -85,11 +85,11 @@ class WeeklyReportGenerateTest {
 
     @Test
     void savesCompliantTemplateWithoutRetry() throws Exception {
-        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
-        verify(digestLlmClient, times(1)).chat(anyString(), anyString());
+        verify(digestLlmClient, times(1)).chat(anyString(), anyString(), any());
         WeeklyReport saved = savedReport();
         assertThat(saved.getStatus()).isEqualTo(WeeklyReport.STATUS_DRAFT);
         assertThat(saved.getCoreWork()).contains("皇家项目：").contains("全渠道产品：");
@@ -105,13 +105,13 @@ class WeeklyReportGenerateTest {
         broken.put("nextWeekPlan", "- 10/23 前完成飞鹤接口改造");
         ObjectNode fixed = compliant();
         fixed.put("nextWeekPlan", "- 完成飞鹤接口改造");
-        when(digestLlmClient.chat(anyString(), anyString()))
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
                 .thenReturn(chat(broken), chat(fixed));
 
         service.generate(WEEK_START);
 
         ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
-        verify(digestLlmClient, times(2)).chat(anyString(), userInput.capture());
+        verify(digestLlmClient, times(2)).chat(anyString(), userInput.capture(), any());
         assertThat(userInput.getAllValues().get(1)).contains("不符合固定模版").contains("具体日期");
         assertThat(savedReport().getNextWeekPlan()).isEqualTo("- 完成飞鹤接口改造");
     }
@@ -122,12 +122,12 @@ class WeeklyReportGenerateTest {
         broken.put("nextWeekPlan", "- 10/23 前完成");
         ObjectNode stillBroken = compliant();
         stillBroken.put("nextWeekPlan", "- 10/24 前完成");
-        when(digestLlmClient.chat(anyString(), anyString()))
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
                 .thenReturn(chat(broken), chat(stillBroken));
 
         service.generate(WEEK_START);
 
-        verify(digestLlmClient, times(2)).chat(anyString(), anyString());
+        verify(digestLlmClient, times(2)).chat(anyString(), anyString(), any());
         assertThat(savedReport().getNextWeekPlan()).isEqualTo("- 10/23 前完成");
         assertThat(savedReport().getStatus()).isEqualTo(WeeklyReport.STATUS_DRAFT);
     }
@@ -146,7 +146,7 @@ class WeeklyReportGenerateTest {
         row.setRevenue(new BigDecimal("100000"));
         row.setGrossProfit(new BigDecimal("60000"));
         when(profitReportMapper.selectList(any())).thenReturn(List.of(row));
-        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
@@ -157,7 +157,7 @@ class WeeklyReportGenerateTest {
 
     @Test
     void keepsGuidanceDrivenKpiWhenProfitTableHasNoCurrentMonth() throws Exception {
-        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
@@ -174,7 +174,7 @@ class WeeklyReportGenerateTest {
                         + "产品：\n  全渠道产品：\n  - 开放平台：第一版 80%\n"
                         + "  海外产品：\n  - EDM MVP：85%\n"
                         + "会员通：\n  - 京东 omid 升级：完成");
-        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(withExtraGroup));
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(chat(withExtraGroup));
 
         service.generate(WEEK_START);
 
@@ -186,12 +186,12 @@ class WeeklyReportGenerateTest {
 
     @Test
     void sendsProjectGroupWhitelistToModel() throws Exception {
-        when(digestLlmClient.chat(anyString(), anyString())).thenReturn(chat(compliant()));
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(chat(compliant()));
 
         service.generate(WEEK_START);
 
         ArgumentCaptor<String> userInput = ArgumentCaptor.forClass(String.class);
-        verify(digestLlmClient).chat(anyString(), userInput.capture());
+        verify(digestLlmClient).chat(anyString(), userInput.capture(), any());
         assertThat(userInput.getValue()).contains("项目分组白名单")
                 .contains("皇家项目、飞鹤")
                 .contains("其他项目");
@@ -199,7 +199,7 @@ class WeeklyReportGenerateTest {
 
     @Test
     void notifiesWecomAsSoonAsGenerationFails() {
-        when(digestLlmClient.chat(anyString(), anyString())).thenThrow(new IllegalStateException(
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenThrow(new IllegalStateException(
                 "所有摘要模型均失败：bai/deepseek-v4.1-flash 调用失败（经代理 http://mihomo:7890）：request timed out"));
 
         service.generate(WEEK_START);
@@ -217,7 +217,7 @@ class WeeklyReportGenerateTest {
     @Test
     void skipsFailureNoticeWhenNoRecipientConfigured() {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", "");
-        when(digestLlmClient.chat(anyString(), anyString()))
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
                 .thenThrow(new IllegalStateException("模型全挂了"));
 
         service.generate(WEEK_START);

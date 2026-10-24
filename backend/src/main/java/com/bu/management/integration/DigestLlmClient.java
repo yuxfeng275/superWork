@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -74,11 +75,20 @@ public class DigestLlmClient {
     }
 
     /**
-     * 按候选顺序调用 chat/completions（json_object），返回首个成功结果。
+     * 只校验 JSON 可解析（会议纪要与邮件摘要的字段校验在各自管线里）。
      *
      * @throws IllegalStateException 无候选模型，或所有候选都失败（消息含每个候选的失败原因）
      */
     public ChatResult chat(String systemPrompt, String userInput) {
+        return chat(systemPrompt, userInput, json -> { });
+    }
+
+    /**
+     * 按候选顺序调用 chat/completions（json_object），首个通过 strictCheck 的结果即返回。
+     * strictCheck 抛异常（如「缺少 coreWork 字段」）同样视为该候选失败，会继续下一个，
+     * 这样「返回合法 JSON 但字段不全」的弱模型不会把整次生成拖死。
+     */
+    public ChatResult chat(String systemPrompt, String userInput, Consumer<JsonNode> strictCheck) {
         List<AiModelConfigService.DigestModel> candidates = modelConfigService.digestModels();
         if (candidates.isEmpty()) {
             throw new IllegalStateException(EMPTY_MODEL_HINT);
@@ -86,8 +96,9 @@ public class DigestLlmClient {
         List<String> failures = new ArrayList<>();
         for (AiModelConfigService.DigestModel model : candidates) {
             try {
-                return new ChatResult(call(model, systemPrompt, userInput),
-                        model.providerCode(), model.model());
+                JsonNode json = call(model, systemPrompt, userInput);
+                strictCheck.accept(json);
+                return new ChatResult(json, model.providerCode(), model.model());
             } catch (RuntimeException e) {
                 String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 log.warn("摘要模型调用失败，尝试下一个候选 model={}/{}: {}",

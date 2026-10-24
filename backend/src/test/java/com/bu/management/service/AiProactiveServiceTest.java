@@ -99,7 +99,7 @@ class AiProactiveServiceTest {
 
         service.scan(7L);
 
-        assertThat(stale.getStatus()).isEqualTo(AiProactiveSuggestion.STATUS_DISMISSED);
+        assertThat(stale.getStatus()).isEqualTo(AiProactiveSuggestion.STATUS_AUTO_DISMISSED);
         verify(suggestionMapper).updateById(stale);
         verify(suggestionMapper, never()).insert(any(AiProactiveSuggestion.class));
     }

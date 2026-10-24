@@ -459,6 +459,8 @@ export interface AiProactiveStats {
   total: number;
   done: number;
   dismissed: number;
+  /** 条件自愈被系统收回的条数，不计入采纳/打扰分母 */
+  autoResolved: number;
   open: number;
   adoptRate: number;
   noiseRate: number;
@@ -469,6 +471,7 @@ export interface AiProactiveStats {
     total: number;
     done: number;
     dismissed: number;
+    autoResolved: number;
     open: number;
     adoptRate: number;
     noiseRate: number;

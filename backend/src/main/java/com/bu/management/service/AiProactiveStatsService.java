@@ -22,12 +22,12 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AiProactiveStatsService {
 
-    /** 单类建议的效果。 */
-    public record KindStat(String kind, long total, long done, long dismissed, long open,
-                           int adoptRate, int noiseRate) {}
+    /** 单类建议的效果；autoResolved 是系统自行收回的条数（不计入采纳/打扰分母）。 */
+    public record KindStat(String kind, long total, long done, long dismissed, long autoResolved,
+                           long open, int adoptRate, int noiseRate) {}
 
     /** 用户视角汇总；天数窗口默认 30 天。 */
-    public record Stats(int days, long total, long done, long dismissed, long open,
+    public record Stats(int days, long total, long done, long dismissed, long autoResolved, long open,
                         int adoptRate, int noiseRate, long pushes, long pushesSent,
                         List<KindStat> byKind) {}
 
@@ -46,10 +46,12 @@ public class AiProactiveStatsService {
         }
         long done = 0;
         long dismissed = 0;
+        long autoResolved = 0;
         long open = 0;
         Map<String, long[]> perKind = new LinkedHashMap<>();
         for (AiProactiveSuggestion row : rows) {
-            long[] counters = perKind.computeIfAbsent(row.getKind(), key -> new long[4]);
+            // [0]=total [1]=done [2]=user dismissed [3]=open [4]=auto dismissed
+            long[] counters = perKind.computeIfAbsent(row.getKind(), key -> new long[5]);
             counters[0]++;
             switch (String.valueOf(row.getStatus())) {
                 case AiProactiveSuggestion.STATUS_DONE -> {
@@ -59,6 +61,10 @@ public class AiProactiveStatsService {
                 case AiProactiveSuggestion.STATUS_DISMISSED -> {
                     dismissed++;
                     counters[2]++;
+                }
+                case AiProactiveSuggestion.STATUS_AUTO_DISMISSED -> {
+                    autoResolved++;
+                    counters[4]++;
                 }
                 default -> {
                     open++;
@@ -76,13 +82,16 @@ public class AiProactiveStatsService {
         List<KindStat> byKind = new ArrayList<>();
         for (Map.Entry<String, long[]> entry : perKind.entrySet()) {
             long[] counters = entry.getValue();
+            long visible = counters[0] - counters[4];
             byKind.add(new KindStat(entry.getKey(), counters[0], counters[1], counters[2],
-                    counters[3], rate(counters[1], counters[1] + counters[2]),
-                    rate(counters[2], counters[0])));
+                    counters[4], counters[3],
+                    rate(counters[1], counters[1] + counters[2]),
+                    rate(counters[2], visible)));
         }
         byKind.sort((a, b) -> Long.compare(b.total(), a.total()));
-        return new Stats(window, rows.size(), done, dismissed, open,
-                rate(done, done + dismissed), rate(dismissed, rows.size()),
+        long visibleRows = rows.size() - autoResolved;
+        return new Stats(window, rows.size(), done, dismissed, autoResolved, open,
+                rate(done, done + dismissed), rate(dismissed, visibleRows),
                 pushes == null ? 0 : pushes, pushesSent == null ? 0 : pushesSent, byKind);
     }
 

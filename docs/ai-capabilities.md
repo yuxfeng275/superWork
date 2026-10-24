@@ -16,7 +16,7 @@
 ## 二、摘要模型兜底（2026-10-22 起）
 
 `DigestLlmClient` 是周报与会议共用的 LLM 入口：按「模型管理」排序依次尝试勾选**摘要使用**的模型，
-首个候选返回 402（余额不足）/401（鉴权失败）/超时/非 JSON 时自动换下一个；全部失败才报错，
+首个候选返回 402（余额不足）/401（鉴权失败）/超时/非 JSON/**JSON 缺必填字段**时自动换下一个；全部失败才报错，
 错误信息按候选逐条汇总，例如：
 
 ```
@@ -63,8 +63,8 @@
 
 - 侧车 `run_end` 返回的 assistant 消息带 `usage`（input/output/cacheRead/cacheWrite/totalTokens/cost），
   后端落 `ai_agent_usage` 表（`run_id` 唯一，重复事件不重复计）。
-- `GET /api/ai-agent/usage` 返回当前用户今日 / 近 30 天 / 累计 的次数、token 与估算成本；
-  助手页头部展示「本月 N 次 · X tokens」。
+- `GET /api/ai-agent/usage` 返回当前用户今日 / **近 30 天（滚动窗口，不是自然月）** / 累计 的次数、token 与估算成本；
+  助手页头部文案为「近 30 天 N 次 · X tokens」（字段名仍是 monthRuns/monthTokens）。
 - 成本为侧车按模型定价估算的美元值，仅作趋势参考。
 
 ## 三之二、周报生成失败即时告警

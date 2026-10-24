@@ -242,7 +242,7 @@ public class AiProactiveService {
                 "/emails", 55 + Math.min(20, todos + risks));
     }
 
-    /** 同一周期条件已消失：把还挂着的建议置为忽略（dedupe_key 不复用，下轮不会再生成）。 */
+    /** 同一周期条件已消失：系统自行收回建议（AUTO_DISMISSED，不计入用户的忽略）。 */
     private void dismissStale(Long userId, List<String> dedupeKeys) {
         List<AiProactiveSuggestion> stale = suggestionMapper.selectList(
                 new LambdaQueryWrapper<AiProactiveSuggestion>()
@@ -253,7 +253,7 @@ public class AiProactiveService {
             return;
         }
         for (AiProactiveSuggestion row : stale) {
-            row.setStatus(AiProactiveSuggestion.STATUS_DISMISSED);
+            row.setStatus(AiProactiveSuggestion.STATUS_AUTO_DISMISSED);
             suggestionMapper.updateById(row);
         }
     }

@@ -582,7 +582,7 @@ export default function AiAssistantPage() {
             <Space>
               {usage && usage.totalRuns > 0 && (
                 <Typography.Text type="secondary">
-                  本月 {usage.monthRuns} 次 · {formatTokens(usage.monthTokens)}{' '}
+                  近 30 天 {usage.monthRuns} 次 · {formatTokens(usage.monthTokens)}{' '}
                   tokens
                 </Typography.Text>
               )}

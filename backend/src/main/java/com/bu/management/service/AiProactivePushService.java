@@ -62,6 +62,11 @@ public class AiProactivePushService {
         if (!StringUtils.hasText(wecomUserId)) {
             return new PushResult(AiProactivePush.STATUS_SKIPPED, "未绑定企业微信，暂不推送");
         }
+        // 企微里打不开相对链接：没配公网地址就不发，避免推出去一条死链
+        if (!StringUtils.hasText(publicBaseUrl)) {
+            return new PushResult(AiProactivePush.STATUS_SKIPPED,
+                    "未配置 app.public-base-url，推送里的链接无法打开");
+        }
         List<AiProactiveService.Suggestion> suggestions = proactiveService.list(userId);
         if (suggestions.isEmpty()) {
             return new PushResult(AiProactivePush.STATUS_SKIPPED, "今天没有需要主动提醒的事");
@@ -124,9 +129,9 @@ public class AiProactivePushService {
         return sb.toString();
     }
 
-    /** 直达链接：/ai-assistant?prefill=<首条建议的提示词>，前端会填进输入框。 */
+    /** 直达链接：{publicBaseUrl}/ai-assistant?prefill=<首条建议的提示词>，前端会填进输入框。 */
     private String deepLink(AiProactiveService.Suggestion item) {
-        String base = StringUtils.hasText(publicBaseUrl) ? publicBaseUrl.replaceAll("/+$", "") : "";
+        String base = publicBaseUrl.replaceAll("/+$", "");
         String prompt = StringUtils.hasText(item.prompt()) ? item.prompt() : item.title();
         return base + "/ai-assistant?prefill=" + encode(prompt);
     }

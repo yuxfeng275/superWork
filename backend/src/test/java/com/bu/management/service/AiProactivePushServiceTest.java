@@ -43,6 +43,8 @@ class AiProactivePushServiceTest {
     @BeforeEach
     void setUp() {
         service = new AiProactivePushService(pushMapper, mappingMapper, proactiveService, weComClient);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                service, "publicBaseUrl", "https://bu.example.com");
         when(pushMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
         when(mappingMapper.selectOne(any(Wrapper.class))).thenReturn(mapping("wx-user-1", 1));
         when(proactiveService.list(any())).thenReturn(List.of(
@@ -61,6 +63,7 @@ class AiProactivePushServiceTest {
         verify(weComClient).pushText(eq("wx-user-1"), content.capture());
         assertThat(content.getValue())
                 .contains("今天最值得先做的是")
+                .contains("https://bu.example.com/ai-assistant?prefill=")
                 .contains("1. 本周周报还没有草稿")
                 .contains("2. 2 个大事儿本周还没更新进展")
                 .contains("/ai-assistant?prefill=");
@@ -91,6 +94,17 @@ class AiProactivePushServiceTest {
 
         assertThat(result.sent()).isFalse();
         assertThat(result.reason()).contains("未绑定企业微信");
+        verify(weComClient, never()).pushText(anyString(), anyString());
+    }
+
+    @Test
+    void skipsWhenPublicBaseUrlMissingSoNoDeadLinkIsSent() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "publicBaseUrl", "");
+
+        AiProactivePushService.PushResult result = service.pushToday(7L);
+
+        assertThat(result.sent()).isFalse();
+        assertThat(result.reason()).contains("app.public-base-url");
         verify(weComClient, never()).pushText(anyString(), anyString());
     }
 

@@ -52,6 +52,28 @@ class DigestLlmClientTest {
     }
 
     @Test
+    void fallsThroughWhenCandidateAnswersValidJsonButMissingFields() throws Exception {
+        // 弱模型常见：返回合法 JSON 对象，但缺 coreWork 之类的必填字段
+        first = stub(200, chatResponse("{\"summary\":\"only-summary\"}"), new AtomicInteger());
+        second = stub(200, chatResponse("{\"summary\":\"complete\",\"coreWork\":\"ok\"}"),
+                new AtomicInteger());
+        AiModelConfigService models = candidates(
+                new AiModelConfigService.DigestModel("bai", baseUrl(first), "deepseek-v4.1-flash", "sk-b"),
+                new AiModelConfigService.DigestModel("deepseek", baseUrl(second), "deepseek-flash", "sk-a"));
+
+        DigestLlmClient.ChatResult result = new DigestLlmClient(models, objectMapper,
+                java.net.http.HttpClient.newHttpClient())
+                .chat("system", "user", json -> {
+                    if (!json.hasNonNull("coreWork")) {
+                        throw new IllegalStateException("AI 返回缺少字段: coreWork");
+                    }
+                });
+
+        assertThat(result.providerCode()).isEqualTo("deepseek");
+        assertThat(result.json().path("coreWork").asText()).isEqualTo("ok");
+    }
+
+    @Test
     void reportsEveryCandidateWhenAllModelsFail() throws Exception {
         first = stub(401, "{\"error\":{\"message\":\"invalid api key\"}}", new AtomicInteger());
         second = stub(500, "{}", new AtomicInteger());
