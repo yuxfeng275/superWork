@@ -150,12 +150,12 @@ export default function AiAssistantPage() {
       setSuggestions([]);
     }
   }, []);
-  /** 点「去做」：标记已处理，把建议里的提示词填进输入框，由用户确认发送。 */
+  /** 点「去做」：标记已处理，把提示词交给 pendingPrefill（无会话时先建会话再填，避免禁用输入框）。 */
   const useSuggestion = async (suggestion: AiProactiveSuggestion) => {
     setSuggestions((current) =>
       current.filter((item) => item.id !== suggestion.id),
     );
-    setDraft(suggestion.prompt);
+    setPendingPrefill(suggestion.prompt);
     void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
   };
   /** 去页面处理：深链到具体周报/事项（详情抽屉或周报抽屉已就位）。 */
@@ -274,15 +274,16 @@ export default function AiAssistantPage() {
       message.error(e instanceof Error ? e.message : '新建会话失败');
     }
   };
-  // 深链落地：没有任何会话时先建一个，再把提示词填进输入框（回车即可发送）
+  // 提示词落地：?prefill= 深链与建议条「去做」共用。没有会话就先建一个，
+  // 否则 Sender 的 disabled={!active} 会锁住输入框，用户看到文字却按不动、回车无效。
   useEffect(() => {
     if (!pendingPrefill) return;
     setDraft(pendingPrefill);
     setPendingPrefill('');
-    if (!active && !syncing) void newChat();
-    // 只在有待填提示词时触发；newChat 每个渲染周期都是新函数，不列入依赖避免重复建会话
+    if (!active) void newChat();
+    // 只在有待填提示词（或会话就绪回填）时触发；newChat 每渲染都是新函数，列为依赖会重复建会话
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingPrefill]);
+  }, [pendingPrefill, active]);
   const deleteSession = (summary: AiAgentSessionSummary) => {
     Modal.confirm({
       title: '删除会话',
