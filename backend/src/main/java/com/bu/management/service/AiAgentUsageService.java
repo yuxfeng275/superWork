@@ -17,7 +17,8 @@ import org.springframework.util.StringUtils;
 
 /**
  * AI 助手用量：侧车 run_end 的 assistant 消息里带 usage（input/output/cache/totalTokens/cost），
- * 按 run 落库，供助手页展示本月次数与 token。
+ * 按 run 落库，供助手页展示近 30 天（滚动窗口）的次数与 token ——
+ * `monthRuns`/`monthTokens` 就是这个滚动窗口，不是自然月，不要按自然月改语义。
  * 一轮里可能有多条 assistant 消息（工具调用循环），按 run 求和；run_id 幂等。
  */
 @Slf4j
