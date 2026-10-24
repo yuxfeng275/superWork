@@ -33,7 +33,7 @@
 | L0 上下文感知 | 打开助手即带入当前页面/本周状态，回答贴合场景 | 0 点击 | ✅ 已实现（`pageContext` + 提示词） |
 | L1 建议条 | 「3 个大事儿本周还没更新进展」+ 去做/忽略 | 1 点击 | ✅ 已实现（4 条规则） |
 | L2 草稿预置 | 点「去做」直接进入已生成草稿的编辑态（不是空对话） | 1 点击 + 审阅 | ⏳ 下一步（需各业务页承接草稿态） |
-| L3 主动推送 | 定时/事件触发，推企微或通知中心 | 0 点击 | ⏳ 复用 `WeeklyReportScheduler` + `WeComClient` |
+| L3 主动推送 | 定时触发推企微（工作日 08:50 日报式简报，含深链） | 0 点击 | ✅ 已实现 `AiProactivePushScheduler` + `AiProactivePushService`（事件触发推送仍待做） |
 | L4 白名单自动执行 | 低风险动作（如标记已读、生成草稿）自动完成并留审计 | 0 点击 | ❌ 暂不做，等前三级跑顺 |
 
 ## 四、触发源矩阵
@@ -41,7 +41,7 @@
 | 触发 | 时机 | 适合的规则 | 状态 |
 |---|---|---|---|
 | 打开助手/工作台 | 拉取建议时按需扫描（10 分钟节流） | 全部 | ✅ |
-| 定时 | 每日 08:50 / 周五 16:30 | 周报、待办、邮件 | ⏳ |
+| 定时 | 工作日 08:50（`ai.proactive.push-cron`，可用 `AI_PROACTIVE_PUSH_ENABLED=false` 关闭） | 全部规则，每人每天最多一条 | ✅ `AiProactivePushScheduler` |
 | 事件 | 邮件同步完成、会议纪要生成、周报生成失败 | 对应模块 | ⏳ |
 | 状态差 | 上周同期对比（更新率、逾期数下降） | 管理视角建议 | ⏳ |
 
@@ -78,7 +78,10 @@
 
 ## 六、数据模型
 
-`ai_proactive_suggestion`：`user_id / kind / dedupe_key(唯一) / title / body / prompt / target_path / score / status(NEW|DONE|DISMISSED) / created_at`。
+`ai_proactive_suggestion`：`user_id / kind / dedupe_key(唯一) / title / body / prompt / target_path / score / status / created_at`。
+
+`status` 四种取值：`NEW` 待处理 · `DONE` 用户采纳（点了「去做/去处理」）· `DISMISSED` 用户忽略 ·
+`AUTO_DISMISSED` 条件消失后系统自行收回（由 `dismissStale` 写入，**不是**用户忽略）。
 `dedupe_key` 用「规则:周期」（如 `周报:2026-10-19`、`邮件:2026-10-21`），保证同周期只提一次；用户忽略后不再生成。
 
 接口：
@@ -90,9 +93,10 @@
 
 每次 accept/dismiss 都落终态，直接可算三个指标：
 
-- **建议采纳率** = DONE / (DONE + DISMISSED)：低说明规则噪声大或文案不准。
+- **建议采纳率** = `DONE / (DONE + DISMISSED)`：分母只含用户真实动作，低说明规则没用或文案没说服力。
 - **触发覆盖率** = 有建议的用户 / 打开助手的用户：低说明规则太少。
-- **打扰率** = DISMISSED / 总建议：> 50% 就该砍规则，而不是加规则。
+- **打扰率** = `DISMISSED / (总数 − AUTO_DISMISSED)`：> 50% 就该砍规则，而不是加规则。
+  系统自愈收回（`AUTO_DISMISSED`）不进分母——那是规则正常工作，不是用户的差评。
 
 后续可加权重表：按 kind × 用户历史采纳率调 `score`（简单频率衰减，不上模型）。
 
