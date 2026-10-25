@@ -116,10 +116,22 @@ export default [
     component: './quotations',
   },
   {
+    path: '/quotation-templates',
+    name: '报价模板管理',
+    icon: 'fileText',
+    component: './quotation-templates',
+  },
+  {
+    path: '/quotations/approvals',
+    name: '折扣审批',
+    hideInMenu: true,
+    component: './quotations/PendingApprovals',
+  },
+  {
     path: '/quotations/:id',
     name: '报价单详情',
     hideInMenu: true,
-    component: './quotations',
+    component: './quotations/QuotationEditor',
   },
   {
     path: '/system/users',

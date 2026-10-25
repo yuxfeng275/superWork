@@ -18,6 +18,11 @@ public class SalesOpportunity {
     private String type;
     private String status;
     private BigDecimal amount;
+    private BigDecimal quotedAmount;
+    private Integer quotationCount;
+    private LocalDateTime lastQuotationAt;
+    private Long wonQuotationId;
+    private BigDecimal grossMarginRate;
     private String owner;
     private String businessLine;
     private String nextFollowUp;

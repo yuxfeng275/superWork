@@ -13,7 +13,12 @@ public class QuotationVO {
     private Long id;
     private String quotationNo;
     private Long policyId;
+    private Long templateId;
     private Long opportunityId;
+    private Long variantId;
+    private String variantName;
+    private Integer versionNo;
+    private Long baseQuotationId;
     private String opportunityName;
     private String taxMode;
     private String customerName;
@@ -31,6 +36,13 @@ public class QuotationVO {
     private BigDecimal subsequentYearTotalInclTax;
     private String quotationNote;
     private String status;
+    private Integer isPreferred;
+    private LocalDateTime preferredAt;
+    private Integer discountOverride;
+    private BigDecimal grossMarginRate;
+    private String snapshotJson;
+    private String boundContractNo;
+    private List<String> availableTransitions;
     private String createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

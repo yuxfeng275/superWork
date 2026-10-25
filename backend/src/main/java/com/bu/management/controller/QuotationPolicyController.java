@@ -48,6 +48,12 @@ public class QuotationPolicyController {
         return Result.success(service.updatePolicy(id, request));
     }
 
+    /** 基于当前策略派生出可编辑的下一版草稿；用于发布后改价。 */
+    @PostMapping("/{id}/fork")
+    public Result<QuotationPolicy> fork(@PathVariable Long id) {
+        return Result.success(service.forkVersion(id));
+    }
+
     @PutMapping("/{id}/publish")
     public Result<QuotationPolicy> publish(@PathVariable Long id) {
         return Result.success(service.publishPolicy(id));

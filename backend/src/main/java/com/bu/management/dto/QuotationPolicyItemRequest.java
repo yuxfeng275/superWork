@@ -13,8 +13,12 @@ public class QuotationPolicyItemRequest {
     private String priceDescription;
     private Integer isRequired;
     private BigDecimal unitPrice;
+    private BigDecimal costPrice;
     private BigDecimal taxRate;
     private String chargeMethod;
+    private String chargeBaseSection;
+    private BigDecimal chargeRate;
+    private Integer firstYearFree;
     private String chargeUnit;
     private String remark;
     private Integer sortOrder;

@@ -1,5 +1,6 @@
 import {
   DeleteOutlined,
+  DiffOutlined,
   EditOutlined,
   EyeOutlined,
   FieldTimeOutlined,
@@ -51,6 +52,7 @@ import {
   type SalesOpportunitySupportWorklog,
   superworkApi,
 } from '@/services/superwork/api';
+import CompareDrawer from '../quotations/CompareDrawer';
 import QuotationGenerateWizard from '../quotations/GenerateWizard';
 import '../workbench/style.less';
 import './style.less';
@@ -200,6 +202,7 @@ export default function OpportunitiesPage() {
     [],
   );
   const [quotations, setQuotations] = useState<QuotationListVO[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quoteTarget, setQuoteTarget] = useState<SalesOpportunity>();
@@ -647,6 +650,27 @@ export default function OpportunitiesPage() {
           ¥ {Number(value || 0).toFixed(2)}万
         </Typography.Text>
       ),
+    },
+    {
+      title: '最新报价',
+      dataIndex: 'quotedAmount',
+      width: 130,
+      render: (_: unknown, row: SalesOpportunity) =>
+        row.quotedAmount == null ? (
+          <Typography.Text type="secondary">未报价</Typography.Text>
+        ) : (
+          <div>
+            <Typography.Text strong>
+              ¥ {Number(row.quotedAmount).toLocaleString('zh-CN')}
+            </Typography.Text>
+            <Typography.Text type="secondary" style={{ display: 'block' }}>
+              {row.quotationCount || 0} 张报价
+              {row.grossMarginRate != null
+                ? ` · 毛利 ${(Number(row.grossMarginRate) * 100).toFixed(0)}%`
+                : ''}
+            </Typography.Text>
+          </div>
+        ),
     },
     {
       title: '概率',
@@ -1315,7 +1339,16 @@ export default function OpportunitiesPage() {
               )}
             />
             <Divider />
-            <Typography.Title level={5}>关联报价单</Typography.Title>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Typography.Title level={5} style={{ margin: 0 }}>
+                关联报价单
+              </Typography.Title>
+              {quotations.length > 1 && (
+                <Button size="small" icon={<DiffOutlined />} onClick={() => setCompareOpen(true)}>
+                  方案比价
+                </Button>
+              )}
+            </Space>
             <List
               loading={historyLoading}
               dataSource={quotations}
@@ -1323,17 +1356,43 @@ export default function OpportunitiesPage() {
               renderItem={(item) => (
                 <List.Item
                   extra={
-                    <Button
-                      type="link"
-                      onClick={() => history.push(`/quotations/${item.id}`)}
-                    >
-                      查看
-                    </Button>
+                    <Space size={4}>
+                      {(item.status === 'DRAFT' || item.status === 'APPROVED') &&
+                        item.isPreferred !== 1 && (
+                          <Button
+                            type="link"
+                            onClick={async () => {
+                              await superworkApi.setQuotationPreferred(item.id);
+                              message.success('已设为首选方案');
+                              if (detail) await loadHistory(detail.id);
+                              await load();
+                            }}
+                          >
+                            设首选
+                          </Button>
+                        )}
+                      <Button
+                        type="link"
+                        onClick={() => history.push(`/quotations/${item.id}`)}
+                      >
+                        打开
+                      </Button>
+                    </Space>
                   }
                 >
                   <List.Item.Meta
-                    title={item.quotationNo}
-                    description={`${money(item.firstYearTotalInclTax)} · ${item.quoteDate?.slice(0, 10) || '—'}`}
+                    title={
+                      <Space size={4}>
+                        <span>{item.quotationNo}</span>
+                        {item.isPreferred === 1 && <Tag color="gold">首选</Tag>}
+                        <Tag>V{item.versionNo || 1}</Tag>
+                        {item.discountOverride === 1 && <Tag color="warning">超折扣</Tag>}
+                        {item.dueSoon && <Tag color="red">即将过期</Tag>}
+                      </Space>
+                    }
+                    description={`${money(item.firstYearTotalInclTax)} · ${
+                      item.quoteDate?.slice(0, 10) || '—'
+                    }${item.variantName ? ` · ${item.variantName}` : ''}`}
                   />
                   <Tag color={quoteStatusColor[item.status] || 'default'}>
                     {quoteStatusLabel[item.status] || item.status}
@@ -1486,6 +1545,15 @@ export default function OpportunitiesPage() {
           </Col>
         </Row>
       </Modal>
+      <CompareDrawer
+        open={compareOpen}
+        opportunityId={detail?.id}
+        onClose={() => setCompareOpen(false)}
+        onChanged={() => {
+          if (detail) void loadHistory(detail.id);
+          void load();
+        }}
+      />
       <QuotationGenerateWizard
         open={quoteOpen}
         lockOpportunity

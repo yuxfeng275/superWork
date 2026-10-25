@@ -693,6 +693,11 @@ export interface SalesOpportunity {
   expectedClose?: string;
   source?: string;
   note?: string;
+  quotedAmount?: number;
+  quotationCount?: number;
+  lastQuotationAt?: string;
+  wonQuotationId?: number;
+  grossMarginRate?: number;
 }
 
 export interface SalesOpportunityFollowUp {
@@ -722,7 +727,10 @@ export interface QuotationPolicy {
   id: number;
   name: string;
   type: string;
+  templateId?: number;
   taxMode: string;
+  minDiscountRate?: number;
+  approvalRequired?: number;
   version: number;
   status: string;
   effectiveDate?: string;
@@ -743,8 +751,12 @@ export interface QuotationPolicyItem {
   priceDescription?: string;
   isRequired: number;
   unitPrice?: number;
+  costPrice?: number;
   taxRate?: number;
   chargeMethod?: string;
+  chargeBaseSection?: string;
+  chargeRate?: number;
+  firstYearFree?: number;
   chargeUnit?: string;
   remark?: string;
   sortOrder: number;
@@ -755,6 +767,7 @@ export interface QuotationLineItem {
   quotationId: number;
   policyItemId?: number;
   section: string;
+  sectionCode?: string;
   category?: string;
   itemName: string;
   description?: string;
@@ -762,6 +775,10 @@ export interface QuotationLineItem {
   isSelected: number;
   quantity: number;
   unitPriceExTax?: number;
+  costPriceExTax?: number;
+  isCustom?: number;
+  isFirstYearFree?: number;
+  priceOverrideReason?: string;
   taxRate?: number;
   discountRate: number;
   subtotalExTax?: number;
@@ -787,6 +804,20 @@ export interface Quotation {
   policyId?: number;
   opportunityId?: number;
   opportunityName?: string;
+  templateId?: number;
+  variantId?: number;
+  variantName?: string;
+  versionNo?: number;
+  baseQuotationId?: number;
+  isPreferred?: number;
+  preferredAt?: string;
+  discountOverride?: number;
+  grossMarginRate?: number;
+  snapshotJson?: string;
+  boundContractNo?: string;
+  availableTransitions?: string[];
+  expireAt?: string;
+  dueSoon?: boolean;
   taxMode: string;
   customerName?: string;
   contactPerson?: string;
@@ -810,25 +841,123 @@ export interface Quotation {
   brandScopes?: QuotationBrandScope[];
 }
 
-export interface QuotationListVO
-  extends Pick<
-    Quotation,
-    | "id"
-    | "quotationNo"
-    | "customerName"
-    | "firstYearTotalInclTax"
-    | "status"
-    | "quoteDate"
-    | "opportunityName"
-  > {
+export interface QuotationListVO extends Pick<
+  Quotation,
+  | "id"
+  | "quotationNo"
+  | "customerName"
+  | "firstYearTotalInclTax"
+  | "status"
+  | "quoteDate"
+  | "opportunityName"
+  | "opportunityId"
+  | "variantId"
+  | "variantName"
+  | "versionNo"
+  | "isPreferred"
+  | "grossMarginRate"
+  | "discountOverride"
+  | "validityDays"
+  | "expireAt"
+  | "dueSoon"
+> {
+  firstYearTotalExTax?: number;
   [key: string]: unknown;
 }
 
 export interface QuotationLineItemOverride {
-  policyItemId: number;
-  isSelected: boolean;
+  policyItemId?: number;
+  lineItemId?: number;
+  isSelected?: boolean;
   quantity?: number;
   discountRate?: number;
+  unitPriceExTax?: number;
+  costPriceExTax?: number;
+  taxRate?: number;
+  priceOverrideReason?: string;
+  isCustom?: boolean;
+  isFirstYearFree?: boolean;
+  remove?: boolean;
+  section?: string;
+  itemName?: string;
+  description?: string;
+  sortOrder?: number;
+}
+
+export interface QuotationPricingResult {
+  lineItems: QuotationLineItem[];
+  firstYearTotalExTax?: number;
+  firstYearTotalInclTax?: number;
+  subsequentYearTotalExTax?: number;
+  subsequentYearTotalInclTax?: number;
+  grossProfitExTax?: number;
+  grossMarginRate?: number;
+  effectiveDiscount?: number;
+  floorDiscount?: number;
+  discountOverride: boolean;
+  violations: string[];
+}
+
+export interface QuotationTemplate {
+  id: number;
+  name: string;
+  type: string;
+  title?: string;
+  issuer?: string;
+  defaultValidityDays?: number;
+  defaultDeliveryPeriod?: string;
+  invoiceType?: string;
+  status: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface QuotationTemplateClause {
+  id?: number;
+  templateId?: number;
+  section: string;
+  title?: string;
+  content?: string;
+  isEnabled?: number;
+  sortOrder?: number;
+}
+
+export interface QuotationVariant {
+  id: number;
+  opportunityId?: number;
+  name: string;
+  description?: string;
+  latestQuotationId?: number;
+  variantStatus?: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export interface QuotationDiscountRequest {
+  id: number;
+  quotationId: number;
+  requestedBy?: string;
+  requestedDiscount?: number;
+  floorDiscount?: number;
+  grossMarginRate?: number;
+  reason?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  approver?: string;
+  approvedAt?: string;
+  comment?: string;
+  createdAt?: string;
+}
+
+export interface QuotationApprovalLog {
+  id: number;
+  quotationId: number;
+  fromStatus?: string;
+  toStatus?: string;
+  action?: string;
+  operator?: string;
+  comment?: string;
+  createdAt?: string;
 }
 
 export interface QuotationGenerateRequest {
@@ -840,6 +969,10 @@ export interface QuotationGenerateRequest {
   contactEmail?: string;
   deliveryPeriod?: string;
   lineItemOverrides: QuotationLineItemOverride[];
+  templateId?: number;
+  variantName?: string;
+  quoteDate?: string;
+  validityDays?: number;
 }
 
 export type WeeklyReportStatus =
@@ -3114,12 +3247,18 @@ export const superworkApi = {
       keyword?: string;
       status?: string;
       customerName?: string;
+      opportunityId?: number;
+      dueSoon?: boolean;
       page?: number;
       size?: number;
     } = {}
   ) {
+    const { dueSoon, ...rest } = params;
     return requestJson<QuotationListVO[] | { records?: QuotationListVO[] }>(
-      `/api/quotations${query(params)}`
+      `/api/quotations${query({
+        ...rest,
+        ...(dueSoon ? { dueSoon: "true" } : {}),
+      })}`
     );
   },
   getQuotationDetail(id: number) {
@@ -3131,10 +3270,138 @@ export const superworkApi = {
       body: JSON.stringify(payload),
     });
   },
-  updateQuotationStatus(id: number, status: string) {
+  previewQuotation(payload: QuotationGenerateRequest & { quotationId?: number }) {
+    return requestJson<QuotationPricingResult>("/api/quotations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        opportunityId: payload.quotationId ?? payload.opportunityId,
+      }),
+    });
+  },
+  updateQuotation(id: number, payload: Record<string, unknown>) {
+    return requestJson<Quotation>(`/api/quotations/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  createQuotationVersion(id: number) {
+    return requestJson<Quotation>(`/api/quotations/${id}/versions`, {
+      method: "POST",
+    });
+  },
+  createQuotationVariant(id: number, name?: string, description?: string) {
+    const qs = new URLSearchParams();
+    if (name) qs.set("name", name);
+    if (description) qs.set("description", description);
+    return requestJson<Quotation>(
+      `/api/quotations/${id}/variants?${qs.toString()}`,
+      { method: "POST" }
+    );
+  },
+  getQuotationVariants(opportunityId: number) {
+    return requestJson<QuotationVariant[]>(
+      `/api/quotations/variants?opportunityId=${opportunityId}`
+    );
+  },
+  setQuotationPreferred(id: number) {
+    return requestJson<void>(`/api/quotations/${id}/preferred`, {
+      method: "PUT",
+    });
+  },
+  replaceQuotationBrandScopes(id: number, scopes: QuotationBrandScope[]) {
+    return requestJson<void>(`/api/quotations/${id}/brand-scopes`, {
+      method: "PUT",
+      body: JSON.stringify(scopes),
+    });
+  },
+  getQuotationApprovals(id: number) {
+    return requestJson<QuotationApprovalLog[]>(
+      `/api/quotations/${id}/approvals`
+    );
+  },
+  requestQuotationDiscount(
+    id: number,
+    payload: {
+      requestedBy?: string;
+      requestedDiscount?: number;
+      reason?: string;
+    }
+  ) {
+    return requestJson<QuotationDiscountRequest>(
+      `/api/quotations/${id}/discount-requests`,
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+  },
+  getQuotationDiscountRequests(status?: string) {
+    return requestJson<QuotationDiscountRequest[]>(
+      `/api/quotations/discount-requests${query(status ? { status } : {})}`
+    );
+  },
+  decideQuotationDiscount(
+    requestId: number,
+    payload: { status: string; approver?: string; comment?: string }
+  ) {
+    return requestJson<QuotationDiscountRequest>(
+      `/api/quotations/discount-requests/${requestId}`,
+      { method: "PUT", body: JSON.stringify(payload) }
+    );
+  },
+  getQuotationTemplates(params: { status?: string } = {}) {
+    return requestJson<QuotationTemplate[]>(
+      `/api/quotation-templates${query(params)}`
+    );
+  },
+  getQuotationTemplateClauses(id: number) {
+    return requestJson<QuotationTemplateClause[]>(
+      `/api/quotation-templates/${id}/clauses`
+    );
+  },
+  saveQuotationTemplate(payload: Partial<QuotationTemplate>) {
+    const { id, ...rest } = payload;
+    return requestJson<QuotationTemplate>(
+      id ? `/api/quotation-templates/${id}` : "/api/quotation-templates",
+      { method: id ? "PUT" : "POST", body: JSON.stringify(rest) }
+    );
+  },
+  replaceQuotationTemplateClauses(
+    id: number,
+    clauses: QuotationTemplateClause[]
+  ) {
+    return requestJson<void>(`/api/quotation-templates/${id}/clauses`, {
+      method: "PUT",
+      body: JSON.stringify(clauses),
+    });
+  },
+  publishQuotationTemplate(id: number) {
+    return requestJson<void>(`/api/quotation-templates/${id}/publish`, {
+      method: "PUT",
+    });
+  },
+  deleteQuotationTemplate(id: number) {
+    return requestJson<void>(`/api/quotation-templates/${id}`, {
+      method: "DELETE",
+    });
+  },
+  previewQuotationTemplate(id: number) {
+    return requestJson<Record<string, string[]>>(
+      `/api/quotation-templates/${id}/preview`,
+      { method: "PUT", body: JSON.stringify({}) }
+    );
+  },
+  forkQuotationPolicy(id: number) {
+    return requestJson<QuotationPolicy>(`/api/quotation-policies/${id}/fork`, {
+      method: "POST",
+    });
+  },
+  updateQuotationStatus(
+    id: number,
+    status: string,
+    payload: { operator?: string; comment?: string } = {}
+  ) {
     return requestJson<void>(`/api/quotations/${id}/status`, {
       method: "PUT",
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...payload }),
     });
   },
   deleteQuotation(id: number) {

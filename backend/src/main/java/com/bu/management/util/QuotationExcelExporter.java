@@ -20,12 +20,26 @@ public class QuotationExcelExporter {
     private final Quotation quotation;
     private final List<QuotationLineItem> lineItems;
     private final List<QuotationBrandScope> brandScopes;
+    /** 模板条款（[分组, 正文]），来自 quotation_template，替代原来每条报价单手填的 quotationNote。 */
+    private final List<String[]> clauses;
+    /** 模板定义的单据抬头与报价方落款，为空时用默认文案。 */
+    private final String title;
+    private final String issuer;
 
     public QuotationExcelExporter(Quotation quotation, List<QuotationLineItem> lineItems,
-                                   List<QuotationBrandScope> brandScopes) {
+                                   List<QuotationBrandScope> brandScopes, List<String[]> clauses) {
+        this(quotation, lineItems, brandScopes, clauses, null, null);
+    }
+
+    public QuotationExcelExporter(Quotation quotation, List<QuotationLineItem> lineItems,
+                                   List<QuotationBrandScope> brandScopes, List<String[]> clauses,
+                                   String title, String issuer) {
         this.quotation = quotation;
         this.lineItems = lineItems;
         this.brandScopes = brandScopes;
+        this.clauses = clauses != null ? clauses : List.of();
+        this.title = title;
+        this.issuer = issuer;
     }
 
     public byte[] export() throws IOException {
@@ -54,7 +68,7 @@ public class QuotationExcelExporter {
         // Title
         Row titleRow = sheet.createRow(rowIdx++);
         Cell titleCell = titleRow.createCell(0);
-        titleCell.setCellValue("报价单");
+        titleCell.setCellValue(title != null && !title.isBlank() ? title : "报价单");
         titleCell.setCellStyle(titleStyle);
         sheet.addMergedRegion(new CellRangeAddress(rowIdx - 1, rowIdx - 1, 0, 3));
 
@@ -113,8 +127,25 @@ public class QuotationExcelExporter {
 
         rowIdx++; // blank
 
-        // 报价说明
-        if (quotation.getQuotationNote() != null) {
+        // 报价说明：优先使用模板条款，未绑定模板时回落到底旧的手填说明
+        if (!clauses.isEmpty()) {
+            rowIdx = addSectionHeader(sheet, rowIdx, "报价说明", headerStyle);
+            String currentSection = null;
+            for (String[] clause : clauses) {
+                if (!clause[0].equals(currentSection)) {
+                    currentSection = clause[0];
+                    Row groupRow = sheet.createRow(rowIdx++);
+                    Cell gc = groupRow.createCell(0);
+                    gc.setCellValue(currentSection);
+                    gc.setCellStyle(labelStyle);
+                }
+                Row noteRow = sheet.createRow(rowIdx);
+                noteRow.createCell(0).setCellValue(clause[1]);
+                noteRow.getCell(0).setCellStyle(valueStyle);
+                sheet.addMergedRegion(new CellRangeAddress(rowIdx, rowIdx, 0, 3));
+                rowIdx++;
+            }
+        } else if (quotation.getQuotationNote() != null) {
             rowIdx = addSectionHeader(sheet, rowIdx, "报价说明", headerStyle);
             Row noteRow = sheet.createRow(rowIdx);
             noteRow.createCell(0).setCellValue(quotation.getQuotationNote());
@@ -148,14 +179,24 @@ public class QuotationExcelExporter {
 
         boolean isTaxIncluded = "TAX_INCLUDED".equals(quotation.getTaxMode());
 
-        // Group line items by section
+        // Group line items by section，按 sortOrder 分组：相同 sectionCode 视为同一组，
+        // 组内保持 sortOrder 递增，避免历史数据里 section 中文名不统一导致分组错乱。
+        List<QuotationLineItem> sorted = new java.util.ArrayList<>(lineItems);
+        sorted.sort(java.util.Comparator.comparing(
+                li -> li.getSortOrder() != null ? li.getSortOrder() : Integer.MAX_VALUE));
+
         Map<String, List<QuotationLineItem>> grouped = new LinkedHashMap<>();
-        for (QuotationLineItem li : lineItems) {
-            grouped.computeIfAbsent(li.getSection(), k -> new java.util.ArrayList<>()).add(li);
+        Map<String, String> labelOf = new LinkedHashMap<>();
+        for (QuotationLineItem li : sorted) {
+            String key = li.getSectionCode() != null && !li.getSectionCode().isBlank()
+                    ? li.getSectionCode()
+                    : (li.getSection() != null ? li.getSection() : "其他");
+            labelOf.putIfAbsent(key, li.getSection() != null ? li.getSection() : "其他");
+            grouped.computeIfAbsent(key, k -> new java.util.ArrayList<>()).add(li);
         }
 
         for (Map.Entry<String, List<QuotationLineItem>> entry : grouped.entrySet()) {
-            String section = entry.getKey();
+            String section = labelOf.getOrDefault(entry.getKey(), entry.getKey());
             List<QuotationLineItem> items = entry.getValue();
 
             // Section header
@@ -241,6 +282,12 @@ public class QuotationExcelExporter {
             Cell c = colRow.createCell(i);
             c.setCellValue(headers[i]);
             c.setCellStyle(headerStyle);
+        }
+
+        if (issuer != null && !issuer.isBlank()) {
+            Row issuerRow = sheet.createRow(rowIdx++);
+            issuerRow.createCell(0).setCellValue("报价方：" + issuer);
+            issuerRow.getCell(0).setCellStyle(valueStyle);
         }
 
         for (QuotationLineItem li : lineItems) {

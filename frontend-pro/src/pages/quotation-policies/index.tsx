@@ -1,4 +1,5 @@
 import {
+  CopyOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -33,6 +34,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   type QuotationPolicy,
   type QuotationPolicyItem,
+  type QuotationTemplate,
   superworkApi,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
@@ -65,6 +67,9 @@ const taxLabel = (value: string) =>
 type PolicyForm = {
   name: string;
   type: string;
+  templateId?: number;
+  minDiscountRate?: number;
+  approvalRequired?: number;
   taxMode: string;
   effectiveDate?: dayjs.Dayjs;
   expiryDate?: dayjs.Dayjs;
@@ -80,8 +85,12 @@ const blankItem = (): ItemForm => ({
   priceDescription: '',
   isRequired: 0,
   unitPrice: undefined,
+  costPrice: undefined,
   taxRate: undefined,
   chargeMethod: '',
+  chargeBaseSection: undefined,
+  chargeRate: undefined,
+    firstYearFree: 0,
   chargeUnit: '',
   remark: '',
   sortOrder: 0,
@@ -118,6 +127,17 @@ export default function QuotationPoliciesPage() {
   const [items, setItems] = useState<QuotationPolicyItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<QuotationPolicyItem>();
+  const [templates, setTemplates] = useState<QuotationTemplate[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setTemplates(await superworkApi.getQuotationTemplates({ status: 'PUBLISHED' }));
+      } catch {
+        setTemplates([]);
+      }
+    })();
+  }, []);
 
   const load = useCallback(
     async (values = filterForm.getFieldsValue()) => {
@@ -142,6 +162,9 @@ export default function QuotationPoliciesPage() {
     policyForm.setFieldsValue({
       name: '',
       type: '',
+      templateId: undefined,
+      minDiscountRate: 0.85,
+      approvalRequired: 1,
       taxMode: '',
       effectiveDate: undefined,
       expiryDate: undefined,
@@ -167,6 +190,9 @@ export default function QuotationPoliciesPage() {
         name: values.name.trim(),
         type: values.type,
         taxMode: values.taxMode,
+        templateId: values.templateId,
+        minDiscountRate: values.minDiscountRate,
+        approvalRequired: values.approvalRequired ?? 1,
         effectiveDate: values.effectiveDate?.format('YYYY-MM-DD'),
         expiryDate: values.expiryDate?.format('YYYY-MM-DD'),
       };
@@ -299,6 +325,27 @@ export default function QuotationPoliciesPage() {
               编辑
             </Button>
           )}
+          {canManage && row.status === 'PUBLISHED' && (
+            <Popconfirm
+              title="基于该版本新建一个可编辑的下一版？"
+              description="发布后价格不能直接修改，必须派生新版本。"
+              okText="新建版本"
+              cancelText="取消"
+              onConfirm={async () => {
+                try {
+                  const forked = await superworkApi.forkQuotationPolicy(row.id);
+                  message.success(`已派生草稿 V${forked.version}`);
+                  await load();
+                } catch (e) {
+                  message.error(e instanceof Error ? e.message : '派生版本失败');
+                }
+              }}
+            >
+              <Button type="link" icon={<CopyOutlined />}>
+                新建版本
+              </Button>
+            </Popconfirm>
+          )}
           <Button
             type="link"
             icon={<SettingOutlined />}
@@ -365,11 +412,21 @@ export default function QuotationPoliciesPage() {
       render: (value) => (value ? <Tag color="blue">是</Tag> : '否'),
     },
     {
-      title: '未税单价',
+      title: '未税单价 / 计费率',
       dataIndex: 'unitPrice',
-      width: 110,
-      render: (value) =>
-        value == null ? '—' : `¥ ${Number(value).toFixed(2)}`,
+      width: 140,
+      render: (value, row) =>
+        row.chargeMethod === 'PERCENT_OF_BASE'
+            ? `${((row.chargeRate ?? 0) * 100).toFixed(1)}% × ${row.chargeBaseSection || '分组小计'}`
+          : value == null
+            ? '—'
+            : `¥ ${Number(value).toFixed(2)}`,
+    },
+    {
+      title: '首年免费',
+      dataIndex: 'firstYearFree',
+      width: 90,
+      render: (value) => (value ? <Tag color="green">是</Tag> : '否'),
     },
     {
       title: '税率',
@@ -552,6 +609,39 @@ export default function QuotationPoliciesPage() {
           >
             <Select options={taxModes} />
           </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="templateId" label="绑定报价模板">
+                <Select
+                  allowClear
+                  placeholder="选择条款模板"
+                  options={templates.map((item) => ({
+                    label: `${item.name}（${typeLabel(item.type)}）`,
+                    value: item.id,
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name="minDiscountRate"
+                label="底价折扣"
+                tooltip="低于该折扣需走折扣审批，0.85 表示 85 折"
+              >
+                <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name="approvalRequired"
+                label="折扣审批"
+                valuePropName="checked"
+                getValueFromEvent={(checked: boolean) => (checked ? 1 : 0)}
+              >
+                <Switch checkedChildren="开" unCheckedChildren="关" />
+              </Form.Item>
+            </Col>
+          </Row>
           <Space>
             <Form.Item name="effectiveDate" label="生效日期">
               <DatePicker />
@@ -659,29 +749,96 @@ export default function QuotationPoliciesPage() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="unitPrice" label="未税单价">
-                <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+              <Form.Item name="taxRate" label="税率">
+                <InputNumber
+                    min={0}
+                    max={100}
+                    precision={2}
+                    suffix="%"
+                    style={{ width: '100%' }}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col span={8}>
+              <Form.Item
+                  name="chargeMethod"
+                  label="收费方式"
+                  tooltip="按比例计费用于「产品模块总价的 20%/年」这类策略"
+                >
+                  <Select
+                    allowClear
+                    options={[
+                      { label: '固定单价', value: 'FIXED' },
+                      { label: '按次/按个', value: 'PER_UNIT' },
+                      { label: '按基数比例', value: 'PERCENT_OF_BASE' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+            <Col span={8}>
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, next) =>
+                  prev.chargeMethod !== next.chargeMethod
+                }
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('chargeMethod') === 'PERCENT_OF_BASE' ? (
+                    <Form.Item name="chargeBaseSection" label="计费基数分组">
+                      <Select
+                        options={sections.map((value) => ({ label: value, value }))}
+                      />
+                    </Form.Item>
+                  ) : (
+                    <Form.Item name="unitPrice" label="未税单价">
+                      <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+                    </Form.Item>
+                  )
+                }
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item name="taxRate" label="税率">
-                <InputNumber
-                  min={0}
-                  max={100}
-                  precision={2}
-                  suffix="%"
-                  style={{ width: '100%' }}
-                />
+              <Form.Item
+                noStyle
+                shouldUpdate={(prev, next) =>
+                  prev.chargeMethod !== next.chargeMethod
+                }
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('chargeMethod') === 'PERCENT_OF_BASE' ? (
+                    <Form.Item name="chargeRate" label="费率">
+                      <InputNumber
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        style={{ width: '100%' }}
+                        placeholder="0.2 = 20%"
+                      />
+                    </Form.Item>
+                  ) : (
+                    <Form.Item name="costPrice" label="成本单价">
+                      <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+                    </Form.Item>
+                  )
+                }
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="chargeMethod" label="收费方式">
-                <Input />
+            <Col span={8}>
+              <Form.Item
+                name="firstYearFree"
+                label="首年免费"
+                tooltip="勾选后该行不计入首年，只计入次年及以后"
+                valuePropName="checked"
+                getValueFromEvent={(checked: boolean) => (checked ? 1 : 0)}
+              >
+                <Switch checkedChildren="是" unCheckedChildren="否" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item name="chargeUnit" label="收费单位">
                 <Input />
               </Form.Item>

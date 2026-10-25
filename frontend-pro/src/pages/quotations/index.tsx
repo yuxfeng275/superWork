@@ -296,14 +296,41 @@ export default function QuotationsPage() {
     {
       title: '关联商机',
       dataIndex: 'opportunityName',
-      width: 160,
-      render: (value) => value || '—',
+      width: 200,
+      render: (value, row) =>
+          value ? (
+            <Typography.Link onClick={() => history.push('/opportunities')}>
+              {value}
+              {row.variantName ? (
+                <Typography.Text type="secondary"> · {row.variantName}</Typography.Text>
+              ) : null}
+              {row.isPreferred === 1 ? <Tag color="gold">首选</Tag> : null}
+          </Typography.Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      title: '版本',
+      dataIndex: 'versionNo',
+      width: 80,
+      render: (value) => `V${value || 1}`,
     },
     {
       title: '报价日期',
       dataIndex: 'quoteDate',
       width: 120,
       render: (value) => value?.slice(0, 10) || '—',
+    },
+    {
+      title: '到期',
+      dataIndex: 'expireAt',
+      width: 120,
+      render: (value, row) => (
+        <Typography.Text type={row.dueSoon ? 'danger' : undefined}>
+          {value?.slice(0, 10) || '—'}
+        </Typography.Text>
+      ),
     },
     {
       title: '操作',

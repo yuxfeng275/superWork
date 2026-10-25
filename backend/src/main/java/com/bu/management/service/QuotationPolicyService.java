@@ -57,7 +57,10 @@ public class QuotationPolicyService {
         QuotationPolicy policy = new QuotationPolicy();
         policy.setName(request.getName());
         policy.setType(request.getType());
+        policy.setTemplateId(request.getTemplateId());
         policy.setTaxMode(request.getTaxMode());
+        policy.setMinDiscountRate(request.getMinDiscountRate());
+        policy.setApprovalRequired(request.getApprovalRequired() != null ? request.getApprovalRequired() : 1);
         policy.setVersion(1);
         policy.setStatus("DRAFT");
         policy.setEffectiveDate(request.getEffectiveDate());
@@ -75,16 +78,75 @@ public class QuotationPolicyService {
         if (StringUtils.hasText(request.getName())) policy.setName(request.getName());
         if (StringUtils.hasText(request.getType())) policy.setType(request.getType());
         if (StringUtils.hasText(request.getTaxMode())) policy.setTaxMode(request.getTaxMode());
+        if (request.getTemplateId() != null) policy.setTemplateId(request.getTemplateId());
+        if (request.getMinDiscountRate() != null) policy.setMinDiscountRate(request.getMinDiscountRate());
+        if (request.getApprovalRequired() != null) policy.setApprovalRequired(request.getApprovalRequired());
         policy.setEffectiveDate(request.getEffectiveDate());
         policy.setExpiryDate(request.getExpiryDate());
         policyMapper.updateById(policy);
         return policy;
     }
 
+    /**
+     * 从任意策略派生一个可编辑的草稿版本（发布后不可直接改，改价必须 fork）。
+     * 旧实现只能整条重建，导致 itemKey 历史与价格变更无法追溯。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public QuotationPolicy forkVersion(Long id) {
+        QuotationPolicy source = ensurePolicyExists(id);
+
+        QuotationPolicy copy = new QuotationPolicy();
+        copy.setName(source.getName());
+        copy.setType(source.getType());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setTaxMode(source.getTaxMode());
+        copy.setMinDiscountRate(source.getMinDiscountRate());
+        copy.setApprovalRequired(source.getApprovalRequired());
+        copy.setVersion(source.getVersion() != null ? source.getVersion() + 1 : 2);
+        copy.setStatus("DRAFT");
+        copy.setEffectiveDate(source.getEffectiveDate());
+        copy.setCreatedAt(LocalDateTime.now());
+        policyMapper.insert(copy);
+
+        for (QuotationPolicyItem item : listPolicyItems(id)) {
+            QuotationPolicyItem n = new QuotationPolicyItem();
+            n.setPolicyId(copy.getId());
+            n.setSection(item.getSection());
+            n.setCategory(item.getCategory());
+            n.setItemKey(item.getItemKey());
+            n.setItemName(item.getItemName());
+            n.setDescription(item.getDescription());
+            n.setPriceDescription(item.getPriceDescription());
+            n.setIsRequired(item.getIsRequired());
+            n.setUnitPrice(item.getUnitPrice());
+            n.setCostPrice(item.getCostPrice());
+            n.setTaxRate(item.getTaxRate());
+            n.setChargeMethod(item.getChargeMethod());
+            n.setChargeBaseSection(item.getChargeBaseSection());
+            n.setChargeRate(item.getChargeRate());
+            n.setFirstYearFree(item.getFirstYearFree());
+            n.setChargeUnit(item.getChargeUnit());
+            n.setRemark(item.getRemark());
+            n.setSortOrder(item.getSortOrder());
+            n.setCreatedAt(LocalDateTime.now());
+            itemMapper.insert(n);
+        }
+        return copy;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public QuotationPolicy publishPolicy(Long id) {
         QuotationPolicy policy = ensurePolicyExists(id);
         if (!"DRAFT".equals(policy.getStatus())) throw new RuntimeException("仅草稿状态可发布");
+
+        // 全为 0 价格的策略发布后会生成一张 0 元报价，这里提前拦住
+        List<QuotationPolicyItem> items = listPolicyItems(id);
+        boolean anyPriced = items.stream().anyMatch(i ->
+                (i.getUnitPrice() != null && i.getUnitPrice().signum() > 0)
+                        || (i.getChargeRate() != null && i.getChargeRate().signum() > 0));
+        if (!items.isEmpty() && !anyPriced) {
+            throw new RuntimeException("策略明细未配置任何单价或计费比例，发布后将无法生成有效报价");
+        }
 
         // 归档同type+taxMode的旧PUBLISHED策略
         LambdaQueryWrapper<QuotationPolicy> query = new LambdaQueryWrapper<>();
@@ -180,8 +242,12 @@ public class QuotationPolicyService {
         item.setPriceDescription(req.getPriceDescription());
         item.setIsRequired(req.getIsRequired() != null ? req.getIsRequired() : 0);
         item.setUnitPrice(req.getUnitPrice());
+        item.setCostPrice(req.getCostPrice());
         item.setTaxRate(req.getTaxRate());
         item.setChargeMethod(req.getChargeMethod());
+        item.setChargeBaseSection(req.getChargeBaseSection());
+        item.setChargeRate(req.getChargeRate());
+        item.setFirstYearFree(req.getFirstYearFree() != null ? req.getFirstYearFree() : 0);
         item.setChargeUnit(req.getChargeUnit());
         item.setRemark(req.getRemark());
         item.setSortOrder(req.getSortOrder() != null ? req.getSortOrder() : 0);
@@ -192,7 +258,10 @@ public class QuotationPolicyService {
         vo.setId(policy.getId());
         vo.setName(policy.getName());
         vo.setType(policy.getType());
+        vo.setTemplateId(policy.getTemplateId());
         vo.setTaxMode(policy.getTaxMode());
+        vo.setMinDiscountRate(policy.getMinDiscountRate());
+        vo.setApprovalRequired(policy.getApprovalRequired());
         vo.setVersion(policy.getVersion());
         vo.setStatus(policy.getStatus());
         vo.setEffectiveDate(policy.getEffectiveDate());

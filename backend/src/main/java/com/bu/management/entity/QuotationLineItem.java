@@ -14,13 +14,18 @@ public class QuotationLineItem {
     private Long quotationId;
     private Long policyItemId;
     private String section;
+    private String sectionCode;
     private String category;
     private String itemName;
     private String description;
     private String priceDescription;
+    private Integer isCustom;
+    private Integer isFirstYearFree;
+    private String priceOverrideReason;
     private Integer isSelected;
     private BigDecimal quantity;
     private BigDecimal unitPriceExTax;
+    private BigDecimal costPriceExTax;
     private BigDecimal taxRate;
     private BigDecimal discountRate;
     private BigDecimal subtotalExTax;

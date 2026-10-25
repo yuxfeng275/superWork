@@ -7,6 +7,7 @@ import com.bu.management.dto.QuotationUpdateRequest;
 import com.bu.management.entity.*;
 import com.bu.management.mapper.*;
 import com.bu.management.vo.QuotationListVO;
+import com.bu.management.vo.QuotationPricingResult;
 import com.bu.management.vo.QuotationVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,7 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -30,6 +30,10 @@ public class QuotationService {
     private final QuotationPolicyMapper policyMapper;
     private final QuotationPolicyItemMapper policyItemMapper;
     private final SalesOpportunityMapper opportunityMapper;
+    private final QuotationVariantMapper variantMapper;
+    private final QuotationPricingService pricingService;
+    private final QuotationWorkflowService workflowService;
+    private final SalesOpportunityLinkService opportunityLink;
 
     private static final List<String> STATUS_FLOW = List.of("DRAFT", "INTERNAL_REVIEW", "APPROVED", "SENT");
 
@@ -39,28 +43,23 @@ public class QuotationService {
         if (policy == null) throw new RuntimeException("报价策略不存在");
         if (!"PUBLISHED".equals(policy.getStatus())) throw new RuntimeException("策略未发布，无法生成报价");
 
-        List<QuotationPolicyItem> policyItems = listPolicyItemsByPolicyId(policy.getId());
-
-        // 构建override map
-        Map<Long, QuotationGenerateRequest.LineItemOverride> overrideMap = new HashMap<>();
-        if (request.getLineItemOverrides() != null) {
-            for (QuotationGenerateRequest.LineItemOverride o : request.getLineItemOverrides()) {
-                overrideMap.put(o.getPolicyItemId(), o);
-            }
-        }
-
         Quotation quotation = new Quotation();
         quotation.setQuotationNo(generateQuotationNo());
         quotation.setPolicyId(policy.getId());
+        quotation.setTemplateId(request.getTemplateId() != null
+                ? request.getTemplateId() : policy.getTemplateId());
         quotation.setTaxMode(policy.getTaxMode());
-        quotation.setQuoteDate(LocalDate.now());
-        quotation.setValidityDays(30);
+        quotation.setQuoteDate(request.getQuoteDate() != null ? request.getQuoteDate() : LocalDate.now());
+        quotation.setValidityDays(request.getValidityDays() != null ? request.getValidityDays() : 30);
         quotation.setCurrency("CNY");
         quotation.setInvoiceType("增值税专用发票");
         quotation.setStatus("DRAFT");
+        quotation.setVersionNo(1);
+        quotation.setIsPreferred(0);
+        quotation.setDiscountOverride(0);
         quotation.setCreatedAt(LocalDateTime.now());
+        quotation.setUpdatedAt(LocalDateTime.now());
 
-        // 客户信息
         if (StringUtils.hasText(request.getCustomerName())) {
             quotation.setCustomerName(request.getCustomerName());
         }
@@ -69,7 +68,6 @@ public class QuotationService {
         quotation.setContactEmail(request.getContactEmail());
         quotation.setDeliveryPeriod(request.getDeliveryPeriod());
 
-        // 关联商机
         if (request.getOpportunityId() != null) {
             SalesOpportunity opportunity = opportunityMapper.selectById(request.getOpportunityId());
             if (opportunity == null) throw new RuntimeException("商机不存在");
@@ -81,165 +79,104 @@ public class QuotationService {
 
         quotationMapper.insert(quotation);
 
-        // 生成line items
-        List<QuotationLineItem> lineItems = new ArrayList<>();
-        int sort = 0;
-        for (QuotationPolicyItem pi : policyItems) {
-            QuotationLineItem li = new QuotationLineItem();
-            li.setQuotationId(quotation.getId());
-            li.setPolicyItemId(pi.getId());
-            li.setSection(pi.getSection());
-            li.setCategory(pi.getCategory());
-            li.setItemName(pi.getItemName());
-            li.setDescription(pi.getDescription());
-            li.setPriceDescription(pi.getPriceDescription());
-            li.setUnitPriceExTax(pi.getUnitPrice());
-            li.setTaxRate(pi.getTaxRate());
-            li.setChargeMethod(pi.getChargeMethod());
-            li.setRemark(pi.getRemark());
-            li.setSortOrder(sort++);
+        List<QuotationLineItem> lineItems = pricingService.buildLinesFromPolicy(policy.getId());
+        applyOverrides(lineItems, request.getLineItemOverrides());
+        QuotationPricingResult pricing = recalculate(quotation, lineItems, policy);
+        snapshot(quotation, policy, lineItems);
 
-            QuotationGenerateRequest.LineItemOverride override = overrideMap.get(pi.getId());
-            boolean selected = override != null && Boolean.TRUE.equals(override.getIsSelected());
-            if (pi.getIsRequired() != null && pi.getIsRequired() == 1) selected = true;
-
-            li.setIsSelected(selected ? 1 : 0);
-            li.setQuantity(override != null && override.getQuantity() != null ? override.getQuantity() : BigDecimal.ONE);
-            li.setDiscountRate(override != null && override.getDiscountRate() != null ? override.getDiscountRate() : BigDecimal.ONE);
-
-            if (selected && pi.getUnitPrice() != null) {
-                // 首年运维服务免费
-                if ("PRIVATE_DEPLOYMENT".equals(policy.getType()) && "运维服务".equals(pi.getSection())) {
-                    li.setDiscountRate(BigDecimal.ZERO);
-                }
-                calculateLineItem(li);
-            }
-
-            lineItemMapper.insert(li);
-            lineItems.add(li);
+        if (request.getOpportunityId() != null) {
+            QuotationVariant variant = resolveVariant(request.getOpportunityId(), quotation.getId(),
+                    request.getVariantName(), quotation.getCreatedBy());
+            quotation.setVariantId(variant.getId());
+            quotationMapper.updateById(quotation);
         }
 
-        // 汇总计算
-        calculateQuotationTotals(quotation, lineItems);
+        persistLines(quotation.getId(), lineItems);
+        applyReviewRequired(quotation, policy, pricing);
         quotationMapper.updateById(quotation);
 
-        // 同步商机金额
-        if (request.getOpportunityId() != null && quotation.getFirstYearTotalExTax() != null) {
-            SalesOpportunity opportunity = opportunityMapper.selectById(request.getOpportunityId());
-            if (opportunity != null && opportunity.getAmount() == null) {
-                opportunity.setAmount(quotation.getFirstYearTotalExTax());
-                opportunityMapper.updateById(opportunity);
-            }
-        }
-
+        opportunityLink.onQuotationCreated(quotation, pricing);
+        workflowService.log(quotation.getId(), null, "DRAFT", "CREATE", quotation.getCreatedBy(), null);
         return toVO(quotation, lineItems, null);
     }
 
+    /** 编辑草稿：客户信息 + 行级覆盖（勾选/数量/单价/折扣/自定义行/删除），全部经定价引擎重算。 */
     @Transactional(rollbackFor = Exception.class)
     public QuotationVO updateQuotation(Long id, QuotationUpdateRequest request) {
         Quotation quotation = ensureQuotationExists(id);
-        if (!"DRAFT".equals(quotation.getStatus())) throw new RuntimeException("仅草稿状态可编辑");
+        if (!"DRAFT".equals(quotation.getStatus()) && !"INTERNAL_REVIEW".equals(quotation.getStatus())) {
+            throw new RuntimeException("仅草稿或审核中状态可编辑");
+        }
 
         if (StringUtils.hasText(request.getCustomerName())) quotation.setCustomerName(request.getCustomerName());
         quotation.setContactPerson(request.getContactPerson());
         quotation.setContactPhone(request.getContactPhone());
         quotation.setContactEmail(request.getContactEmail());
         quotation.setDeliveryPeriod(request.getDeliveryPeriod());
+        if (request.getQuoteDate() != null) quotation.setQuoteDate(request.getQuoteDate());
+        if (request.getValidityDays() != null) quotation.setValidityDays(request.getValidityDays());
+        if (request.getQuotationNote() != null) quotation.setQuotationNote(request.getQuotationNote());
 
-        // 如果有line item overrides，重建line items
-        if (request.getLineItemOverrides() != null && !request.getLineItemOverrides().isEmpty()) {
-            Map<Long, QuotationGenerateRequest.LineItemOverride> overrideMap = new HashMap<>();
-            for (QuotationGenerateRequest.LineItemOverride o : request.getLineItemOverrides()) {
-                overrideMap.put(o.getPolicyItemId(), o);
-            }
-
-            LambdaQueryWrapper<QuotationLineItem> itemQuery = new LambdaQueryWrapper<>();
-            itemQuery.eq(QuotationLineItem::getQuotationId, id);
-            List<QuotationLineItem> existingItems = lineItemMapper.selectList(itemQuery);
-
-            QuotationPolicy policy = policyMapper.selectById(quotation.getPolicyId());
-
-            for (QuotationLineItem li : existingItems) {
-                QuotationGenerateRequest.LineItemOverride override = overrideMap.get(li.getPolicyItemId());
-                if (override != null) {
-                    boolean selected = Boolean.TRUE.equals(override.getIsSelected());
-                    QuotationPolicyItem pi = policyItemMapper.selectById(li.getPolicyItemId());
-                    if (pi != null && pi.getIsRequired() != null && pi.getIsRequired() == 1) selected = true;
-
-                    li.setIsSelected(selected ? 1 : 0);
-                    li.setQuantity(override.getQuantity() != null ? override.getQuantity() : li.getQuantity());
-                    li.setDiscountRate(override.getDiscountRate() != null ? override.getDiscountRate() : li.getDiscountRate());
-
-                    if (selected && li.getUnitPriceExTax() != null) {
-                        if (policy != null && "PRIVATE_DEPLOYMENT".equals(policy.getType()) && "运维服务".equals(li.getSection())) {
-                            li.setDiscountRate(BigDecimal.ZERO);
-                        }
-                        calculateLineItem(li);
-                    } else {
-                        li.setSubtotalExTax(null);
-                        li.setSubtotalInclTax(null);
-                    }
-                    lineItemMapper.updateById(li);
-                }
-            }
-
-            // 重新查询以获取最新数据
-            List<QuotationLineItem> updatedItems = lineItemMapper.selectList(itemQuery);
-            calculateQuotationTotals(quotation, updatedItems);
+        List<QuotationLineItem> lineItems = loadLineItems(id);
+        if (request.getLineItemOverrides() != null) {
+            applyOverrides(lineItems, request.getLineItemOverrides());
         }
 
+        QuotationPolicy policy = quotation.getPolicyId() != null ? policyMapper.selectById(quotation.getPolicyId()) : null;
+        QuotationPricingResult pricing = recalculate(quotation, lineItems, policy);
+
+        lineItemMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<QuotationLineItem>()
+                .eq(QuotationLineItem::getQuotationId, id));
+        persistLines(id, lineItems);
+        applyReviewRequired(quotation, policy, pricing);
         quotationMapper.updateById(quotation);
 
-        LambdaQueryWrapper<QuotationLineItem> itemQuery = new LambdaQueryWrapper<>();
-        itemQuery.eq(QuotationLineItem::getQuotationId, id).orderByAsc(QuotationLineItem::getSortOrder);
-        List<QuotationLineItem> lineItems = lineItemMapper.selectList(itemQuery);
+        opportunityLink.onQuotationUpdated(quotation, pricing);
+        return toVO(quotation, loadLineItems(id), loadBrandScopes(id));
+    }
 
-        LambdaQueryWrapper<QuotationBrandScope> scopeQuery = new LambdaQueryWrapper<>();
-        scopeQuery.eq(QuotationBrandScope::getQuotationId, id).orderByAsc(QuotationBrandScope::getSortOrder);
-        List<QuotationBrandScope> brandScopes = brandScopeMapper.selectList(scopeQuery);
+    /** 试算：不落库，供前端报价编辑器实时汇总，杜绝前后端两套算法分叉。 */
+    public QuotationPricingResult preview(Long policyId, List<QuotationGenerateRequest.LineItemOverride> overrides,
+                                         Long quotationId) {
+        QuotationPolicy policy = policyMapper.selectById(policyId);
+        if (policy == null) throw new RuntimeException("报价策略不存在");
 
-        return toVO(quotation, lineItems, brandScopes);
+        List<QuotationLineItem> lineItems;
+        if (quotationId != null) {
+            lineItems = loadLineItems(quotationId);
+        } else {
+            lineItems = pricingService.buildLinesFromPolicy(policyId);
+        }
+        if (overrides != null) applyOverrides(lineItems, overrides);
+
+        Quotation staging = new Quotation();
+        staging.setPolicyId(policyId);
+        staging.setTaxMode(policy.getTaxMode());
+        return recalculate(staging, lineItems, policy);
     }
 
     public QuotationVO getQuotationDetail(Long id) {
         Quotation quotation = ensureQuotationExists(id);
-
-        LambdaQueryWrapper<QuotationLineItem> itemQuery = new LambdaQueryWrapper<>();
-        itemQuery.eq(QuotationLineItem::getQuotationId, id).orderByAsc(QuotationLineItem::getSortOrder);
-        List<QuotationLineItem> lineItems = lineItemMapper.selectList(itemQuery);
-
-        LambdaQueryWrapper<QuotationBrandScope> scopeQuery = new LambdaQueryWrapper<>();
-        scopeQuery.eq(QuotationBrandScope::getQuotationId, id).orderByAsc(QuotationBrandScope::getSortOrder);
-        List<QuotationBrandScope> brandScopes = brandScopeMapper.selectList(scopeQuery);
-
-        return toVO(quotation, lineItems, brandScopes);
+        return toVO(quotation, loadLineItems(id), loadBrandScopes(id));
     }
 
-    public Page<QuotationListVO> listQuotations(String keyword, String status, String customerName, int page, int size) {
+    public Page<QuotationListVO> listQuotations(String keyword, String status, String customerName,
+                                                Long opportunityId, Boolean dueSoon, int page, int size) {
         LambdaQueryWrapper<Quotation> query = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(keyword)) {
             query.and(w -> w.like(Quotation::getQuotationNo, keyword).or().like(Quotation::getCustomerName, keyword));
         }
         query.eq(StringUtils.hasText(status), Quotation::getStatus, status)
                 .eq(StringUtils.hasText(customerName), Quotation::getCustomerName, customerName)
+                .eq(opportunityId != null, Quotation::getOpportunityId, opportunityId)
                 .orderByDesc(Quotation::getCreatedAt);
 
         Page<Quotation> pageResult = quotationMapper.selectPage(new Page<>(page, size), query);
 
-        List<QuotationListVO> vos = pageResult.getRecords().stream().map(q -> {
-            QuotationListVO vo = new QuotationListVO();
-            vo.setId(q.getId());
-            vo.setQuotationNo(q.getQuotationNo());
-            vo.setCustomerName(q.getCustomerName());
-            vo.setFirstYearTotalInclTax(q.getFirstYearTotalInclTax());
-            vo.setStatus(q.getStatus());
-            vo.setQuoteDate(q.getQuoteDate());
-            if (q.getOpportunityId() != null) {
-                SalesOpportunity opp = opportunityMapper.selectById(q.getOpportunityId());
-                if (opp != null) vo.setOpportunityName(opp.getName());
-            }
-            return vo;
-        }).collect(Collectors.toList());
+        List<QuotationListVO> vos = pageResult.getRecords().stream()
+                .map(this::toListVO)
+                .filter(vo -> dueSoon == null || !dueSoon || Boolean.TRUE.equals(vo.getDueSoon()))
+                .collect(Collectors.toList());
 
         Page<QuotationListVO> result = new Page<>(page, size);
         result.setRecords(vos);
@@ -249,67 +186,367 @@ public class QuotationService {
 
     @Transactional(rollbackFor = Exception.class)
     public void updateStatus(Long id, String status) {
-        Quotation quotation = ensureQuotationExists(id);
-        String currentStatus = quotation.getStatus();
-
-        // 正向流转: DRAFT -> INTERNAL_REVIEW -> APPROVED -> SENT
-        int currentIdx = STATUS_FLOW.indexOf(currentStatus);
-        int targetIdx = STATUS_FLOW.indexOf(status);
-
-        if (targetIdx >= 0 && targetIdx == currentIdx + 1) {
-            // 正常正向流转
-            quotation.setStatus(status);
-            quotationMapper.updateById(quotation);
-            return;
-        }
-
-        // 终态: ACCEPTED, REJECTED, EXPIRED
-        if (List.of("ACCEPTED", "REJECTED", "EXPIRED").contains(status)) {
-            if (!"SENT".equals(currentStatus) && !"APPROVED".equals(currentStatus)) {
-                throw new RuntimeException("仅已发送或已批准状态的报价单可标记为最终状态");
-            }
-            quotation.setStatus(status);
-            quotationMapper.updateById(quotation);
-            return;
-        }
-
-        throw new RuntimeException("无效的状态流转: " + currentStatus + " -> " + status);
+        workflowService.transition(id, status, null, null);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void deleteQuotation(Long id) {
         Quotation quotation = ensureQuotationExists(id);
         if (!"DRAFT".equals(quotation.getStatus())) throw new RuntimeException("仅草稿状态可删除");
+        if (Long.valueOf(1).equals(quotation.getIsPreferred())) throw new RuntimeException("首选方案不可直接删除，请先取消首选");
 
-        LambdaQueryWrapper<QuotationLineItem> itemQuery = new LambdaQueryWrapper<>();
-        itemQuery.eq(QuotationLineItem::getQuotationId, id);
-        lineItemMapper.delete(itemQuery);
-
-        LambdaQueryWrapper<QuotationBrandScope> scopeQuery = new LambdaQueryWrapper<>();
-        scopeQuery.eq(QuotationBrandScope::getQuotationId, id);
-        brandScopeMapper.delete(scopeQuery);
-
+        lineItemMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<QuotationLineItem>()
+                .eq(QuotationLineItem::getQuotationId, id));
+        brandScopeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<QuotationBrandScope>()
+                .eq(QuotationBrandScope::getQuotationId, id));
         quotationMapper.deleteById(id);
+        opportunityLink.onQuotationDeleted(quotation);
     }
 
     public List<QuotationListVO> listQuotationsByOpportunity(Long opportunityId) {
         LambdaQueryWrapper<Quotation> query = new LambdaQueryWrapper<>();
         query.eq(Quotation::getOpportunityId, opportunityId)
                 .orderByDesc(Quotation::getCreatedAt);
-        List<Quotation> list = quotationMapper.selectList(query);
-        return list.stream().map(q -> {
-            QuotationListVO vo = new QuotationListVO();
-            vo.setId(q.getId());
-            vo.setQuotationNo(q.getQuotationNo());
-            vo.setCustomerName(q.getCustomerName());
-            vo.setFirstYearTotalInclTax(q.getFirstYearTotalInclTax());
-            vo.setStatus(q.getStatus());
-            vo.setQuoteDate(q.getQuoteDate());
-            return vo;
-        }).collect(Collectors.toList());
+        return quotationMapper.selectList(query).stream().map(this::toListVO).collect(Collectors.toList());
     }
 
-    // ========== private helpers ==========
+    /** 基于现有报价单复制出同方案的新版本（versionNo + 1），旧版本保留可追溯。 */
+    @Transactional(rollbackFor = Exception.class)
+    public QuotationVO createVersion(Long quotationId) {
+        Quotation source = ensureQuotationExists(quotationId);
+        Quotation copy = new Quotation();
+        copy.setQuotationNo(generateQuotationNo());
+        copy.setPolicyId(source.getPolicyId());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setOpportunityId(source.getOpportunityId());
+        copy.setVariantId(source.getVariantId());
+        copy.setBaseQuotationId(source.getId());
+        copy.setVersionNo((source.getVersionNo() != null ? source.getVersionNo() : 1) + 1);
+        copy.setTaxMode(source.getTaxMode());
+        copy.setCustomerName(source.getCustomerName());
+        copy.setContactPerson(source.getContactPerson());
+        copy.setContactPhone(source.getContactPhone());
+        copy.setContactEmail(source.getContactEmail());
+        copy.setDeliveryPeriod(source.getDeliveryPeriod());
+        copy.setQuoteDate(LocalDate.now());
+        copy.setValidityDays(source.getValidityDays());
+        copy.setCurrency(source.getCurrency());
+        copy.setInvoiceType(source.getInvoiceType());
+        copy.setQuotationNote(source.getQuotationNote());
+        copy.setStatus("DRAFT");
+        copy.setIsPreferred(0);
+        copy.setDiscountOverride(source.getDiscountOverride());
+        copy.setGrossMarginRate(source.getGrossMarginRate());
+        copy.setSnapshotJson(source.getSnapshotJson());
+        copy.setCreatedAt(LocalDateTime.now());
+        copy.setUpdatedAt(LocalDateTime.now());
+        quotationMapper.insert(copy);
+
+        List<QuotationLineItem> copies = loadLineItems(quotationId).stream().map(li -> {
+            QuotationLineItem n = copyLine(li);
+            n.setQuotationId(copy.getId());
+            return n;
+        }).collect(Collectors.toList());
+        persistLines(copy.getId(), copies);
+        for (QuotationBrandScope scope : loadBrandScopes(quotationId)) {
+            scope.setId(null);
+            scope.setQuotationId(copy.getId());
+            brandScopeMapper.insert(scope);
+        }
+
+        if (copy.getVariantId() != null) {
+            QuotationVariant variant = variantMapper.selectById(copy.getVariantId());
+            if (variant != null) {
+                variant.setLatestQuotationId(copy.getId());
+                variant.setUpdatedAt(LocalDateTime.now());
+                variantMapper.updateById(variant);
+            }
+        }
+        opportunityLink.onQuotationCreated(copy, null);
+        workflowService.log(copy.getId(), null, "DRAFT", "VERSION", source.getCreatedBy(), null);
+        return toVO(copy, copies, loadBrandScopes(copy.getId()));
+    }
+
+    /** 在同一商机下新建独立方案（可与已有方案并存，用于 A/B 报价）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public QuotationVO createVariant(Long quotationId, String name, String description) {
+        Quotation source = ensureQuotationExists(quotationId);
+        if (source.getOpportunityId() == null) throw new RuntimeException("仅关联商机的报价单可拆分方案");
+
+        QuotationVariant variant = new QuotationVariant();
+        variant.setOpportunityId(source.getOpportunityId());
+        variant.setName(StringUtils.hasText(name) ? name : "方案 " + LocalDate.now().format(DateTimeFormatter.ofPattern("MMdd")));
+        variant.setDescription(description);
+        variant.setVariantStatus("ACTIVE");
+        variant.setCreatedBy(source.getCreatedBy());
+        variant.setCreatedAt(LocalDateTime.now());
+        variant.setUpdatedAt(LocalDateTime.now());
+        variantMapper.insert(variant);
+
+        Quotation copy = copyQuotation(source, generateQuotationNo());
+        copy.setVariantId(variant.getId());
+        copy.setVersionNo(1);
+        copy.setBaseQuotationId(null);
+        quotationMapper.insert(copy);
+        variant.setLatestQuotationId(copy.getId());
+        variantMapper.updateById(variant);
+
+        List<QuotationLineItem> copies = loadLineItems(quotationId).stream().map(li -> {
+            QuotationLineItem n = copyLine(li);
+            n.setQuotationId(copy.getId());
+            return n;
+        }).collect(Collectors.toList());
+        persistLines(copy.getId(), copies);
+
+        opportunityLink.onQuotationCreated(copy, null);
+        return toVO(copy, copies, null);
+    }
+
+    public List<QuotationVariant> listVariants(Long opportunityId) {
+        LambdaQueryWrapper<QuotationVariant> query = new LambdaQueryWrapper<>();
+        query.eq(QuotationVariant::getOpportunityId, opportunityId)
+                .orderByAsc(QuotationVariant::getCreatedAt);
+        return variantMapper.selectList(query);
+    }
+
+    /** 商机内只能有一个首选方案。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void setPreferred(Long quotationId) {
+        Quotation quotation = ensureQuotationExists(quotationId);
+        if (quotation.getOpportunityId() == null) throw new RuntimeException("未关联商机的报价单不可设为首选");
+
+        LambdaQueryWrapper<Quotation> query = new LambdaQueryWrapper<>();
+        query.eq(Quotation::getOpportunityId, quotation.getOpportunityId())
+                .eq(Quotation::getIsPreferred, 1);
+        for (Quotation other : quotationMapper.selectList(query)) {
+            if (!other.getId().equals(quotationId)) {
+                other.setIsPreferred(0);
+                other.setPreferredAt(null);
+                quotationMapper.updateById(other);
+            }
+        }
+        quotation.setIsPreferred(1);
+        quotation.setPreferredAt(LocalDateTime.now());
+        quotationMapper.updateById(quotation);
+        opportunityLink.onPreferredChanged(quotation);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void replaceBrandScopes(Long quotationId, List<QuotationBrandScope> scopes) {
+        ensureQuotationExists(quotationId);
+        brandScopeMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<QuotationBrandScope>()
+                .eq(QuotationBrandScope::getQuotationId, quotationId));
+        if (scopes == null) return;
+        int sort = 0;
+        for (QuotationBrandScope scope : scopes) {
+            scope.setId(null);
+            scope.setQuotationId(quotationId);
+            scope.setSortOrder(sort++);
+            brandScopeMapper.insert(scope);
+        }
+    }
+
+    // ========== 内部 ==========
+
+    private void applyOverrides(List<QuotationLineItem> lineItems,
+                                List<QuotationGenerateRequest.LineItemOverride> overrides) {
+        if (overrides == null || overrides.isEmpty()) return;
+
+        Map<Long, QuotationLineItem> byPolicyItem = new LinkedHashMap<>();
+        Map<Long, QuotationLineItem> byLineItem = new LinkedHashMap<>();
+        for (QuotationLineItem li : lineItems) {
+            if (li.getPolicyItemId() != null) byPolicyItem.put(li.getPolicyItemId(), li);
+            if (li.getId() != null) byLineItem.put(li.getId(), li);
+        }
+
+        List<QuotationLineItem> removed = new ArrayList<>();
+        for (QuotationGenerateRequest.LineItemOverride o : overrides) {
+            QuotationLineItem li = o.getLineItemId() != null ? byLineItem.get(o.getLineItemId())
+                    : byPolicyItem.get(o.getPolicyItemId());
+
+            if (li == null) {
+                if (o.getIsCustom() != null && o.getIsCustom()) {
+                    lineItems.add(customLine(o, lineItems.size()));
+                }
+                continue;
+            }
+            if (Boolean.TRUE.equals(o.getRemove())) {
+                if (li.getIsCustom() != null && li.getIsCustom() == 1) removed.add(li);
+                continue;
+            }
+            if (o.getIsSelected() != null) li.setIsSelected(o.getIsSelected() ? 1 : 0);
+            if (o.getQuantity() != null) li.setQuantity(o.getQuantity());
+            if (o.getDiscountRate() != null) li.setDiscountRate(o.getDiscountRate());
+            if (o.getUnitPriceExTax() != null && li.getUnitPriceExTax() == null
+                    || (o.getUnitPriceExTax() != null && o.getUnitPriceExTax().compareTo(
+                    li.getUnitPriceExTax() != null ? li.getUnitPriceExTax() : BigDecimal.ZERO) != 0)) {
+                li.setUnitPriceExTax(o.getUnitPriceExTax());
+                li.setPriceOverrideReason(o.getPriceOverrideReason());
+            }
+            if (o.getCostPriceExTax() != null) li.setCostPriceExTax(o.getCostPriceExTax());
+            if (o.getSortOrder() != null) li.setSortOrder(o.getSortOrder());
+            if (StringUtils.hasText(o.getItemName())) li.setItemName(o.getItemName());
+            if (o.getDescription() != null) li.setDescription(o.getDescription());
+            if (o.getIsFirstYearFree() != null) li.setIsFirstYearFree(o.getIsFirstYearFree() ? 1 : 0);
+        }
+        lineItems.removeAll(removed);
+    }
+
+    private QuotationLineItem customLine(QuotationGenerateRequest.LineItemOverride o, int sortOrder) {
+        QuotationLineItem li = new QuotationLineItem();
+        li.setSection(StringUtils.hasText(o.getSection()) ? o.getSection() : "其他");
+        li.setSectionCode(QuotationPricingService.normalizeCode(li.getSection()));
+        li.setItemName(StringUtils.hasText(o.getItemName()) ? o.getItemName() : "自定义项");
+        li.setDescription(o.getDescription());
+        li.setIsCustom(1);
+        li.setIsSelected(1);
+        li.setIsFirstYearFree(Boolean.TRUE.equals(o.getIsFirstYearFree()) ? 1 : 0);
+        li.setQuantity(o.getQuantity() != null ? o.getQuantity() : BigDecimal.ONE);
+        li.setDiscountRate(o.getDiscountRate() != null ? o.getDiscountRate() : BigDecimal.ONE);
+        li.setUnitPriceExTax(o.getUnitPriceExTax() != null ? o.getUnitPriceExTax() : BigDecimal.ZERO);
+        li.setCostPriceExTax(o.getCostPriceExTax());
+        li.setTaxRate(o.getTaxRate() != null ? o.getTaxRate() : new BigDecimal("0.06"));
+        li.setChargeMethod(QuotationPricingService.CHARGE_FIXED);
+        li.setPriceOverrideReason(o.getPriceOverrideReason());
+        li.setSortOrder(o.getSortOrder() != null ? o.getSortOrder() : sortOrder);
+        return li;
+    }
+
+    private QuotationPricingResult recalculate(Quotation quotation, List<QuotationLineItem> lineItems,
+                                               QuotationPolicy policy) {
+        BigDecimal floor = policy != null ? policy.getMinDiscountRate() : null;
+        QuotationPricingResult pricing = pricingService.calculate(lineItems, floor);
+        quotation.setFirstYearTotalExTax(pricing.getFirstYearTotalExTax());
+        quotation.setFirstYearTotalInclTax(pricing.getFirstYearTotalInclTax());
+        quotation.setSubsequentYearTotalExTax(pricing.getSubsequentYearTotalExTax());
+        quotation.setSubsequentYearTotalInclTax(pricing.getSubsequentYearTotalInclTax());
+        quotation.setGrossMarginRate(pricing.getGrossMarginRate());
+        quotation.setDiscountOverride(pricing.isDiscountOverride() ? 1 : 0);
+        return pricing;
+    }
+
+    private void applyReviewRequired(Quotation quotation, QuotationPolicy policy, QuotationPricingResult pricing) {
+        boolean needsApproval = pricing.isDiscountOverride()
+                || (policy != null && (policy.getApprovalRequired() == null || policy.getApprovalRequired() == 1));
+        if (needsApproval && "DRAFT".equals(quotation.getStatus())) {
+            quotation.setQuotationNote(buildAutoNote(quotation));
+        }
+    }
+
+    private String buildAutoNote(Quotation quotation) {
+        return String.format("报价有效期 %d 天，逾期作废；价格含税口径：%s。",
+                quotation.getValidityDays() != null ? quotation.getValidityDays() : 30,
+                "TAX_INCLUDED".equals(quotation.getTaxMode()) ? "含税" : "未税");
+    }
+
+    private void snapshot(Quotation quotation, QuotationPolicy policy, List<QuotationLineItem> lineItems) {
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"policyName\":\"").append(escape(policy.getName())).append("\",");
+        sb.append("\"policyType\":\"").append(escape(policy.getType())).append("\",");
+        sb.append("\"policyVersion\":").append(policy.getVersion() != null ? policy.getVersion() : 1).append(",");
+        sb.append("\"minDiscountRate\":").append(policy.getMinDiscountRate() != null ? policy.getMinDiscountRate() : "null").append(",");
+        sb.append("\"lineItemCount\":").append(lineItems.size()).append(",");
+        sb.append("\"capturedAt\":\"").append(LocalDateTime.now()).append("\"");
+        sb.append("}");
+        quotation.setSnapshotJson(sb.toString());
+    }
+
+    private static String escape(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private QuotationVariant resolveVariant(Long opportunityId, Long quotationId, String name, String operator) {
+        QuotationVariant variant = new QuotationVariant();
+        variant.setOpportunityId(opportunityId);
+        variant.setName(StringUtils.hasText(name) ? name : "默认方案");
+        variant.setLatestQuotationId(quotationId);
+        variant.setVariantStatus("ACTIVE");
+        variant.setCreatedBy(operator);
+        variant.setCreatedAt(LocalDateTime.now());
+        variant.setUpdatedAt(LocalDateTime.now());
+        variantMapper.insert(variant);
+        return variant;
+    }
+
+    private void persistLines(Long quotationId, List<QuotationLineItem> lineItems) {
+        int sort = 0;
+        for (QuotationLineItem li : lineItems) {
+            li.setQuotationId(quotationId);
+            if (li.getSortOrder() == null) li.setSortOrder(sort);
+            sort++;
+            if (li.getId() == null || li.getId() == 0) {
+                lineItemMapper.insert(li);
+            } else {
+                lineItemMapper.updateById(li);
+            }
+        }
+    }
+
+    private Quotation copyQuotation(Quotation source, String newNo) {
+        Quotation copy = new Quotation();
+        copy.setQuotationNo(newNo);
+        copy.setPolicyId(source.getPolicyId());
+        copy.setTemplateId(source.getTemplateId());
+        copy.setOpportunityId(source.getOpportunityId());
+        copy.setTaxMode(source.getTaxMode());
+        copy.setCustomerName(source.getCustomerName());
+        copy.setContactPerson(source.getContactPerson());
+        copy.setContactPhone(source.getContactPhone());
+        copy.setContactEmail(source.getContactEmail());
+        copy.setDeliveryPeriod(source.getDeliveryPeriod());
+        copy.setQuoteDate(LocalDate.now());
+        copy.setValidityDays(source.getValidityDays());
+        copy.setCurrency(source.getCurrency());
+        copy.setInvoiceType(source.getInvoiceType());
+        copy.setQuotationNote(source.getQuotationNote());
+        copy.setStatus("DRAFT");
+        copy.setIsPreferred(0);
+        copy.setGrossMarginRate(source.getGrossMarginRate());
+        copy.setSnapshotJson(source.getSnapshotJson());
+        copy.setCreatedAt(LocalDateTime.now());
+        copy.setUpdatedAt(LocalDateTime.now());
+        return copy;
+    }
+
+    private QuotationLineItem copyLine(QuotationLineItem li) {
+        QuotationLineItem n = new QuotationLineItem();
+        n.setPolicyItemId(li.getPolicyItemId());
+        n.setSection(li.getSection());
+        n.setSectionCode(li.getSectionCode());
+        n.setCategory(li.getCategory());
+        n.setItemName(li.getItemName());
+        n.setDescription(li.getDescription());
+        n.setPriceDescription(li.getPriceDescription());
+        n.setIsCustom(li.getIsCustom());
+        n.setIsFirstYearFree(li.getIsFirstYearFree());
+        n.setPriceOverrideReason(li.getPriceOverrideReason());
+        n.setIsSelected(li.getIsSelected());
+        n.setQuantity(li.getQuantity());
+        n.setUnitPriceExTax(li.getUnitPriceExTax());
+        n.setCostPriceExTax(li.getCostPriceExTax());
+        n.setTaxRate(li.getTaxRate());
+        n.setDiscountRate(li.getDiscountRate());
+        n.setSubtotalExTax(li.getSubtotalExTax());
+        n.setSubtotalInclTax(li.getSubtotalInclTax());
+        n.setChargeMethod(li.getChargeMethod());
+        n.setRemark(li.getRemark());
+        n.setSortOrder(li.getSortOrder());
+        return n;
+    }
+
+    private List<QuotationLineItem> loadLineItems(Long quotationId) {
+        LambdaQueryWrapper<QuotationLineItem> query = new LambdaQueryWrapper<>();
+        query.eq(QuotationLineItem::getQuotationId, quotationId)
+                .orderByAsc(QuotationLineItem::getSortOrder);
+        return lineItemMapper.selectList(query);
+    }
+
+    private List<QuotationBrandScope> loadBrandScopes(Long quotationId) {
+        LambdaQueryWrapper<QuotationBrandScope> query = new LambdaQueryWrapper<>();
+        query.eq(QuotationBrandScope::getQuotationId, quotationId)
+                .orderByAsc(QuotationBrandScope::getSortOrder);
+        return brandScopeMapper.selectList(query);
+    }
 
     private String generateQuotationNo() {
         String prefix = "QT-" + LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-";
@@ -319,66 +556,45 @@ public class QuotationService {
                 .last("LIMIT 1");
         Quotation last = quotationMapper.selectOne(query);
         int seq = 1;
-        if (last != null && last.getQuotationNo().length() == prefix.length() + 3) {
+        if (last != null && last.getQuotationNo() != null && last.getQuotationNo().length() == prefix.length() + 3) {
             try {
                 seq = Integer.parseInt(last.getQuotationNo().substring(prefix.length())) + 1;
-            } catch (NumberFormatException ignored) {}
+            } catch (NumberFormatException ignored) {
+            }
         }
         return prefix + String.format("%03d", seq);
     }
 
-    private List<QuotationPolicyItem> listPolicyItemsByPolicyId(Long policyId) {
-        LambdaQueryWrapper<QuotationPolicyItem> query = new LambdaQueryWrapper<>();
-        query.eq(QuotationPolicyItem::getPolicyId, policyId)
-                .orderByAsc(QuotationPolicyItem::getSortOrder);
-        return policyItemMapper.selectList(query);
-    }
-
-    private void calculateLineItem(QuotationLineItem li) {
-        BigDecimal qty = li.getQuantity() != null ? li.getQuantity() : BigDecimal.ONE;
-        BigDecimal discount = li.getDiscountRate() != null ? li.getDiscountRate() : BigDecimal.ONE;
-        BigDecimal unitPrice = li.getUnitPriceExTax() != null ? li.getUnitPriceExTax() : BigDecimal.ZERO;
-
-        BigDecimal subtotalExTax = unitPrice.multiply(qty).multiply(discount).setScale(2, RoundingMode.HALF_UP);
-        li.setSubtotalExTax(subtotalExTax);
-
-        BigDecimal taxRate = li.getTaxRate() != null ? li.getTaxRate() : BigDecimal.ZERO;
-        li.setSubtotalInclTax(subtotalExTax.multiply(BigDecimal.ONE.add(taxRate)).setScale(2, RoundingMode.HALF_UP));
-    }
-
-    private void calculateQuotationTotals(Quotation quotation, List<QuotationLineItem> lineItems) {
-        BigDecimal firstYearExTax = BigDecimal.ZERO;
-        BigDecimal firstYearInclTax = BigDecimal.ZERO;
-        BigDecimal subsequentExTax = BigDecimal.ZERO;
-        BigDecimal subsequentInclTax = BigDecimal.ZERO;
-
-        for (QuotationLineItem li : lineItems) {
-            if (li.getIsSelected() == null || li.getIsSelected() == 0) continue;
-            if (li.getSubtotalExTax() == null) continue;
-
-            // 运维服务：首年discountRate=0 => subtotal=0 => 算入subsequent
-            if ("运维服务".equals(li.getSection()) && li.getDiscountRate() != null
-                    && li.getDiscountRate().compareTo(BigDecimal.ZERO) == 0) {
-                // 首年免费，计入次年
-                BigDecimal fullExTax = BigDecimal.ZERO;
-                if (li.getUnitPriceExTax() != null) {
-                    BigDecimal qty = li.getQuantity() != null ? li.getQuantity() : BigDecimal.ONE;
-                    fullExTax = li.getUnitPriceExTax().multiply(qty).setScale(2, RoundingMode.HALF_UP);
-                }
-                BigDecimal taxRate = li.getTaxRate() != null ? li.getTaxRate() : BigDecimal.ZERO;
-                BigDecimal fullInclTax = fullExTax.multiply(BigDecimal.ONE.add(taxRate)).setScale(2, RoundingMode.HALF_UP);
-                subsequentExTax = subsequentExTax.add(fullExTax);
-                subsequentInclTax = subsequentInclTax.add(fullInclTax);
-            } else {
-                firstYearExTax = firstYearExTax.add(li.getSubtotalExTax());
-                firstYearInclTax = firstYearInclTax.add(li.getSubtotalInclTax());
-            }
+    private QuotationListVO toListVO(Quotation q) {
+        QuotationListVO vo = new QuotationListVO();
+        vo.setId(q.getId());
+        vo.setQuotationNo(q.getQuotationNo());
+        vo.setCustomerName(q.getCustomerName());
+        vo.setFirstYearTotalInclTax(q.getFirstYearTotalInclTax());
+        vo.setFirstYearTotalExTax(q.getFirstYearTotalExTax());
+        vo.setStatus(q.getStatus());
+        vo.setQuoteDate(q.getQuoteDate());
+        vo.setOpportunityId(q.getOpportunityId());
+        vo.setVariantId(q.getVariantId());
+        vo.setVersionNo(q.getVersionNo());
+        vo.setIsPreferred(q.getIsPreferred());
+        vo.setGrossMarginRate(q.getGrossMarginRate());
+        vo.setDiscountOverride(q.getDiscountOverride());
+        vo.setValidityDays(q.getValidityDays());
+        if (q.getQuoteDate() != null && q.getValidityDays() != null) {
+            LocalDate expireAt = q.getQuoteDate().plusDays(q.getValidityDays());
+            vo.setExpireAt(expireAt);
+            vo.setDueSoon(!expireAt.isBefore(LocalDate.now()) && !expireAt.isAfter(LocalDate.now().plusDays(7)));
         }
-
-        quotation.setFirstYearTotalExTax(firstYearExTax);
-        quotation.setFirstYearTotalInclTax(firstYearInclTax);
-        quotation.setSubsequentYearTotalExTax(subsequentExTax);
-        quotation.setSubsequentYearTotalInclTax(subsequentInclTax);
+        if (q.getOpportunityId() != null) {
+            SalesOpportunity opp = opportunityMapper.selectById(q.getOpportunityId());
+            if (opp != null) vo.setOpportunityName(opp.getName());
+        }
+        if (q.getVariantId() != null) {
+            QuotationVariant variant = variantMapper.selectById(q.getVariantId());
+            if (variant != null) vo.setVariantName(variant.getName());
+        }
+        return vo;
     }
 
     private QuotationVO toVO(Quotation quotation, List<QuotationLineItem> lineItems, List<QuotationBrandScope> brandScopes) {
@@ -386,7 +602,11 @@ public class QuotationService {
         vo.setId(quotation.getId());
         vo.setQuotationNo(quotation.getQuotationNo());
         vo.setPolicyId(quotation.getPolicyId());
+        vo.setTemplateId(quotation.getTemplateId());
         vo.setOpportunityId(quotation.getOpportunityId());
+        vo.setVariantId(quotation.getVariantId());
+        vo.setVersionNo(quotation.getVersionNo());
+        vo.setBaseQuotationId(quotation.getBaseQuotationId());
         vo.setTaxMode(quotation.getTaxMode());
         vo.setCustomerName(quotation.getCustomerName());
         vo.setContactPerson(quotation.getContactPerson());
@@ -403,16 +623,27 @@ public class QuotationService {
         vo.setSubsequentYearTotalInclTax(quotation.getSubsequentYearTotalInclTax());
         vo.setQuotationNote(quotation.getQuotationNote());
         vo.setStatus(quotation.getStatus());
+        vo.setIsPreferred(quotation.getIsPreferred());
+        vo.setPreferredAt(quotation.getPreferredAt());
+        vo.setDiscountOverride(quotation.getDiscountOverride());
+        vo.setGrossMarginRate(quotation.getGrossMarginRate());
+        vo.setSnapshotJson(quotation.getSnapshotJson());
+        vo.setBoundContractNo(quotation.getBoundContractNo());
         vo.setCreatedBy(quotation.getCreatedBy());
         vo.setCreatedAt(quotation.getCreatedAt());
         vo.setUpdatedAt(quotation.getUpdatedAt());
         vo.setLineItems(lineItems);
-        vo.setBrandScopes(brandScopes);
+        vo.setBrandScopes(brandScopes != null ? brandScopes : loadBrandScopes(quotation.getId()));
 
         if (quotation.getOpportunityId() != null) {
             SalesOpportunity opp = opportunityMapper.selectById(quotation.getOpportunityId());
             if (opp != null) vo.setOpportunityName(opp.getName());
         }
+        if (quotation.getVariantId() != null) {
+            QuotationVariant variant = variantMapper.selectById(quotation.getVariantId());
+            if (variant != null) vo.setVariantName(variant.getName());
+        }
+        vo.setAvailableTransitions(workflowService.availableTransitions(quotation));
         return vo;
     }
 
@@ -420,5 +651,12 @@ public class QuotationService {
         Quotation quotation = quotationMapper.selectById(id);
         if (quotation == null) throw new RuntimeException("报价单不存在");
         return quotation;
+    }
+
+    /** 供过期任务使用。 */
+    List<Quotation> findExpirable() {
+        LambdaQueryWrapper<Quotation> query = new LambdaQueryWrapper<>();
+        query.in(Quotation::getStatus, List.of("APPROVED", "SENT"));
+        return quotationMapper.selectList(query);
     }
 }

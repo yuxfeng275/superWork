@@ -3,7 +3,9 @@ package com.bu.management.util;
 import com.bu.management.entity.Quotation;
 import com.bu.management.entity.QuotationBrandScope;
 import com.bu.management.entity.QuotationLineItem;
+import com.bu.management.entity.QuotationTemplate;
 import com.bu.management.service.QuotationService;
+import com.bu.management.service.QuotationTemplateService;
 import com.bu.management.vo.QuotationVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -14,11 +16,13 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
 public class QuotationExportHandler {
     private final QuotationService quotationService;
+    private final QuotationTemplateService templateService;
 
     public ResponseEntity<byte[]> export(Long quotationId) throws IOException {
         QuotationVO vo = quotationService.getQuotationDetail(quotationId);
@@ -40,10 +44,27 @@ public class QuotationExportHandler {
         quotation.setSubsequentYearTotalInclTax(vo.getSubsequentYearTotalInclTax());
         quotation.setQuotationNote(vo.getQuotationNote());
 
+        List<String[]> clauses = new java.util.ArrayList<>();
+        String title = null;
+        String issuer = null;
+        if (vo.getTemplateId() != null) {
+            QuotationTemplate template = templateService.get(vo.getTemplateId());
+            title = template.getTitle();
+            issuer = template.getIssuer();
+            templateService.render(vo.getTemplateId(), quotation).forEach((section, lines) -> {
+                for (String line : lines) {
+                    clauses.add(new String[]{section, line});
+                }
+            });
+        }
+
         QuotationExcelExporter exporter = new QuotationExcelExporter(
                 quotation,
                 vo.getLineItems(),
-                vo.getBrandScopes()
+                vo.getBrandScopes(),
+                clauses,
+                title,
+                issuer
         );
         byte[] bytes = exporter.export();
 

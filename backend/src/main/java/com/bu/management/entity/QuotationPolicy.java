@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -14,7 +15,10 @@ public class QuotationPolicy {
     private Long id;
     private String name;
     private String type;
+    private Long templateId;
     private String taxMode;
+    private BigDecimal minDiscountRate;
+    private Integer approvalRequired;
     private Integer version;
     private String status;
     private LocalDate effectiveDate;

@@ -11,7 +11,10 @@ public class QuotationPolicyVO {
     private Long id;
     private String name;
     private String type;
+    private Long templateId;
     private String taxMode;
+    private java.math.BigDecimal minDiscountRate;
+    private Integer approvalRequired;
     private Integer version;
     private String status;
     private LocalDate effectiveDate;

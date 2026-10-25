@@ -15,7 +15,11 @@ public class Quotation {
     private Long id;
     private String quotationNo;
     private Long policyId;
+    private Long templateId;
     private Long opportunityId;
+    private Long variantId;
+    private Integer versionNo;
+    private Long baseQuotationId;
     private String taxMode;
     private String customerName;
     private String contactPerson;
@@ -32,6 +36,12 @@ public class Quotation {
     private BigDecimal subsequentYearTotalInclTax;
     private String quotationNote;
     private String status;
+    private Integer isPreferred;
+    private LocalDateTime preferredAt;
+    private Integer discountOverride;
+    private BigDecimal grossMarginRate;
+    private String snapshotJson;
+    private String boundContractNo;
     private String createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
