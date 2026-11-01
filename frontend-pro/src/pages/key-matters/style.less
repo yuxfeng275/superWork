@@ -917,9 +917,23 @@ body.key-matters-standalone {
   }
 }
 /* 周会演示：收起系统左侧菜单，避免主卡片被菜单宽度挤到右侧，左右留白不等 */
-body.key-matters-presenting {
+body.key-matters-presenting,
+body.key-matters-standalone {
   .ant-pro-sider {
     display: none !important;
+  }
+  /* ProLayout 在 sider 前渲染了一个占位 div，global.less 的 :has 选择器会把它固定成 sider 宽度；
+     只隐藏 sider 时这 160px 仍然存在，导致内容区整体右移、左侧留白偏大。 */
+  .sw-console-layout > .ant-layout > div:has(+ .ant-pro-sider) {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    flex: 0 0 0 !important;
+  }
+  /* 去掉容器右侧 16px 内边距，让 1760 的演示页在视口内左右完全对称 */
+  .sw-console-layout .ant-pro-layout-container {
+    padding: 0 !important;
   }
   .ant-pro-layout-content,
   .ant-pro-layout .ant-layout-content {
@@ -929,7 +943,8 @@ body.key-matters-presenting {
 /* 演示态：收窄页面留白，隐藏页头，适配投屏 */
 .sw-key-matters.is-presenting {
   max-width: 1760px;
-  margin: 0 auto;
+  /* global.less 的 `.sw-page` 规则会把 margin 覆盖成 0；这里必须提权，否则整页靠左 */
+  margin: 0 auto !important;
   padding: 0 12px 20px;
   .sw-page-header {
     display: none;

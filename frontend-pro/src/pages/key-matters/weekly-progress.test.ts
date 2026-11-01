@@ -115,6 +115,8 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/sw-presentation-deadline is-\$\{timing\.tone\}/);
     expect(styles).toMatch(/grid-template-columns: 280px minmax\(0, 1fr\) 280px/);
     expect(styles).toMatch(/body\.key-matters-presenting/);
+    expect(styles).toMatch(/div:has\(\+ \.ant-pro-sider\)/);
+    expect(styles).toMatch(/margin: 0 auto !important/);
     expect(styles).toMatch(/&\.is-overdue/);
   });
 
