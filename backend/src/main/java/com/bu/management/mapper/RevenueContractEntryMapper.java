@@ -5,11 +5,31 @@ import com.bu.management.entity.RevenueContractEntry;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Mapper
 public interface RevenueContractEntryMapper extends BaseMapper<RevenueContractEntry> {
+
+    /** 某销售月的应收合计（SQL 聚合，避免把整月明细拉进内存）。 */
+    @Select("SELECT COALESCE(SUM(receivable_amount), 0) FROM revenue_contract_entry WHERE sale_month = #{month}")
+    BigDecimal sumReceivableBySaleMonth(@Param("month") String month);
+
+    /** 指定交付日期区间的应收合计。 */
+    @Select("""
+            SELECT COALESCE(SUM(receivable_amount), 0) FROM revenue_contract_entry
+            WHERE delivery_date IS NOT NULL
+              AND delivery_date >= #{from}
+              AND delivery_date <= #{to}
+            """)
+    BigDecimal sumReceivableByDeliveryDate(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** 截至某销售月的累计应收合计。 */
+    @Select("SELECT COALESCE(SUM(receivable_amount), 0) FROM revenue_contract_entry WHERE sale_month <= #{month}")
+    BigDecimal sumReceivableUpToMonth(@Param("month") String month);
 
     /**
      * 批量插入，明细表记录ID（detail_no 唯一键）重复时更新不新增 ——

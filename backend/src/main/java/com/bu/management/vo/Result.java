@@ -1,5 +1,6 @@
 package com.bu.management.vo;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -30,6 +31,13 @@ public class Result<T> {
     /**
      * 数据
      */
+    /**
+     * 数据体。
+     * 必须始终序列化（即使为 null）：全局配置是非空才输出，
+     * 一旦错误响应丢了这个字段，前端的 envelope 判定会失效，
+     * 把 {code:400,message:"…"} 当成成功数据返回。
+     */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     private T data;
 
     /**

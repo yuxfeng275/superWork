@@ -1,12 +1,12 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Connector;
 import com.bu.management.entity.Project;
-import com.bu.management.entity.RevenueContractEntry;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
@@ -24,12 +24,12 @@ import com.bu.management.vo.BuKeyMatterView;
 import com.bu.management.vo.BuKeyMatterWeeklyUpdateView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -60,6 +60,8 @@ public class WeeklyReportService {
 
     private static final String CONFIG_GROUP = "weekly-report";
     private static final String MINUTES_TITLE = "# 电商业务BU周会会议纪要";
+    /** 单段文本上限：MEDIUMTEXT 足够大，但前端/接口先给一个明确、可提示的上限。 */
+    private static final int MAX_FIELD_CHARS = 100_000;
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
     /** 「产品：」段只允许的两个二级分类。 */
     private static final List<String> PRODUCT_GROUPS = List.of("全渠道产品", "海外产品");
@@ -98,15 +100,18 @@ public class WeeklyReportService {
     @Value("${app.public-base-url:}")
     private String publicBaseUrl;
 
+    /** 生成中记录超过该分钟数仍无结果时，视为上次任务已中断，允许重新生成。 */
+    @Value("${weekly.generation-timeout-minutes:15}")
+    private long generationTimeoutMinutes;
+
     // ==================== 基础 ====================
 
     /** 获取或创建指定周（weekStart=周一）的周报记录。 */
     public WeeklyReport getOrCreate(LocalDate weekStart) {
         validateWeekStart(weekStart);
-        WeeklyReport existing = reportMapper.selectOne(new LambdaQueryWrapper<WeeklyReport>()
-                .eq(WeeklyReport::getWeekStartDate, weekStart));
+        WeeklyReport existing = findByWeek(weekStart);
         if (existing != null) {
-            return existing;
+            return recoverStaleGenerating(existing);
         }
         WeeklyReport report = new WeeklyReport();
         report.setWeekStartDate(weekStart);
@@ -114,10 +119,44 @@ public class WeeklyReportService {
         report.setStatus(WeeklyReport.STATUS_PENDING);
         try {
             reportMapper.insert(report);
-        } catch (Exception e) {
-            // 唯一键并发冲突：重新读取
-            return reportMapper.selectOne(new LambdaQueryWrapper<WeeklyReport>()
-                    .eq(WeeklyReport::getWeekStartDate, weekStart));
+        } catch (DuplicateKeyException e) {
+            // 唯一键并发冲突：重新读取。其它数据库异常不能被吞掉，否则会返回 null 变成 NPE。
+            WeeklyReport concurrent = findByWeek(weekStart);
+            if (concurrent == null) {
+                throw new IllegalStateException("周报记录创建失败，请稍后重试", e);
+            }
+            return recoverStaleGenerating(concurrent);
+        }
+        return report;
+    }
+
+    private WeeklyReport findByWeek(LocalDate weekStart) {
+        return reportMapper.selectOne(new LambdaQueryWrapper<WeeklyReport>()
+                .eq(WeeklyReport::getWeekStartDate, weekStart));
+    }
+
+    /**
+     * 服务重启/任务线程异常退出时，状态会永远停在 GENERATING，页面既不能保存也不能重新生成。
+     * 读取时按 updated_at 判定超时，并用条件更新避免把刚启动的任务误判为失败。
+     */
+    private WeeklyReport recoverStaleGenerating(WeeklyReport report) {
+        if (report == null || !WeeklyReport.STATUS_GENERATING.equals(report.getStatus())) {
+            return report;
+        }
+        LocalDateTime updatedAt = report.getUpdatedAt();
+        long timeout = generationTimeoutMinutes > 0 ? generationTimeoutMinutes : 15;
+        if (updatedAt == null || updatedAt.isAfter(LocalDateTime.now().minusMinutes(timeout))) {
+            return report;
+        }
+        String message = "上一次生成未完成（可能服务重启或超时），请重新生成";
+        int rows = reportMapper.update(null, new LambdaUpdateWrapper<WeeklyReport>()
+                .eq(WeeklyReport::getId, report.getId())
+                .eq(WeeklyReport::getStatus, WeeklyReport.STATUS_GENERATING)
+                .set(WeeklyReport::getStatus, WeeklyReport.STATUS_GENERATION_FAILED)
+                .set(WeeklyReport::getGenerationError, message));
+        if (rows > 0) {
+            report.setStatus(WeeklyReport.STATUS_GENERATION_FAILED);
+            report.setGenerationError(message);
         }
         return report;
     }
@@ -127,19 +166,27 @@ public class WeeklyReportService {
         if (report == null) {
             throw new IllegalArgumentException("周报不存在");
         }
-        return report;
+        return recoverStaleGenerating(report);
     }
 
     public List<WeeklyReport> history(int limit) {
         return reportMapper.selectList(new LambdaQueryWrapper<WeeklyReport>()
-                .orderByDesc(WeeklyReport::getWeekStartDate)
-                .last("LIMIT " + Math.max(1, Math.min(limit, 50))));
+                        .orderByDesc(WeeklyReport::getWeekStartDate)
+                        .last("LIMIT " + Math.max(1, Math.min(limit, 50))))
+                .stream().map(this::recoverStaleGenerating).toList();
     }
 
-    /** 保存人工输入（企微智能总结 + 补充信息 + 生成提示词）。 */
+    /** 保存人工输入（企微智能总结 + 补充信息 + 生成提示词）。只更新传入的字段。 */
     public WeeklyReport saveInputs(Long reportId, String wecomSummary, String manualNotes,
                                  String generationPrompt) {
         WeeklyReport report = getById(reportId);
+        ensureWritable(report, "修改输入");
+        if (wecomSummary == null && manualNotes == null && generationPrompt == null) {
+            throw new IllegalArgumentException("没有需要保存的内容");
+        }
+        validateLength("企微智能总结", wecomSummary);
+        validateLength("人为补充信息", manualNotes);
+        validateLength("生成指引", generationPrompt);
         if (wecomSummary != null) {
             report.setWecomSummary(wecomSummary);
         }
@@ -150,38 +197,81 @@ public class WeeklyReportService {
             report.setGenerationPrompt(generationPrompt);
         }
         reportMapper.updateById(report);
-        return report;
+        return getById(reportId);
     }
 
-    /** 保存编辑后的内容（4 段 + 纪要）。 */
+    /** 保存编辑后的内容（4 段 + 纪要）。只更新传入的字段；已确认稿改动后回退草稿。 */
     public WeeklyReport saveContent(Long reportId, String coreWork, String kpiSection,
                                     String risks, String nextWeekPlan, String minutesMarkdown) {
         WeeklyReport report = getById(reportId);
-        if (WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())) {
-            throw new IllegalStateException("周报已发布，不可再编辑");
+        ensureWritable(report, "编辑");
+        if (coreWork == null && kpiSection == null && risks == null
+                && nextWeekPlan == null && minutesMarkdown == null) {
+            throw new IllegalArgumentException("没有需要保存的内容");
         }
-        report.setCoreWork(coreWork);
-        report.setKpiSection(kpiSection);
-        report.setRisks(risks);
-        report.setNextWeekPlan(nextWeekPlan);
-        report.setMinutesMarkdown(minutesMarkdown);
+        validateLength("本周核心工作完成情况", coreWork);
+        validateLength("KPI相关情况", kpiSection);
+        validateLength("问题/风险与解决办法", risks);
+        validateLength("下周工作计划", nextWeekPlan);
+        validateLength("周会纪要", minutesMarkdown);
+        if (coreWork != null) report.setCoreWork(coreWork);
+        if (kpiSection != null) report.setKpiSection(kpiSection);
+        if (risks != null) report.setRisks(risks);
+        if (nextWeekPlan != null) report.setNextWeekPlan(nextWeekPlan);
+        if (minutesMarkdown != null) report.setMinutesMarkdown(minutesMarkdown);
+        // 已确认稿被修改后必须重新确认，否则「确认终稿」失去意义；PENDING/失败稿首次编辑进 DRAFT。
         if (WeeklyReport.STATUS_PENDING.equals(report.getStatus())
-                || WeeklyReport.STATUS_GENERATION_FAILED.equals(report.getStatus())) {
+                || WeeklyReport.STATUS_GENERATION_FAILED.equals(report.getStatus())
+                || WeeklyReport.STATUS_CONFIRMED.equals(report.getStatus())) {
+            if (WeeklyReport.STATUS_GENERATION_FAILED.equals(report.getStatus())) {
+                // 已经人工补完内容，上一次失败原因不再适用
+                report.setGenerationError(null);
+            }
             report.setStatus(WeeklyReport.STATUS_DRAFT);
         }
         reportMapper.updateById(report);
-        return report;
+        return getById(reportId);
     }
 
     /** 人工确认草稿。 */
     public WeeklyReport confirm(Long reportId) {
         WeeklyReport report = getById(reportId);
+        if (WeeklyReport.STATUS_GENERATING.equals(report.getStatus())) {
+            throw new IllegalStateException("周报正在生成中，请等待完成后再确认");
+        }
+        if (WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())) {
+            throw new IllegalStateException("周报已发布，无需再确认");
+        }
         if (!hasContent(report)) {
             throw new IllegalStateException("周报内容为空，请先生成或填写后再确认");
         }
         report.setStatus(WeeklyReport.STATUS_CONFIRMED);
         reportMapper.updateById(report);
-        return report;
+        return getById(reportId);
+    }
+
+    /** 生成中 / 已发布的周报不允许再修改。 */
+    private void ensureWritable(WeeklyReport report, String action) {
+        if (WeeklyReport.STATUS_GENERATING.equals(report.getStatus())) {
+            throw new IllegalStateException("周报正在生成中，请等待完成后再" + action);
+        }
+        if (WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())) {
+            throw new IllegalStateException("周报已发布，不可再" + action);
+        }
+    }
+
+    private void ensureNotGenerating(WeeklyReport report, String action) {
+        if (WeeklyReport.STATUS_GENERATING.equals(report.getStatus())) {
+            throw new IllegalStateException("周报正在生成中，请等待完成后再" + action);
+        }
+    }
+
+    private void validateLength(String label, String value) {
+        if (value != null && value.length() > MAX_FIELD_CHARS) {
+            throw new IllegalArgumentException(String.format(
+                    "「%s」内容过长（当前 %d 字，上限 %d 字），请精简后再保存",
+                    label, value.length(), MAX_FIELD_CHARS));
+        }
     }
 
     // ==================== 事实采集 ====================
@@ -281,24 +371,17 @@ public class WeeklyReportService {
         LocalDate today = LocalDate.now();
         Map<String, Object> finance = new LinkedHashMap<>();
         finance.put("month", currentMonth);
-        finance.put("newContractAmount", sumReceivable(new LambdaQueryWrapper<RevenueContractEntry>()
-                .eq(RevenueContractEntry::getSaleMonth, currentMonth)));
-        finance.put("deliveredAmount", sumReceivable(new LambdaQueryWrapper<RevenueContractEntry>()
-                .isNotNull(RevenueContractEntry::getDeliveryDate)
-                .ge(RevenueContractEntry::getDeliveryDate, monthStart)
-                .le(RevenueContractEntry::getDeliveryDate, today)));
-        finance.put("cumulativeReceivable", sumReceivable(new LambdaQueryWrapper<RevenueContractEntry>()
-                .le(RevenueContractEntry::getSaleMonth, currentMonth)));
+        finance.put("newContractAmount", zeroIfNull(
+                contractEntryMapper.sumReceivableBySaleMonth(currentMonth)));
+        finance.put("deliveredAmount", zeroIfNull(
+                contractEntryMapper.sumReceivableByDeliveryDate(monthStart, today)));
+        finance.put("cumulativeReceivable", zeroIfNull(
+                contractEntryMapper.sumReceivableUpToMonth(currentMonth)));
         return finance;
     }
 
-    private BigDecimal sumReceivable(LambdaQueryWrapper<RevenueContractEntry> query) {
-        List<RevenueContractEntry> entries = contractEntryMapper.selectList(
-                query.select(RevenueContractEntry::getReceivableAmount));
-        return entries.stream()
-                .map(RevenueContractEntry::getReceivableAmount)
-                .filter(java.util.Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    private static BigDecimal zeroIfNull(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private Map<String, Object> collectLastWeek(LocalDate weekStart) {
@@ -320,10 +403,18 @@ public class WeeklyReportService {
     // ==================== AI 生成 ====================
 
     /** 异步触发 AI 生成；若正在生成返回 null 由控制器返回 409。 */
-    public WeeklyReport generateAsync(LocalDate weekStart) {
+    public synchronized WeeklyReport generateAsync(LocalDate weekStart) {
         WeeklyReport report = getOrCreate(weekStart);
         if (WeeklyReport.STATUS_GENERATING.equals(report.getStatus())) {
             return null;
+        }
+        if (WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())) {
+            throw new IllegalStateException("该周周报已发布，不能再重新生成；如需重做请先取消发布");
+        }
+        // 先判模型再置 GENERATING：否则前端会先看到「生成中」，几秒后才报模型未配置。
+        if (digestLlmClient.candidateCount() == 0) {
+            throw new IllegalStateException(
+                    "未配置可用的摘要模型：请在「模型管理」勾选「摘要使用」的模型并补全接口地址");
         }
         report.setStatus(WeeklyReport.STATUS_GENERATING);
         report.setGenerationError(null);
@@ -846,23 +937,21 @@ public class WeeklyReportService {
 
     // ==================== 发布：语雀 ====================
 
-    /** 发布周会纪要至语雀：创建文档 + 挂载 部门会议/YYYY + TOC 校验。幂等。 */
+    /** 发布周会纪要至语雀：创建/更新文档 + 挂载 部门会议/YYYY + TOC 校验。重复发布是更新而非新增。 */
     public WeeklyReport publishYuque(Long reportId, Long userId) {
         WeeklyReport report = getById(reportId);
+        ensureNotGenerating(report, "发布");
         if (!StringUtils.hasText(report.getMinutesMarkdown())) {
             throw new IllegalStateException("周会纪要为空，无法发布");
-        }
-        if ("VERIFIED".equals(report.getYuqueTocStatus()) && StringUtils.hasText(report.getYuqueDocUrl())) {
-            return report;
         }
         String repo = yuqueConfig("repo", "vuntcs/cf_records");
         String parentDir = yuqueConfig("parentDir", "部门会议");
         String baseUrl = yuqueBaseUrl();
         String year = String.valueOf(report.getWeekStartDate().getYear());
+        String title = buildMinutesTitle(report);
 
-        // 1. 创建文档（若尚未创建）
+        // 1. 创建文档；已有文档则把最新纪要写回去（否则「重新发布」只跑 TOC，正文永远停在第一版）。
         if (report.getYuqueDocId() == null) {
-            String title = buildMinutesTitle(report);
             Map<String, Object> doc = yuqueClient.createDoc(repo, title, report.getMinutesMarkdown(),
                     "markdown", 1);
             Object id = doc.get("id");
@@ -872,30 +961,47 @@ public class WeeklyReportService {
             String url = String.valueOf(doc.getOrDefault("url", ""));
             report.setYuqueDocUrl(buildDocUrl(baseUrl, repo, report.getYuqueDocSlug(), url));
             reportMapper.updateById(report);
+        } else {
+            String docKey = StringUtils.hasText(report.getYuqueDocSlug())
+                    ? report.getYuqueDocSlug() : String.valueOf(report.getYuqueDocId());
+            try {
+                yuqueClient.updateDoc(repo, docKey, title, report.getMinutesMarkdown(), "markdown");
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("语雀纪要更新失败：" + errorMessage(e), e);
+            }
+            if (!StringUtils.hasText(report.getYuqueDocUrl())) {
+                report.setYuqueDocUrl(buildDocUrl(baseUrl, repo, report.getYuqueDocSlug(), ""));
+            }
         }
 
-        // 2. TOC：找到 部门会议/YYYY 节点，将文档节点挂载其下
-        try {
-            JsonNode toc = yuqueClient.getToc(repo);
-            String docNodeUuid = findTocNodeUuid(toc, report.getYuqueDocId());
-            String yearNodeUuid = findYearNodeUuid(toc, parentDir, year);
-            if (docNodeUuid == null) {
-                report.setYuqueTocStatus("NOT_FOUND");
-            } else if (yearNodeUuid == null) {
+        // 2. TOC：找到 部门会议/YYYY 节点，将文档节点挂载其下。已挂载成功的不重复调整。
+        report.setYuqueTocMessage(null);
+        if (!"VERIFIED".equals(report.getYuqueTocStatus())) {
+            try {
+                JsonNode toc = yuqueClient.getToc(repo);
+                String docNodeUuid = findTocNodeUuid(toc, report.getYuqueDocId());
+                String yearNodeUuid = findYearNodeUuid(toc, parentDir, year);
+                if (docNodeUuid == null) {
+                    report.setYuqueTocStatus("NOT_FOUND");
+                    report.setYuqueTocMessage("语雀文档已创建，但目录树中未找到该文档节点，请在语雀手动挂载");
+                } else if (yearNodeUuid == null) {
+                    report.setYuqueTocStatus("MOVED");
+                    report.setYuqueTocMessage("未找到「" + parentDir + "/" + year + "」目录，请在语雀手动移动到正确目录");
+                } else {
+                    ObjectNode tocData = objectMapper.createObjectNode();
+                    tocData.put("action", "appendNode");
+                    tocData.put("action_mode", "child");
+                    tocData.put("target_uuid", yearNodeUuid);
+                    tocData.put("node_uuid", docNodeUuid);
+                    yuqueClient.updateToc(repo, toJson(tocData));
+                    report.setYuqueTocStatus("VERIFIED");
+                }
+            } catch (RuntimeException e) {
+                // TOC 是 MCP 独有能力，挂载失败不影响文档本身；原因写独立字段，不能覆盖生成错误。
                 report.setYuqueTocStatus("MOVED");
-            } else {
-                ObjectNode tocData = objectMapper.createObjectNode();
-                tocData.put("action", "appendNode");
-                tocData.put("action_mode", "child");
-                tocData.put("target_uuid", yearNodeUuid);
-                tocData.put("node_uuid", docNodeUuid);
-                yuqueClient.updateToc(repo, toJson(tocData));
-                report.setYuqueTocStatus("VERIFIED");
+                report.setYuqueTocMessage(truncate("目录挂载失败：" + errorMessage(e)));
+                log.warn("周报语雀 TOC 挂载失败 reportId={}: {}", reportId, errorMessage(e));
             }
-        } catch (IllegalStateException e) {
-            // MCP 不可用（403）：文档已在根目录创建，TOC 人工处理
-            report.setYuqueTocStatus("MOVED");
-            report.setGenerationError(truncate("TOC 挂载失败：" + e.getMessage()));
         }
         if (!StringUtils.hasText(report.getYuqueDocUrl())) {
             report.setYuqueDocUrl(buildDocUrl(baseUrl, repo, report.getYuqueDocSlug(), ""));
@@ -903,7 +1009,12 @@ public class WeeklyReportService {
         report.setStatus(WeeklyReport.STATUS_PUBLISHED);
         report.setPublishedBy(userId);
         reportMapper.updateById(report);
-        return report;
+        return getById(reportId);
+    }
+
+    private String errorMessage(Throwable e) {
+        String message = e == null ? null : e.getMessage();
+        return StringUtils.hasText(message) ? message : (e == null ? "未知错误" : e.getClass().getSimpleName());
     }
 
     private String buildMinutesTitle(WeeklyReport report) {
@@ -996,7 +1107,11 @@ public class WeeklyReportService {
 
     /** 目标行信息（供人工回填）。 */
     public Map<String, Object> sheetTargetInfo(Long reportId) {
-        WeeklyReport report = getById(reportId);
+        return sheetTargetInfo(getById(reportId));
+    }
+
+    /** 已持有实体时直接计算，避免列表/保存响应里再查一次周报。 */
+    public Map<String, Object> sheetTargetInfo(WeeklyReport report) {
         Map<String, Object> info = new LinkedHashMap<>();
         LocalDate start = report.getWeekStartDate();
         LocalDate end = report.getPeriodEndDate() != null ? report.getPeriodEndDate() : start.plusDays(4);
@@ -1015,6 +1130,7 @@ public class WeeklyReportService {
     /** MANUAL：确认人工已粘贴纪要链接；API：尝试写入语雀表格后再标记。 */
     public WeeklyReport fillSheet(Long reportId) {
         WeeklyReport report = getById(reportId);
+        ensureNotGenerating(report, "回填汇总表");
         if (!StringUtils.hasText(report.getYuqueDocUrl())) {
             throw new IllegalStateException("请先发布语雀纪要，再回填汇总表");
         }
@@ -1023,7 +1139,7 @@ public class WeeklyReportService {
             report.setSheetSyncStatus("MANUAL_DONE");
             report.setSheetSyncedAt(LocalDateTime.now());
             reportMapper.updateById(report);
-            return report;
+            return getById(reportId);
         }
         LocalDate start = report.getWeekStartDate();
         LocalDate end = report.getPeriodEndDate() != null ? report.getPeriodEndDate() : start.plusDays(4);
@@ -1039,7 +1155,7 @@ public class WeeklyReportService {
             report.setSheetSyncStatus("MANUAL_DONE");
             report.setSheetSyncedAt(LocalDateTime.now());
             reportMapper.updateById(report);
-            return report;
+            return getById(reportId);
         } catch (RuntimeException e) {
             report.setSheetSyncStatus("API_FAILED");
             reportMapper.updateById(report);
@@ -1052,6 +1168,11 @@ public class WeeklyReportService {
     /** 推送企微提醒（终稿内容 + 一键复制提示）。 */
     public WeeklyReport pushWecom(Long reportId) {
         WeeklyReport report = getById(reportId);
+        ensureNotGenerating(report, "推送企微");
+        if (!WeeklyReport.STATUS_CONFIRMED.equals(report.getStatus())
+                && !WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())) {
+            throw new IllegalStateException("请先确认终稿（或发布）后再推送企微");
+        }
         if (!hasContent(report)) {
             throw new IllegalStateException("周报内容为空，无法推送");
         }
@@ -1064,7 +1185,7 @@ public class WeeklyReportService {
         report.setWecomPushStatus("SUCCESS");
         report.setWecomPushedAt(LocalDateTime.now());
         reportMapper.updateById(report);
-        return report;
+        return getById(reportId);
     }
 
     private String buildWecomMessage(WeeklyReport report) {

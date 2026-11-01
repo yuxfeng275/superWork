@@ -1,5 +1,5 @@
 import { ThunderboltOutlined } from '@ant-design/icons';
-import { Button, DatePicker, Modal, Tag, Typography } from 'antd';
+import { Button, DatePicker, Modal, Tag, Typography, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useMemo, useState } from 'react';
 import {
@@ -58,8 +58,10 @@ export default function CreateReportModal({
       const report = await superworkApi.getWeeklyReport(selectedMonday);
       onCreated(report.weekStartDate, generate && !selectedStatus);
       onClose();
-    } catch {
-      /* 全局拦截器已提示 */
+    } catch (e) {
+      message.error(
+        e instanceof Error ? e.message : '创建周报失败，请稍后重试',
+      );
     } finally {
       setCreating(false);
     }

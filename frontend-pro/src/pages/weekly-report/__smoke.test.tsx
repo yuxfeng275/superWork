@@ -222,4 +222,30 @@ describe('WeeklyReportPage overview', () => {
     expect(source).toMatch(/已回填/);
     expect(source).toMatch(/当前语雀 Token 写不进公司汇总表/);
   });
+
+  it('disables editing for view-only accounts', async () => {
+    const viewOnly = report({
+      id: 8,
+      status: 'DRAFT',
+      coreWork: '项目：皇家积分切换完成对账',
+      minutesMarkdown: '# 电商业务BU周会会议纪要',
+      canManage: false,
+    });
+    mocks.getWeeklyHistory.mockResolvedValue([viewOnly]);
+    mocks.getWeeklyReport.mockResolvedValue(viewOnly);
+
+    render(<WeeklyReportPage />);
+    fireEvent.click(await screen.findByRole('button', { name: '详情' }));
+
+    expect(
+      await screen.findByText(/当前账号只有查看权限/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText('粘贴企微智能总结…'),
+    ).toBeDisabled();
+    expect(
+      screen.getByText('生成 / 重新生成').closest('button'),
+    ).toBeDisabled();
+    expect(screen.getByText('保存输入').closest('button')).toBeDisabled();
+  });
 });

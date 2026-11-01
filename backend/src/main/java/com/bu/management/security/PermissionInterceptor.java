@@ -3,16 +3,21 @@ package com.bu.management.security;
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.annotation.RequireUsername;
 import com.bu.management.service.SysRoleService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -20,6 +25,7 @@ import java.util.Set;
 public class PermissionInterceptor implements HandlerInterceptor {
 
     private final SysRoleService sysRoleService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -45,18 +51,18 @@ public class PermissionInterceptor implements HandlerInterceptor {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated()) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "登录已失效，请重新登录");
             return false;
         }
 
         if (usernameAnnotation != null) {
             String username = (String) request.getAttribute("username");
             if (username == null) {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "登录已失效，请重新登录");
                 return false;
             }
             if (!Set.of(usernameAnnotation.value()).contains(username)) {
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                writeError(response, HttpServletResponse.SC_FORBIDDEN, "当前账号无权执行该操作");
                 return false;
             }
         }
@@ -67,7 +73,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
 
         Long userId = (Long) request.getAttribute("userId");
         if (userId == null) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "登录已失效，请重新登录");
             return false;
         }
 
@@ -79,7 +85,21 @@ public class PermissionInterceptor implements HandlerInterceptor {
             }
         }
 
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        // 以前这里只 setStatus(403)，响应体为空，前端只能显示「请求失败（403）」。
+        writeError(response, HttpServletResponse.SC_FORBIDDEN,
+                "当前账号无权执行该操作（需要 " + String.join(" 或 ", annotation.value()) + " 权限）");
         return false;
+    }
+
+    private void writeError(HttpServletResponse response, int status, String message) throws IOException {
+        response.setStatus(status);
+        response.setCharacterEncoding("UTF-8");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        // 不直接用 Result：Result 带 LocalDateTime，若注入的 ObjectMapper 未注册 JSR310 会序列化失败。
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", status);
+        body.put("message", message);
+        body.put("data", null);
+        response.getWriter().write(objectMapper.writeValueAsString(body));
     }
 }

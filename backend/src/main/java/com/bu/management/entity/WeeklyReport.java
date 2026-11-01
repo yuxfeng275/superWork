@@ -62,6 +62,9 @@ public class WeeklyReport {
     private String yuqueDocUrl;
     /** VERIFIED|MOVED|NOT_FOUND */
     private String yuqueTocStatus;
+    /** 最近一次目录挂载失败原因；挂载成功时必须能写回 NULL，故用 ALWAYS。 */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String yuqueTocMessage;
     /** PENDING|MANUAL_DONE|API_FAILED */
     private String sheetSyncStatus;
     private LocalDateTime sheetSyncedAt;

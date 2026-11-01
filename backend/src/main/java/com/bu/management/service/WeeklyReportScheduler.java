@@ -38,6 +38,12 @@ public class WeeklyReportScheduler {
         }
         LocalDate weekStart = today.with(DayOfWeek.MONDAY);
         try {
+            WeeklyReport existing = reportService.getOrCreate(weekStart);
+            // 已发布的周不再重生成（否则会把已发布稿降级成草稿）
+            if (WeeklyReport.STATUS_PUBLISHED.equals(existing.getStatus())) {
+                log.info("本周周报已发布，跳过自动生成 weekStart={}", weekStart);
+                return;
+            }
             WeeklyReport report = reportService.generateAsync(weekStart);
             if (report != null && StringUtils.hasText(notifyWeComUser)) {
                 // 没配公网地址就不附链接：企微里打不开相对路径，尽量减少死链

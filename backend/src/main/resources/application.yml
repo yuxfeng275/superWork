@@ -139,6 +139,8 @@ kpi:
 weekly:
   report-cron: ${WEEKLY_REPORT_CRON:0 0 17 * * FRI}
   report-notify-wecom-user: ${WEEKLY_NOTIFY_WECOM_USER:}
+  # 生成中超过该分钟数仍无结果，读取时判为上次任务已中断，允许重新生成
+  generation-timeout-minutes: ${WEEKLY_GENERATION_TIMEOUT_MINUTES:15}
 
 # AI 助手主动建议（站外到达：工作日早上一条企微消息）
 ai:

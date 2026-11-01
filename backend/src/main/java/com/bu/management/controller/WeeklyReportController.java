@@ -4,6 +4,7 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.vo.Result;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.service.AiModelConfigService;
+import com.bu.management.service.SysRoleService;
 import com.bu.management.service.WeeklyReportService;
 import com.bu.management.vo.WeeklyReportVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
@@ -36,13 +38,15 @@ public class WeeklyReportController {
 
     private final WeeklyReportService reportService;
     private final AiModelConfigService aiModelConfigService;
+    private final SysRoleService sysRoleService;
 
     @GetMapping
     @RequirePermission({"weekly:view"})
     @Operation(summary = "获取指定周周报（无则自动创建 PENDING 记录）")
-    public Result<WeeklyReportVO> get(@RequestParam(required = false) String weekStart) {
+    public Result<WeeklyReportVO> get(@RequestParam(required = false) String weekStart,
+                                      @RequestAttribute("userId") Long userId) {
         LocalDate monday = parseWeekStart(weekStart);
-        return Result.success(toVO(reportService.getOrCreate(monday)));
+        return Result.success(toVO(reportService.getOrCreate(monday), userId, true));
     }
 
     @GetMapping("/facts")
@@ -56,9 +60,12 @@ public class WeeklyReportController {
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "保存人工输入（企微智能总结 / 补充信息 / 生成提示词）")
     public Result<WeeklyReportVO> saveInputs(@PathVariable Long id,
-                                             @RequestBody Map<String, String> body) {
+                                             @RequestBody(required = false) Map<String, String> body,
+                                             @RequestAttribute("userId") Long userId) {
+        Map<String, String> payload = body == null ? Map.of() : body;
         return Result.success("已保存", toVO(reportService.saveInputs(
-                id, body.get("wecomSummary"), body.get("manualNotes"), body.get("generationPrompt"))));
+                id, payload.get("wecomSummary"), payload.get("manualNotes"), payload.get("generationPrompt")),
+                userId, true));
     }
 
     @GetMapping("/generation-model")
@@ -75,30 +82,34 @@ public class WeeklyReportController {
     @PostMapping("/{id}/generate")
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "异步触发 AI 生成")
-    public Result<WeeklyReportVO> generate(@PathVariable Long id) {
+    public Result<WeeklyReportVO> generate(@PathVariable Long id,
+                                           @RequestAttribute("userId") Long userId) {
         WeeklyReport report = reportService.getById(id);
         WeeklyReport triggered = reportService.generateAsync(report.getWeekStartDate());
         if (triggered == null) {
             return Result.error(409, "周报正在生成中，请稍后");
         }
-        return Result.success("已开始生成", toVO(triggered));
+        return Result.success("已开始生成", toVO(triggered, userId, false));
     }
 
     @PutMapping("/{id}/content")
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "保存编辑内容（4 段 + 纪要）")
     public Result<WeeklyReportVO> saveContent(@PathVariable Long id,
-                                              @RequestBody Map<String, String> body) {
+                                              @RequestBody(required = false) Map<String, String> body,
+                                              @RequestAttribute("userId") Long userId) {
+        Map<String, String> payload = body == null ? Map.of() : body;
         return Result.success("已保存", toVO(reportService.saveContent(id,
-                body.get("coreWork"), body.get("kpiSection"), body.get("risks"),
-                body.get("nextWeekPlan"), body.get("minutesMarkdown"))));
+                payload.get("coreWork"), payload.get("kpiSection"), payload.get("risks"),
+                payload.get("nextWeekPlan"), payload.get("minutesMarkdown")), userId, true));
     }
 
     @PutMapping("/{id}/confirm")
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "确认周报草稿")
-    public Result<WeeklyReportVO> confirm(@PathVariable Long id) {
-        return Result.success("已确认", toVO(reportService.confirm(id)));
+    public Result<WeeklyReportVO> confirm(@PathVariable Long id,
+                                          @RequestAttribute("userId") Long userId) {
+        return Result.success("已确认", toVO(reportService.confirm(id), userId, true));
     }
 
     @PostMapping("/{id}/publish-yuque")
@@ -106,49 +117,60 @@ public class WeeklyReportController {
     @Operation(summary = "发布周会纪要至语雀（创建文档 + 挂载 TOC）")
     public Result<WeeklyReportVO> publishYuque(@PathVariable Long id,
                                                @RequestAttribute("userId") Long userId) {
-        return Result.success("已发布语雀", toVO(reportService.publishYuque(id, userId)));
+        return Result.success("已发布语雀", toVO(reportService.publishYuque(id, userId), userId, true));
     }
 
     @PostMapping("/{id}/publish-sheet")
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "确认汇总表已回填（MANUAL 标记完成；API 模式才自动写入）")
-    public Result<WeeklyReportVO> publishSheet(@PathVariable Long id) {
-        WeeklyReportVO vo = toVO(reportService.fillSheet(id));
+    public Result<WeeklyReportVO> publishSheet(@PathVariable Long id,
+                                               @RequestAttribute("userId") Long userId) {
+        WeeklyReportVO vo = toVO(reportService.fillSheet(id), userId, true);
         return Result.success("已标记回填", vo);
     }
 
     @PostMapping("/{id}/push-wecom")
     @RequirePermission({"weekly:manage"})
     @Operation(summary = "推送企微提醒")
-    public Result<WeeklyReportVO> pushWecom(@PathVariable Long id) {
-        return Result.success("已推送企微", toVO(reportService.pushWecom(id)));
+    public Result<WeeklyReportVO> pushWecom(@PathVariable Long id,
+                                            @RequestAttribute("userId") Long userId) {
+        return Result.success("已推送企微", toVO(reportService.pushWecom(id), userId, true));
     }
 
     @GetMapping("/history")
     @RequirePermission({"weekly:view"})
     @Operation(summary = "历史周报列表（最近 20 周）")
-    public Result<List<WeeklyReportVO>> history() {
+    public Result<List<WeeklyReportVO>> history(@RequestAttribute("userId") Long userId) {
+        boolean canManage = canManage(userId);
         return Result.success(reportService.history(20).stream()
-                .map(this::toVO).toList());
+                .map(report -> toVO(report, canManage, false)).toList());
     }
 
-    private WeeklyReportVO toVO(WeeklyReport report) {
+    private boolean canManage(Long userId) {
+        return userId != null
+                && sysRoleService.getPermissionCodesByUserId(userId).contains("weekly:manage");
+    }
+
+    /**
+     * 统一转 VO。
+     * 列表/写操作不再采集事实：事实采集涉及大事儿、商机、合同多条查询，
+     * 以前每个保存响应都跑一遍，慢的时候会被网关判超时，出现「内容已保存但前端报错」。
+     *
+     * @param withSheetInfo 是否需要汇总表目标行信息（列表页不用）
+     */
+    private WeeklyReportVO toVO(WeeklyReport report, Long userId, boolean withSheetInfo) {
+        return toVO(report, canManage(userId), withSheetInfo);
+    }
+
+    private WeeklyReportVO toVO(WeeklyReport report, boolean canManage, boolean withSheetInfo) {
         WeeklyReportVO vo = WeeklyReportVO.from(report);
+        vo.setCanManage(canManage);
         if (org.springframework.util.StringUtils.hasText(report.getGenerationProvider())) {
             vo.setGenerationProviderName(
                     aiModelConfigService.providerDisplayName(report.getGenerationProvider()));
         }
-        vo.setSheetTargetInfo(reportService.sheetTargetInfo(report.getId()));
-        try {
-            Map<String, Object> facts = reportService.collectFacts(report.getWeekStartDate());
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> matters = (List<Map<String, Object>>) facts.get("keyMatters");
-            vo.setFactsPreview(matters == null ? List.of() : matters.stream().limit(5)
-                    .<Map<String, Object>>map(m -> Map.of(
-                            "title", String.valueOf(m.getOrDefault("title", "")),
-                            "status", String.valueOf(m.getOrDefault("status", "")))).toList());
-        } catch (Exception e) {
-            vo.setFactsPreview(List.of());
+        if (withSheetInfo) {
+            vo.setSheetTargetInfo(reportService.sheetTargetInfo(report));
         }
         return vo;
     }
@@ -157,7 +179,12 @@ public class WeeklyReportController {
         if (weekStart == null || weekStart.isBlank()) {
             return LocalDate.now().with(DayOfWeek.MONDAY);
         }
-        LocalDate date = LocalDate.parse(weekStart);
+        LocalDate date;
+        try {
+            date = LocalDate.parse(weekStart);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("weekStart 格式无效，应为周一日期 YYYY-MM-DD");
+        }
         if (date.getDayOfWeek() != DayOfWeek.MONDAY) {
             throw new IllegalArgumentException("weekStart 必须是周一");
         }

@@ -34,14 +34,18 @@ public class WeeklyReportVO {
     private String yuqueDocSlug;
     private String yuqueDocUrl;
     private String yuqueTocStatus;
+    /** 最近一次目录挂载失败原因 */
+    private String yuqueTocMessage;
     private String sheetSyncStatus;
     private LocalDateTime sheetSyncedAt;
     private String wecomPushStatus;
     private LocalDateTime wecomPushedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    /** 状态非 PUBLISHED 时可编辑 */
+    /** 状态非 PUBLISHED / GENERATING 时可编辑 */
     private boolean editable;
+    /** 当前用户是否拥有 weekly:manage（前端据此禁用编辑/生成/发布按钮） */
+    private boolean canManage;
     /** 事实预览：前 5 条大事儿标题+状态 */
     private List<Map<String, Object>> factsPreview;
     /** 汇总表回填目标信息 */
@@ -69,13 +73,16 @@ public class WeeklyReportVO {
         vo.setYuqueDocSlug(report.getYuqueDocSlug());
         vo.setYuqueDocUrl(report.getYuqueDocUrl());
         vo.setYuqueTocStatus(report.getYuqueTocStatus());
+        vo.setYuqueTocMessage(report.getYuqueTocMessage());
         vo.setSheetSyncStatus(report.getSheetSyncStatus());
         vo.setSheetSyncedAt(report.getSheetSyncedAt());
         vo.setWecomPushStatus(report.getWecomPushStatus());
         vo.setWecomPushedAt(report.getWecomPushedAt());
         vo.setCreatedAt(report.getCreatedAt());
         vo.setUpdatedAt(report.getUpdatedAt());
-        vo.setEditable(!WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus()));
+        vo.setEditable(!WeeklyReport.STATUS_PUBLISHED.equals(report.getStatus())
+                && !WeeklyReport.STATUS_GENERATING.equals(report.getStatus()));
+        vo.setFactsPreview(List.of());
         return vo;
     }
 }

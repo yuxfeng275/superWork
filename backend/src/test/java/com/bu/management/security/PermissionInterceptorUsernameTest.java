@@ -2,6 +2,7 @@ package com.bu.management.security;
 
 import com.bu.management.annotation.RequireUsername;
 import com.bu.management.service.SysRoleService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class PermissionInterceptorUsernameTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        interceptor = new PermissionInterceptor(sysRoleService);
+        interceptor = new PermissionInterceptor(sysRoleService, new ObjectMapper());
         Method method = UsernameProtectedController.class.getMethod("handle");
         handlerMethod = new HandlerMethod(new UsernameProtectedController(), method);
         SecurityContextHolder.getContext().setAuthentication(
@@ -59,6 +60,7 @@ class PermissionInterceptorUsernameTest {
 
         assertThat(allowed).isFalse();
         assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("无权");
     }
 
     @Test
@@ -71,6 +73,7 @@ class PermissionInterceptorUsernameTest {
 
         assertThat(allowed).isFalse();
         assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getContentAsString()).contains("登录已失效");
     }
 
     private MockHttpServletRequest request(String username) {

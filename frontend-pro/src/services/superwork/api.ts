@@ -1013,6 +1013,8 @@ export interface WeeklyReportVO {
   generationError?: string | null;
   yuqueDocUrl?: string | null;
   yuqueTocStatus?: "VERIFIED" | "MOVED" | "NOT_FOUND" | null;
+  /** 最近一次目录挂载失败原因 */
+  yuqueTocMessage?: string | null;
   sheetSyncStatus?: "PENDING" | "MANUAL_DONE" | "API_FAILED" | null;
   sheetSyncedAt?: string | null;
   wecomPushStatus?: string | null;
@@ -1020,6 +1022,8 @@ export interface WeeklyReportVO {
   createdAt?: string;
   updatedAt?: string;
   editable: boolean;
+  /** 当前用户是否有 weekly:manage；false 时前端禁用编辑/生成/发布 */
+  canManage?: boolean;
   factsPreview: Array<{ title: string; status: string }>;
   sheetTargetInfo?: WeeklyReportSheetTargetInfo | null;
 }
@@ -1595,6 +1599,15 @@ const isEnvelope = <T>(value: unknown): value is Envelope<T> =>
     value && typeof value === "object" && "code" in value && "data" in value
   );
 
+/** 错误响应优先取 message；不依赖 data 字段是否存在（网关/旧版错误体可能没有 data）。 */
+const payloadMessage = (value: unknown) => {
+  if (!value || typeof value !== "object" || !("message" in value)) {
+    return undefined;
+  }
+  const message = (value as { message?: unknown }).message;
+  return typeof message === "string" && message.trim() ? message : undefined;
+};
+
 const getStoredUser = (): CurrentUser | undefined => {
   try {
     const raw = localStorage.getItem("user");
@@ -1623,7 +1636,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("token");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(path, { ...init, headers }).catch((error) => {
+    throw new ApiRequestError(
+      error instanceof Error && error.name === "AbortError"
+        ? "请求超时，请稍后重试"
+        : "网络异常，无法连接服务器，请稍后重试",
+      0
+    );
+  });
   const text = await response.text();
   let payload: unknown;
   try {
@@ -1634,9 +1654,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 401) clearAuthAndRedirect();
-    const message = isEnvelope<unknown>(payload) ? payload.message : undefined;
     throw new ApiRequestError(
-      message || `请求失败（${response.status}）`,
+      payloadMessage(payload) || fallbackErrorMessage(response.status),
       response.status
     );
   }
@@ -1653,6 +1672,17 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return payload as T;
 }
+
+/** 后端未返回消息体时的兜底文案（例如旧版 403 空响应、网关 502）。 */
+const fallbackErrorMessage = (status: number) => {
+  if (status === 400) return "请求参数有误，请检查后重试";
+  if (status === 401) return "登录已失效，请重新登录";
+  if (status === 403) return "当前账号无权执行该操作，请联系管理员开通权限";
+  if (status === 404) return "请求的资源不存在";
+  if (status === 409) return "操作冲突，请刷新后重试";
+  if (status >= 500) return "服务暂时不可用，请稍后重试";
+  return `请求失败（${status}）`;
+};
 
 const query = (params: Record<string, string | number | undefined>) => {
   const search = new URLSearchParams();

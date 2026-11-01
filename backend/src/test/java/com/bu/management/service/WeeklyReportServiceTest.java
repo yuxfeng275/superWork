@@ -3,6 +3,8 @@ package com.bu.management.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,6 +16,8 @@ import com.bu.management.entity.Project;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.WeeklyReport;
+import com.bu.management.integration.DigestLlmClient;
+import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
@@ -41,6 +45,8 @@ class WeeklyReportServiceTest {
 
     @Mock private WeeklyReportMapper reportMapper;
     @Mock private YuqueMcpClient yuqueClient;
+    @Mock private DigestLlmClient digestLlmClient;
+    @Mock private WeComClient weComClient;
     @Mock private SystemConfigService configService;
     @Mock private BuKeyMatterService keyMatterService;
     @Mock private RevenueContractEntryMapper contractEntryMapper;
@@ -49,6 +55,7 @@ class WeeklyReportServiceTest {
     @Mock private ProjectMapper projectMapper;
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
+    @Mock private ConnectorRegistryService registryService;
 
     @InjectMocks private WeeklyReportService service;
 
@@ -390,6 +397,156 @@ class WeeklyReportServiceTest {
         when(projectMapper.selectList(any())).thenReturn(List.of(royal, feihe));
 
         assertThat(service.projectGroupWhitelist()).containsExactly("皇家项目", "飞鹤");
+    }
+
+    // ==================== 保存/生成/发布状态守卫 ====================
+
+    @Test
+    void saveContentRejectsPublishedReport() {
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.saveContent(3L, "x", null, null, null, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("已发布");
+        verify(reportMapper, never()).updateById(any());
+    }
+
+    @Test
+    void saveContentRejectsGeneratingReport() {
+        report.setStatus(WeeklyReport.STATUS_GENERATING);
+        report.setUpdatedAt(LocalDateTime.now());
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.saveContent(3L, "x", null, null, null, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("生成中");
+    }
+
+    @Test
+    void saveContentResetsConfirmedReportToDraft() {
+        report.setStatus(WeeklyReport.STATUS_CONFIRMED);
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        service.saveContent(3L, "只改核心工作", null, null, null, null);
+
+        assertThat(report.getStatus()).isEqualTo(WeeklyReport.STATUS_DRAFT);
+        assertThat(report.getCoreWork()).isEqualTo("只改核心工作");
+        assertThat(report.getMinutesMarkdown()).isNull();
+        verify(reportMapper).updateById(report);
+    }
+
+    @Test
+    void saveContentRejectsOverlongSectionWithFriendlyMessage() {
+        report.setStatus(WeeklyReport.STATUS_DRAFT);
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.saveContent(
+                3L, "测".repeat(100_001), null, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("内容过长")
+                .hasMessageContaining("本周核心工作完成情况");
+        verify(reportMapper, never()).updateById(any());
+    }
+
+    @Test
+    void saveInputsRejectsPublishedReport() {
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.saveInputs(3L, "企微", null, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("已发布");
+    }
+
+    @Test
+    void confirmRejectsPublishedReport() {
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.confirm(3L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("已发布");
+        assertThat(report.getStatus()).isEqualTo(WeeklyReport.STATUS_PUBLISHED);
+    }
+
+    @Test
+    void generateAsyncRejectsPublishedReport() {
+        when(reportMapper.selectOne(any())).thenReturn(report);
+
+        assertThatThrownBy(() -> service.generateAsync(report.getWeekStartDate()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不能再重新生成");
+    }
+
+    @Test
+    void generateAsyncRequiresConfiguredDigestModelBeforeFlippingStatus() {
+        report.setStatus(WeeklyReport.STATUS_PENDING);
+        when(reportMapper.selectOne(any())).thenReturn(report);
+        when(digestLlmClient.candidateCount()).thenReturn(0);
+
+        assertThatThrownBy(() -> service.generateAsync(report.getWeekStartDate()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("摘要模型");
+        assertThat(report.getStatus()).isEqualTo(WeeklyReport.STATUS_PENDING);
+        verify(reportMapper, never()).updateById(any());
+    }
+
+    @Test
+    void generateAsyncReturnsNullWhileAnotherGenerationIsRunning() {
+        report.setStatus(WeeklyReport.STATUS_GENERATING);
+        report.setUpdatedAt(LocalDateTime.now());
+        when(reportMapper.selectOne(any())).thenReturn(report);
+
+        assertThat(service.generateAsync(report.getWeekStartDate())).isNull();
+    }
+
+    @Test
+    void pushWecomRejectsDraftReport() {
+        report.setStatus(WeeklyReport.STATUS_DRAFT);
+        report.setCoreWork("项目：\n- 有内容");
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        assertThatThrownBy(() -> service.pushWecom(3L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("确认终稿");
+    }
+
+    @Test
+    void republishUpdatesExistingYuqueDocAndKeepsGenerationErrorClean() {
+        report.setStatus(WeeklyReport.STATUS_CONFIRMED);
+        report.setYuqueDocId(55);
+        report.setYuqueDocSlug("abc123");
+        report.setYuqueTocStatus("VERIFIED");
+        report.setMinutesMarkdown("# 电商业务BU周会会议纪要\n第二版内容");
+        report.setGenerationError(null);
+        when(reportMapper.selectById(3L)).thenReturn(report);
+
+        WeeklyReport published = service.publishYuque(3L, 9L);
+
+        verify(yuqueClient).updateDoc(eq("vuntcs/cf_records"), eq("abc123"),
+                anyString(), eq(report.getMinutesMarkdown()), eq("markdown"));
+        verify(yuqueClient, never()).createDoc(any(), anyString(), anyString(), anyString(), anyInt());
+        assertThat(published.getStatus()).isEqualTo(WeeklyReport.STATUS_PUBLISHED);
+        assertThat(published.getGenerationError()).isNull();
+        assertThat(published.getYuqueTocStatus()).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void tocFailureIsReportedSeparatelyFromGenerationError() {
+        report.setStatus(WeeklyReport.STATUS_CONFIRMED);
+        report.setYuqueDocId(55);
+        report.setYuqueDocSlug("abc123");
+        report.setYuqueTocStatus(null);
+        report.setMinutesMarkdown("# 电商业务BU周会会议纪要\n内容");
+        report.setGenerationError(null);
+        when(reportMapper.selectById(3L)).thenReturn(report);
+        when(yuqueClient.getToc(anyString()))
+                .thenThrow(new IllegalStateException("语雀 MCP 不可用（403）"));
+
+        WeeklyReport published = service.publishYuque(3L, 9L);
+
+        assertThat(published.getStatus()).isEqualTo(WeeklyReport.STATUS_PUBLISHED);
+        assertThat(published.getYuqueTocStatus()).isEqualTo("MOVED");
+        assertThat(published.getYuqueTocMessage()).contains("目录挂载失败");
+        assertThat(published.getGenerationError()).isNull();
     }
 
     private static final String CONFIRMED_CORE_WORK =

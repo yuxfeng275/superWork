@@ -35,7 +35,7 @@ import {
 } from '@/services/superwork/api';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { MinutesBody, ReportBody } from './contentView';
-import { fmtWan, rangeText, statusOf } from './shared';
+import { MAX_WEEKLY_TEXT_CHARS, fmtWan, rangeText, statusOf } from './shared';
 
 /** 正文段落定义：key 对应 WeeklyReportVO / 保存接口字段 */
 const REPORT_SECTIONS = [
@@ -156,6 +156,11 @@ export default function ReportDrawer({
     });
   }, []);
 
+  /** 写操作只把后端返回的字段合并进来，避免丢掉本地已加载的 sheetTargetInfo 等附属信息。 */
+  const mergeReport = useCallback((next: WeeklyReportVO) => {
+    setCurrent((prev) => (prev ? { ...prev, ...next } : next));
+  }, []);
+
   const startPolling = useCallback(
     (weekStartDate: string) => {
       stopPolling();
@@ -171,8 +176,13 @@ export default function ReportDrawer({
                 `生成失败：${latest.generationError || '未知错误'}`,
               );
           }
-        } catch {
+        } catch (e) {
           stopPolling();
+          message.error(
+            e instanceof Error
+              ? `周报刷新失败：${e.message}`
+              : '周报刷新失败，请手动刷新页面',
+          );
         }
       }, 3000);
     },
@@ -195,17 +205,23 @@ export default function ReportDrawer({
         if (report.status === 'GENERATING') {
           startPolling(report.weekStartDate);
         } else if (autoGenerate) {
-          // 「创建并立即生成」：直接触发生成，采用库里已有的人工输入（本分支不落库，需要保存输入请用「生成 / 重新生成」按钮）
-          void superworkApi
-            .generateWeeklyReport(report.id)
-            .then((next) => {
-              setCurrent(next);
-              message.info('AI 生成中，约需 30-60 秒');
-              startPolling(next.weekStartDate);
-            })
-            .catch((e) =>
-              message.error(e instanceof Error ? e.message : '触发生成失败'),
-            );
+          if (report.status === 'PUBLISHED') {
+            message.warning('该周周报已发布，不能再重新生成');
+          } else if (report.canManage === false) {
+            message.warning('当前账号没有周报管理权限，无法生成');
+          } else {
+            // 「创建并立即生成」：直接触发生成，采用库里已有的人工输入（本分支不落库，需要保存输入请用「生成 / 重新生成」按钮）
+            void superworkApi
+              .generateWeeklyReport(report.id)
+              .then((next) => {
+                mergeReport(next);
+                message.info('AI 生成中，约需 30-60 秒');
+                startPolling(next.weekStartDate);
+              })
+              .catch((e) =>
+                message.error(e instanceof Error ? e.message : '触发生成失败'),
+              );
+          }
         }
       })
       .catch((e) =>
@@ -222,7 +238,7 @@ export default function ReportDrawer({
       .then(setGenerationModel)
       .catch(() => setGenerationModel(null));
     return stopPolling;
-  }, [open, weekStart, autoGenerate, applyReport, startPolling]);
+  }, [open, weekStart, autoGenerate, applyReport, startPolling, mergeReport]);
 
   // 打开发布锚点：右侧栏滚动到发布通道卡
   useEffect(() => {
@@ -234,14 +250,21 @@ export default function ReportDrawer({
     }
   }, [open, anchor, current, detailLoading]);
 
-  const editable = current?.editable ?? false;
+  const canManage = current?.canManage !== false;
+  const editable = (current?.editable ?? false) && canManage;
   const isGenerating = current?.status === 'GENERATING';
+  const hasReportContent = Boolean(
+    draft.coreWork.trim() ||
+      draft.kpiSection.trim() ||
+      draft.risks.trim() ||
+      draft.nextWeekPlan.trim(),
+  );
 
   const saveInputs = async () => {
     if (!current) return;
     setSavingInputs(true);
     try {
-      setCurrent(await superworkApi.saveWeeklyInputs(current.id, inputDraft));
+      mergeReport(await superworkApi.saveWeeklyInputs(current.id, inputDraft));
       message.success('输入已保存');
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败');
@@ -257,7 +280,7 @@ export default function ReportDrawer({
       // 先把企微总结/补充信息/生成提示词落库，保证本次生成使用最新输入
       await superworkApi.saveWeeklyInputs(current.id, inputDraft);
       const next = await superworkApi.generateWeeklyReport(current.id);
-      setCurrent(next);
+      mergeReport(next);
       message.info('AI 生成中，约需 30-60 秒');
       startPolling(next.weekStartDate);
     } catch (e) {
@@ -276,9 +299,13 @@ export default function ReportDrawer({
     if (!current || !editingSection) return;
     setSavingSection(true);
     try {
-      const nextDraft = { ...draft, [editingSection]: sectionDraft };
-      setCurrent(await superworkApi.saveWeeklyContent(current.id, nextDraft));
-      setDraft(nextDraft);
+      // 只提交当前编辑的一段：以前把全部 5 段一起提交，容易用旧草稿覆盖别处的新内容
+      const payload: Partial<Record<SectionKey, string>> = {
+        [editingSection]: sectionDraft,
+      };
+      const next = await superworkApi.saveWeeklyContent(current.id, payload);
+      mergeReport(next);
+      setDraft((prev) => ({ ...prev, [editingSection]: sectionDraft }));
       setEditingSection(null);
       message.success('已保存');
     } catch (e) {
@@ -290,9 +317,13 @@ export default function ReportDrawer({
 
   const confirmReport = async () => {
     if (!current) return;
+    if (!hasReportContent) {
+      message.warning('周报内容为空，请先生成或填写后再确认');
+      return;
+    }
     setConfirming(true);
     try {
-      setCurrent(await superworkApi.confirmWeeklyReport(current.id));
+      mergeReport(await superworkApi.confirmWeeklyReport(current.id));
       message.success('周报已确认');
     } catch (e) {
       message.error(e instanceof Error ? e.message : '确认失败');
@@ -337,7 +368,7 @@ export default function ReportDrawer({
     if (!current) return;
     setPublishing(true);
     try {
-      setCurrent(await superworkApi.publishWeeklyYuque(current.id));
+      mergeReport(await superworkApi.publishWeeklyYuque(current.id));
       message.success('已发布语雀');
     } catch (e) {
       message.error(e instanceof Error ? e.message : '发布失败');
@@ -366,7 +397,7 @@ export default function ReportDrawer({
       onOk: async () => {
         setMarkingSheet(true);
         try {
-          setCurrent(await superworkApi.publishWeeklySheet(current.id));
+          mergeReport(await superworkApi.publishWeeklySheet(current.id));
           message.success('已标记回填完成');
         } catch (e) {
           message.error(e instanceof Error ? e.message : '标记失败');
@@ -381,7 +412,7 @@ export default function ReportDrawer({
     if (!current) return;
     setPushing(true);
     try {
-      setCurrent(await superworkApi.pushWeeklyWecom(current.id));
+      mergeReport(await superworkApi.pushWeeklyWecom(current.id));
       message.success('已推送企微');
     } catch (e) {
       message.error(e instanceof Error ? e.message : '推送失败');
@@ -436,6 +467,7 @@ export default function ReportDrawer({
             <Input.TextArea
               autoFocus
               value={sectionDraft}
+              maxLength={MAX_WEEKLY_TEXT_CHARS}
               onChange={(event) => setSectionDraft(event.target.value)}
               rows={def.rows}
             />
@@ -553,6 +585,28 @@ export default function ReportDrawer({
                   showIcon
                   style={{ marginBottom: 12 }}
                   message={current.generationError}
+                />
+              )}
+            {!canManage && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="当前账号只有查看权限，编辑、生成、确认、发布已禁用"
+              />
+            )}
+            {current.yuqueDocUrl &&
+              current.yuqueTocStatus &&
+              current.yuqueTocStatus !== 'VERIFIED' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="语雀文档已创建，但目录挂载未完成"
+                  description={
+                    current.yuqueTocMessage ||
+                    '请在语雀把纪要文档移动到「部门会议 / 当年年份」目录下'
+                  }
                 />
               )}
             <Tabs
@@ -709,7 +763,7 @@ export default function ReportDrawer({
                   size="small"
                   type="link"
                   loading={savingInputs}
-                  disabled={!editable}
+                  disabled={!editable || isGenerating}
                   onClick={() => void saveInputs()}
                 >
                   保存输入
@@ -734,7 +788,8 @@ export default function ReportDrawer({
                   setInputDraft((v) => ({ ...v, wecomSummary: e.target.value }))
                 }
                 rows={3}
-                disabled={!editable}
+                maxLength={MAX_WEEKLY_TEXT_CHARS}
+                disabled={!editable || isGenerating}
                 placeholder="粘贴企微智能总结…"
               />
               <Typography.Text type="secondary" className="sw-wr-input-label">
@@ -746,7 +801,8 @@ export default function ReportDrawer({
                   setInputDraft((v) => ({ ...v, manualNotes: e.target.value }))
                 }
                 rows={2}
-                disabled={!editable}
+                maxLength={MAX_WEEKLY_TEXT_CHARS}
+                disabled={!editable || isGenerating}
                 placeholder="可选"
               />
               <Tooltip title="告诉 AI 本周周报的侧重点，生成时与事实一起提交">
@@ -763,7 +819,8 @@ export default function ReportDrawer({
                   }))
                 }
                 rows={2}
-                disabled={!editable}
+                maxLength={MAX_WEEKLY_TEXT_CHARS}
+                disabled={!editable || isGenerating}
                 placeholder="可选：如「重点写 XX 项目风险，弱化日常迭代」"
               />
             </Card>
@@ -784,7 +841,16 @@ export default function ReportDrawer({
                   block
                   icon={<CheckCircleOutlined />}
                   loading={confirming}
-                  disabled={!editable || current.status === 'CONFIRMED'}
+                  disabled={
+                    !editable ||
+                    current.status === 'CONFIRMED' ||
+                    !hasReportContent
+                  }
+                  title={
+                    hasReportContent
+                      ? undefined
+                      : '周报内容为空，请先生成或填写后再确认'
+                  }
                   onClick={() => void confirmReport()}
                 >
                   确认终稿
@@ -825,7 +891,14 @@ export default function ReportDrawer({
                   <Button
                     size="small"
                     loading={publishing}
-                    disabled={!current.minutesMarkdown}
+                    disabled={
+                      !current.minutesMarkdown || !canManage || isGenerating
+                    }
+                    title={
+                      current.minutesMarkdown
+                        ? undefined
+                        : '周会纪要为空，请先填写或生成纪要'
+                    }
                     onClick={() => void publishYuque()}
                   >
                     {current.yuqueDocUrl ? '重新发布' : '发布'}
@@ -857,7 +930,7 @@ export default function ReportDrawer({
                   <Button
                     size="small"
                     loading={markingSheet}
-                    disabled={!current.yuqueDocUrl}
+                    disabled={!current.yuqueDocUrl || !canManage || isGenerating}
                     onClick={markSheet}
                   >
                     {current.sheetSyncStatus === 'MANUAL_DONE'
@@ -881,6 +954,8 @@ export default function ReportDrawer({
                   icon={<SendOutlined />}
                   loading={pushing}
                   disabled={
+                    !canManage ||
+                    isGenerating ||
                     !['CONFIRMED', 'PUBLISHED'].includes(current.status)
                   }
                   onClick={() => void pushWecom()}

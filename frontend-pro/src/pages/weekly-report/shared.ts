@@ -16,6 +16,9 @@ export const statusMeta: Record<
   GENERATION_FAILED: { label: '生成失败', color: 'error' },
 };
 
+/** 与后端 WeeklyReportService.MAX_FIELD_CHARS 保持一致：单段正文/输入上限。 */
+export const MAX_WEEKLY_TEXT_CHARS = 100_000;
+
 export const statusOf = (status: WeeklyReportStatus) =>
   statusMeta[status] || statusMeta.PENDING;
 
