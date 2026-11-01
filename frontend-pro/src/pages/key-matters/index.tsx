@@ -1776,10 +1776,18 @@ export default function KeyMattersPage() {
             </Space>
           </Form.Item>
           <Space style={{ display: "flex" }}>
-            <Form.Item name="startDate" label="开始日期">
+            <Form.Item
+              name="startDate"
+              label="开始日期"
+              rules={[{ required: true, message: "请选择开始日期" }]}
+            >
               <DatePicker format="YYYY-MM-DD" />
             </Form.Item>
-            <Form.Item name="plannedCompletionDate" label="计划完成日期">
+            <Form.Item
+              name="plannedCompletionDate"
+              label="计划完成日期"
+              rules={[{ required: true, message: "请选择计划完成日期" }]}
+            >
               <DatePicker format="YYYY-MM-DD" />
             </Form.Item>
           </Space>
@@ -2251,7 +2259,16 @@ export default function KeyMattersPage() {
                     <Col xs={24}>
                       <Card size="small" className="sw-presentation-brief">
                         <header className="sw-presentation-brief-head">
-                          <strong>本周进展</strong>
+                          <strong>
+                            <span
+                              className="sw-required-mark"
+                              title="必填"
+                              aria-label="必填"
+                            >
+                              *
+                            </span>
+                            本周进展
+                          </strong>
                           {presentationEditing ? (
                             <Segmented
                               className="sw-presentation-brief-status"

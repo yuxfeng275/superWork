@@ -98,6 +98,13 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/const state = resolveWeeklyState\(/);
   });
 
+  it("marks required fields with an asterisk", () => {
+    expect(source).toMatch(/className="sw-required-mark"/);
+    expect(source).toMatch(/className="sw-required-mark"[\s\S]{0,400}本周进展/);
+    expect(source).toMatch(/请选择计划完成日期/);
+    expect(source).toMatch(/请选择开始日期/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);
