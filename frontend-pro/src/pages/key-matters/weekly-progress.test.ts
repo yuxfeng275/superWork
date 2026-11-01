@@ -92,6 +92,12 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/placeholder="支持简单 Markdown，可用 @姓名 提醒同事"/);
   });
 
+  it("uses the weekly state normalizer and whitespace validation", () => {
+    expect(source).toMatch(/resolveWeeklyState/);
+    expect(source).toMatch(/whitespace: true/);
+    expect(source).toMatch(/const state = resolveWeeklyState\(/);
+  });
+
   it("uses the weekly-meeting presentation cards while keeping history", () => {
     expect(source).toMatch(/className="sw-weekly-main sw-presentation-stage"/);
     expect(source).toMatch(/className="sw-presentation-brief"/);

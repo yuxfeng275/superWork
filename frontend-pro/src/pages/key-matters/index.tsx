@@ -47,6 +47,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MentionsField } from "@/components/MentionsField";
 import { SimpleMarkdown } from "@/components/SimpleMarkdown";
 import { superworkApi } from "@/services/superwork/api";
+import { resolveWeeklyState } from "./weeklyProgress";
 import "../todos/style.less";
 import "../workbench/style.less";
 import "./style.less";
@@ -415,17 +416,20 @@ export default function KeyMattersPage() {
       message.warning("请至少填写一项本周进展");
       return;
     }
+    const state = resolveWeeklyState(
+      presentationDraft.status,
+      presentationDraft.progress,
+      presentationMatter.status || "推进中",
+      Number(presentationMatter.progress ?? 0)
+    );
     setPresentationSaving(true);
     try {
       await superworkApi.upsertKeyMatterWeeklyUpdate(
         presentationMatter.id,
         mondayOf().format("YYYY-MM-DD"),
         {
-          status: presentationDraft.status || presentationMatter.status,
-          progress:
-            presentationDraft.status === "已完成"
-              ? 100
-              : presentationDraft.progress,
+          status: state.status,
+          progress: state.progress,
           progressSummary: summary,
           issues: String(presentationDraft.issues || "").trim() || undefined,
           nextWeekPlan:
@@ -459,13 +463,26 @@ export default function KeyMattersPage() {
       const week = mondayOf(values.weekStartDate as dayjs.ConfigType).format(
         "YYYY-MM-DD"
       );
+      const progressSummary = String(values.progressSummary || "").trim();
+      if (!progressSummary) {
+        message.warning("请输入本周进展");
+        return;
+      }
+      const state = resolveWeeklyState(
+        values.status,
+        values.progress,
+        weeklyMatter.status || "推进中",
+        Number(weeklyMatter.progress ?? 0)
+      );
+      const optional = (value: unknown) =>
+        String(value ?? "").trim() || undefined;
       await superworkApi.upsertKeyMatterWeeklyUpdate(weeklyMatter.id, week, {
-        status: values.status,
-        progress: values.status === "已完成" ? 100 : values.progress,
-        progressSummary: String(values.progressSummary || "").trim(),
-        issues: values.issues,
-        nextWeekPlan: values.nextWeekPlan,
-        supportNeeded: values.supportNeeded,
+        status: state.status,
+        progress: state.progress,
+        progressSummary,
+        issues: optional(values.issues),
+        nextWeekPlan: optional(values.nextWeekPlan),
+        supportNeeded: optional(values.supportNeeded),
       });
       message.success("周进展已保存");
       setWeeklyOpen(false);
@@ -2253,12 +2270,15 @@ export default function KeyMattersPage() {
                                 ),
                               }))}
                               onChange={(value) =>
-                                setPresentationDraft((draft) => ({
-                                  ...draft,
-                                  status: String(value),
-                                  progress:
-                                    value === "已完成" ? 100 : draft?.progress,
-                                }))
+                                setPresentationDraft((draft) => {
+                                  const state = resolveWeeklyState(
+                                    value,
+                                    draft?.progress,
+                                    draft?.status || "推进中",
+                                    Number(draft?.progress ?? 0)
+                                  );
+                                  return { ...draft, ...state };
+                                })
                               }
                             />
                           ) : (
@@ -2619,6 +2639,12 @@ export default function KeyMattersPage() {
                 onValuesChange={(changed) => {
                   if (changed.status === "已完成")
                     weeklyForm.setFieldValue("progress", 100);
+                  else if (
+                    changed.status &&
+                    changed.status !== "已完成" &&
+                    Number(weeklyForm.getFieldValue("progress")) >= 100
+                  )
+                    weeklyForm.setFieldValue("progress", 99);
                   if (changed.progress !== undefined) {
                     const progress = Number(changed.progress || 0);
                     if (progress >= 100)
@@ -2673,7 +2699,13 @@ export default function KeyMattersPage() {
                       </header>
                       <Form.Item
                         name="progressSummary"
-                        rules={[{ required: true, message: "请输入本周进展" }]}
+                        rules={[
+                          {
+                            required: true,
+                            whitespace: true,
+                            message: "请输入本周进展",
+                          },
+                        ]}
                       >
                         <MentionsField
                           rows={3}

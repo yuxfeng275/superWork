@@ -1,6 +1,8 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.bu.management.dto.BuKeyMatterRequest;
 import com.bu.management.dto.BuKeyMatterWeeklyUpdateRequest;
 import com.bu.management.entity.BuKeyMatter;
@@ -222,6 +224,93 @@ class BuKeyMatterServiceTest {
         assertThat(saved.getIssues()).isNull();
         assertThat(saved.getNextWeekPlan()).isNull();
         assertThat(saved.getSupportNeeded()).isNull();
+    }
+
+    @Test
+    void optionalWeeklySectionsAndCompletionFieldsAreWrittenBackWhenCleared() throws Exception {
+        // 默认 NOT_NULL 更新策略会跳过 null；这些字段必须显式写回，
+        // 否则用户清空「问题/风险」或把已完成事项改回推进中后，旧值仍留在库里。
+        assertAlwaysUpdate(BuKeyMatterWeeklyUpdate.class, "issues");
+        assertAlwaysUpdate(BuKeyMatterWeeklyUpdate.class, "nextWeekPlan");
+        assertAlwaysUpdate(BuKeyMatterWeeklyUpdate.class, "supportNeeded");
+        assertAlwaysUpdate(BuKeyMatter.class, "description");
+        assertAlwaysUpdate(BuKeyMatter.class, "projectId");
+        assertAlwaysUpdate(BuKeyMatter.class, "completedAt");
+    }
+
+    private void assertAlwaysUpdate(Class<?> type, String fieldName) throws Exception {
+        TableField tableField = type.getDeclaredField(fieldName).getAnnotation(TableField.class);
+        assertThat(tableField).isNotNull();
+        assertThat(tableField.updateStrategy()).isEqualTo(FieldStrategy.ALWAYS);
+    }
+
+    @Test
+    void weeklyUpdateFallsBackToExistingStateWhenStatusAndProgressMissing() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        BuKeyMatterWeeklyUpdate existing = weekly(21L, 11L, week, "有风险", 60);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
+        BuKeyMatterWeeklyUpdateRequest request = weeklyRequest(null, 0, "只填本周进展");
+        request.setProgress(null);
+
+        BuKeyMatterWeeklyUpdate saved =
+                service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng");
+
+        assertThat(saved.getStatus()).isEqualTo("有风险");
+        assertThat(saved.getProgress()).isEqualTo(60);
+        assertThat(saved.getProgressSummary()).isEqualTo("只填本周进展");
+    }
+
+    @Test
+    void weeklyUpdateWithoutExistingUsesMatterFallbackForMissingState() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        BuKeyMatterWeeklyUpdateRequest request = weeklyRequest(null, 0, "新建本周进展");
+        request.setProgress(null);
+
+        BuKeyMatterWeeklyUpdate saved =
+                service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng");
+
+        assertThat(saved.getStatus()).isEqualTo("推进中");
+        assertThat(saved.getProgress()).isEqualTo(40);
+        verify(weeklyUpdateMapper).insert(saved);
+    }
+
+    @Test
+    void weeklyUpdateClampsHundredPercentWhenStatusIsNotCompleted() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        BuKeyMatterWeeklyUpdate existing = weekly(21L, 11L, week, "推进中", 40);
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of(existing));
+
+        BuKeyMatterWeeklyUpdate saved = service.upsertWeeklyUpdate(
+                11L, week, weeklyRequest("有风险", 100, "风险仍在"), 16L, "yufeng");
+
+        assertThat(saved.getStatus()).isEqualTo("有风险");
+        assertThat(saved.getProgress()).isEqualTo(99);
+        assertThat(matter.getProgress()).isEqualTo(99);
+    }
+
+    @Test
+    void weeklyUpdateStillRequiresProgressSummary() {
+        LocalDate week = LocalDate.of(2026, 8, 3);
+        BuKeyMatter matter = matter(11L, "P1", "推进中", 40,
+                LocalDate.of(2026, 8, 28));
+        when(matterMapper.selectByIdForUpdate(11L)).thenReturn(matter);
+        when(weeklyUpdateMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        BuKeyMatterWeeklyUpdateRequest request = weeklyRequest("推进中", 40, "   ");
+
+        assertThatThrownBy(() ->
+                service.upsertWeeklyUpdate(11L, week, request, 16L, "yufeng"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("本周进展不能为空");
     }
 
     @Test

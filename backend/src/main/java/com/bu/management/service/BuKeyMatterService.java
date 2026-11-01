@@ -153,7 +153,15 @@ public class BuKeyMatterService {
         if (creating && "已完成".equals(matter.getStatus())) {
             throw new RuntimeException("已完成事项无需新增周进展");
         }
-        NormalizedWeeklyUpdate normalized = validate(request);
+        // 状态/进度是可选提交：缺失时回退到该周已有记录或事项当前值，
+        // 避免前端清空数字框、或从「已完成」切回其它状态时必然 400。
+        String fallbackStatus = update != null && StringUtils.hasText(update.getStatus())
+                ? update.getStatus()
+                : (StringUtils.hasText(matter.getStatus()) ? matter.getStatus() : "推进中");
+        Integer fallbackProgress = update != null && update.getProgress() != null
+                ? update.getProgress()
+                : (matter.getProgress() != null ? matter.getProgress() : 0);
+        NormalizedWeeklyUpdate normalized = validate(request, fallbackStatus, fallbackProgress);
         if (creating) {
             update = new BuKeyMatterWeeklyUpdate();
         }
@@ -293,23 +301,30 @@ public class BuKeyMatterService {
         return new NormalizedMatter(priority, status, progress);
     }
 
-    private NormalizedWeeklyUpdate validate(BuKeyMatterWeeklyUpdateRequest request) {
+    private NormalizedWeeklyUpdate validate(BuKeyMatterWeeklyUpdateRequest request,
+                                            String fallbackStatus, Integer fallbackProgress) {
         if (request == null || !StringUtils.hasText(request.getProgressSummary())) {
             throw new RuntimeException("本周进展不能为空");
         }
-        if (!StringUtils.hasText(request.getStatus()) || !STATUSES.contains(request.getStatus())) {
+        String status = StringUtils.hasText(request.getStatus())
+                ? request.getStatus().trim() : fallbackStatus;
+        if (!STATUSES.contains(status)) {
             throw new RuntimeException("不支持的事项状态");
         }
-        int progress = request.getProgress() == null ? -1 : request.getProgress();
+        int progress = request.getProgress() != null
+                ? request.getProgress()
+                : (fallbackProgress != null ? fallbackProgress : 0);
         if (progress < 0 || progress > 100) {
             throw new RuntimeException("事项进度必须在0到100之间");
         }
-        if ("已完成".equals(request.getStatus())) {
+        if ("已完成".equals(status)) {
             progress = 100;
         } else if (progress == 100) {
-            throw new RuntimeException("进度达到100%时状态必须为已完成");
+            // 状态不是「已完成」时把 100% 收敛为 99%：前端从已完成切回其它状态时
+            // 进度可能还停在 100，后端不应因此整单 400（与前端联动规则一致）。
+            progress = 99;
         }
-        return new NormalizedWeeklyUpdate(request.getStatus(), progress);
+        return new NormalizedWeeklyUpdate(status, progress);
     }
 
     private void apply(BuKeyMatter matter, BuKeyMatterRequest request, NormalizedMatter normalized) {
