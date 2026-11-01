@@ -273,7 +273,7 @@ export default function ReportDrawer({
     }
   };
 
-  const generate = async () => {
+  const runGenerate = async () => {
     if (!current) return;
     setGenerating(true);
     try {
@@ -288,6 +288,23 @@ export default function ReportDrawer({
     } finally {
       setGenerating(false);
     }
+  };
+
+  /** 已有正文时，生成会覆盖四段与纪要，先让用户确认，避免误点丢内容。 */
+  const generate = () => {
+    if (!current) return;
+    if (hasReportContent) {
+      Modal.confirm({
+        title: '重新生成会覆盖当前内容',
+        content:
+          '新的 AI 草稿会重写四段正文与周会纪要，生成后需要重新确认。是否继续？',
+        okText: '继续生成',
+        cancelText: '取消',
+        onOk: () => runGenerate(),
+      });
+      return;
+    }
+    void runGenerate();
   };
 
   const startEditSection = (key: SectionKey) => {
