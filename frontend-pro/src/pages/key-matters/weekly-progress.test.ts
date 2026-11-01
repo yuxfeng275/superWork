@@ -8,6 +8,10 @@ const source = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "index.tsx"),
   "utf8"
 );
+const styles = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "style.less"),
+  "utf8"
+);
 
 const mondayOf = (value?: dayjs.ConfigType) => {
   const date = dayjs(value);
@@ -73,7 +77,7 @@ describe("key-matter weekly progress", () => {
   });
 
   it("shows planned completion date on weekly meeting cards", () => {
-    expect(source).toMatch(/截止 \$\{dayjs\(/);
+    expect(source).toMatch(/截止 \$\{date\} · \$\{timing\.label\}/);
     expect(source).toMatch(/未设置截止日期/);
   });
 
@@ -103,6 +107,15 @@ describe("key-matter weekly progress", () => {
     expect(source).toMatch(/className="sw-required-mark"[\s\S]{0,400}本周进展/);
     expect(source).toMatch(/请选择计划完成日期/);
     expect(source).toMatch(/请选择开始日期/);
+  });
+
+  it("centers the presentation card and highlights overdue deadlines", () => {
+    expect(source).toMatch(/key-matters-presenting/);
+    expect(source).toMatch(/const deadlineBadge = \(matter: Matter\)/);
+    expect(source).toMatch(/sw-presentation-deadline is-\$\{timing\.tone\}/);
+    expect(styles).toMatch(/grid-template-columns: 280px minmax\(0, 1fr\) 280px/);
+    expect(styles).toMatch(/body\.key-matters-presenting/);
+    expect(styles).toMatch(/&\.is-overdue/);
   });
 
   it("uses the weekly-meeting presentation cards while keeping history", () => {

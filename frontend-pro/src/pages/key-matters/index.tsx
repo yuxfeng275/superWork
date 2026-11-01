@@ -224,6 +224,27 @@ export default function KeyMattersPage() {
     if (days === 0) return { label: "今日到期", tone: "today" };
     return { label: `${days} 天后`, tone: "upcoming" };
   };
+  const deadlineBadge = (matter: Matter) => {
+    const timing = milestoneTiming(matter);
+    const date = matter.plannedCompletionDate
+      ? dayjs(matter.plannedCompletionDate).format("MM/DD")
+      : null;
+    const text =
+      matter.status === "已完成"
+        ? "已完成"
+        : date
+        ? `截止 ${date} · ${timing.label}`
+        : "未设置截止日期";
+    return (
+      <span
+        className={`sw-presentation-deadline is-${timing.tone}`}
+        title={text}
+      >
+        <CalendarOutlined />
+        {text}
+      </span>
+    );
+  };
   const milestoneGroupTone = (items: Matter[]) => {
     const hasRisk = items.some((matter) => {
       const timing = milestoneTiming(matter);
@@ -320,6 +341,12 @@ export default function KeyMattersPage() {
     document.body.classList.add("key-matters-standalone");
     return () => document.body.classList.remove("key-matters-standalone");
   }, [isStandaloneMeeting]);
+  // 周会演示时收起左侧系统菜单，让主卡片在视口内真正居中
+  useEffect(() => {
+    if (!presentationOpen) return undefined;
+    document.body.classList.add("key-matters-presenting");
+    return () => document.body.classList.remove("key-matters-presenting");
+  }, [presentationOpen]);
   const openDetail = async (matter: Matter) => {
     setDetail(matter);
     setDetailLoading(true);
@@ -2235,25 +2262,19 @@ export default function KeyMattersPage() {
                     <Typography.Title level={1}>
                       {presentationMatter.title}
                     </Typography.Title>
-                    <Typography.Text
-                      type="secondary"
-                      className="sw-presentation-owner"
-                    >
-                      <FolderOpenOutlined />{" "}
-                      {presentationMatter.projectName || "BU 内部事项"}
-                      <span className="sw-presentation-owner-divider" />
-                      <UserOutlined />{" "}
-                      {presentationMatter.ownerName || "未指定负责人"}
-                      <span className="sw-presentation-owner-divider" />
-                      <CalendarOutlined />{" "}
-                      {presentationMatter.plannedCompletionDate
-                        ? `截止 ${dayjs(
-                            presentationMatter.plannedCompletionDate
-                          ).format("MM/DD")} · ${milestoneTiming(
-                            presentationMatter
-                          ).label}`
-                        : "未设置截止日期"}
-                    </Typography.Text>
+                    <div className="sw-presentation-meta">
+                      <Typography.Text
+                        type="secondary"
+                        className="sw-presentation-owner"
+                      >
+                        <FolderOpenOutlined />{" "}
+                        {presentationMatter.projectName || "BU 内部事项"}
+                        <span className="sw-presentation-owner-divider" />
+                        <UserOutlined />{" "}
+                        {presentationMatter.ownerName || "未指定负责人"}
+                      </Typography.Text>
+                      {deadlineBadge(presentationMatter)}
+                    </div>
                   </div>
                   <Row gutter={[12, 12]} className="sw-presentation-cards">
                     <Col xs={24}>
@@ -2639,15 +2660,18 @@ export default function KeyMattersPage() {
                 <Typography.Title level={1}>
                   {weeklyMatter.title}
                 </Typography.Title>
-                <Typography.Text
-                  type="secondary"
-                  className="sw-presentation-owner"
-                >
-                  <FolderOpenOutlined />{" "}
-                  {weeklyMatter.projectName || "BU 内部事项"}
-                  <span className="sw-presentation-owner-divider" />
-                  <UserOutlined /> {weeklyMatter.ownerName || "未指定负责人"}
-                </Typography.Text>
+                <div className="sw-presentation-meta">
+                  <Typography.Text
+                    type="secondary"
+                    className="sw-presentation-owner"
+                  >
+                    <FolderOpenOutlined />{" "}
+                    {weeklyMatter.projectName || "BU 内部事项"}
+                    <span className="sw-presentation-owner-divider" />
+                    <UserOutlined /> {weeklyMatter.ownerName || "未指定负责人"}
+                  </Typography.Text>
+                  {deadlineBadge(weeklyMatter)}
+                </div>
               </div>
               <Form
                 form={weeklyForm}
