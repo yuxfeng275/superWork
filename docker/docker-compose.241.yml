@@ -101,6 +101,7 @@ services:
     volumes:
       - ./data/meetings:/data/meetings
       - ./data/ai-agent-attachments:/data/ai-agent-attachments
+      - ./data/project-facts:/data/project-facts
       - ./data/wecom-cli:/data/wecom-cli
     ports:
       - "18081:8081"

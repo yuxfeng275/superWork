@@ -169,8 +169,9 @@ docker compose down -v
 
 ```
 /home/openclaw/superwork-claude-sp/docker/
-├── data/meetings/   ← 会议音频文件（backend 卷 ./data/meetings:/data/meetings）
-└── asr-models/      ← 转写模型缓存（asr-worker 卷 ./asr-models:/models）
+├── data/meetings/        ← 会议音频文件（backend 卷 ./data/meetings:/data/meetings）
+├── data/project-facts/   ← 投递入口的文件存储（后端容器内 /data/project-facts，属主 spring），新增目录需 mkdir -p 后再 up
+└── asr-models/           ← 转写模型缓存（asr-worker 卷 ./asr-models:/models）
 ```
 
 ### 首次启用会议模块
