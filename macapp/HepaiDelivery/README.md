@@ -137,6 +137,29 @@ codesign --verify --verbose=2 "dist/合拍投递.app"     # 验证
 > 打包后通知走 `UNUserNotificationCenter`，第一次投递前系统会请求通知权限；
 > `swift run` 直接跑没有 bundle，会退化成 `osascript` 通知。
 
+`dist/` 不进仓库（`macapp/HepaiDelivery/.gitignore` 与仓库根 `.gitignore` 都忽略）。
+
+## 安装到 /Applications（推荐）
+
+```bash
+cd macapp/HepaiDelivery
+./scripts/make-app.sh
+cp -R "dist/合拍投递.app" /Applications/      # 或在 Finder 里把 .app 拖进「应用程序」
+open "/Applications/合拍投递.app"
+```
+
+**首次打开要绕过 Gatekeeper**：这个 app 只做了 ad-hoc 签名（`codesign -s -`），
+没有 Apple 开发者证书，也不是从 App Store 装的，直接双击会被「无法打开，因为无法验证开发者」挡下。
+
+两条路，选一条：
+
+1. **右键 →「打开」→ 弹窗里再点「打开」**（只需一次，之后正常双击；菜单栏 app 没窗口，看菜单栏有没有出现图标）
+2. 命令行去掉隔离属性：`xattr -dr com.apple.quarantine "/Applications/合拍投递.app"`
+
+> 这是 ad-hoc 签名的固有行为，不是投递失败；`codesign --verify --verbose=2` 通过就够了。
+> 若系统设置里提示被拦，也可去「隐私与安全性」页面底部点「仍要打开」。
+> 开机自启用 `scripts/install-launch-agent.sh`（launchd 不走 Gatekeeper 检查路径），见下节。
+
 ## 开机自启（launchd）
 
 ```bash
@@ -165,13 +188,15 @@ launchctl bootout   "gui/$(id -u)/com.bu.hepai.delivery"
 ## 首次配置步骤
 
 1. `swift build -c release`（或 `./scripts/make-app.sh` 打成 app）
-2. 运行：`open dist/合拍投递.app`，或 `swift run -c release`
+2. 安装并从 `/Applications` 跑（**第一次右键 →「打开」**，见上节）：
+   `cp -R dist/合拍投递.app /Applications/ && open /Applications/合拍投递.app`；
+   开发时也可以 `swift run -c release` 前台跑
 3. 菜单栏出现「合拍·投递」；首次运行自动弹配置窗口，填：
-   - 服务器地址（如 `https://hepai.example.com`）
-   - 用户名
-   - 密码（存钥匙串，不写盘）
+   - 服务器地址（如 `https://hepai.example.com`，不带结尾 `/`，请求走 `{baseUrl}/api/...`）
+   - 用户名（登录取 token 用，也是钥匙串条目的 account 后缀）
+   - 密码（**只进钥匙串**，`service = com.bu.hepai.delivery`，不写盘）
    - 「＋ 添加目录」逐个加监听目录，填 `projectId`、选 `visibility`
-4. 点「保存」→ 配置写进 `~/.hepai-delivery.json`，监听立即生效
+4. 点「保存」→ 配置写进 `~/.hepai-delivery.json`（`0600`，不含密码），监听立即生效
 5. 往目录里丢一个文件，几秒后应看到通知；菜单里「今日已投」+1
 6. 网络/后端挂了也不丢：进 `queue.json`，每 60 秒重试；菜单「立即重试」可手动催
 

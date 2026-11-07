@@ -14,6 +14,8 @@
 | Jev 决策层 | 无独立入口 | typesafe 连接器 + 决策模型 | 意图分类收窄工具集 + 写操作门禁（回信/转任务/发企微等） |
 | 项目智能体闭环（M0+M1） | 无独立入口（机器入口 `/internal/project-context/run`，评审在工作台） | ai-sidecar + agent-autoloop + 企微 | 夜间自动干活、次日分发：`project_fact` 事实层 + `project_facts`/`save_daily_brief`/`save_artifact` 工具 + 制品与评审（DRAFT→submit→IN_REVIEW→decide→APPROVED/REJECTED→apply 回流事实）+ 07:30 晨报推送；方案见 [project-agent-loop-plan.md](project-agent-loop-plan.md)，接入包见 `agent-loop/` |
 
+> **投递（本机文件 / 聊天 / 口头决议）**：`project_fact` 的人工入口四条——项目详情「投递箱」、菜单栏 `合拍·投递`、`bin/huji-put` 命令行、群机器人/脚本走 `/internal/project-context/{id}/chat`；投什么不投什么见 [fact-intake.md](fact-intake.md)。事实层越空，夜间产出越像套话。
+
 ## 二、摘要模型兜底（2026-10-22 起）
 
 `DigestLlmClient` 是周报与会议共用的 LLM 入口：按「模型管理」排序依次尝试勾选**摘要使用**的模型，

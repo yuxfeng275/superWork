@@ -5,6 +5,7 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   FlagOutlined,
+  InboxOutlined,
   ReloadOutlined,
   RiseOutlined,
   WarningOutlined, BulbOutlined } from '@ant-design/icons';
@@ -452,6 +453,14 @@ export default function WorkbenchPage() {
         </div>
         <Space>
           <Button
+            type="primary"
+            ghost
+            icon={<InboxOutlined />}
+            onClick={() => navigate('/projects')}
+          >
+            投递素材
+          </Button>
+          <Button
             icon={<ReloadOutlined />}
             loading={loading}
             onClick={() => void load()}
@@ -573,7 +582,11 @@ export default function WorkbenchPage() {
             ))}
           </ul>
         ) : (
-          <Empty description="今天还没有晨报，夜间任务跑完会自动生成" />
+          <Empty description="晨报按人分发——夜里跑完会写你的那份；也可以先去看看项目里投进来什么">
+            <Button type="primary" onClick={() => navigate('/projects')}>
+              去项目投递
+            </Button>
+          </Empty>
         )}
       </Card>
       <Card
@@ -638,7 +651,9 @@ export default function WorkbenchPage() {
             ))}
           </ul>
         ) : (
-          <Empty description="暂无待评审制品" />
+          <Empty description="夜间产出的草稿先存项目里（DRAFT），送审后才会出现在这里">
+            <Button onClick={() => navigate('/projects')}>去项目看看</Button>
+          </Empty>
         )}
       </Card>
       <div className="sw-workbench-kpis">

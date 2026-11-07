@@ -1,6 +1,7 @@
 import {
   DeleteOutlined,
   EditOutlined,
+  InboxOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -99,6 +100,7 @@ export default function ProjectsPage() {
   const [form] = Form.useForm<ProjectForm>();
   const [submitting, setSubmitting] = useState(false);
   const [drawerProject, setDrawerProject] = useState<ProjectTreeNode>();
+  const [intakeProject, setIntakeProject] = useState<ProjectTreeNode>();
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [emails, setEmails] = useState<EmailMessageSummary[]>([]);
@@ -522,6 +524,18 @@ export default function ProjectsPage() {
                         <Button
                           type="link"
                           size="small"
+                          icon={<InboxOutlined />}
+                          aria-label={`投递素材到${project.name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setIntakeProject(project);
+                          }}
+                        >
+                          投递
+                        </Button>
+                        <Button
+                          type="link"
+                          size="small"
                           icon={<PlusOutlined />}
                           onClick={(event) => {
                             event.stopPropagation();
@@ -652,6 +666,22 @@ export default function ProjectsPage() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+      <Modal
+        title={
+          intakeProject
+            ? `投递素材到「${intakeProject.name}」`
+            : '投递素材'
+        }
+        open={Boolean(intakeProject)}
+        width={720}
+        footer={null}
+        destroyOnHidden
+        onCancel={() => setIntakeProject(undefined)}
+      >
+        {intakeProject && (
+          <ProjectIntakeSection projectId={intakeProject.id} />
+        )}
       </Modal>
       <Drawer
         title={drawerProject?.name || '项目详情'}

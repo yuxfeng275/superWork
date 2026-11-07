@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+# huji-put — 合拍项目事实层命令行投递器（无依赖，只要 curl + jq）
+#
+# 三个子命令，都打在同一个项目下：
+#   huji-put ... file <路径...>        上传本机文件（multipart → /facts/files）
+#   huji-put ... note "标题" "正文"     投一条补充说明（JSON → /facts/notes）
+#   huji-put ... chat <导出文本文件>    解析聊天导出后投递（JSON → /facts/chat）
+#
+# 密码只从环境变量 HUJI_PASSWORD 读（不落盘、不进 argv）；交互终端下会提示输入。
+set -uo pipefail
+
+PROG="huji-put"
+BASE_URL="${HUJI_BASE_URL:-http://127.0.0.1:18081}"
+USER_NAME="${HUJI_USER:-}"
+PROJECT_ID=""
+VISIBILITY="PROJECT"
+EXTRA_NOTE=""
+SUBCMD=""
+FAILED=0
+TOKEN=""
+
+TMP_FILES=()
+cleanup() {
+    local f
+    for f in ${TMP_FILES+"${TMP_FILES[@]}"}; do
+        rm -f "$f"
+    done
+}
+trap cleanup EXIT
+
+die() {
+    printf '%s: %s\n' "$PROG" "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<EOF
+$PROG — 把本机文件 / 说明 / 聊天记录投进合拍项目事实层
+
+用法：
+  $PROG --base-url <URL> --user <账号> --project <项目ID> <子命令> [参数...]
+
+通用参数：
+  --base-url <URL>     后端根地址，默认 \$HUJI_BASE_URL 或 http://127.0.0.1:18081
+  --user <账号>        登录账号，默认 \$HUJI_USER
+  --project <项目ID>   投到哪个项目，必填
+  --visibility <级别>  PROJECT（默认）/ PRIVATE_COMPANY / OWNER
+  --note <补充说明>    追加到 file 的 note 后面
+  -h, --help           就是这页
+
+密码：只认环境变量 HUJI_PASSWORD（不落盘、不进进程参数）。
+     交互终端下没设的话会提示你输入一次。
+      export HUJI_PASSWORD='…' && $PROG --user me --project 1 file a.pdf
+
+子命令：
+  file <路径...> [<路径...>]
+      逐个 POST /api/projects/{id}/facts/files（multipart），
+      note 写「来自 huji-put / \$(hostname)」。同一文件重传不新增事实。
+      $PROG --base-url http://127.0.0.1:18081 --user me --project 1 file ~/Desktop/a.pdf ~/Desktop/b.xlsx
+
+  note "标题" "正文"
+      POST /api/projects/{id}/facts/notes，每次都是一条新事实。正文可省略。
+      $PROG --user me --project 1 note "皇家 PMS 进度" "标品升级差异 4800 个，进度 15%，等张野出分类清单"
+
+  chat <导出文本文件>
+      按行解析「[时间] 姓名: 内容」为 messages 后 POST /api/projects/{id}/facts/chat；
+      解析不出（没有一行符合格式）就整段当一条。同一段记录重传不新增。
+      $PROG --user me --project 1 chat ~/Downloads/群聊导出.txt
+
+退出码：0 全部成功；1 有失败（逐条打印原因）；2 用法错误。
+
+例（自测）：
+  export HUJI_PASSWORD='…'
+  $PROG --base-url http://127.0.0.1:18081 --user zhangsan --project 1 note "冒烟" "hello"
+EOF
+}
+
+need_tools() {
+    command -v curl >/dev/null 2>&1 || die "找不到 curl"
+    command -v jq >/dev/null 2>&1 || die "找不到 jq（macOS: brew install jq）"
+}
+
+# --- 参数解析 ---------------------------------------------------------------
+
+[ $# -gt 0 ] || { usage; exit 2; }
+
+# 通用参数可以放在子命令前面，也可以跟在后面；非选项一律进 POSITIONAL，
+# 第一个位置参数是子命令，其余交给子命令。
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --base-url|--user|--project|--visibility|--note)
+            [ $# -ge 2 ] || { usage >&2; die "$1 缺少值"; }
+            case "$1" in
+                --base-url)   BASE_URL="$2" ;;
+                --user)       USER_NAME="$2" ;;
+                --project)    PROJECT_ID="$2" ;;
+                --visibility) VISIBILITY="$2" ;;
+                --note)       EXTRA_NOTE="$2" ;;
+            esac
+            shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; while [ $# -gt 0 ]; do POSITIONAL[${#POSITIONAL[@]}]="$1"; shift; done ;;
+        -*) usage >&2; die "未知参数：$1" ;;
+        *)  POSITIONAL[${#POSITIONAL[@]}]="$1"; shift ;;
+    esac
+done
+
+[ ${#POSITIONAL[@]} -gt 0 ] || { usage >&2; exit 2; }
+SUBCMD="${POSITIONAL[0]}"
+
+need_tools
+
+BASE_URL="${BASE_URL%/}"
+[ -n "$BASE_URL" ] || die "缺少 --base-url"
+[ -n "$USER_NAME" ] || die "缺少 --user（或 \$HUJI_USER）"
+case "$PROJECT_ID" in
+    ''|*[!0-9]*) die "--project 必须是数字项目ID，当前值: ${PROJECT_ID}" ;;
+esac
+
+# --- 登录 -------------------------------------------------------------------
+
+read_password() {
+    if [ -n "${HUJI_PASSWORD:-}" ]; then
+        PASSWORD="$HUJI_PASSWORD"
+        return 0
+    fi
+    if [ -t 0 ]; then
+        local input
+        printf '密码（%s）：' "$USER_NAME" >&2
+        read -r -s input
+        printf '\n' >&2
+        [ -n "$input" ] || die "密码为空"
+        PASSWORD="$input"
+        return 0
+    fi
+    die "没有密码：请 export HUJI_PASSWORD=… 再跑（不落盘、不进 argv）"
+}
+
+login() {
+    local payload body token message
+    payload=$(jq -cn --arg u "$USER_NAME" --arg p "$PASSWORD" '{username:$u,password:$p}') \
+        || die "拼登录请求失败"
+    body=$(printf '%s' "$payload" | curl -sS -X POST \
+        -H 'Content-Type: application/json' \
+        --data-binary @- \
+        "$BASE_URL/api/auth/login" 2>&1) || die "登录请求失败：$body"
+
+    token=$(printf '%s' "$body" | jq -r '.data.token // empty' 2>/dev/null)
+    if [ -z "$token" ]; then
+        message=$(printf '%s' "$body" | jq -r '.message // empty' 2>/dev/null)
+        die "登录失败：${message:-$body}"
+    fi
+    TOKEN="$token"
+}
+
+# --- HTTP 小工具 -------------------------------------------------------------
+
+# post_json <path> <json-body>   → stdout: 响应体；返回 curl 状态
+post_json() {
+    local path="$1" body="$2"
+    printf '%s' "$body" | curl -sS -X POST \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer $TOKEN" \
+        --data-binary @- \
+        "$BASE_URL$path"
+}
+
+# report <标签> <响应体>  —— 打印一条结果，失败计进 FAILED
+report() {
+    local label="$1" resp="$2" code message title
+    code=$(printf '%s' "$resp" | jq -r '.code // empty' 2>/dev/null)
+    if [ "$code" = "200" ]; then
+        title=$(printf '%s' "$resp" | jq -r '.data.title // .data.sourceType // "ok"' 2>/dev/null)
+        printf '  ok    %s → %s\n' "$label" "$title"
+        return 0
+    fi
+    message=$(printf '%s' "$resp" | jq -r '.message // empty' 2>/dev/null)
+    printf '  FAIL  %s → %s\n' "$label" "${message:-$resp}" >&2
+    FAILED=$((FAILED + 1))
+    return 1
+}
+
+# --- 子命令 -----------------------------------------------------------------
+
+cmd_file() {
+    [ $# -gt 0 ] || die "file 子命令至少要一个文件路径"
+    local path name note resp host
+    host="$(hostname)"
+    note="来自 huji-put / $host"
+    [ -n "$EXTRA_NOTE" ] && note="$note · $EXTRA_NOTE"
+
+    local p
+    for p in "$@"; do
+        if [ ! -f "$p" ]; then
+            printf '  FAIL  %s → 不是文件\n' "$p" >&2
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        name="$(basename "$p")"
+        resp=$(curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "file=@$p" \
+            -F "note=$note" \
+            -F "visibility=$VISIBILITY" \
+            "$BASE_URL/api/projects/$PROJECT_ID/facts/files")
+        report "$name" "$resp"
+    done
+}
+
+cmd_note() {
+    [ $# -ge 1 ] || die "note 子命令需要：\"标题\" [\"正文\"]"
+    local title="$1" text="${2:-}" payload resp
+    [ -n "$title" ] || die "标题不能为空"
+    payload=$(jq -cn --arg t "$title" --arg b "$text" --arg v "$VISIBILITY" \
+        '{title:$t, body:$b, visibility:$v}')
+    resp=$(post_json "/api/projects/$PROJECT_ID/facts/notes" "$payload")
+    report "note: $title" "$resp"
+}
+
+# 把一行拆成 {time, sender, text}
+msg_json() {
+    jq -cn --arg t "$1" --arg s "$2" --arg x "$3" \
+        '{time:$t, sender:$s, text:$x}'
+}
+
+cmd_chat() {
+    [ $# -ge 1 ] || die "chat 子命令需要一个导出文本文件"
+    local file="$1"
+    [ -f "$file" ] || die "找不到文件：$file"
+
+    local msgs_file payload resp count
+    msgs_file=$(mktemp "${TMPDIR:-/tmp}/huji-put-chat.XXXXXX")
+    TMP_FILES+=("$msgs_file")
+
+    if grep -qE '^\[[^]]+\][[:space:]]*[^:：]+[:：]' "$file"; then
+        # 逐行解析「[时间] 姓名: 内容」；不符合格式的非空行接到上一条内容后面。
+        local line cur_time="" cur_sender="" cur_text="" have=0
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            if [[ $line =~ ^\[([^]]+)\][[:space:]]*([^:：]+)[:：][[:space:]]*(.*)$ ]]; then
+                if [ $have -eq 1 ]; then
+                    msg_json "$cur_time" "$cur_sender" "$cur_text" >> "$msgs_file"
+                fi
+                cur_time="${BASH_REMATCH[1]}"
+                cur_sender="${BASH_REMATCH[2]}"
+                cur_text="${BASH_REMATCH[3]}"
+                have=1
+            elif [ -n "${line// /}" ] && [ $have -eq 1 ]; then
+                cur_text="$cur_text
+$line"
+            fi
+        done < "$file"
+        if [ $have -eq 1 ]; then
+            msg_json "$cur_time" "$cur_sender" "$cur_text" >> "$msgs_file"
+        fi
+    else
+        # 解析不出格式：整段当一条，sender 留空由后端拼正文。
+        jq -cn --rawfile t "$file" '{time:"", sender:"导出文本", text:$t}' >> "$msgs_file"
+    fi
+
+    [ -s "$msgs_file" ] || die "聊天记录解析后是空的：$file"
+    count=$(wc -l < "$msgs_file" | tr -d ' ')
+
+    payload=$(jq -cs --arg v "$VISIBILITY" '{messages: ., visibility:$v}' "$msgs_file")
+    resp=$(post_json "/api/projects/$PROJECT_ID/facts/chat" "$payload")
+    report "chat: $(basename "$file")（$count 条）" "$resp"
+}
+
+# --- 主流程 -----------------------------------------------------------------
+
+read_password
+login
+
+case "$SUBCMD" in
+    file) cmd_file "${POSITIONAL[@]:1}" ;;
+    note) cmd_note "${POSITIONAL[@]:1}" ;;
+    chat) cmd_chat "${POSITIONAL[@]:1}" ;;
+    *)    usage >&2; die "未知子命令：$SUBCMD（只有 file / note / chat）" ;;
+esac
+
+if [ "$FAILED" -gt 0 ]; then
+    printf '\n%s: %d 条失败\n' "$PROG" "$FAILED" >&2
+    exit 1
+fi
+printf '\n%s: 全部投递成功（project %s）\n' "$PROG" "$PROJECT_ID"
+exit 0
