@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,7 +51,7 @@ public class ProjectFactIntakeController {
 
     @Operation(summary = "上传本机文件", description = "落盘后写一条 FILE_UPLOAD 事实，同一文件重传不新增")
     @PostMapping("/files")
-    public Result<ProjectFact> upload(
+    public ResponseEntity<?> upload(
             @Parameter(description = "项目ID") @PathVariable Long projectId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "补充说明") @RequestParam(required = false) String note,
@@ -60,52 +61,52 @@ public class ProjectFactIntakeController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime occurredAt,
             @RequestAttribute("userId") Long userId) {
         if (!accessGuard.canWrite(userId, projectId)) {
-            return Result.error(403, NO_ACCESS);
+            return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
         if (file == null || file.isEmpty()) {
-            return Result.error(400, "文件不能为空");
+            return ResponseEntity.badRequest().body(Result.error(400, "文件不能为空"));
         }
         try (InputStream in = file.getInputStream()) {
-            return Result.success(intakeService.intakeFile(projectId, userId,
-                    file.getOriginalFilename(), in, note, visibility, occurredAt));
+            return ResponseEntity.ok(Result.success(intakeService.intakeFile(projectId, userId,
+                    file.getOriginalFilename(), in, note, visibility, occurredAt)));
         } catch (IllegalArgumentException e) {
-            return Result.error(400, e.getMessage());
+            return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
         } catch (IOException e) {
-            return Result.error(500, "文件保存失败: " + e.getMessage());
+            return ResponseEntity.status(500).body(Result.error(500, "文件保存失败: " + e.getMessage()));
         }
     }
 
     @Operation(summary = "投递补充说明", description = "每次都是一条新事实")
     @PostMapping("/notes")
-    public Result<ProjectFact> note(
+    public ResponseEntity<?> note(
             @Parameter(description = "项目ID") @PathVariable Long projectId,
             @RequestBody NoteRequest request,
             @RequestAttribute("userId") Long userId) {
         if (!accessGuard.canWrite(userId, projectId)) {
-            return Result.error(403, NO_ACCESS);
+            return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
         try {
-            return Result.success(intakeService.intakeNote(projectId, userId,
-                    request.title(), request.body(), request.visibility()));
+            return ResponseEntity.ok(Result.success(intakeService.intakeNote(projectId, userId,
+                    request.title(), request.body(), request.visibility())));
         } catch (IllegalArgumentException e) {
-            return Result.error(400, e.getMessage());
+            return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
         }
     }
 
     @Operation(summary = "投递聊天记录", description = "整段记录拼成一条事实，同一段重传不新增")
     @PostMapping("/chat")
-    public Result<ProjectFact> chat(
+    public ResponseEntity<?> chat(
             @Parameter(description = "项目ID") @PathVariable Long projectId,
             @RequestBody ProjectFactIntakeService.ChatRequest request,
             @RequestAttribute("userId") Long userId) {
         if (!accessGuard.canWrite(userId, projectId)) {
-            return Result.error(403, NO_ACCESS);
+            return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
         try {
-            return Result.success(intakeService.intakeChat(projectId, userId,
-                    request.messages(), request.visibility()));
+            return ResponseEntity.ok(Result.success(intakeService.intakeChat(projectId, userId,
+                    request.messages(), request.visibility())));
         } catch (IllegalArgumentException e) {
-            return Result.error(400, e.getMessage());
+            return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
         }
     }
 
@@ -113,15 +114,15 @@ public class ProjectFactIntakeController {
             description = "默认只返回文件/说明/聊天/制品四类；OWNER 仅投递人本人可见，"
                     + "PRIVATE_COMPANY 仅项目负责人/管理角色可见")
     @GetMapping
-    public Result<List<ProjectFact>> list(
+    public ResponseEntity<?> list(
             @Parameter(description = "项目ID") @PathVariable Long projectId,
             @Parameter(description = "来源类型，逗号分隔") @RequestParam(required = false) String types,
             @Parameter(description = "条数，默认 50") @RequestParam(required = false, defaultValue = "50") int limit,
             @RequestAttribute("userId") Long userId) {
         if (!accessGuard.canRead(userId, projectId)) {
-            return Result.error(403, NO_ACCESS);
+            return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
-        return Result.success(accessGuard.visibleFacts(userId, projectId,
-                intakeService.list(projectId, types, limit)));
+        return ResponseEntity.ok(Result.success(accessGuard.visibleFacts(userId, projectId,
+                intakeService.list(projectId, types, limit))));
     }
 }
