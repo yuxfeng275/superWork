@@ -519,7 +519,7 @@ export default function ProjectsPage() {
                       </div>
                     ) : null}
                     <Divider style={{ margin: '12px 0' }} />
-                    {canManage && (
+                    {/* 投递：所有登录成员可见可用；编辑/删除/子项目仍限 canManage */}
                       <Space>
                         <Button
                           type="link"
@@ -533,52 +533,57 @@ export default function ProjectsPage() {
                         >
                           投递
                         </Button>
-                        <Button
-                          type="link"
-                          size="small"
-                          icon={<PlusOutlined />}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openCreate(project);
-                          }}
-                        >
-                          子项目
-                        </Button>
-                        <Button
-                          type="link"
-                          size="small"
-                          icon={<EditOutlined />}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEdit(project);
-                          }}
-                        >
-                          编辑
-                        </Button>
-                        <Popconfirm
-                          title={`删除「${project.name}」吗？`}
-                          description={
-                            project.children?.length
-                              ? '存在子项目时后端会拒绝删除。'
-                              : undefined
-                          }
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                          onConfirm={() => void remove(project)}
-                        >
+                        {canManage && (
                           <Button
                             type="link"
-                            danger
                             size="small"
-                            icon={<DeleteOutlined />}
-                            onClick={(event) => event.stopPropagation()}
+                            icon={<PlusOutlined />}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openCreate(project);
+                            }}
                           >
-                            删除
+                            子项目
                           </Button>
-                        </Popconfirm>
+                        )}
+                        {canManage && (
+                          <>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEdit(project);
+                              }}
+                            >
+                              编辑
+                            </Button>
+                            <Popconfirm
+                              title={`删除「${project.name}」吗？`}
+                              description={
+                                project.children?.length
+                                  ? '存在子项目时后端会拒绝删除。'
+                                  : undefined
+                              }
+                              okText="删除"
+                              cancelText="取消"
+                              okButtonProps={{ danger: true }}
+                              onConfirm={() => void remove(project)}
+                            >
+                              <Button
+                                type="link"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </>
+                        )}
                       </Space>
-                    )}
                   </Card>
                 </Col>
               ))}
