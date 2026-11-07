@@ -155,6 +155,7 @@ export default function ProjectIntakeSection({
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // 投递箱只看投递物：后端不传 types 会返回全部来源，所以这里必须显式限定。
       const data = await superworkApi.listProjectFacts(projectId, {
         types: INTAKE_TYPES,
         limit: 50,

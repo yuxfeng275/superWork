@@ -305,7 +305,11 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void loadApproved();
   }, [loadApproved]);
-  /** 详情抽屉的证据：按 project_fact.id 回查同项目事实，失败只影响证据区。 */
+  /**
+   * 详情抽屉的证据：按 project_fact.id 回查同项目事实，失败只影响证据区。
+   * 故意不传 types：证据引用的多是 KEY_MATTER / WORKITEM / MEETING / EMAIL，
+   * 一旦传了投递箱那套 types 就会把证据全滤成「不可见或已删除」。
+   */
   const loadDetailFacts = useCallback(async (artifact: AiArtifact) => {
     const projectId = artifact.projectId;
     if (!projectId) {

@@ -39,11 +39,6 @@ public class ProjectFactIntakeService {
     /** 超过该大小的文件不抽正文，body 只放 note */
     private static final long TEXT_BODY_MAX_BYTES = 256 * 1024;
     private static final int DEFAULT_LIST_LIMIT = 50;
-    private static final List<String> DEFAULT_TYPES = List.of(
-            ProjectFactService.SOURCE_FILE_UPLOAD,
-            ProjectFactService.SOURCE_NOTE,
-            ProjectFactService.SOURCE_CHAT_EXPORT,
-            ProjectFactService.SOURCE_ARTIFACT);
 
     private static final Set<String> TEXT_EXTENSIONS = Set.of(
             "txt", "md", "csv", "json", "log", "yml", "yaml");
@@ -111,12 +106,19 @@ public class ProjectFactIntakeService {
         return factService.find(ProjectFactService.SOURCE_CHAT_EXPORT, sourceRef);
     }
 
-    /** 投递列表：types 为空时只看三条手工通道 + 制品。 */
+    /**
+     * 事实列表：<b>默认全部来源，不做类型过滤</b>；只有显式传了 types 才按传入的限定。
+     *
+     * <p>投递箱自己的口径（FILE_UPLOAD / NOTE / CHAT_EXPORT / ARTIFACT）由调用方显式传 types 表达，
+     * 别再在这里给通用查询设默认值——制品证据里被引用的事实大多是 KEY_MATTER / WORKITEM /
+     * MEETING / EMAIL，一旦默认收窄就会全被过滤成「不可见或已删除」。
+     * 可见性仍统一由 {@code ProjectFactPolicy} 判定，本方法不掺和权限口径。
+     */
     public List<ProjectFact> list(Long projectId, String types, int limit) {
         List<String> typeList = StringUtils.hasText(types)
                 ? Arrays.stream(types.split(",")).map(String::strip)
                         .filter(StringUtils::hasText).toList()
-                : DEFAULT_TYPES;
+                : null;
         return factService.query(projectId, typeList, null,
                 limit <= 0 ? DEFAULT_LIST_LIMIT : limit);
     }

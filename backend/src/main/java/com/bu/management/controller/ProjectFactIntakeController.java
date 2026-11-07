@@ -113,18 +113,23 @@ public class ProjectFactIntakeController {
         }
     }
 
-    @Operation(summary = "投递记录列表",
-            description = "默认只返回文件/说明/聊天/制品四类；OWNER 仅投递人本人可见，"
-                    + "PRIVATE_COMPANY 仅项目负责人/管理角色可见")
+    @Operation(summary = "项目事实列表",
+            description = "不传 types 时返回该项目全部可见来源（KEY_MATTER/WORKITEM/MEETING/EMAIL 等一并返回）；"
+                    + "投递箱自己传 types=FILE_UPLOAD,NOTE,CHAT_EXPORT,ARTIFACT 限定成只看投递物。"
+                    + "OWNER 仅投递人本人可见，PRIVATE_COMPANY 仅项目负责人/管理角色可见")
     @GetMapping
     public ResponseEntity<?> list(
             @Parameter(description = "项目ID") @PathVariable Long projectId,
-            @Parameter(description = "来源类型，逗号分隔") @RequestParam(required = false) String types,
+            @Parameter(description = "来源类型，逗号分隔；不传表示全部来源")
+            @RequestParam(required = false) String types,
             @Parameter(description = "条数，默认 50") @RequestParam(required = false, defaultValue = "50") int limit,
             @RequestAttribute("userId") Long userId) {
         if (!accessGuard.canRead(userId, projectId)) {
             return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
+        // 默认全部来源：这个接口同样服务于制品详情里的证据回查，那边的引用大多是
+        // KEY_MATTER / WORKITEM / MEETING / EMAIL。投递箱的口径由它自己传 types 限定，
+        // 不能在这里给通用查询设默认值，否则证据全被过滤成「不可见或已删除」。
         return ResponseEntity.ok(Result.success(factPolicy.visible(userId, projectId,
                 intakeService.list(projectId, types, limit))));
     }

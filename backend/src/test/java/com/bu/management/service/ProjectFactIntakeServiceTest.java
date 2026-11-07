@@ -22,10 +22,12 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -54,6 +56,15 @@ class ProjectFactIntakeServiceTest {
     /** 内存里的一条事实：模拟 dedupe_hash 唯一约束。 */
     private final AtomicReference<ProjectFact> stored = new AtomicReference<>();
     private final AtomicLong idSeq = new AtomicLong(100);
+
+    /** LambdaQueryWrapper 解列名要有表信息，纯单元测试里自己初始化一次。 */
+    @BeforeAll
+    static void initTableInfo() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new org.apache.ibatis.session.Configuration(), ""),
+                ProjectFact.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -139,6 +150,37 @@ class ProjectFactIntakeServiceTest {
 
         ProjectFact company = intakeService.intakeNote(11L, 3L, "内部口径", null, "PRIVATE_COMPANY");
         assertThat(company.getVisibility()).isEqualTo(ProjectFactService.VISIBILITY_COMPANY);
+    }
+
+    @Test
+    void listWithoutTypesDoesNotNarrowSourceType() {
+        when(factMapper.selectList(any())).thenReturn(List.of());
+
+        intakeService.list(11L, null, 50);
+
+        // 不传 types = 不过滤来源：KEY_MATTER / WORKITEM / MEETING / EMAIL 必须照样查得到，
+        // 否则制品详情里的证据会全变成「不可见或已删除」
+        assertThat(capturedQuerySegment()).doesNotContain("sourceType");
+    }
+
+    @Test
+    void listWithTypesFiltersToGivenSources() {
+        when(factMapper.selectList(any())).thenReturn(List.of());
+
+        intakeService.list(11L, "KEY_MATTER,WORKITEM", 50);
+
+        String segment = capturedQuerySegment();
+        assertThat(segment).contains("sourceType");
+        verify(factMapper, times(1)).selectList(any());
+    }
+
+    /** 取最近一次 selectList 的 where 片段，用来断言到底有没有按来源过滤。 */
+    private String capturedQuerySegment() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<ProjectFact>> captor =
+                ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(factMapper).selectList(captor.capture());
+        return captor.getValue().getSqlSegment();
     }
 
     @Test
