@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getAiAgentSessions: vi.fn(),
   getAiAgentModels: vi.fn(),
+  getAssistantModels: vi.fn(),
   getAiAgentConnectors: vi.fn(),
 }));
 
@@ -14,6 +15,7 @@ vi.mock('@/services/superwork/api', () => ({
   superworkApi: {
     getAiAgentSessions: mocks.getAiAgentSessions,
     getAiAgentModels: mocks.getAiAgentModels,
+    getAssistantModels: mocks.getAssistantModels,
     getAiAgentConnectors: mocks.getAiAgentConnectors,
   },
 }));
@@ -31,6 +33,7 @@ describe('AI assistant Ant Design X migration', () => {
       { id: 9, title: '工时分析', messageCount: 4 },
     ]);
     mocks.getAiAgentModels.mockResolvedValue([]);
+    mocks.getAssistantModels.mockResolvedValue([]);
     mocks.getAiAgentConnectors.mockResolvedValue([]);
   });
 

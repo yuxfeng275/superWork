@@ -211,7 +211,7 @@ export default function AiAssistantPage() {
       loadUsage(),
       loadSuggestions(),
       superworkApi
-        .getAiAgentModels()
+        .getAssistantModels()
         .then((list) => {
           setModels(list);
           if (list[0]) setSelectedModel(`${list[0].provider}:${list[0].model}`);

@@ -2527,6 +2527,10 @@ export const superworkApi = {
   getAiAgentModels() {
     return requestJson<AiAgentModelOption[]>("/api/ai-agent/models");
   },
+  /** 助手可用模型选项：登录即可读，普通成员不再因 system:config:edit 被 403。 */
+  getAssistantModels() {
+    return requestJson<AiAgentModelOption[]>("/api/ai/assistant/models");
+  },
   getAiAgentConnectors() {
     return requestJson<AiConnectorStatus[]>("/api/ai-agent/connectors");
   },
