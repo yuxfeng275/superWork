@@ -416,6 +416,11 @@ ports:
   - "13306:3306"   # 改为 13306
 ```
 
+### 夜间任务报 `失败：Stream ended without finish_reason`
+
+sidecar 里 `undici` 版本与 Node 22 内置 undici（6.28.x）冲突：装上 undici 8.x 后它会接管全局 dispatcher，原生 fetch 的响应体不再解压（`content-type=null`），SSE 流解析不出 `finish_reason` 而提前结束。
+根治办法是把 `ai-sidecar/package.json` 的 `undici` 锁死在 `6.28.1`（不带 `^`/`~`）并订阅 `package-lock.json`，重建 sidecar 镜像；不要在容器里临时 `npm i` 热修。
+
 ### 查看构建缓存 / 强制重建
 
 ```bash
