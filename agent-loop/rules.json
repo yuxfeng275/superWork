@@ -1,25 +1,33 @@
 {
+  "timezone": "Asia/Shanghai",
   "agents": {
     "huji": {
+      "name": "合拍项目自动化",
+      "worker": "opennclaw",
       "use": "command",
-      "program": "/opt/huji-agent/run-huji-agent.sh",
-      "cwd": "/opt/huji-agent"
+      "command": [
+        "/home/openclaw/huji-agent/run-huji-agent.sh",
+        "{prompt}"
+      ],
+      "program": "/home/openclaw/huji-agent/run-huji-agent.sh",
+      "access": "edit",
+      "timeout": 30
     }
   },
   "rules": [
     {
       "name": "皇家项目夜间扫描",
-      "when": { "cron": "0 22 * * MON-FRI" },
+      "when": { "cron": "0 22 * * 1-5" },
       "to": "huji",
-      "cwd": "/opt/huji-agent",
-      "prompt": "任务：为皇家项目准备明天的工作，产出制品并写晨报。步骤：1) 先调 project_facts 取该项目最近 3 天的事实（projectId 用系统提示词里给出的「目标项目 ID」，types 不填），这是唯一的证据来源；2) 从事实里挑出「需要方案 / 需要修复」的事：缺方案的报价、卡住的缺陷、未闭环的决议、有风险/受阻的大事、无人认领的待办；3) 对每一件调 save_artifact 产出制品：projectId 同 1)，title 写清是哪件事，kind 取 PLAN（需要方案）或 FIX_NOTE（需要修复说明），content 放可直接评审的正文，evidence 传这件事用到的 factId 组成的 JSON 数组字符串，如 [\"fact_12\",\"fact_18\"]；**无证据不要 save_artifact**——拿不出对应 factId 的事就不产出制品，宁可少写；4) 再调 save_daily_brief 把上述事情汇总进**明天**的晨报：briefDate 传明天的日期（YYYY-MM-DD，今晚 22:00 跑就传次日，否则次日 07:30 的推送会推空），projectId 同 1)，content 为 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}，最多 3 条，links 里带 /workbench（指向工作台的待评审卡）；5) 最后一行用一句话总结。证据不足就少写，不要编。"
+      "cwd": "/home/openclaw/huji-agent",
+      "prompt": "任务：为皇家项目准备明天的工作，产出制品并写晨报。步骤：1) 先调 project_facts 取该项目最近 3 天的事实（projectId 用系统提示词里给出的「目标项目 ID」，types 不填），这是唯一的证据来源；2) 从事实里挑出「需要方案 / 需要修复」的事：缺方案的报价、卡住的缺陷、未闭环的决议、有风险/受阻的大事、无人认领的待办；3) 对每一件调 save_artifact 产出制品：projectId 同 1)，title 写清是哪件事，kind 取 PLAN（需要方案）或 FIX_NOTE（需要修复说明），content 放可直接评审的正文，evidence 传这件事用到的 factId 组成的 JSON 数组字符串，如 [\"fact_12\",\"fact_18\"]；**无证据不要 save_artifact**——拿不出对应 factId 的事就不产出制品，宁可少写；4) 再调 save_daily_brief 把上述事情汇总进**明天**的晨报：briefDate 传系统提示词里给出的明天日期（不要自己算），projectId 同 1)，content 为 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}，最多 3 条，links 里带 /workbench（指向工作台的待评审卡）；5) 最后一行用一句话总结。证据不足就少写，不要编。"
     },
     {
       "name": "皇家项目晨报补发",
-      "when": { "cron": "0 0 7 * * MON-FRI" },
+      "when": { "cron": "0 7 * * 1-5" },
       "to": "huji",
-      "cwd": "/opt/huji-agent",
-      "prompt": "任务：检查今天是否已有晨报。1) 调 project_facts 取该项目最近 1 天的事实（projectId 用系统提示词里给出的「目标项目 ID」）；2) 核对今天是否已有晨报、昨晚是否已产出制品（save_artifact 的制品）；3) 若昨晚没有产出晨报（事实里有明显未处理项而晨报为空），补写一份最多 3 条的晨报并调 save_daily_brief（briefDate 传**今天**，projectId 同 1)），链接仍带 /workbench；若昨夜已有制品而晨报缺失，只补晨报，不要重复产出制品；4) 若晨报与制品都已存在，只回复「今日晨报已存在，无需补发」，不要重复写。"
+      "cwd": "/home/openclaw/huji-agent",
+      "prompt": "任务：检查今天是否已有晨报。1) 调 project_facts 取该项目最近 1 天的事实（projectId 用系统提示词里给出的「目标项目 ID」）；2) 核对今天是否已有晨报、昨晚是否已产出制品（save_artifact 的制品）；3) 若昨晚没有产出晨报（事实里有明显未处理项而晨报为空），补写一份最多 3 条的晨报并调 save_daily_brief（briefDate 传系统提示词里给出的今天日期，不要自己算；projectId 同 1)），链接仍带 /workbench；若昨夜已有制品而晨报缺失，只补晨报，不要重复产出制品；4) 若晨报与制品都已存在，只回复「今日晨报已存在，无需补发」，不要重复写。"
     }
   ]
 }

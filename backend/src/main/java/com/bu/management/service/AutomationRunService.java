@@ -49,13 +49,23 @@ public class AutomationRunService {
             + "产出：先用 save_daily_brief 写一份给当前用户的晨报（最多 3 条，每条含 title/why/links），"
             + "然后在最后一条回复里用一句话总结你写了什么。";
 
-    /** 把目标项目写进系统提示词：夜间无人可问，projectId 必须由调用方给定。 */
+    /**
+     * 把目标项目与「今天/明天」写进系统提示词：夜间无人可问，projectId 与日期都必须由调用方给定。
+     *
+     * <p>模型自己不知道今天是几号，只说「传明天的日期」时它会默认成今天，导致 07:30 的推送
+     * 读 brief_date=今天 时推空。所以在提示词里把日期算好写死，并明确「不要自己推算」。
+     */
     static String systemPrompt(Long projectId) {
         String scope = projectId != null && projectId > 0
                 ? "目标项目 ID = " + projectId + "：调 project_facts 必须用这个 projectId（不要猜、不要空着），"
                         + "save_daily_brief 也必须带同一个 projectId。"
                 : "本次未指定目标项目：不要猜测 projectId，save_daily_brief 不要传 projectId。";
-        return SYSTEM_PROMPT + scope;
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        java.time.LocalDate tomorrow = today.plusDays(1);
+        String dateRule = "当前日期：今天是 " + today + "，明天是 " + tomorrow + "（格式 YYYY-MM-DD）。"
+                + "晨报日期规则：夜间任务写的是「明天」的晨报，save_daily_brief 的 briefDate 一律传 " + tomorrow
+                + "；只有补写当天晨报时才传 " + today + "。不要自己推算日期。";
+        return SYSTEM_PROMPT + scope + dateRule;
     }
 
     private final AiModelConfigService modelConfigService;
