@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>合拍投递</string>
+    <key>CFBundleDisplayName</key>
+    <string>合拍·投递</string>
+    <key>CFBundleExecutable</key>
+    <string>HepaiDelivery</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.bu.hepai.delivery</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <!-- 菜单栏常驻：不显示 Dock 图标、不进 Cmd+Tab -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>BU Team · 合拍·投递</string>
+</dict>
+</plist>
