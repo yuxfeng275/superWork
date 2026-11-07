@@ -75,6 +75,9 @@ export default function ModelsPage() {
   const [remoteModels, setRemoteModels] = useState<string[]>([]);
   const [fetchingRemote, setFetchingRemote] = useState(false);
   const load = useCallback(async () => {
+    // 该组件可能被挂载在当前路由之外（如 /workbench），此时不拉取列表，
+    // 避免普通成员因缺少 system:config:edit 权限而触发 403。
+    if (!window.location.pathname.startsWith('/models')) return;
     setLoading(true);
     setError('');
     try {
