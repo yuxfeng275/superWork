@@ -3,6 +3,7 @@ package com.bu.management.controller;
 import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.service.AutomationRunService;
+import com.bu.management.service.ProjectBriefPushService;
 import com.bu.management.service.ProjectBriefService;
 import com.bu.management.service.ProjectFactIntakeService;
 import com.bu.management.service.ProjectFactService;
@@ -40,6 +41,7 @@ public class ProjectContextInternalController {
     private final ProjectFactService factService;
     private final ProjectFactIntakeService intakeService;
     private final ProjectBriefService briefService;
+    private final ProjectBriefPushService briefPushService;
     private final AutomationRunService automationRunService;
     private final ProjectContextProperties properties;
 
@@ -121,6 +123,17 @@ public class ProjectContextInternalController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
         }
+    }
+
+    /** 手动触发晨报推送（agent-autoloop / 运维脚本用）；date 缺省今天。返回成功推送条数。 */
+    @PostMapping("/internal/project-context/push")
+    public ResponseEntity<?> push(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            HttpServletRequest request) {
+        if (!tokenOk(request)) {
+            return ResponseEntity.status(401).body(Result.error(401, "invalid token"));
+        }
+        return ResponseEntity.ok(Result.success(briefPushService.pushDate(date)));
     }
 
     /** 未配置令牌（开发环境）直接放行；配置后做常量时间比对。 */

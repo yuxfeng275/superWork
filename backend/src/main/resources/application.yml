@@ -223,3 +223,11 @@ project:
 # 会议模块：录音本地存储根目录；ASR 连接参数与模块开关走系统配置组 meeting（连接器管理里配 LLM 凭据）
 meeting:
   storage-dir: ${MEETING_STORAGE_DIR:./data/meetings}
+
+# Bark（iOS 推送）：晨报在企微未配置/未绑定时的通道；device-key 只走环境变量，不入库不入仓库
+bark:
+  enabled: ${BARK_ENABLED:false}
+  server: ${BARK_SERVER:https://api.day.app}
+  device-key: ${BARK_DEVICE_KEY:}
+  group: ${BARK_GROUP:合拍}
+  sound: ${BARK_SOUND:}

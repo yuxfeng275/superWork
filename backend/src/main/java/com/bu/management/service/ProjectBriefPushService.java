@@ -3,6 +3,7 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.AiBrief;
 import com.bu.management.entity.EmailWeComMapping;
+import com.bu.management.integration.BarkClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.EmailWeComMappingMapper;
@@ -15,10 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 /**
- * 晨报站外到达：每天把「今天该做的事」按人推到企业微信（一人一条，不群发）。
+ * 晨报站外到达：每天把「今天该做的事」推到手机上（一人一条，不群发）。
  *
- * <p>口径与主动建议推送一致：未绑定企微不发；没配 app.public-base-url 不推死链；
- * 已送达的不重复发（brief.delivered_at）。
+ * <p>通道选择：该用户绑了企微 → 走企微；否则 Bark 已配置 → 走 Bark；两者都不可用不发。
+ * 没配 app.public-base-url 不推死链；已送达的不重复发（brief.delivered_at）。
  */
 @Slf4j
 @Service
@@ -29,6 +30,7 @@ public class ProjectBriefPushService {
     private final EmailWeComMappingMapper mappingMapper;
     private final ProjectBriefService briefService;
     private final WeComClient weComClient;
+    private final BarkClient barkClient;
 
     @Value("${app.public-base-url:}")
     private String publicBaseUrl;
@@ -56,13 +58,23 @@ public class ProjectBriefPushService {
         if (brief.getUserId() == null) {
             return false;
         }
+        // 通道 1：该用户绑了企微 → 原逻辑不变（企微未配置时这里自然走通道 2）
         String wecomUserId = wecomUserIdOf(brief.getUserId());
-        if (!StringUtils.hasText(wecomUserId)) {
-            return false;
+        if (StringUtils.hasText(wecomUserId)) {
+            weComClient.pushText(wecomUserId, render(brief));
+            briefService.markDelivered(brief.getId());
+            return true;
         }
-        weComClient.pushText(wecomUserId, render(brief));
-        briefService.markDelivered(brief.getId());
-        return true;
+        // 通道 2：Bark（iOS 推送）；title 固定，正文复用 render，详情链走 /workbench
+        if (barkClient.isConfigured()) {
+            String detailUrl = StringUtils.hasText(publicBaseUrl) ? publicBaseUrl + "/workbench" : null;
+            if (!barkClient.push("【今日安排】", render(brief), detailUrl)) {
+                return false;
+            }
+            briefService.markDelivered(brief.getId());
+            return true;
+        }
+        return false;
     }
 
     String render(AiBrief brief) {
