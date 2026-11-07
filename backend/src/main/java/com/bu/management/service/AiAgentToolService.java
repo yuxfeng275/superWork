@@ -394,8 +394,9 @@ public class AiAgentToolService {
     }
 
     /**
-     * 写制品：夜间产出的方案/补丁先落草稿进评审队列，状态恒为 DRAFT，白天人拍板。
+     * 写制品：夜间产出的方案/补丁落库后立刻自己送审（DRAFT → IN_REVIEW），白天人只做评审。
      * evidence 必须给全 project_fact.id，无证据的制品不允许入队（无证据不派活的下半句）。
+     * 自动送审失败不回退工具结果：制品仍是草稿，白天人可手动提交。
      */
     private AiAgentToolResult saveArtifact(Long userId, JsonNode args) {
         long projectId = args.path("projectId").asLong(0);
@@ -422,8 +423,17 @@ public class AiAgentToolService {
             AiArtifact artifact = aiArtifactService.create(userId, projectId,
                     new AiArtifactService.ArtifactCreateRequest(title, kind, content, evidence,
                             null, null, projectId, textArg(args, "taskId")));
+            String status = artifact.getStatus();
+            try {
+                AiArtifact submitted = aiArtifactService.submit(userId, artifact.getId());
+                if (submitted != null && submitted.getStatus() != null) {
+                    status = submitted.getStatus();
+                }
+            } catch (Exception e) {
+                log.warn("制品 {} 自动送审失败，保留草稿待人工提交：{}", artifact.getId(), e.getMessage());
+            }
             return new AiAgentToolResult("制品已入评审队列（id=" + artifact.getId()
-                    + "，kind=" + artifact.getKind() + "，状态 DRAFT）", false);
+                    + "，kind=" + artifact.getKind() + "，状态 " + status + "）", false);
         } catch (IllegalArgumentException e) {
             return new AiAgentToolResult(e.getMessage(), true);
         } catch (Exception e) {

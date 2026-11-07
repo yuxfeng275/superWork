@@ -22,7 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
  * AI 制品与评审队列：夜间产出的方案/补丁/修复说明在这里排队等拍板。
  *
  * <p>口径见 docs/project-agent-loop-plan.md §5.3：
- * 写操作（建草稿/提交/裁决/采纳）需 project:manage；读走 project:view。
+ * 读与「提交评审」走 project:view（提交只认产出人本人 + DRAFT/REJECTED，由 service 校验）；
+ * 建草稿/裁决/采纳才需 project:manage。
+ * 提交若也压 project:manage，SOLUTION_MANAGER 等产出人就永远送不出自己的草稿。
  * 所有 IllegalArgumentException 一律转 400，前端直接展示消息。
  */
 @Tag(name = "AI 制品与评审", description = "夜间产出的制品列表、提交评审、裁决与采纳回流")
@@ -79,7 +81,7 @@ public class AiArtifactController {
 
     @Operation(summary = "提交评审", description = "DRAFT/REJECTED → IN_REVIEW，仅产出人可提交")
     @PostMapping("/{id}/submit")
-    @RequirePermission({"project:manage"})
+    @RequirePermission({"project:view"})
     public Result<AiArtifact> submit(
             @RequestAttribute("userId") Long userId,
             @Parameter(description = "制品ID") @PathVariable Long id) {
