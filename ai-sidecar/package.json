@@ -12,8 +12,8 @@
     "test": "node --test dist/test/*.test.js"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.4",
-    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-agent-core": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
     "undici": "^8.11.0"
   },
   "devDependencies": {

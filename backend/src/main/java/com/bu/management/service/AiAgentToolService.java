@@ -1,7 +1,9 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.Issue;
+import com.bu.management.entity.ProjectFact;
 import com.bu.management.entity.Requirement;
 import com.bu.management.entity.Task;
 import com.bu.management.entity.WorkLog;
@@ -14,6 +16,7 @@ import com.bu.management.vo.AiAgentToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,6 +53,9 @@ public class AiAgentToolService {
     private final WeComCliToolService weComCliToolService;
     private final WeeklyReportService weeklyReportService;
     private final JevDecisionService jevDecisionService;
+    private final ProjectFactService projectFactService;
+    private final ProjectBriefService projectBriefService;
+    private final AiArtifactService aiArtifactService;
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -61,25 +67,50 @@ public class AiAgentToolService {
             "search_yuque_docs", "read_yuque_doc", "query_my_worktime");
 
     /**
+     * 夜间自动化运行可见的工具：项目事实 + 写晨报 + 只读查询。
+     * 发信、企微消息、待办、周报写入等对外/改状态的工具一律不下发。
+     */
+    static final Set<String> AUTOMATION_TOOLS = Set.of(
+            "project_facts", "save_daily_brief", "save_artifact",
+            "query_my_tasks", "query_my_requirements", "query_my_worklogs", "count_my_issues",
+            "weekly_report_facts");
+
+    /** 无人值守运行里允许绕过写门禁的工具：只能写给自己看、不触达外部。 */
+    static final Set<String> AUTOMATION_SAFE_WRITE_TOOLS = Set.of("save_daily_brief");
+
+    /**
      * 运行期 runId→userId 注册表；运行结束/超时后由控制器移除。
      */
     private final ConcurrentHashMap<String, Long> runUsers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> runMessages = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> runUnattended = new ConcurrentHashMap<>();
 
     public void registerRun(String runId, Long userId) {
         registerRun(runId, userId, null);
     }
 
     public void registerRun(String runId, Long userId, String userMessage) {
+        registerRun(runId, userId, userMessage, false);
+    }
+
+    /**
+     * 注册运行身份；unattended=true 表示「无人在场」（agent-autoloop 夜间任务），
+     * 这类运行有独立的工具白名单与门禁策略，见 {@link #AUTOMATION_TOOLS}。
+     */
+    public void registerRun(String runId, Long userId, String userMessage, boolean unattended) {
         runUsers.put(runId, userId);
         if (StringUtils.hasText(userMessage)) {
             runMessages.put(runId, userMessage);
+        }
+        if (unattended) {
+            runUnattended.put(runId, Boolean.TRUE);
         }
     }
 
     public void completeRun(String runId) {
         runUsers.remove(runId);
         runMessages.remove(runId);
+        runUnattended.remove(runId);
     }
 
     /**
@@ -117,11 +148,45 @@ public class AiAgentToolService {
                 objectSchema(Map.of(
                         "wecomSummary", stringProperty("企微智能总结内容，可选"),
                         "manualNotes", stringProperty("人为补充信息，可选")))));
+        defs.add(new AiAgentToolDefinition("project_facts",
+                "读取某个项目的统一事实（会议/邮件/云效工作项/大事儿），每条带出处，只能看到当前用户有权看的",
+                objectSchema(Map.of(
+                        "projectId", integerProperty("项目 ID，必填"),
+                        "types", stringProperty("来源过滤，逗号分隔：MEETING,EMAIL,WORKITEM,KEY_MATTER，可选"),
+                        "sinceDays", integerProperty("回看天数，默认 3，最大 30"),
+                        "limit", integerProperty("返回条数上限，默认 10，最大 50")))));
+        defs.add(new AiAgentToolDefinition("save_daily_brief",
+                "把今天该做的事写成当前用户的晨报（夜间跑完汇总用），一人一天一份，重复写入覆盖",
+                objectSchema(Map.of(
+                        "content", stringProperty("晨报正文 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}"),
+                        "projectId", integerProperty("项目 ID，可选；不传写跨项目总晨报"),
+                        "briefDate", stringProperty("晨报日期 YYYY-MM-DD，可选，默认今天；夜间为「明天」准备时必传明天"),
+                        "taskId", stringProperty("agent-autoloop 任务号，可选，用于回溯")))));
+        defs.add(new AiAgentToolDefinition("save_artifact",
+                "把夜间产出的制品（方案/补丁说明/修复说明/审查意见处理/清单）存成待评审草稿；"
+                        + "必须挂证据（project_fact.id 列表），无证据的制品不进评审队列",
+                objectSchema(Map.of(
+                        "projectId", integerProperty("项目 ID，必填"),
+                        "title", stringProperty("制品标题，必填"),
+                        "kind", stringProperty("制品类型，必填：PLAN/PATCH/FIX_NOTE/REVIEW_FIX/CHECKLIST"),
+                        "content", stringProperty("制品正文（方案正文/补丁说明/diff 摘要），必填"),
+                        "evidence", stringProperty("证据 JSON 数组字符串：project_fact.id 列表，如 [12,15]，必填"),
+                        "taskId", stringProperty("agent-autoloop 任务号，可选，用于回溯")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
         defs.addAll(weComCliToolService.definitions());
         return jevDecisionService.filterTools(decision, defs);
+    }
+
+    /**
+     * 夜间无人值守运行下发的工具白名单（代码护栏，不依赖提示词）。
+     * 与 {@link #execute} 里的运行时校验是双保险：即使侧车硬调白名单外的工具也会被拒。
+     */
+    public List<AiAgentToolDefinition> automationDefinitions() {
+        return definitions(null).stream()
+                .filter(tool -> AUTOMATION_TOOLS.contains(tool.name()))
+                .toList();
     }
 
     /**
@@ -138,10 +203,17 @@ public class AiAgentToolService {
             if (args == null || !args.isObject()) {
                 args = objectMapper.createObjectNode();
             }
-            JevDecisionService.WriteGate gate = jevDecisionService.gateWrite(
-                    toolName, runMessages.get(runId), args.toString());
-            if (!gate.allow()) {
-                return new AiAgentToolResult(gate.reason(), true);
+            boolean unattended = Boolean.TRUE.equals(runUnattended.get(runId));
+            if (unattended && !AUTOMATION_TOOLS.contains(toolName)) {
+                return new AiAgentToolResult("夜间无人值守运行不允许调用该工具：" + toolName, true);
+            }
+            // 无人值守运行里只有「写给自己」的工具免门禁；人在对话中的写操作照旧过 Jev 门禁。
+            if (!unattended || !AUTOMATION_SAFE_WRITE_TOOLS.contains(toolName)) {
+                JevDecisionService.WriteGate gate = jevDecisionService.gateWrite(
+                        toolName, runMessages.get(runId), args.toString());
+                if (!gate.allow()) {
+                    return new AiAgentToolResult(gate.reason(), true);
+                }
             }
             return switch (toolName) {
                 case "query_my_tasks" -> queryMyTasks(userId, args);
@@ -150,6 +222,9 @@ public class AiAgentToolService {
                 case "count_my_issues" -> countMyIssues(userId, args);
                 case "weekly_report_facts" -> weeklyReportFacts(args);
                 case "weekly_report_input" -> weeklyReportInput(args);
+                case "project_facts" -> projectFacts(userId, args);
+                case "save_daily_brief" -> saveDailyBrief(userId, args);
+                case "save_artifact" -> saveArtifact(userId, args);
                 default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
                         : emailActionToolService.handles(toolName)
@@ -249,6 +324,111 @@ public class AiAgentToolService {
         Long count = issueMapper.selectCount(query);
         String scope = StringUtils.hasText(status) ? "（状态：" + status + "）" : "";
         return new AiAgentToolResult("当前用户（ID=" + userId + "）共有 " + count + " 条事项" + scope, false);
+    }
+
+    /** 项目事实：按当前用户可见性过滤后返回；正文只给摘要，原文不进上下文。 */
+    private AiAgentToolResult projectFacts(Long userId, JsonNode args) {
+        long projectId = args.path("projectId").asLong(0);
+        if (projectId <= 0) {
+            return new AiAgentToolResult("缺少 projectId", true);
+        }
+        List<String> types = new ArrayList<>();
+        String raw = textArg(args, "types");
+        if (StringUtils.hasText(raw)) {
+            for (String part : raw.split(",")) {
+                if (StringUtils.hasText(part)) {
+                    types.add(part.strip().toUpperCase());
+                }
+            }
+        }
+        int days = Math.min(Math.max(args.path("sinceDays").asInt(3), 1), 30);
+        List<ProjectFact> facts = projectFactService.queryForAgent(userId, projectId, types,
+                LocalDateTime.now().minusDays(days), limit(args));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ProjectFact fact : facts) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("factId", fact.getId());
+            row.put("source", fact.getSourceType());
+            row.put("ref", fact.getSourceRef());
+            row.put("happenedAt", fact.getHappenedAt());
+            row.put("title", fact.getTitle());
+            row.put("digest", fact.getDigest());
+            row.put("visibility", fact.getVisibility());
+            rows.add(row);
+        }
+        try {
+            return new AiAgentToolResult(objectMapper.writeValueAsString(Map.of("facts", rows)), false);
+        } catch (Exception e) {
+            return new AiAgentToolResult("项目事实序列化失败：" + e.getMessage(), true);
+        }
+    }
+
+    /**
+     * 写晨报：只写当前用户自己那份；重复写覆盖当天，不会刷屏。
+     *
+     * <p>briefDate 可显式指定：夜间规则 22:00 写的是「明天」的晨报，
+     * 次日 07:30 推送按 brief_date=当天 精确匹配——两边必须落在同一天，否则永远推空。
+     */
+    private AiAgentToolResult saveDailyBrief(Long userId, JsonNode args) {
+        String content = textArg(args, "content");
+        if (!StringUtils.hasText(content)) {
+            return new AiAgentToolResult("content 不能为空", true);
+        }
+        LocalDate briefDate = LocalDate.now();
+        String rawDate = textArg(args, "briefDate");
+        if (StringUtils.hasText(rawDate)) {
+            try {
+                briefDate = LocalDate.parse(rawDate.strip());
+            } catch (DateTimeParseException e) {
+                return new AiAgentToolResult("briefDate 格式无效，应为 YYYY-MM-DD", true);
+            }
+        }
+        try {
+            long projectId = args.path("projectId").asLong(0);
+            Long id = projectBriefService.save(userId, projectId <= 0 ? null : projectId,
+                    briefDate, content, textArg(args, "taskId"));
+            return new AiAgentToolResult("晨报已保存（id=" + id + "，日期 " + briefDate + "）", false);
+        } catch (Exception e) {
+            return new AiAgentToolResult("晨报保存失败：" + e.getMessage(), true);
+        }
+    }
+
+    /**
+     * 写制品：夜间产出的方案/补丁先落草稿进评审队列，状态恒为 DRAFT，白天人拍板。
+     * evidence 必须给全 project_fact.id，无证据的制品不允许入队（无证据不派活的下半句）。
+     */
+    private AiAgentToolResult saveArtifact(Long userId, JsonNode args) {
+        long projectId = args.path("projectId").asLong(0);
+        if (projectId <= 0) {
+            return new AiAgentToolResult("缺少 projectId", true);
+        }
+        String title = textArg(args, "title");
+        String kind = textArg(args, "kind");
+        String content = textArg(args, "content");
+        String evidence = textArg(args, "evidence");
+        if (!StringUtils.hasText(title)) {
+            return new AiAgentToolResult("title 不能为空", true);
+        }
+        if (!StringUtils.hasText(kind)) {
+            return new AiAgentToolResult("kind 不能为空（PLAN/PATCH/FIX_NOTE/REVIEW_FIX/CHECKLIST）", true);
+        }
+        if (!StringUtils.hasText(content)) {
+            return new AiAgentToolResult("content 不能为空", true);
+        }
+        if (!StringUtils.hasText(evidence)) {
+            return new AiAgentToolResult(AiArtifactService.EVIDENCE_REQUIRED, true);
+        }
+        try {
+            AiArtifact artifact = aiArtifactService.create(userId, projectId,
+                    new AiArtifactService.ArtifactCreateRequest(title, kind, content, evidence,
+                            null, null, projectId, textArg(args, "taskId")));
+            return new AiAgentToolResult("制品已入评审队列（id=" + artifact.getId()
+                    + "，kind=" + artifact.getKind() + "，状态 DRAFT）", false);
+        } catch (IllegalArgumentException e) {
+            return new AiAgentToolResult(e.getMessage(), true);
+        } catch (Exception e) {
+            return new AiAgentToolResult("制品保存失败：" + e.getMessage(), true);
+        }
     }
 
     private String textArg(JsonNode args, String name) {

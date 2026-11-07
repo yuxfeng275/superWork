@@ -37,6 +37,7 @@ import {
   superworkApi,
   type UserRecord,
 } from '@/services/superwork/api';
+import ProjectGitRepoSection from './ProjectGitRepoSection';
 import '../workbench/style.less';
 import './style.less';
 
@@ -770,6 +771,19 @@ export default function ProjectsPage() {
                     />
                   </List.Item>
                 )}
+              />
+            </div>
+            <Divider />
+            <div className="sw-drawer-section">
+              <div className="sw-drawer-section-title">
+                <Typography.Title level={5}>代码仓库</Typography.Title>
+                <Typography.Text type="secondary">
+                  夜间代码类任务的落点
+                </Typography.Text>
+              </div>
+              <ProjectGitRepoSection
+                projectId={drawerProject.id}
+                canManage={canManage}
               />
             </div>
             <Divider />

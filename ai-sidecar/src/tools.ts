@@ -1,4 +1,18 @@
-import { Type, type TSchema } from "typebox";
+import {
+  type Optional,
+  type Schema,
+  arr,
+  bool,
+  int,
+  lit,
+  nul,
+  num,
+  obj,
+  opt,
+  str,
+  union,
+  unknown as unknownSchema,
+} from "@earendil-works/pi-schema";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 /**
@@ -90,15 +104,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stringOptions(schema: Record<string, unknown>): Record<string, unknown> {
+type StrOptions = NonNullable<Parameters<typeof str>[0]>;
+type NumOptions = NonNullable<Parameters<typeof num>[0]>;
+
+function stringOptions(schema: Record<string, unknown>): StrOptions {
   const opts: Record<string, unknown> = {};
   for (const key of ["description", "minLength", "maxLength", "pattern", "format", "default"] as const) {
     if (schema[key] !== undefined) opts[key] = schema[key];
   }
-  return opts;
+  return opts as StrOptions;
 }
 
-function numberOptions(schema: Record<string, unknown>): Record<string, unknown> {
+function numberOptions(schema: Record<string, unknown>): NumOptions {
   const opts: Record<string, unknown> = {};
   for (const key of [
     "description",
@@ -114,10 +131,10 @@ function numberOptions(schema: Record<string, unknown>): Record<string, unknown>
   return opts;
 }
 
-function literalUnion(values: unknown[], schema: Record<string, unknown>): TSchema {
-  const literals = values.map((v) => Type.Literal(v as string | number | boolean));
+function literalUnion(values: unknown[], schema: Record<string, unknown>): Schema {
+  const literals = values.map((v) => lit(v as string | number | boolean | null));
   const description = schema.description !== undefined ? { description: schema.description as string } : undefined;
-  return Type.Union(literals, description ?? {});
+  return union(literals, description ?? {});
 }
 
 /**
@@ -128,16 +145,16 @@ function literalUnion(values: unknown[], schema: Record<string, unknown>): TSche
  * actually emits (object/array/string/number/integer/boolean/null, enum,
  * const, required, additionalProperties, common constraints).
  * `additionalProperties` defaults to `true` (the JSON-schema default), unlike
- * TypeBox's strict default. Anything unsupported degrades to
- * `Type.Unknown()` (JSON schema `{}`).
+ * pi-schema's `obj()` default (closed). Anything unsupported degrades to
+ * `unknown()` (JSON schema `{}`).
  */
-export function jsonSchemaToTypeBox(schema: unknown, depth = 0): TSchema {
+export function jsonSchemaToTypeBox(schema: unknown, depth = 0): Schema {
   if (depth > MAX_SCHEMA_DEPTH || !isRecord(schema)) {
-    return Type.Unknown();
+    return unknownSchema();
   }
 
   if (schema.const !== undefined) {
-    return Type.Literal(schema.const as string | number | boolean);
+    return lit(schema.const as string | number | boolean);
   }
   if (Array.isArray(schema.enum)) {
     return literalUnion(schema.enum, schema);
@@ -150,7 +167,7 @@ export function jsonSchemaToTypeBox(schema: unknown, depth = 0): TSchema {
     type === "object" ||
     (type === undefined && ("properties" in schema || "required" in schema || "additionalProperties" in schema))
   ) {
-    const properties: Record<string, TSchema> = {};
+    const properties: Record<string, Schema | Optional> = {};
     if (isRecord(schema.properties)) {
       for (const [key, sub] of Object.entries(schema.properties)) {
         properties[key] = jsonSchemaToTypeBox(sub, depth + 1);
@@ -161,26 +178,27 @@ export function jsonSchemaToTypeBox(schema: unknown, depth = 0): TSchema {
     );
     for (const key of Object.keys(properties)) {
       if (!required.has(key)) {
-        properties[key] = Type.Optional(properties[key]);
+        properties[key] = opt(properties[key] as Schema);
       }
     }
     const extra = schema.additionalProperties;
-    let additionalProperties: boolean | TSchema = true; // JSON-schema default
-    if (extra === false) {
-      additionalProperties = false;
-    } else if (isRecord(extra)) {
-      additionalProperties = jsonSchemaToTypeBox(extra, depth + 1);
-    }
-    return Type.Object(properties, {
-      additionalProperties,
+    const objOptions: Record<string, unknown> = {
+      // JSON-schema defaults to "anything goes"; pi-schema's obj() is closed.
+      open: true,
       ...(description ?? {}),
       ...(schema.minProperties !== undefined ? { minProperties: schema.minProperties as number } : {}),
       ...(schema.maxProperties !== undefined ? { maxProperties: schema.maxProperties as number } : {}),
-    });
+    };
+    if (extra === false) {
+      objOptions.open = false;
+    } else if (isRecord(extra)) {
+      objOptions.additionalProperties = jsonSchemaToTypeBox(extra, depth + 1);
+    }
+    return obj(properties, objOptions as never);
   }
 
   if (type === "array") {
-    return Type.Array(jsonSchemaToTypeBox(schema.items ?? {}, depth + 1), {
+    return arr(jsonSchemaToTypeBox(schema.items ?? {}, depth + 1), {
       ...(description ?? {}),
       ...(schema.minItems !== undefined ? { minItems: schema.minItems as number } : {}),
       ...(schema.maxItems !== undefined ? { maxItems: schema.maxItems as number } : {}),
@@ -189,26 +207,26 @@ export function jsonSchemaToTypeBox(schema: unknown, depth = 0): TSchema {
 
   switch (type) {
     case "string":
-      return Type.String(stringOptions(schema));
+      return str(stringOptions(schema));
     case "number":
-      return Type.Number(numberOptions(schema));
+      return num(numberOptions(schema));
     case "integer":
-      return Type.Integer(numberOptions(schema));
+      return int(numberOptions(schema));
     case "boolean":
-      return Type.Boolean(description ?? {});
+      return bool(description ?? {});
     case "null":
-      return Type.Null();
+      return nul();
     default:
       break;
   }
 
   if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
-    return Type.Union(schema.anyOf.map((s) => jsonSchemaToTypeBox(s, depth + 1)));
+    return union(schema.anyOf.map((s) => jsonSchemaToTypeBox(s, depth + 1)));
   }
   if (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
-    return Type.Union(schema.oneOf.map((s) => jsonSchemaToTypeBox(s, depth + 1)));
+    return union(schema.oneOf.map((s) => jsonSchemaToTypeBox(s, depth + 1)));
   }
-  return Type.Unknown();
+  return unknownSchema();
 }
 
 /**

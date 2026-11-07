@@ -12,6 +12,7 @@
 | 会议纪要 | 会议 `/meetings` | asr-worker + 摘要模型 | 转写 → LLM 纪要（summary/decisions/risks/todos，带 segmentRef 溯源）→ DRAFT 待办 |
 | 邮件 AI | 邮件管理 `/emails` | 摘要模型 | 分组（LLM）、单封「AI 解读」、每日摘要（LLM 失败回落规则生成） |
 | Jev 决策层 | 无独立入口 | typesafe 连接器 + 决策模型 | 意图分类收窄工具集 + 写操作门禁（回信/转任务/发企微等） |
+| 项目智能体闭环（M0+M1） | 无独立入口（机器入口 `/internal/project-context/run`，评审在工作台） | ai-sidecar + agent-autoloop + 企微 | 夜间自动干活、次日分发：`project_fact` 事实层 + `project_facts`/`save_daily_brief`/`save_artifact` 工具 + 制品与评审（DRAFT→submit→IN_REVIEW→decide→APPROVED/REJECTED→apply 回流事实）+ 07:30 晨报推送；方案见 [project-agent-loop-plan.md](project-agent-loop-plan.md)，接入包见 `agent-loop/` |
 
 ## 二、摘要模型兜底（2026-10-22 起）
 

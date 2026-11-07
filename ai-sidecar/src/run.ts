@@ -1,7 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createModels, createProvider } from "@earendil-works/pi-ai";
+import {
+  Agent,
+  type AgentEvent,
+  type AgentMessage,
+  type AgentTool,
+  type ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
+import { createModels, createProvider, type Api, type MutableModels } from "@earendil-works/pi-ai";
 import type { FetchFunction, Message, Model } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
 import { buildAgentTools, type RequestedTool } from "./tools.js";
@@ -41,6 +48,8 @@ export interface RunRequest {
   toolCallbackUrl?: string;
   /** HTTP CONNECT 前代（如 http://mihomo:7890），用于出口被墙的提供方（如 api.b.ai）；空 = 直连 */
   proxy?: string;
+  /** 会话 id：同会话续跑时传给 pi Agent，供 provider 的提示词缓存命中。 */
+  sessionId?: string;
 }
 
 /** Java-persisted AgentMessage JSON; treated as an opaque structure. */
@@ -141,6 +150,9 @@ export function validateRunRequest(body: unknown): ValidationResult {
   if (body.proxy !== undefined && typeof body.proxy !== "string") {
     return { ok: false, message: "proxy must be a string" };
   }
+  if (body.sessionId !== undefined && typeof body.sessionId !== "string") {
+    return { ok: false, message: "sessionId must be a string" };
+  }
 
   return {
     ok: true,
@@ -156,6 +168,7 @@ export function validateRunRequest(body: unknown): ValidationResult {
       tools,
       toolCallbackUrl,
       proxy: body.proxy as string | undefined,
+      sessionId: body.sessionId as string | undefined,
     },
   };
 }
@@ -187,6 +200,8 @@ export interface AgentFactoryInput {
   toolCallbackUrl?: string;
   /** HTTP CONNECT 前代；非空时提供方请求走代理 fetch */
   proxy?: string;
+    /** 会话 id（可空）；有值时透传给 pi Agent 供 provider 缓存命中。 */
+  sessionId?: string;
 }
 
 /** 构造走 HTTP CONNECT 前代的 fetch（undici ProxyAgent），proxy 为空返回 undefined = 直连。 */
@@ -198,6 +213,16 @@ function proxyFetchFor(proxy?: string): FetchFunction | undefined {
 }
 
 export type AgentFactory = (input: AgentFactoryInput) => AgentLike;
+
+/** Provider id (as sent by Java) -> pi-ai catalog provider id. */
+const CATALOG_PROVIDER_ALIASES: Record<string, string> = { zhipu: "zai" };
+
+/**
+ * Output-token ceiling for models the pi-ai catalog does not know. Kept
+ * deliberately below any official 1M-window model's real maxTokens so a
+ * fallback never asks for more than the provider will grant.
+ */
+export const FALLBACK_MAX_TOKENS = 16_384;
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
@@ -268,16 +293,129 @@ function makeOpenAICompletionsModel(provider: string, baseUrl: string, id: strin
       xhigh: "xhigh",
       max: "max",
     },
+    // Fallback-only values: a custom/baseUrl-overridden model that the pi-ai
+    // catalog does not know about. Prices stay 0 here on purpose — a model we
+    // have no official price for must not contribute invented cost numbers to
+    // ai_agent_usage; the catalog branch in resolveModelDefinition() supplies
+    // the real cost/capabilities whenever the model is a known one.
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
-    maxTokens: 8192,
+    maxTokens: FALLBACK_MAX_TOKENS,
     compat: {
       supportsDeveloperRole: false,
       supportsReasoningEffort: false,
       maxTokensField: "max_tokens",
     },
   };
+}
+
+/**
+ * pi-ai's official model catalog, built lazily (the generated catalog is a
+ * large module, so it is only loaded on the first run). `null` marks a failed
+ * build so we never retry the import on every request.
+ */
+let catalogModels: MutableModels | null | undefined;
+
+function piCatalog(): MutableModels | null {
+  if (catalogModels === undefined) {
+    try {
+      catalogModels = builtinModels();
+    } catch {
+      catalogModels = null;
+    }
+  }
+  return catalogModels;
+}
+
+/**
+ * Look up a model in pi-ai's official catalog.
+ *
+ * The backend's provider ids are our own (`zhipu`); pi-ai catalogues the same
+ * endpoint under `zai`, hence the alias. Returns undefined for any model the
+ * catalog does not ship (relays, private deployments, new ids).
+ */
+export function catalogModelFor(provider: string, modelId: string): Model<Api> | undefined {
+  const catalog = piCatalog();
+  if (!catalog) return undefined;
+  const candidates = CATALOG_PROVIDER_ALIASES[provider] === undefined
+    ? [provider]
+    : [provider, CATALOG_PROVIDER_ALIASES[provider]];
+  for (const providerId of candidates) {
+    const found = catalog.getModel(providerId, modelId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * Model definition used for a run: the catalog entry's real `cost`,
+ * `contextWindow`, `maxTokens`, `input` and `reasoning` when pi-ai knows the
+ * model, otherwise the conservative hand-written fallback above. Prices are
+ * never invented locally — a catalog miss reports 0 rather than a guess.
+ */
+export function resolveModelDefinition(
+  provider: string,
+  baseUrl: string,
+  modelId: string,
+): Model<"openai-completions"> {
+  const fallback = makeOpenAICompletionsModel(provider, baseUrl, modelId);
+  const catalogModel = catalogModelFor(provider, modelId);
+  if (!catalogModel) return fallback;
+  return {
+    ...fallback,
+    name: catalogModel.name,
+    cost: catalogModel.cost,
+    contextWindow: catalogModel.contextWindow,
+    maxTokens: catalogModel.maxTokens,
+    input: catalogModel.input,
+    reasoning: catalogModel.reasoning,
+  };
+}
+
+/**
+ * Char budget for the transcript sent to the provider. DeepSeek's 1M-token
+ * window still dies on a request the API rejects for size, and the sidecar's
+ * only other guard is the 200-message cap, so very long sessions are pruned
+ * here instead of failing the run.
+ */
+export const MAX_CONTEXT_CHARS = 400_000;
+/** Number of trailing messages that pruneMessages() always keeps. */
+export const PRUNE_KEEP_TAIL = 10;
+
+function messageChars(message: AgentMessage): number {
+  try {
+    return JSON.stringify(message)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Drop the oldest user/assistant turns until the transcript fits `maxChars`.
+ *
+ * System messages (prompt + tool declarations) and the last PRUNE_KEEP_TAIL
+ * messages are never dropped, so the current question and its tool results
+ * always survive. Pure so it can be unit-tested.
+ */
+export function pruneMessages(
+  messages: AgentMessage[],
+  maxChars: number = MAX_CONTEXT_CHARS,
+): AgentMessage[] {
+  let total = 0;
+  for (const message of messages) total += messageChars(message);
+  if (total <= maxChars) return messages;
+
+  const prunableTail = Math.max(0, messages.length - PRUNE_KEEP_TAIL);
+  const dropped = new Set<number>();
+  for (let i = 0; i < prunableTail && total > maxChars; i += 1) {
+    const role = messages[i].role;
+    if (role !== "user" && role !== "assistant") continue; // keep system/toolResult
+    dropped.add(i);
+    total -= messageChars(messages[i]);
+  }
+  if (dropped.size === 0) return messages;
+  return messages.filter((_message, index) => !dropped.has(index));
 }
 
 /**
@@ -300,7 +438,7 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
         }),
       },
     },
-    models: [makeOpenAICompletionsModel(input.provider, input.baseUrl, input.model)],
+    models: [resolveModelDefinition(input.provider, input.baseUrl, input.model)],
     api: openAICompletionsApi(),
   });
   models.setProvider(provider);
@@ -324,11 +462,17 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
       messages,
       tools: input.tools,
     },
-    streamFn: (modelArg, context, options) =>
+    // Only forwarded when the caller has a durable session id: it is what
+      // lets the provider cache-reuse the replayed transcript prefix.
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      streamFn: (modelArg, context, options) =>
       models.streamSimple(modelArg, context, {
-        ...options,
-        fetch: proxyFetchFor(input.proxy) ?? options?.fetch,
-      }),
+          ...options,
+          fetch: proxyFetchFor(input.proxy) ?? options?.fetch,
+        }),
+    // Guard against a transcript the provider would reject outright.
+    transformContext: async (messages: AgentMessage[]): Promise<AgentMessage[]> =>
+      pruneMessages(messages, MAX_CONTEXT_CHARS),
     convertToLlm: (msgs: AgentMessage[]): Message[] =>
       msgs.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult") as unknown as Message[],
   });
@@ -578,6 +722,7 @@ async function streamRunEvents(ctx: StreamRunContext, res: ServerResponse, cb: S
       token: ctx.token,
       toolCallbackUrl: params.toolCallbackUrl,
       proxy: params.proxy,
+      sessionId: params.sessionId,
     });
   } catch (error) {
     agentCreationError = errorMessageText(error);

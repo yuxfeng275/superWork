@@ -162,6 +162,8 @@ docker compose down -v
 > ```
 >
 > Flyway 在后端启动时自动应用新迁移（含菜单/权限 SQL）。
+>
+> 注意：上面的 rsync 带 `--exclude="/docker/"`，**`/docker/` 目录不同步**——241 上的 `docker-compose.241.yml` 需手动保持同步（改了 compose 就必须单独 scp 过去）。跑 compose 时必须带 `PROJECT_CONTEXT_TOKEN`（值存在 241 的 `/opt/huji-agent/token`），否则 `/internal/project-context/**` 裸奔。
 
 ### 数据目录（241 宿主）
 
@@ -255,6 +257,34 @@ docker/
 │   └── data/     ← 对象存储文件
 └── asr-models/   ← 会议转写模型缓存（首次启动自动下载）
 ```
+
+---
+
+### 项目智能体闭环（agent-loop / 晨报）
+
+「夜间写晨报 → 次日 07:30 推企微」这条链路的相关配置，默认值写在 `application.yml`，环境变量名见第三列。
+
+| 配置项 | 默认值 | 环境变量 / 作用 |
+|--------|--------|----------------|
+| `project-context.token` | 空 | `PROJECT_CONTEXT_TOKEN`。`/internal/project-context/**` 的 `X-Sidecar-Token` 校验值；**为空 = 不校验内部端点，仅限本地开发**，生产必须设置，且与 agent-loop 的 `HUJI_TOKEN`、侧车 `SIDECAR_TOKEN` 用同一个值 |
+| `project-context.max-source-rows` | 200 | `PROJECT_CONTEXT_MAX_SOURCE_ROWS`。单次汇入每个来源最多拉取行数（防首次汇入被历史数据淹没） |
+| `project.fact.ingest-enabled` | true | `PROJECT_FACT_INGEST_ENABLED`。项目事实层定时汇入开关（会议/邮件/云效工作项/大事儿 → `project_fact`） |
+| `project.fact.ingest-cron` | `0 */30 * * * *` | `PROJECT_FACT_INGEST_CRON`。汇入周期（Asia/Shanghai） |
+| `project.fact.ingest-hours` | 6 | `PROJECT_FACT_INGEST_HOURS`。每次回看小时数 |
+| `project.brief.push-enabled` | true | `PROJECT_BRIEF_PUSH_ENABLED`。晨报推送开关（未绑定企微不推、未配 `app.public-base-url` 不推死链、`delivered_at` 非空不重复推） |
+| `project.brief.push-cron` | `0 30 7 * * MON-FRI` | `PROJECT_BRIEF_PUSH_CRON`。晨报推送时间（Asia/Shanghai） |
+
+日期口径（不遵守就推空）：
+
+- 夜间规则 22:00 调 `save_daily_brief` 必须传 `briefDate=明天`；
+- 晨报补发规则在 **07:00**，写 `briefDate=今天`；
+- 07:30 推送读 `brief_date=今天`。
+
+`/internal/project-context/run` 在**模型管理里没有可用助手模型时返回 400**（预期行为：不配模型 key 就不会真的调模型）。
+
+端到端自检：`agent-loop/smoke.sh`（四步：事实汇入 → 事实读取 → 写晨报 → 登录态读晨报），用法与预期输出见 `agent-loop/SMOKE.md`。
+
+> 241 上需把 `PROJECT_CONTEXT_TOKEN` 等变量传给 backend 容器（`docker/docker-compose.241.yml` 的 backend `environment`），否则内部端点在生产是裸奔状态。
 
 ---
 

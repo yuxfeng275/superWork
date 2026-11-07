@@ -81,6 +81,8 @@ public class SecurityConfig {
                         ).permitAll()
                         // 允许访问健康检查
                         .requestMatchers("/internal/ai-agent/**").permitAll()
+                        // agent-autoloop 读取项目事实 / 回写晨报：同样靠 X-Sidecar-Token 校验
+                        .requestMatchers("/internal/project-context/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         // 其他所有请求需要认证
                         .anyRequest().authenticated()

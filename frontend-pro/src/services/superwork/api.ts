@@ -141,6 +141,34 @@ export interface ProjectMember {
   role: string;
 }
 
+/** 项目绑定的 HTTPS 代码仓库（夜间代码类任务的落点）。 */
+export interface ProjectGitRepo {
+  id: number;
+  projectId: number;
+  name?: string;
+  repoUrl: string;
+  defaultBranch?: string;
+  workDir?: string;
+  agent?: string;
+  credentialRef?: string;
+  /** 1 = 启用，0 = 停用 */
+  enabled: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 保存（新增/更新）项目仓库绑定：不传 id 为新增，传 id 为更新。 */
+export interface ProjectGitRepoSavePayload {
+  id?: number;
+  name?: string;
+  repoUrl: string;
+  defaultBranch?: string;
+  workDir?: string | null;
+  agent?: string;
+  credentialRef?: string | null;
+  enabled?: boolean;
+}
+
 export interface CustomerContact {
   id: number;
   projectId: number;
@@ -494,6 +522,48 @@ export interface AiNotice {
   read?: boolean;
   createdAt?: string;
   [key: string]: unknown;
+}
+/** 晨报里的一条安排（AiBrief.content 内嵌 items 的元素）。 */
+export interface AiBriefItem {
+  title: string;
+  why?: string;
+  links?: string[];
+}
+/** AI 晨报（夜间任务生成）；content 为 JSON 字符串，形如 {"items":[...]}。 */
+export interface AiBrief {
+  id: number;
+  userId: number;
+  projectId?: number | null;
+  briefDate: string;
+  content?: string | null;
+  sourceTask?: string | null;
+  deliveredAt?: string | null;
+  createdAt?: string;
+}
+/** AI 制品：夜间 agent 产出、白天人评审（方案 / 补丁 / 修复说明 / 清单等）。 */
+export interface AiArtifact {
+  id: number;
+  projectId?: number | null;
+  /** 产出者（夜间运行注册的身份） */
+  ownerUserId?: number | null;
+  /** agent-autoloop 任务号，回溯用 */
+  taskId?: string | null;
+  /** PLAN / PATCH / FIX_NOTE / REVIEW_FIX / CHECKLIST */
+  kind?: string;
+  title: string;
+  content?: string | null;
+  /** JSON：project_fact.id 列表，无证据不许进评审 */
+  evidence?: string | null;
+  repoId?: number | null;
+  branch?: string | null;
+  /** DRAFT / IN_REVIEW / APPROVED / REJECTED / APPLIED */
+  status?: string;
+  /** 驳回原因（REJECTED 必填） */
+  rejectReason?: string | null;
+  reviewerId?: number | null;
+  decidedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 export interface EmailAccount {
   configured: boolean;
@@ -2370,6 +2440,29 @@ export const superworkApi = {
   getAiAgentUsage() {
     return requestJson<AiAgentUsageSummary>("/api/ai-agent/usage");
   },
+  /** 我的晨报；date 传 YYYY-MM-DD，缺省按今天取。 */
+  getMyBriefs(date?: string) {
+    return requestJson<AiBrief[]>(`/api/ai-briefs${query({ date })}`);
+  },
+  /** 待我评审的制品（他人产出的）；评审队列传 status=IN_REVIEW。 */
+  getMyReviews(status?: string) {
+    return requestJson<AiArtifact[]>(
+      `/api/ai-artifacts/my-reviews${query({ status })}`
+    );
+  },
+  /** 评审裁决：approve=false 时必须带原因。 */
+  decideArtifact(id: number, approve: boolean, reason?: string) {
+    return requestJson<AiArtifact>(`/api/ai-artifacts/${id}/decide`, {
+      method: "POST",
+      body: JSON.stringify({ approve, reason }),
+    });
+  },
+  /** 采纳已通过的制品：APPROVED → APPLIED，并回写一条项目事实。 */
+  applyArtifact(id: number) {
+    return requestJson<AiArtifact>(`/api/ai-artifacts/${id}/apply`, {
+      method: "POST",
+    });
+  },
   getAiProactiveSuggestions() {
     return requestJson<AiProactiveSuggestion[]>("/api/ai-agent/proactive");
   },
@@ -3085,6 +3178,27 @@ export const superworkApi = {
   removeProjectMember(projectId: number, userId: number) {
     return requestJson<void>(
       `/api/project-members?projectId=${projectId}&userId=${userId}`,
+      { method: "DELETE" }
+    );
+  },
+  /** 项目下全部仓库绑定（含停用）；权限 project:view。 */
+  listProjectGitRepos(projectId: number) {
+    return requestJson<ProjectGitRepo[]>(`/api/projects/${projectId}/git-repos`);
+  },
+  /** 新增（payload.id 为空）或更新（payload.id 非空）；权限 project:manage。 */
+  saveProjectGitRepo(
+    projectId: number,
+    payload: ProjectGitRepoSavePayload
+  ) {
+    return requestJson<ProjectGitRepo>(
+      `/api/projects/${projectId}/git-repos`,
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+  },
+  /** 解绑；权限 project:manage。 */
+  deleteProjectGitRepo(projectId: number, id: number) {
+    return requestJson<void>(
+      `/api/projects/${projectId}/git-repos/${id}`,
       { method: "DELETE" }
     );
   },

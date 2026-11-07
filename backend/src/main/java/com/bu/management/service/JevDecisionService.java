@@ -32,7 +32,12 @@ public class JevDecisionService {
             "weekly_report_input",
             "wecom_send_message",
             "wecom_create_todo",
-            "wecom_finish_todo");
+            "wecom_finish_todo",
+            "save_daily_brief",
+            "save_artifact");
+
+    /** 自动化任务依赖的工具：任何意图下都保留，否则夜间任务会被意图收窄掐死。 */
+    static final Set<String> ALWAYS_TOOLS = Set.of("project_facts", "save_daily_brief", "save_artifact");
 
     private static final Map<String, Set<String>> INTENT_TOOLS = Map.of(
             "hours", Set.of(
@@ -148,6 +153,7 @@ public class JevDecisionService {
         }
         return tools.stream()
                 .filter(tool -> allowed.contains(tool.name())
+                        || ALWAYS_TOOLS.contains(tool.name())
                         || (decision.writeLikely() && WRITE_TOOLS.contains(tool.name())))
                 .toList();
     }

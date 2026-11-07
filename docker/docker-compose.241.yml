@@ -82,6 +82,8 @@ services:
       AI_SIDECAR_URL: http://ai-sidecar:8787
       AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
       AI_SIDECAR_TOOL_CALLBACK_URL: http://backend:8081/internal/ai-agent/tools
+      PROJECT_CONTEXT_TOKEN: ${PROJECT_CONTEXT_TOKEN:-}
+      PROJECT_BRIEF_PUSH_ENABLED: ${PROJECT_BRIEF_PUSH_ENABLED:-true}
       JWT_SECRET: ${JWT_SECRET:-superwork-bu-management-server-241-change-me}
       YUNXIAO_ENABLED: ${YUNXIAO_ENABLED:-false}
       YUNXIAO_EDITION: ${YUNXIAO_EDITION:-center}

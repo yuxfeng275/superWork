@@ -4,6 +4,15 @@ import { createServer, request, type IncomingMessage, type Server, type ServerRe
 import { createSidecarServer } from "../server.js";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AgentFactory, AgentFactoryInput, AgentLike } from "../run.js";
+import {
+  FALLBACK_MAX_TOKENS,
+  MAX_CONTEXT_CHARS,
+  PRUNE_KEEP_TAIL,
+  buildPiAgent,
+  catalogModelFor,
+  pruneMessages,
+  resolveModelDefinition,
+} from "../run.js";
 import { callRemoteTool, buildAgentTools } from "../tools.js";
 
 /** Minimal scripted agent: replays canned events, then returns. */
@@ -447,6 +456,137 @@ describe("buildAgentTools", () => {
     });
     await assert.rejects(failing[0].execute("call-2", {}), /bad tool/);
     stub.close();
+  });
+});
+
+describe("pruneMessages", () => {
+  function systemMessage(text: string): AgentMessage {
+    return { role: "system", content: text, timestamp: 0 } as unknown as AgentMessage;
+  }
+
+  function turnMessage(role: "user" | "assistant", text: string, timestamp: number): AgentMessage {
+    return role === "user"
+      ? ({ role, content: [{ type: "text", text }], timestamp } as unknown as AgentMessage)
+      : ({
+          role,
+          content: [{ type: "text", text }],
+          api: "openai-completions",
+          provider: "deepseek",
+          model: "deepseek-flash",
+          usage: {
+            input: 1,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 2,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp,
+        } as unknown as AgentMessage);
+  }
+
+  it("keeps system messages and the newest tail, dropping the oldest turns", () => {
+    const system = systemMessage("system prompt");
+    const messages: AgentMessage[] = [system];
+    for (let i = 0; i < 100; i += 1) {
+      messages.push(turnMessage(i % 2 === 0 ? "user" : "assistant", "x".repeat(1000), i + 1));
+    }
+
+    const pruned = pruneMessages(messages, 20_000);
+    assert.ok(pruned.length < messages.length, "expected the transcript to be shortened");
+    assert.equal(pruned[0], system, "system message must survive pruning");
+    assert.deepEqual(pruned.slice(-PRUNE_KEEP_TAIL), messages.slice(-PRUNE_KEEP_TAIL));
+    assert.ok(!pruned.includes(messages[1]), "the oldest turn must be dropped first");
+    // Already fits now, so a second pass is a no-op.
+    assert.equal(pruneMessages(pruned, 20_000), pruned);
+  });
+
+  it("leaves a transcript untouched when it fits or holds nothing but the tail", () => {
+    const messages: AgentMessage[] = [
+      systemMessage("sys"),
+      turnMessage("user", "hi", 1),
+      turnMessage("assistant", "hello", 2),
+    ];
+    assert.equal(pruneMessages(messages), messages); // default budget: unchanged
+    assert.deepEqual(pruneMessages(messages, 1), messages); // nothing prunable outside the tail
+    assert.ok(MAX_CONTEXT_CHARS > 0);
+  });
+});
+
+describe("model definition resolution", () => {
+  it("uses catalog cost/capabilities and only falls back for unknown models", () => {
+    const catalogModel = catalogModelFor("deepseek", "deepseek-flash");
+    const resolved = resolveModelDefinition("deepseek", "https://api.deepseek.com", "deepseek-flash");
+
+    if (catalogModel) {
+      assert.deepEqual(resolved.cost, catalogModel.cost);
+      assert.ok(
+        resolved.cost.input > 0 || resolved.cost.output > 0,
+        `catalog cost must not be all zero: ${JSON.stringify(resolved.cost)}`,
+      );
+      assert.equal(resolved.contextWindow, catalogModel.contextWindow);
+      assert.equal(resolved.maxTokens, catalogModel.maxTokens);
+      assert.deepEqual(resolved.input, catalogModel.input);
+      assert.ok(resolved.maxTokens > 8192, "catalog maxTokens must beat the old 8k cap");
+      assert.ok(resolved.contextWindow > 200_000, "catalog contextWindow must beat the old 200k cap");
+    } else {
+      // No catalog data available in this environment: conservative fallback.
+      assert.deepEqual(resolved.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      assert.deepEqual(resolved.input, ["text"]);
+      assert.equal(resolved.maxTokens, FALLBACK_MAX_TOKENS);
+    }
+
+    // Unknown model ids always take the fallback path, never invented prices.
+    const unknown = resolveModelDefinition("deepseek", "https://api.deepseek.com", "not-a-catalog-model");
+    assert.deepEqual(unknown.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    assert.deepEqual(unknown.input, ["text"]);
+    assert.equal(unknown.maxTokens, FALLBACK_MAX_TOKENS);
+  });
+});
+
+describe("sessionId", () => {
+  it("reaches the Agent constructor and the agent factory", async () => {
+    const agent = buildPiAgent({
+      runId: "run-1",
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "sk-test",
+      model: "deepseek-flash",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: "hi", timestamp: 1 }],
+      tools: [],
+      sessionId: "sess-42",
+    }) as unknown as { sessionId?: string };
+    assert.equal(agent.sessionId, "sess-42");
+
+    const withoutSession = buildPiAgent({
+      runId: "run-2",
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "sk-test",
+      model: "deepseek-flash",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: "hi", timestamp: 1 }],
+      tools: [],
+    }) as unknown as { sessionId?: string };
+    assert.equal(withoutSession.sessionId, undefined);
+
+    // And the HTTP body value survives validation into the factory input.
+    let seen: AgentFactoryInput | undefined;
+    const server = createSidecarServer({
+      createAgent: (input: AgentFactoryInput) => {
+        seen = input;
+        return new FakeAgent([]);
+      },
+    });
+    await listen(server);
+    const res = await post(server, "/v1/runs", validBody({ sessionId: "sess-http" }), {
+      "Content-Type": "application/json",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(seen?.sessionId, "sess-http");
+    server.close();
   });
 });
 

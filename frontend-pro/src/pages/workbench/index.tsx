@@ -14,6 +14,9 @@ import {
   Button,
   Card,
   Empty,
+  Input,
+  message,
+  Modal,
   Skeleton,
   Space,
   Statistic,
@@ -23,6 +26,9 @@ import {
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  type AiArtifact,
+  type AiBrief,
+  type AiBriefItem,
   type QuotationListVO,
   type Requirement,
   type SalesOpportunity,
@@ -55,6 +61,22 @@ const riskMatter = ['有风险', '已阻塞'];
 const progressingOpp = ['初步接触', '需求确认', '方案报价', '商务谈判'];
 const asList = <T,>(value: T[] | { records?: T[] } | undefined): T[] =>
   Array.isArray(value) ? value : value?.records || [];
+/** 晨报 content 是 JSON 字符串（{"items":[{title,why,links}]}），坏数据当空处理。 */
+const parseBriefItems = (content?: string | null): AiBriefItem[] => {
+  if (!content) return [];
+  try {
+    const parsed = JSON.parse(content) as
+      | { items?: AiBriefItem[] }
+      | AiBriefItem[];
+    const items = Array.isArray(parsed) ? parsed : parsed?.items;
+    return Array.isArray(items)
+      ? items.filter((item) => Boolean(item?.title))
+      : [];
+  } catch {
+    return [];
+  }
+};
+const isHttpUrl = (url: string) => /^https?:\/\//i.test(url);
 const count = (value: unknown) => Number(value || 0);
 const reqTone = (status?: string) => {
   if (deliveredReq.includes(status || '')) return 'success';
@@ -75,6 +97,14 @@ const oppTone = (status?: string) => {
   if (status === '方案报价' || status === '商务谈判') return 'warning';
   return 'processing';
 };
+/** 制品类型的中文叫法；后端新增类型时回退原值，不空白。 */
+const artifactKindLabel: Record<string, string> = {
+  PLAN: '方案',
+  PATCH: '补丁',
+  FIX_NOTE: '修复说明',
+  REVIEW_FIX: '审查意见处理',
+  CHECKLIST: '清单',
+};
 
 export default function WorkbenchPage() {
   const { initialState } = useModel('@@initialState');
@@ -84,6 +114,15 @@ export default function WorkbenchPage() {
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
   const [suggestionStats, setSuggestionStats] = useState<AiProactiveStats>();
+  const [briefs, setBriefs] = useState<AiBrief[]>([]);
+  const [briefLoading, setBriefLoading] = useState(true);
+  const [briefError, setBriefError] = useState('');
+  const [reviews, setReviews] = useState<AiArtifact[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(true);
+  const [reviewError, setReviewError] = useState('');
+  const [decidingId, setDecidingId] = useState<number | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<AiArtifact | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -172,8 +211,88 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void loadSuggestions();
   }, [loadSuggestions]);
+  /** 晨报独立拉取：失败只在本卡内提示，不影响工作台其它内容。 */
+  const loadBriefs = useCallback(async () => {
+    setBriefLoading(true);
+    setBriefError('');
+    try {
+      const result = await superworkApi.getMyBriefs(
+        dayjs().format('YYYY-MM-DD'),
+      );
+      // 空结果时后端可能返回 data=null，兜底成数组，别让下面的 flatMap 崩掉整页。
+      setBriefs(Array.isArray(result) ? result : []);
+    } catch {
+      setBriefs([]);
+      setBriefError('晨报暂时拉取不到，稍后点重试即可，其它内容不受影响。');
+    } finally {
+      setBriefLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadBriefs();
+  }, [loadBriefs]);
+  /** 待我评审独立拉取：失败只在本卡内提示，不影响工作台其它内容。 */
+  const loadReviews = useCallback(async () => {
+    setReviewLoading(true);
+    setReviewError('');
+    try {
+      const result = await superworkApi.getMyReviews('IN_REVIEW');
+      // 空队列时后端可能返回 data=null，兜底成数组，别让渲染崩掉整页。
+      setReviews(Array.isArray(result) ? result : []);
+    } catch {
+      setReviews([]);
+      setReviewError('评审队列暂时拉取不到，稍后点重试即可，其它内容不受影响。');
+    } finally {
+      setReviewLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadReviews();
+  }, [loadReviews]);
+  /** 裁决：成功后本地移除该条，失败只弹提示，不动其它数据。 */
+  const decideArtifact = useCallback(
+    async (artifact: AiArtifact, approve: boolean, reason?: string) => {
+      setDecidingId(artifact.id);
+      try {
+        await superworkApi.decideArtifact(artifact.id, approve, reason);
+        setReviews((current) =>
+          current.filter((item) => item.id !== artifact.id),
+        );
+        message.success(approve ? '已通过' : '已驳回');
+        return true;
+      } catch (e) {
+        message.error(
+          e instanceof Error ? e.message : '评审操作失败，请稍后重试',
+        );
+        return false;
+      } finally {
+        setDecidingId(null);
+      }
+    },
+    [],
+  );
+  const submitReject = useCallback(async () => {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      message.error('驳回原因必填，写清原因产出人才能返工');
+      return;
+    }
+    const done = await decideArtifact(rejectTarget, false, reason);
+    if (done) {
+      setRejectTarget(null);
+      setRejectReason('');
+    }
+  }, [decideArtifact, rejectReason, rejectTarget]);
+  const briefItems = useMemo(
+    () =>
+      briefs
+        .flatMap((brief) => parseBriefItems(brief.content))
+        .slice(0, 3),
+    [briefs],
+  );
   /** 去做：标记已处理并带着提示词进助手页（输入框已填好，回车即成任务）。 */
-  const useSuggestion = (suggestion: AiProactiveSuggestion) => {
+  const applySuggestion = (suggestion: AiProactiveSuggestion) => {
     setSuggestions((current) =>
       current.filter((item) => item.id !== suggestion.id),
     );
@@ -383,7 +502,7 @@ export default function WorkbenchPage() {
                     size="small"
                     type="primary"
                     ghost
-                    onClick={() => useSuggestion(suggestion)}
+                    onClick={() => applySuggestion(suggestion)}
                   >
                     去做
                   </Button>
@@ -409,6 +528,119 @@ export default function WorkbenchPage() {
           </div>
         </Card>
       )}
+      <Card variant="borderless" className="sw-workbench-brief" title="今日安排（AI 晨报）">
+        {briefLoading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : briefError ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="晨报没加载出来"
+            description={briefError}
+            action={
+              <Button size="small" onClick={() => void loadBriefs()}>
+                重试
+              </Button>
+            }
+          />
+        ) : briefItems.length ? (
+          <ul className="sw-recent-list">
+            {briefItems.map((item) => (
+              <li
+                className="sw-recent-item"
+                key={`${item.title}|${item.why || ''}`}
+              >
+                <div className="sw-recent-meta">
+                  <Typography.Text strong>{item.title}</Typography.Text>
+                  {item.why && (
+                    <Typography.Text type="secondary">
+                      {item.why}
+                    </Typography.Text>
+                  )}
+                  {(item.links || []).filter(isHttpUrl).map((url) => (
+                    <a
+                      className="sw-workbench-brief-link"
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {url}
+                    </a>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty description="今天还没有晨报，夜间任务跑完会自动生成" />
+        )}
+      </Card>
+      <Card
+        variant="borderless"
+        className="sw-workbench-review"
+        title="待我评审"
+        extra={
+          <Typography.Text type="secondary">
+            夜间产出的方案/补丁等，拍板后才会回流
+          </Typography.Text>
+        }
+      >
+        {reviewLoading ? (
+          <Skeleton active paragraph={{ rows: 3 }} />
+        ) : reviewError ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="评审队列没加载出来"
+            description={reviewError}
+            action={
+              <Button size="small" onClick={() => void loadReviews()}>
+                重试
+              </Button>
+            }
+          />
+        ) : reviews.length ? (
+          <ul className="sw-recent-list">
+            {reviews.slice(0, 5).map((artifact) => (
+              <li className="sw-recent-item" key={artifact.id}>
+                <div className="sw-recent-meta">
+                  <Typography.Text strong>{artifact.title}</Typography.Text>
+                  <Tag color="blue">
+                    {artifactKindLabel[artifact.kind || ''] ||
+                      artifact.kind ||
+                      '制品'}
+                  </Tag>
+                </div>
+                <Space size={4}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    ghost
+                    loading={decidingId === artifact.id}
+                    onClick={() => void decideArtifact(artifact, true)}
+                  >
+                    通过
+                  </Button>
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    onClick={() => {
+                      setRejectTarget(artifact);
+                      setRejectReason('');
+                    }}
+                  >
+                    驳回
+                  </Button>
+                </Space>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty description="暂无待评审制品" />
+        )}
+      </Card>
       <div className="sw-workbench-kpis">
         {kpis.map((stat) => (
           <Link className="sw-workbench-kpi" to={stat.to} key={stat.label}>
@@ -575,7 +807,25 @@ export default function WorkbenchPage() {
             </div>
           </Card>
         </aside>
-      </div>
+        </div>
+      <Modal
+        open={Boolean(rejectTarget)}
+        title={`驳回：${rejectTarget?.title || ''}`}
+        okText="确认驳回"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        confirmLoading={decidingId !== null}
+        onCancel={() => setRejectTarget(null)}
+        onOk={() => void submitReject()}
+      >
+        <Input.TextArea
+          rows={3}
+          maxLength={500}
+          value={rejectReason}
+          placeholder="写清驳回原因，产出人据此返工（必填）"
+          onChange={(e) => setRejectReason(e.target.value)}
+        />
+      </Modal>
     </div>
   );
 }

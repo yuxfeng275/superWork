@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   getKeyMatters: vi.fn(),
   getSalesOpportunities: vi.fn(),
   getQuotations: vi.fn(),
+  getMyBriefs: vi.fn(),
+  getMyReviews: vi.fn(),
+  decideArtifact: vi.fn(),
+  applyArtifact: vi.fn(),
 }));
 
 const navigateMock = vi.fn();
@@ -38,6 +42,10 @@ vi.mock('@/services/superwork/api', () => ({
     getKeyMatters: mocks.getKeyMatters,
     getSalesOpportunities: mocks.getSalesOpportunities,
     getQuotations: mocks.getQuotations,
+    getMyBriefs: mocks.getMyBriefs,
+      getMyReviews: mocks.getMyReviews,
+    decideArtifact: mocks.decideArtifact,
+    applyArtifact: mocks.applyArtifact,
   },
 }));
 
@@ -105,6 +113,10 @@ describe('WorkbenchPage smoke', () => {
     mocks.getQuotations.mockResolvedValue([
       { id: 88, quotationNo: 'QT-001', status: 'DRAFT' },
     ]);
+    mocks.getMyBriefs.mockResolvedValue([]);
+    mocks.getMyReviews.mockResolvedValue([]);
+    mocks.decideArtifact.mockResolvedValue({ id: 1, status: 'APPROVED' });
+    mocks.applyArtifact.mockResolvedValue({ id: 1, status: 'APPLIED' });
   });
 
   it('renders cross-module kpis, queues and shortcuts from live functions', async () => {
@@ -145,5 +157,58 @@ describe('WorkbenchPage smoke', () => {
     expect(
       shortcutLinks.getByRole('link', { name: /BU 驾驶舱/ }),
     ).toHaveAttribute('href', '/statistics');
+  });
+
+  it('renders today brief card with at most three items and external links', async () => {
+    mocks.getMyBriefs.mockResolvedValue([
+      {
+        id: 1,
+        userId: 7,
+        briefDate: '2026-09-01',
+        content: JSON.stringify({
+          items: [
+            {
+              title: '先回飞鹤报价邮件',
+              why: '客户今天等方案',
+              links: ['https://example.com/quotations/88'],
+            },
+            { title: '确认结算对账上线窗口', why: '需求已待上线' },
+            { title: '跟接口联调进度', why: '任务已逾期' },
+            { title: '第四条不该出现', why: '超出三条' },
+          ],
+        }),
+      },
+    ]);
+
+    render(<WorkbenchPage />);
+
+    expect(await screen.findByText('今日安排（AI 晨报）')).toBeInTheDocument();
+    expect(await screen.findByText('先回飞鹤报价邮件')).toBeInTheDocument();
+    expect(screen.getByText('客户今天等方案')).toBeInTheDocument();
+    expect(screen.queryByText('第四条不该出现')).toBeNull();
+    expect(
+      screen.getByRole('link', { name: 'https://example.com/quotations/88' }),
+    ).toHaveAttribute('href', 'https://example.com/quotations/88');
+  });
+
+  it('renders pending artifact reviews with kind labels and decide buttons', async () => {
+    mocks.getMyReviews.mockResolvedValue([
+      { id: 31, kind: 'PLAN', title: '会员中心改版方案', status: 'IN_REVIEW' },
+      { id: 32, kind: 'PATCH', title: '修复对账空值', status: 'IN_REVIEW' },
+    ]);
+
+    render(<WorkbenchPage />);
+
+    expect(await screen.findByText('待我评审')).toBeInTheDocument();
+    expect(await screen.findByText('会员中心改版方案')).toBeInTheDocument();
+    expect(screen.getByText('方案')).toBeInTheDocument();
+    expect(screen.getByText('补丁')).toBeInTheDocument();
+    // antd Button 会在两个汉字之间插空格，故用正则匹配。
+    expect(
+      screen.getAllByRole('button', { name: /通\s*过/ }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole('button', { name: /驳\s*回/ }).length,
+    ).toBeGreaterThan(0);
   });
 });
