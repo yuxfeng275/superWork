@@ -3,10 +3,13 @@ package com.bu.management.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.entity.ProjectFact;
 import com.bu.management.service.ProjectFactAccessGuard;
 import com.bu.management.service.ProjectFactIntakeService;
+import com.bu.management.service.ProjectFactPolicy;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,12 +36,13 @@ class ProjectFactIntakeControllerTest {
 
     @Mock private ProjectFactIntakeService intakeService;
     @Mock private ProjectFactAccessGuard accessGuard;
+    @Mock private ProjectFactPolicy factPolicy;
 
     private ProjectFactIntakeController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ProjectFactIntakeController(intakeService, accessGuard);
+        controller = new ProjectFactIntakeController(intakeService, accessGuard, factPolicy);
         when(accessGuard.canWrite(anyLong(), anyLong())).thenReturn(false);
         when(accessGuard.canRead(anyLong(), anyLong())).thenReturn(false);
     }
@@ -73,6 +77,22 @@ class ProjectFactIntakeControllerTest {
     void listRejectsWith403() {
         ResponseEntity<?> response = controller.list(PROJECT_ID, null, 50, STRANGER_ID);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("列表可见性走统一策略，不再在控制器里自己过滤")
+    void listUsesSharedPolicy() {
+        when(accessGuard.canRead(PROJECT_ID, PROJECT_ID)).thenReturn(true);
+        ProjectFact visible = new ProjectFact();
+        visible.setId(1L);
+        List<ProjectFact> listed = List.of(visible, new ProjectFact());
+        when(intakeService.list(PROJECT_ID, null, 50)).thenReturn(listed);
+        when(factPolicy.visible(PROJECT_ID, PROJECT_ID, listed)).thenReturn(List.of(visible));
+
+        ResponseEntity<?> response = controller.list(PROJECT_ID, null, 50, PROJECT_ID);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        verify(factPolicy).visible(PROJECT_ID, PROJECT_ID, listed);
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.bu.management.annotation.RequirePermission;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.service.ProjectFactAccessGuard;
 import com.bu.management.service.ProjectFactIntakeService;
+import com.bu.management.service.ProjectFactPolicy;
 import com.bu.management.vo.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,6 +45,8 @@ public class ProjectFactIntakeController {
 
     private final ProjectFactIntakeService intakeService;
     private final ProjectFactAccessGuard accessGuard;
+    /** 可见性口径的唯一真源：与 AI 工具用同一份实现，别再在这里自己拼过滤。 */
+    private final ProjectFactPolicy factPolicy;
 
     /** 投递说明体。 */
     public record NoteRequest(String title, String body, String visibility) {
@@ -122,7 +125,7 @@ public class ProjectFactIntakeController {
         if (!accessGuard.canRead(userId, projectId)) {
             return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
         }
-        return ResponseEntity.ok(Result.success(accessGuard.visibleFacts(userId, projectId,
+        return ResponseEntity.ok(Result.success(factPolicy.visible(userId, projectId,
                 intakeService.list(projectId, types, limit))));
     }
 }

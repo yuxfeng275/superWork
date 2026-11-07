@@ -44,6 +44,7 @@ class ProjectFactIntakeServiceTest {
     @Mock private EmailMessageMapper emailMessageMapper;
     @Mock private YunxiaoWorkitemCacheMapper workitemCacheMapper;
     @Mock private BuKeyMatterMapper keyMatterMapper;
+    @Mock private ProjectFactAccessGuard projectFactAccessGuard;
 
     @TempDir Path tempDir;
 
@@ -62,7 +63,8 @@ class ProjectFactIntakeServiceTest {
         properties.setMaxSourceRows(50);
         storage = new ProjectFactStorage(properties);
         ProjectFactService factService = new ProjectFactService(factMapper, projectMapper,
-                meetingMapper, emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties);
+                meetingMapper, emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties,
+                new ProjectFactPolicy(projectFactAccessGuard));
         intakeService = new ProjectFactIntakeService(factService, storage);
 
         when(factMapper.insert(any(ProjectFact.class))).thenAnswer(inv -> {

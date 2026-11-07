@@ -2,7 +2,6 @@ package com.bu.management.service;
 
 import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.Project;
-import com.bu.management.entity.ProjectFact;
 import com.bu.management.entity.SysRole;
 import com.bu.management.mapper.ProjectMapper;
 import java.util.List;
@@ -11,7 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * 项目事实的读写准入 + 可见性过滤。
+ * 项目事实的读写准入（只管「能不能进这个项目」；具体哪条事实谁能看，见 {@link ProjectFactPolicy}）。
  *
  * <p>投递入口（文件 / 说明 / 聊天）不得裸奔：{@code project:view} 只说明「登录且能看项目」，
  * 具体某个项目还要求下列任一成立：
@@ -55,30 +54,6 @@ public class ProjectFactAccessGuard {
             return false;
         }
         return userId.equals(project.getManagerId()) || hasAdminRole(userId);
-    }
-
-    /**
-     * 按可见性过滤事实：PROJECT 永远可见；OWNER 仅投递人本人；
-     * PRIVATE_COMPANY 仅管理者（项目负责人 / 管理角色）。
-     */
-    public List<ProjectFact> visibleFacts(Long userId, Long projectId, List<ProjectFact> facts) {
-        if (facts == null || facts.isEmpty()) {
-            return facts;
-        }
-        boolean manager = isProjectManager(userId, projectId);
-        return facts.stream().filter(fact -> visible(fact, userId, manager)).toList();
-    }
-
-    private boolean visible(ProjectFact fact, Long userId, boolean manager) {
-        String visibility = fact.getVisibility();
-        if (ProjectFactService.VISIBILITY_OWNER.equals(visibility)) {
-            return userId != null && userId.equals(fact.getActorId());
-        }
-        if (ProjectFactService.VISIBILITY_COMPANY.equals(visibility)) {
-            return manager;
-        }
-        // PROJECT 以及未标口径的老数据按项目可见
-        return true;
     }
 
     private boolean allowed(Long userId, Long projectId, String action) {

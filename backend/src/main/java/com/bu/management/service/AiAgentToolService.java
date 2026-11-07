@@ -56,6 +56,13 @@ public class AiAgentToolService {
     private final ProjectFactService projectFactService;
     private final ProjectBriefService projectBriefService;
     private final AiArtifactService aiArtifactService;
+    private final ProjectFactAccessGuard projectFactAccessGuard;
+
+    /** 读事实被拒时的统一文案：让模型看到明确拒绝，而不是一个无解释的空列表。 */
+    static final String NO_FACT_READ = "无权访问该项目的事实（需项目成员/项目负责人或管理角色）";
+
+    /** 写工具（制品 / 带 projectId 的晨报）被拒时的统一文案。 */
+    static final String NO_FACT_WRITE = "无权向该项目写入（需项目成员/负责人或管理角色）";
 
     /**
      * 连接器工具名集合；execute 命中时委托 ConnectorToolService。
@@ -326,11 +333,18 @@ public class AiAgentToolService {
         return new AiAgentToolResult("当前用户（ID=" + userId + "）共有 " + count + " 条事项" + scope, false);
     }
 
-    /** 项目事实：按当前用户可见性过滤后返回；正文只给摘要，原文不进上下文。 */
+    /**
+     * 项目事实：先判项目准入（projectId 是模型给的，不可信），再按策略过滤可见性；
+     * 正文只给摘要，原文不进上下文。准入不通过返回 error 结果，空结果给一句提示。
+     */
     private AiAgentToolResult projectFacts(Long userId, JsonNode args) {
         long projectId = args.path("projectId").asLong(0);
         if (projectId <= 0) {
             return new AiAgentToolResult("缺少 projectId", true);
+        }
+        if (!projectFactAccessGuard.canRead(userId, projectId)) {
+            log.warn("AI 工具 project_facts 拒绝：用户 {} 对项目 {} 无读权限", userId, projectId);
+            return new AiAgentToolResult(NO_FACT_READ, true);
         }
         List<String> types = new ArrayList<>();
         String raw = textArg(args, "types");
@@ -357,6 +371,12 @@ public class AiAgentToolService {
             rows.add(row);
         }
         try {
+            if (rows.isEmpty()) {
+                return new AiAgentToolResult(objectMapper.writeValueAsString(Map.of(
+                        "facts", rows,
+                        "hint", "该项目在指定时间/类型范围内没有对当前用户可见的事实；"
+                                + "不要猜测，换项目/放宽 sinceDays 或让用户补充材料")), false);
+            }
             return new AiAgentToolResult(objectMapper.writeValueAsString(Map.of("facts", rows)), false);
         } catch (Exception e) {
             return new AiAgentToolResult("项目事实序列化失败：" + e.getMessage(), true);
@@ -385,6 +405,10 @@ public class AiAgentToolService {
         }
         try {
             long projectId = args.path("projectId").asLong(0);
+            if (projectId > 0 && !projectFactAccessGuard.canWrite(userId, projectId)) {
+                log.warn("AI 工具 save_daily_brief 拒绝：用户 {} 对项目 {} 无写权限", userId, projectId);
+                return new AiAgentToolResult(NO_FACT_WRITE, true);
+            }
             Long id = projectBriefService.save(userId, projectId <= 0 ? null : projectId,
                     briefDate, content, textArg(args, "taskId"));
             return new AiAgentToolResult("晨报已保存（id=" + id + "，日期 " + briefDate + "）", false);
@@ -402,6 +426,10 @@ public class AiAgentToolService {
         long projectId = args.path("projectId").asLong(0);
         if (projectId <= 0) {
             return new AiAgentToolResult("缺少 projectId", true);
+        }
+        if (!projectFactAccessGuard.canWrite(userId, projectId)) {
+            log.warn("AI 工具 save_artifact 拒绝：用户 {} 对项目 {} 无写权限", userId, projectId);
+            return new AiAgentToolResult(NO_FACT_WRITE, true);
         }
         String title = textArg(args, "title");
         String kind = textArg(args, "kind");

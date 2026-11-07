@@ -7,7 +7,7 @@ import static org.mockito.Mockito.when;
 
 import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.Project;
-import com.bu.management.entity.ProjectFact;
+
 import com.bu.management.entity.SysRole;
 import com.bu.management.mapper.ProjectMapper;
 import java.util.List;
@@ -21,8 +21,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 /**
- * 投递准入：项目负责人 / 项目成员 / 管理角色可读写，普通成员之外的角色一律 403；
- * PROJECT 永远可见、OWNER 仅本人、PRIVATE_COMPANY 仅管理者。
+ * 投递准入：项目负责人 / 项目成员 / 管理角色可读写，普通成员之外的角色一律 403。
+ * 可见性口径不在这里（单一真源见 {@link ProjectFactPolicyTest}）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -121,33 +121,5 @@ class ProjectFactAccessGuardTest {
         assertThat(guard.canWrite(MANAGER_ID, 99L)).isFalse();
         assertThat(guard.canRead(null, PROJECT_ID)).isFalse();
         assertThat(guard.canWrite(MANAGER_ID, null)).isFalse();
-    }
-
-    @Test
-    @DisplayName("可见性过滤：PROJECT 全可见、OWNER 仅本人、PRIVATE_COMPANY 仅管理者")
-    void visibilityFiltering() {
-        ProjectFact projectFact = fact(1L, ProjectFactService.VISIBILITY_PROJECT, STRANGER_ID);
-        ProjectFact ownFact = fact(2L, ProjectFactService.VISIBILITY_OWNER, MEMBER_ID);
-        ProjectFact companyFact = fact(3L, ProjectFactService.VISIBILITY_COMPANY, MEMBER_ID);
-        List<ProjectFact> all = List.of(projectFact, ownFact, companyFact);
-
-        // 普通成员：看得见项目口径与自己的 OWNER，看不到 PRIVATE_COMPANY
-        assertThat(guard.visibleFacts(MEMBER_ID, PROJECT_ID, all))
-                .extracting(ProjectFact::getId).containsExactly(1L, 2L);
-        // 项目负责人：OWNER 那条是别人投的，看不到；PRIVATE_COMPANY 看得到
-        assertThat(guard.visibleFacts(MANAGER_ID, PROJECT_ID, all))
-                .extracting(ProjectFact::getId).containsExactly(1L, 3L);
-        // 局外人：只看得见 PROJECT 口径
-        assertThat(guard.visibleFacts(STRANGER_ID, PROJECT_ID, all))
-                .extracting(ProjectFact::getId).containsExactly(1L);
-    }
-
-    private ProjectFact fact(Long id, String visibility, Long actorId) {
-        ProjectFact fact = new ProjectFact();
-        fact.setId(id);
-        fact.setProjectId(PROJECT_ID);
-        fact.setVisibility(visibility);
-        fact.setActorId(actorId);
-        return fact;
     }
 }

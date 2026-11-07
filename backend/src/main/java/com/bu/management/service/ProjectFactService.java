@@ -74,6 +74,7 @@ public class ProjectFactService {
     private final YunxiaoWorkitemCacheMapper workitemCacheMapper;
     private final BuKeyMatterMapper keyMatterMapper;
     private final ProjectContextProperties properties;
+    private final ProjectFactPolicy factPolicy;
 
     /** 单个项目的一次汇入；返回新增或更新的条数。 */
     @Transactional
@@ -122,18 +123,21 @@ public class ProjectFactService {
     }
 
     /**
-     * 供 AI 工具读取：只返回当前用户有权看到的事实。
-     * PROJECT / PRIVATE_COMPANY 项目内可见；OWNER 仅本人（会议 v1 口径）。
+     * 供 AI 工具读取：先判项目准入，再按 {@link ProjectFactPolicy} 过滤可见性。
+     *
+     * <p>这里的 projectId 是模型给的，绝不能信：非成员换个 ID 就能读到别人的项目事实。
+     * 准入不通过直接返回空列表（工具路径要好读，不抛异常）；
+     * 可见性口径与网页列表同一份实现，不再在 SQL 里另拼一套条件。
      */
     public List<ProjectFact> queryForAgent(Long userId, Long projectId, List<String> types,
             LocalDateTime since, int limit) {
+        if (!factPolicy.canRead(userId, projectId)) {
+            log.debug("AI 取数拒绝：用户 {} 对项目 {} 无读权限，返回空事实", userId, projectId);
+            return List.of();
+        }
         int size = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         LambdaQueryWrapper<ProjectFact> wrapper = new LambdaQueryWrapper<ProjectFact>()
                 .eq(ProjectFact::getProjectId, projectId)
-                .and(scope -> scope
-                        .in(ProjectFact::getVisibility, List.of(VISIBILITY_PROJECT, VISIBILITY_COMPANY))
-                        .or(owner -> owner.eq(ProjectFact::getVisibility, VISIBILITY_OWNER)
-                                .eq(ProjectFact::getActorId, userId)))
                 .orderByDesc(ProjectFact::getHappenedAt)
                 .last("limit " + size);
         if (types != null && !types.isEmpty()) {
@@ -142,7 +146,7 @@ public class ProjectFactService {
         if (since != null) {
             wrapper.ge(ProjectFact::getHappenedAt, since);
         }
-        return factMapper.selectList(wrapper);
+        return factPolicy.visible(userId, projectId, factMapper.selectList(wrapper));
     }
 
     /** 一次汇入涉及的项目（便于人工确认「皇家项目」绑对了）。 */

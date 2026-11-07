@@ -42,6 +42,7 @@ class ProjectFactServiceTest {
     @Mock private EmailMessageMapper emailMessageMapper;
     @Mock private YunxiaoWorkitemCacheMapper workitemCacheMapper;
     @Mock private BuKeyMatterMapper keyMatterMapper;
+    @Mock private ProjectFactAccessGuard projectFactAccessGuard;
 
     private ProjectFactService service;
 
@@ -50,7 +51,8 @@ class ProjectFactServiceTest {
         ProjectContextProperties properties = new ProjectContextProperties();
         properties.setMaxSourceRows(50);
         service = new ProjectFactService(factMapper, projectMapper, meetingMapper,
-                emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties);
+                emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties,
+                new ProjectFactPolicy(projectFactAccessGuard));
     }
 
     @Test
@@ -181,5 +183,51 @@ class ProjectFactServiceTest {
     void ingestWithoutProjectIdIsNoop() {
         assertThat(service.ingestProject(null, LocalDateTime.now())).isZero();
         verify(meetingMapper, never()).selectList(any());
+    }
+
+    @Test
+    void queryForAgentReturnsEmptyForNonMemberWithoutHittingDb() {
+        when(projectFactAccessGuard.canRead(7L, 11L)).thenReturn(false);
+
+        assertThat(service.queryForAgent(7L, 11L, null, null, 10)).isEmpty();
+        // 准入不通过就不查库（不靠 SQL 条件兼做准入）
+        verify(factMapper, never()).selectList(any());
+    }
+
+    @Test
+    void queryForAgentFiltersByPolicyForMember() {
+        when(projectFactAccessGuard.canRead(5L, 11L)).thenReturn(true);
+        ProjectFact projectVisible = fact(1L, ProjectFactService.VISIBILITY_PROJECT, 3L);
+        ProjectFact othersOwner = fact(2L, ProjectFactService.VISIBILITY_OWNER, 3L);
+        ProjectFact company = fact(3L, ProjectFactService.VISIBILITY_COMPANY, 3L);
+        when(factMapper.selectList(any())).thenReturn(List.of(projectVisible, othersOwner, company));
+        // 成员但非管理者：PRIVATE_COMPANY 按 canWrite 一档判（这里给 true，验证策略真的生效）
+        when(projectFactAccessGuard.canWrite(5L, 11L)).thenReturn(true);
+
+        assertThat(service.queryForAgent(5L, 11L, List.of(ProjectFactService.SOURCE_MEETING),
+                LocalDateTime.now().minusDays(3), 10))
+                .extracting(ProjectFact::getId).containsExactly(1L, 3L);
+    }
+
+    @Test
+    void queryForAgentHidesPrivateCompanyWhenWriteDenied() {
+        when(projectFactAccessGuard.canRead(5L, 11L)).thenReturn(true);
+        when(projectFactAccessGuard.canWrite(5L, 11L)).thenReturn(false);
+        ProjectFact projectVisible = fact(1L, ProjectFactService.VISIBILITY_PROJECT, 3L);
+        ProjectFact company = fact(3L, ProjectFactService.VISIBILITY_COMPANY, 3L);
+        when(factMapper.selectList(any())).thenReturn(List.of(projectVisible, company));
+
+        assertThat(service.queryForAgent(5L, 11L, null, null, 10))
+                .extracting(ProjectFact::getId).containsExactly(1L);
+    }
+
+    private ProjectFact fact(Long id, String visibility, Long actorId) {
+        ProjectFact fact = new ProjectFact();
+        fact.setId(id);
+        fact.setProjectId(11L);
+        fact.setVisibility(visibility);
+        fact.setActorId(actorId);
+        fact.setTitle("事实" + id);
+        return fact;
     }
 }
