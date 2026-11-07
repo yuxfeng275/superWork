@@ -169,6 +169,39 @@ export interface ProjectGitRepoSavePayload {
   enabled?: boolean;
 }
 
+/** project_fact 来源类型：文件投递 / 人工说明 / 聊天记录 / 夜间制品。 */
+export type ProjectFactSourceType =
+  | "FILE_UPLOAD"
+  | "NOTE"
+  | "CHAT_EXPORT"
+  | "ARTIFACT";
+
+/** 可见范围：项目内 / 仅本公司 / 仅负责人。 */
+export type ProjectFactVisibility = "PROJECT" | "PRIVATE_COMPANY" | "OWNER";
+
+/** 项目统一事实（project_fact）：夜间 agent 干活前先读它，投递箱写的也是它。 */
+export interface ProjectFact {
+  id: number;
+  projectId: number;
+  sourceType: ProjectFactSourceType | string;
+  /** 源主键或 URL */
+  sourceRef?: string;
+  actorId?: number | null;
+  happenedAt?: string;
+  title?: string;
+  body?: string;
+  digest?: string;
+  visibility?: ProjectFactVisibility | string;
+  createdAt?: string;
+}
+
+/** 投递聊天记录时的一条消息（前端把「[时间] 姓名: 内容」解析成它）。 */
+export interface ProjectFactChatMessage {
+  sender: string;
+  time?: string;
+  text: string;
+}
+
 export interface CustomerContact {
   id: number;
   projectId: number;
@@ -1754,6 +1787,66 @@ const fallbackErrorMessage = (status: number) => {
   return `请求失败（${status}）`;
 };
 
+/**
+ * multipart 上传：用 XHR 只为拿到真实上传进度，解包/报错语义与 requestJson 保持一致。
+ * boundary 由浏览器生成，绝不手动设 Content-Type。
+ */
+function uploadFormDataWithProgress<T>(
+  path: string,
+  body: FormData,
+  onProgress?: (percent: number) => void
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    const token = localStorage.getItem("token");
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable && event.total > 0)
+        onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onerror = () =>
+      reject(
+        new ApiRequestError("网络异常，无法连接服务器，请稍后重试", 0)
+      );
+    xhr.onload = () => {
+      let payload: unknown;
+      try {
+        payload = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
+      } catch {
+        payload = xhr.responseText;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        if (xhr.status === 401) clearAuthAndRedirect();
+        reject(
+          new ApiRequestError(
+            payloadMessage(payload) || fallbackErrorMessage(xhr.status),
+            xhr.status
+          )
+        );
+        return;
+      }
+      if (isEnvelope<T>(payload)) {
+        if (payload.code !== 200) {
+          if (payload.code === 401) clearAuthAndRedirect();
+          reject(
+            new ApiRequestError(
+              payload.message || "请求失败",
+              xhr.status,
+              payload.code
+            )
+          );
+          return;
+        }
+        resolve(payload.data);
+        return;
+      }
+      resolve(payload as T);
+    };
+    xhr.send(body);
+  });
+}
+
 const query = (params: Record<string, string | number | undefined>) => {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -3200,6 +3293,67 @@ export const superworkApi = {
     return requestJson<void>(
       `/api/projects/${projectId}/git-repos/${id}`,
       { method: "DELETE" }
+    );
+  },
+  // ==================== 项目事实投递箱（文件 / 说明 / 聊天） ====================
+  /** 最近投递的项目事实（默认调用方传 types）；权限 project:view。 */
+  listProjectFacts(
+    projectId: number,
+    params: { types?: ProjectFactSourceType[]; limit?: number } = {}
+  ) {
+    return requestJson<ProjectFact[]>(
+      `/api/projects/${projectId}/facts${query({
+        types: params.types?.length ? params.types.join(",") : undefined,
+        limit: params.limit,
+      })}`
+    );
+  },
+  /** 拖一个文件进事实层；multipart 由浏览器自己定 boundary。 */
+  uploadProjectFactFile(
+    projectId: number,
+    payload: {
+      file: File;
+      note?: string;
+      visibility?: ProjectFactVisibility;
+      /** 真实上传进度（0-100），供上传列表画进度条 */
+      onProgress?: (percent: number) => void;
+    }
+  ) {
+    const body = new FormData();
+    body.append("file", payload.file);
+    if (payload.note) body.append("note", payload.note);
+    if (payload.visibility) body.append("visibility", payload.visibility);
+    return uploadFormDataWithProgress<ProjectFact>(
+      `/api/projects/${projectId}/facts/files`,
+      body,
+      payload.onProgress
+    );
+  },
+  /** 写一条补充说明进事实层。 */
+  addProjectFactNote(
+    projectId: number,
+    payload: {
+      title: string;
+      body: string;
+      visibility?: ProjectFactVisibility;
+    }
+  ) {
+    return requestJson<ProjectFact>(
+      `/api/projects/${projectId}/facts/notes`,
+      { method: "POST", body: JSON.stringify(payload) }
+    );
+  },
+  /** 贴一段聊天记录（企微/微信导出）进事实层。 */
+  ingestProjectChat(
+    projectId: number,
+    payload: {
+      messages: ProjectFactChatMessage[];
+      visibility?: ProjectFactVisibility;
+    }
+  ) {
+    return requestJson<ProjectFact>(
+      `/api/projects/${projectId}/facts/chat`,
+      { method: "POST", body: JSON.stringify(payload) }
     );
   },
   getCustomerContacts(

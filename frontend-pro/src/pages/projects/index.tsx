@@ -38,6 +38,7 @@ import {
   type UserRecord,
 } from '@/services/superwork/api';
 import ProjectGitRepoSection from './ProjectGitRepoSection';
+import ProjectIntakeSection from './ProjectIntakeSection';
 import '../workbench/style.less';
 import './style.less';
 
@@ -785,6 +786,16 @@ export default function ProjectsPage() {
                 projectId={drawerProject.id}
                 canManage={canManage}
               />
+            </div>
+            <Divider />
+            <div className="sw-drawer-section">
+              <div className="sw-drawer-section-title">
+                <Typography.Title level={5}>投递箱</Typography.Title>
+                <Typography.Text type="secondary">
+                  文件 / 说明 / 聊天，直接进事实
+                </Typography.Text>
+              </div>
+              <ProjectIntakeSection projectId={drawerProject.id} />
             </div>
             <Divider />
             <div className="sw-drawer-section">
