@@ -119,9 +119,11 @@ export default function WorkbenchPage() {
   const [briefLoading, setBriefLoading] = useState(true);
   const [briefError, setBriefError] = useState('');
   const [reviews, setReviews] = useState<AiArtifact[]>([]);
+  const [approved, setApproved] = useState<AiArtifact[]>([]);
   const [reviewLoading, setReviewLoading] = useState(true);
   const [reviewError, setReviewError] = useState('');
   const [decidingId, setDecidingId] = useState<number | null>(null);
+  const [applyingId, setApplyingId] = useState<number | null>(null);
   const [rejectTarget, setRejectTarget] = useState<AiArtifact | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const load = useCallback(async () => {
@@ -250,6 +252,33 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void loadReviews();
   }, [loadReviews]);
+  /** 已通过待采纳：通过后条目停在 APPROVED，没这一组就永远没地方点采纳。 */
+  const loadApproved = useCallback(async () => {
+    try {
+      const result = await superworkApi.getMyReviews('APPROVED');
+      setApproved(Array.isArray(result) ? result : []);
+    } catch {
+      setApproved([]);
+    }
+  }, []);
+  useEffect(() => {
+    void loadApproved();
+  }, [loadApproved]);
+  /** 采纳：APPROVED → APPLIED 并回写项目事实，成功后从本组移除。 */
+  const applyArtifact = useCallback(async (artifact: AiArtifact) => {
+    setApplyingId(artifact.id);
+    try {
+      await superworkApi.applyArtifact(artifact.id);
+      setApproved((current) =>
+        current.filter((item) => item.id !== artifact.id),
+      );
+      message.success('已采纳，回写为项目事实');
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '采纳失败，请稍后重试');
+    } finally {
+      setApplyingId(null);
+    }
+  }, []);
   /** 裁决：成功后本地移除该条，失败只弹提示，不动其它数据。 */
   const decideArtifact = useCallback(
     async (artifact: AiArtifact, approve: boolean, reason?: string) => {
@@ -260,6 +289,8 @@ export default function WorkbenchPage() {
           current.filter((item) => item.id !== artifact.id),
         );
         message.success(approve ? '已通过' : '已驳回');
+        // 通过后条目进了「已通过待采纳」组，刷新一下才能立刻采纳。
+        if (approve) void loadApproved();
         return true;
       } catch (e) {
         message.error(
@@ -270,7 +301,7 @@ export default function WorkbenchPage() {
         setDecidingId(null);
       }
     },
-    [],
+    [loadApproved],
   );
   const submitReject = useCallback(async () => {
     if (!rejectTarget) return;
@@ -655,6 +686,36 @@ export default function WorkbenchPage() {
             <Button onClick={() => navigate('/projects')}>去项目看看</Button>
           </Empty>
         )}
+          {approved.length ? (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text type="secondary">
+              已通过待采纳（采纳后回写为项目事实）
+            </Typography.Text>
+            <ul className="sw-recent-list">
+              {approved.slice(0, 5).map((artifact) => (
+                <li
+                  className="sw-recent-item"
+                  key={`approved-${artifact.id}`}
+                >
+                  <div className="sw-recent-meta">
+                    <Typography.Text strong>
+                      {artifact.title}
+                    </Typography.Text>
+                    <Tag color="green">已通过</Tag>
+                  </div>
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={applyingId === artifact.id}
+                    onClick={() => void applyArtifact(artifact)}
+                  >
+                    采纳落地
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Card>
       <div className="sw-workbench-kpis">
         {kpis.map((stat) => (

@@ -22,8 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
  * AI 制品与评审队列：夜间产出的方案/补丁/修复说明在这里排队等拍板。
  *
  * <p>口径见 docs/project-agent-loop-plan.md §5.3：
- * 读与「提交评审」走 project:view（提交只认产出人本人 + DRAFT/REJECTED，由 service 校验）；
- * 建草稿/裁决/采纳才需 project:manage。
+ * 读、提交评审、裁决、采纳都走 project:view（提交只认产出人本人 + DRAFT/REJECTED，
+ * 裁决不能评自己产出的、采纳只认 APPROVED，均由 service 校验）；只有建草稿要 project:manage。
+ * 裁决/采纳若压 project:manage，只有 project:view 的评审人点了必然 403，回流就断了。
  * 提交若也压 project:manage，SOLUTION_MANAGER 等产出人就永远送不出自己的草稿。
  * 所有 IllegalArgumentException 一律转 400，前端直接展示消息。
  */
@@ -94,7 +95,7 @@ public class AiArtifactController {
 
     @Operation(summary = "评审裁决", description = "IN_REVIEW → APPROVED/REJECTED；驳回必须带原因")
     @PostMapping("/{id}/decide")
-    @RequirePermission({"project:manage"})
+    @RequirePermission({"project:view"})
     public Result<AiArtifact> decide(
             @RequestAttribute("userId") Long reviewerId,
             @Parameter(description = "制品ID") @PathVariable Long id,
@@ -112,7 +113,7 @@ public class AiArtifactController {
 
     @Operation(summary = "采纳制品", description = "APPROVED → APPLIED，并回写一条项目事实")
     @PostMapping("/{id}/apply")
-    @RequirePermission({"project:manage"})
+    @RequirePermission({"project:view"})
     public Result<AiArtifact> apply(
             @RequestAttribute("userId") Long userId,
             @Parameter(description = "制品ID") @PathVariable Long id) {

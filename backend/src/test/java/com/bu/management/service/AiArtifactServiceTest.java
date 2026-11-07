@@ -111,6 +111,19 @@ class AiArtifactServiceTest {
     }
 
     @Test
+    @DisplayName("decide：不能评审自己产出的制品")
+    void decideRejectsSelfReview() {
+        AiArtifact own = artifact(AiArtifactService.STATUS_IN_REVIEW, 9L);
+        when(artifactMapper.selectById(5L)).thenReturn(own);
+
+        assertThatThrownBy(() -> service.decide(9L, 5L, true, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("不能评审自己产出的制品");
+        assertThat(own.getStatus()).isEqualTo(AiArtifactService.STATUS_IN_REVIEW);
+        verify(artifactMapper, never()).updateById(any(AiArtifact.class));
+    }
+
+    @Test
     @DisplayName("decide：驳回必须带原因，通过写 reviewerId/decidedAt，非评审中不可裁决")
     void decideRequiresReasonOnReject() {
         AiArtifact inReview = artifact(AiArtifactService.STATUS_IN_REVIEW, 9L);

@@ -192,10 +192,29 @@ describe('WorkbenchPage smoke', () => {
   });
 
   it('renders pending artifact reviews with kind labels and decide buttons', async () => {
-    mocks.getMyReviews.mockResolvedValue([
-      { id: 31, kind: 'PLAN', title: '会员中心改版方案', status: 'IN_REVIEW' },
-      { id: 32, kind: 'PATCH', title: '修复对账空值', status: 'IN_REVIEW' },
-    ]);
+    // 同一个接口被按状态拉两次：IN_REVIEW（待评审）与 APPROVED（已通过待采纳）。
+    mocks.getMyReviews.mockImplementation((status?: string) =>
+      Promise.resolve(
+        status === 'APPROVED'
+          ? [
+              {
+                id: 41,
+                kind: 'PLAN',
+                title: '回款口径对齐方案（已通过）',
+                status: 'APPROVED',
+              },
+            ]
+          : [
+              {
+                id: 31,
+                kind: 'PLAN',
+                title: '会员中心改版方案',
+                status: 'IN_REVIEW',
+              },
+              { id: 32, kind: 'PATCH', title: '修复对账空值', status: 'IN_REVIEW' },
+            ],
+      ),
+    );
 
     render(<WorkbenchPage />);
 
@@ -210,5 +229,38 @@ describe('WorkbenchPage smoke', () => {
     expect(
       screen.getAllByRole('button', { name: /驳\s*回/ }).length,
     ).toBeGreaterThan(0);
+  });
+
+  it('renders approved artifacts with an apply button, hides the group when empty', async () => {
+    mocks.getMyReviews.mockImplementation((status?: string) =>
+      Promise.resolve(
+        status === 'APPROVED'
+          ? [
+              {
+                id: 41,
+                kind: 'PLAN',
+                title: '回款口径对齐方案',
+                status: 'APPROVED',
+              },
+            ]
+          : [],
+      ),
+    );
+
+    const { unmount } = render(<WorkbenchPage />);
+
+    expect(
+      await screen.findByText('回款口径对齐方案'),
+    ).toBeInTheDocument();
+    const applyButtons = screen.getAllByRole('button', { name: /采\s*纳/ });
+    expect(applyButtons.length).toBeGreaterThan(0);
+
+    unmount();
+
+    // 没有已通过条目时整组不渲染
+    mocks.getMyReviews.mockResolvedValue([]);
+    render(<WorkbenchPage />);
+    expect(await screen.findByText('待我评审')).toBeInTheDocument();
+    expect(screen.queryByText(/已通过待采纳/)).toBeNull();
   });
 });

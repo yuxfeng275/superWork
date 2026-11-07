@@ -7,6 +7,8 @@ import com.bu.management.integration.BarkClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.EmailWeComMappingMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,16 @@ public class ProjectBriefPushService {
     private final ProjectBriefService briefService;
     private final WeComClient weComClient;
     private final BarkClient barkClient;
+    private final ObjectMapper objectMapper;
+
+    /** 推送正文总长上限（手机上一屏能读完）。 */
+    private static final int MAX_BODY = 900;
+    /** 清单最多排 3 条。 */
+    private static final int MAX_ITEMS = 3;
+    /** why 一行的上限。 */
+    private static final int MAX_WHY = 120;
+    /** 解析不了 JSON 时的纯文本上限（老行为）。 */
+    private static final int MAX_PLAIN = 800;
 
     @Value("${app.public-base-url:}")
     private String publicBaseUrl;
@@ -65,10 +77,10 @@ public class ProjectBriefPushService {
             briefService.markDelivered(brief.getId());
             return true;
         }
-        // 通道 2：Bark（iOS 推送）；title 固定，正文复用 render，详情链走 /workbench
+        // 通道 2：Bark（iOS 推送）；title 带上晨报日期，正文复用 render，详情链走 /workbench
         if (barkClient.isConfigured()) {
             String detailUrl = StringUtils.hasText(publicBaseUrl) ? publicBaseUrl + "/workbench" : null;
-            if (!barkClient.push("【今日安排】", render(brief), detailUrl)) {
+            if (!barkClient.push(titleOf(brief), render(brief), detailUrl)) {
                 return false;
             }
             briefService.markDelivered(brief.getId());
@@ -77,14 +89,103 @@ public class ProjectBriefPushService {
         return false;
     }
 
-    String render(AiBrief brief) {
-        StringBuilder sb = new StringBuilder("【今日安排】");
-        String body = brief.getContent() == null ? "" : brief.getContent();
-        sb.append('\n').append(body.length() > 800 ? body.substring(0, 800) + "…" : body);
-        if (StringUtils.hasText(publicBaseUrl)) {
-            sb.append("\n详情：").append(publicBaseUrl).append("/workbench");
+    /** 两个通道共用的标题：企微正文首行与 Bark 的 title 是同一句。 */
+    String titleOf(AiBrief brief) {
+        if (brief.getBriefDate() == null) {
+            return "【今日安排】";
         }
-        return sb.toString();
+        return "【今日安排】 · " + brief.getBriefDate();
+    }
+
+    /**
+     * 推送正文：content 是 {"items":[{title,why,links}]} 时排成手机上能读的清单；
+     * 解析不了或不是该结构就退回纯文本前 800 字（老行为）。总长压到 900 字以内。
+     */
+    String render(AiBrief brief) {
+        String content = brief.getContent() == null ? "" : brief.getContent();
+        StringBuilder sb = new StringBuilder();
+        if (!appendItems(brief, content, sb)) {
+            sb.append("【今日安排】").append('\n');
+            sb.append(content.length() > MAX_PLAIN ? content.substring(0, MAX_PLAIN) + "…" : content);
+        }
+        if (StringUtils.hasText(publicBaseUrl)) {
+            String detail = "\n详情：" + publicBaseUrl + "/workbench";
+            if (sb.length() + detail.length() <= MAX_BODY) {
+                sb.append(detail);
+            }
+        }
+        return sb.length() > MAX_BODY ? sb.substring(0, MAX_BODY - 1) + "…" : sb.toString();
+    }
+
+    /** JSON 结构成立且至少排出一条时返回 true；否则不动 sb，交给纯文本兜底。 */
+    private boolean appendItems(AiBrief brief, String content, StringBuilder sb) {
+        JsonNode items = itemsOf(content);
+        if (items == null) {
+            return false;
+        }
+        StringBuilder body = new StringBuilder();
+        int index = 0;
+        for (JsonNode item : items) {
+            if (index >= MAX_ITEMS) {
+                break;
+            }
+            String title = textOf(item, "title");
+            if (!StringUtils.hasText(title)) {
+                continue;
+            }
+            index++;
+            body.append('\n').append(index).append(". ").append(title.strip());
+            String why = textOf(item, "why");
+            if (StringUtils.hasText(why)) {
+                body.append("\n   ").append(clip(why.strip(), MAX_WHY));
+            }
+            String link = firstHttpLink(item.path("links"));
+            if (link != null) {
+                body.append("\n   ").append(link);
+            }
+        }
+        if (index == 0) {
+            return false;
+        }
+        sb.append(titleOf(brief)).append(body);
+        return true;
+    }
+
+    private JsonNode itemsOf(String content) {
+        String text = content.strip();
+        if (!text.startsWith("{")) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(text);
+            JsonNode items = root == null ? null : root.get("items");
+            return items != null && items.isArray() && !items.isEmpty() ? items : null;
+        } catch (Exception e) {
+            log.debug("晨报内容不是 JSON，退回纯文本: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String textOf(JsonNode node, String field) {
+        JsonNode value = node == null ? null : node.get(field);
+        return value == null || value.isNull() ? "" : value.asText("");
+    }
+
+    private static String firstHttpLink(JsonNode links) {
+        if (links == null || !links.isArray()) {
+            return null;
+        }
+        for (JsonNode link : links) {
+            String url = link.asText("");
+            if (url.startsWith("http")) {
+                return url.strip();
+            }
+        }
+        return null;
+    }
+
+    private static String clip(String text, int max) {
+        return text.length() > max ? text.substring(0, max) + "…" : text;
     }
 
     private String wecomUserIdOf(Long userId) {

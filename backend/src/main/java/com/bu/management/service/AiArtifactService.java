@@ -126,10 +126,13 @@ public class AiArtifactService {
         return artifact;
     }
 
-    /** 评审裁决：只有 IN_REVIEW 可裁决；驳回必须带原因。 */
+    /** 评审裁决：只有 IN_REVIEW 可裁决；驳回必须带原因；不能自己评自己的产出。 */
     @Transactional(rollbackFor = Exception.class)
     public AiArtifact decide(Long reviewerId, Long id, boolean approve, String reason) {
         AiArtifact artifact = requireArtifact(id);
+        if (Objects.equals(artifact.getOwnerUserId(), reviewerId)) {
+            throw new IllegalArgumentException("不能评审自己产出的制品");
+        }
         if (!STATUS_IN_REVIEW.equals(artifact.getStatus())) {
             throw new IllegalArgumentException("只有评审中的制品可以裁决（当前 "
                     + artifact.getStatus() + "）");
