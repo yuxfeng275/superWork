@@ -34,14 +34,18 @@ class AiArtifactServiceTest {
 
     @Mock private AiArtifactMapper artifactMapper;
     @Mock private ProjectFactService projectFactService;
+    @Mock private ProjectFactAccessGuard projectFactAccessGuard;
 
     private AiArtifactService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiArtifactService(artifactMapper, projectFactService, new ObjectMapper());
+        service = new AiArtifactService(artifactMapper, projectFactService, projectFactAccessGuard,
+                new ObjectMapper());
         when(artifactMapper.insert(any(AiArtifact.class))).thenReturn(1);
         when(artifactMapper.updateById(any(AiArtifact.class))).thenReturn(1);
+        // 本类只测状态流转，准入默认放行（准入本身见 AiArtifactAccessGuardTest）
+        when(projectFactAccessGuard.canWrite(anyLong(), anyLong())).thenReturn(true);
     }
 
     @Test

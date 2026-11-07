@@ -54,8 +54,12 @@ public class AiArtifactService {
     private static final int MAX_REASON = 500;
     private static final String KIND_HINT = "PLAN/PATCH/FIX_NOTE/REVIEW_FIX/CHECKLIST";
 
+    /** 无权采纳该项目制品时的统一文案（采纳会回写项目事实）。 */
+    static final String NO_WRITE_ACCESS = "无权采纳该项目的制品";
+
     private final AiArtifactMapper artifactMapper;
     private final ProjectFactService projectFactService;
+    private final ProjectFactAccessGuard projectFactAccessGuard;
     private final ObjectMapper objectMapper;
 
     /** 创建请求：projectId 与 taskId 与路径参数同义，二选一传即可。 */
@@ -155,6 +159,15 @@ public class AiArtifactService {
         return artifact;
     }
 
+    /**
+     * 单个制品：不存在的制品按 400 处理。
+     *
+     * <p>供 controller 先取 projectId 再做按项目准入（读 / 写分别判），避免绕过准入直接裁决。
+     */
+    public AiArtifact get(Long id) {
+        return requireArtifact(id);
+    }
+
     /** 项目下的制品；status 为空返回全部状态，按 id 降序。 */
     public List<AiArtifact> listByProject(Long projectId, String status) {
         if (projectId == null) {
@@ -184,6 +197,12 @@ public class AiArtifactService {
     @Transactional(rollbackFor = Exception.class)
     public AiArtifact apply(Long userId, Long id) {
         AiArtifact artifact = requireArtifact(id);
+        // 防线下沉：回写 project_fact 前再判一次写准入，未来新调用方绕过 controller 也写不进去
+        if (!projectFactAccessGuard.canWrite(userId, artifact.getProjectId())) {
+            log.warn("拒绝采纳：用户 {} 对项目 {} 无写权限（制品 {}）",
+                    userId, artifact.getProjectId(), id);
+            throw new IllegalArgumentException(NO_WRITE_ACCESS);
+        }
         if (!STATUS_APPROVED.equals(artifact.getStatus())) {
             throw new IllegalArgumentException("只有已通过的制品可以采纳（当前 "
                     + artifact.getStatus() + "）");
