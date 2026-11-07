@@ -156,6 +156,30 @@ class ProjectBriefPushServiceTest {
     }
 
     @Test
+    @DisplayName("pushOne：绑定了企微但 enabled=0 → 不走企微，直落 Bark")
+    void wecomMappingDisabledFallsBackToBark() {
+        AiBrief brief = brief(JSON_CONTENT);
+        when(briefMapper.selectList(any())).thenReturn(List.of(brief));
+        EmailWeComMapping mapping = new EmailWeComMapping();
+        mapping.setOwnerUserId(9L);
+        mapping.setWecomUserId("zhangsan");
+        mapping.setEnabled(0);
+        when(mappingMapper.selectOne(any())).thenReturn(mapping);
+        // 企微本身是配置好的：唯一拦住推送的就是绑定上的 enabled 开关
+        when(emailIntegrationConfigService.getRuntimeConfig()).thenReturn(
+                new EmailIntegrationRuntimeConfig(false, null, null, null,
+                        true, "https://qyapi.example.com", "corp", "agent", "secret", null));
+        when(barkClient.isConfigured()).thenReturn(true);
+        when(barkClient.push(any(), any(), any())).thenReturn(true);
+
+        assertThat(service.pushDate(LocalDate.of(2026, 3, 2))).isEqualTo(1);
+
+        verify(weComClient, never()).pushText(any(), any());
+        verify(barkClient).push(eq("【今日安排】 · 2026-03-02"), any(), isNull());
+        verify(briefService).markDelivered(eq(7L));
+    }
+
+    @Test
     @DisplayName("pushOne：两个通道都不可用 → 不标 delivered、返回 false")
     void noChannelAvailableDoesNotMarkDelivered() {
         AiBrief brief = brief(JSON_CONTENT);

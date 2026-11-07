@@ -3,6 +3,7 @@ package com.bu.management.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -119,6 +120,61 @@ class ProjectFactServiceTest {
 
         verify(factMapper, never()).insert(any(ProjectFact.class));
         assertThat(existing.getTitle()).isEqualTo("皇家项目周会");
+    }
+
+    @Test
+    void secondSubmitterCannotStealActorOrVisibility() {
+        when(factMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(factMapper.insert(any(ProjectFact.class))).thenReturn(1);
+
+        // userA 投递同一份文件：项目可见
+        int first = service.appendManual(11L, ProjectFactService.SOURCE_FILE_UPLOAD, "sha256:abc", 3L,
+                LocalDateTime.now(), "报价单.xlsx", "第一版内容", ProjectFactService.VISIBILITY_PROJECT);
+        assertThat(first).isEqualTo(1);
+        ArgumentCaptor<ProjectFact> captor = ArgumentCaptor.forClass(ProjectFact.class);
+        verify(factMapper).insert(captor.capture());
+        ProjectFact stored = captor.getValue();
+        assertThat(stored.getActorId()).isEqualTo(3L);
+        assertThat(stored.getVisibility()).isEqualTo(ProjectFactService.VISIBILITY_PROJECT);
+
+        // userB 重传同一 sha256：命中已有事实，行数不变，归属与可见性仍属于 A
+        when(factMapper.selectOne(any(Wrapper.class))).thenReturn(stored);
+        when(factMapper.updateById(any(ProjectFact.class))).thenReturn(1);
+        int second = service.appendManual(11L, ProjectFactService.SOURCE_FILE_UPLOAD, "sha256:abc", 4L,
+                LocalDateTime.now().plusMinutes(5), "抄来的报价单.xlsx", "第二版内容",
+                ProjectFactService.VISIBILITY_OWNER);
+
+        assertThat(second).isEqualTo(1);
+        verify(factMapper, times(1)).insert(any(ProjectFact.class));
+        assertThat(stored.getActorId()).isEqualTo(3L);
+        assertThat(stored.getVisibility()).isEqualTo(ProjectFactService.VISIBILITY_PROJECT);
+        // 内容仍然可以刷新（幂等不新增行）
+        assertThat(stored.getTitle()).isEqualTo("抄来的报价单.xlsx");
+        assertThat(stored.getBody()).isEqualTo("第二版内容");
+    }
+
+    @Test
+    void sameSubmitterCanUpdateOwnFact() {
+        when(factMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(factMapper.insert(any(ProjectFact.class))).thenReturn(1);
+        service.appendManual(11L, ProjectFactService.SOURCE_CHAT_EXPORT, "chat:42", 3L,
+                LocalDateTime.now(), "客户群聊记录", "旧内容", ProjectFactService.VISIBILITY_OWNER);
+        ArgumentCaptor<ProjectFact> captor = ArgumentCaptor.forClass(ProjectFact.class);
+        verify(factMapper).insert(captor.capture());
+        ProjectFact stored = captor.getValue();
+
+        when(factMapper.selectOne(any(Wrapper.class))).thenReturn(stored);
+        when(factMapper.updateById(any(ProjectFact.class))).thenReturn(1);
+        int updated = service.appendManual(11L, ProjectFactService.SOURCE_CHAT_EXPORT, "chat:42", 3L,
+                LocalDateTime.now().plusMinutes(5), "客户群聊记录（补全）", "新内容",
+                ProjectFactService.VISIBILITY_PROJECT);
+
+        assertThat(updated).isEqualTo(1);
+        verify(factMapper, times(1)).insert(any(ProjectFact.class));
+        assertThat(stored.getActorId()).isEqualTo(3L);
+        assertThat(stored.getTitle()).isEqualTo("客户群聊记录（补全）");
+        assertThat(stored.getBody()).isEqualTo("新内容");
+        assertThat(stored.getVisibility()).isEqualTo(ProjectFactService.VISIBILITY_PROJECT);
     }
 
     @Test

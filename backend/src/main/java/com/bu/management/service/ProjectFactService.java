@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -342,14 +343,25 @@ public class ProjectFactService {
             fact.setUpdatedAt(now);
             return factMapper.insert(fact) > 0 ? 1 : 0;
         }
+        // 同 sha256 的来源被第二个人再投一次时，内容可以刷新，但归属与可见性属于原投递人：
+        // 无条件改写会把别人的事实“偷”到自己名下，或把项目可见的证据收窄成仅本人可见。
+        boolean foreignActor = existing.getActorId() != null
+                && !Objects.equals(existing.getActorId(), draft.actorId());
         existing.setProjectId(draft.projectId());
-        existing.setActorId(draft.actorId());
-        existing.setHappenedAt(draft.happenedAt());
+        if (!foreignActor) {
+            existing.setActorId(draft.actorId());
+            existing.setHappenedAt(draft.happenedAt());
+            existing.setVisibility(draft.visibility());
+        }
         existing.setTitle(draft.title());
         existing.setBody(draft.body());
         existing.setDigest(digest);
-        existing.setVisibility(draft.visibility());
         existing.setUpdatedAt(now);
+        if (foreignActor) {
+            // 只记项目与来源类型，不记正文内容
+            log.debug("事实去重命中他人来源，保留原归属与可见性: projectId={}, sourceType={}",
+                    draft.projectId(), draft.sourceType());
+        }
         return factMapper.updateById(existing) > 0 ? 1 : 0;
     }
 

@@ -205,10 +205,19 @@ public class ProjectBriefPushService {
         return text.length() > max ? text.substring(0, max) + "…" : text;
     }
 
+    /**
+     * 该用户可用企微推送的 wecomUserId；未绑定或绑定的推送开关没打开都算“没开企微推送”。
+     *
+     * <p>口径与 {@code EmailRiskAlertService} 一致：映射为空 **或** enabled != 1 就当作没有企微通道，
+     * 由调用方自然降级到 Bark。
+     */
     private String wecomUserIdOf(Long userId) {
         EmailWeComMapping mapping = mappingMapper.selectOne(new LambdaQueryWrapper<EmailWeComMapping>()
                 .eq(EmailWeComMapping::getOwnerUserId, userId)
                 .last("limit 1"));
-        return mapping == null ? null : mapping.getWecomUserId();
+        if (mapping == null || !Integer.valueOf(1).equals(mapping.getEnabled())) {
+            return null;
+        }
+        return mapping.getWecomUserId();
     }
 }
