@@ -3300,7 +3300,11 @@ export const superworkApi = {
     );
   },
   // ==================== 项目事实投递箱（文件 / 说明 / 聊天） ====================
-  /** 最近投递的项目事实（默认调用方传 types）；权限 project:view。 */
+  /**
+   * 最近投递的项目事实（默认调用方传 types）。
+   * 权限：需登录 + 该项目成员 / 项目负责人 / 管理角色，否则后端返回 403；
+   * 返回前按可见性过滤（OWNER 仅投递人本人，PRIVATE_COMPANY 仅管理者）。
+   */
   listProjectFacts(
     projectId: number,
     params: { types?: ProjectFactSourceType[]; limit?: number } = {}

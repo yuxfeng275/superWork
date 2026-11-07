@@ -1,12 +1,15 @@
 package com.bu.management.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.config.EmailIntegrationRuntimeConfig;
 import com.bu.management.entity.AiBrief;
 import com.bu.management.entity.EmailWeComMapping;
 import com.bu.management.integration.BarkClient;
@@ -47,13 +50,14 @@ class ProjectBriefPushServiceTest {
     @Mock private ProjectBriefService briefService;
     @Mock private WeComClient weComClient;
     @Mock private BarkClient barkClient;
+    @Mock private EmailIntegrationConfigService emailIntegrationConfigService;
 
     private ProjectBriefPushService service;
 
     @BeforeEach
     void setUp() {
-        service = new ProjectBriefPushService(
-                briefMapper, mappingMapper, briefService, weComClient, barkClient, new ObjectMapper());
+        service = new ProjectBriefPushService(briefMapper, mappingMapper, briefService, weComClient,
+                barkClient, emailIntegrationConfigService, new ObjectMapper());
     }
 
     @Test
@@ -125,6 +129,45 @@ class ProjectBriefPushServiceTest {
         assertThat(title.getValue()).isEqualTo("【今日安排】 · 2026-03-02");
         assertThat(body.getValue()).doesNotContain("{\"items\"");
         verify(briefService).markDelivered(eq(7L));
+    }
+
+    @Test
+    @DisplayName("pushOne：企微未配置时不抛异常、不走企微，直落 Bark")
+    void wecomUnconfiguredFallsBackToBark() {
+        AiBrief brief = brief(JSON_CONTENT);
+        when(briefMapper.selectList(any())).thenReturn(List.of(brief));
+        EmailWeComMapping mapping = new EmailWeComMapping();
+        mapping.setOwnerUserId(9L);
+        mapping.setWecomUserId("zhangsan");
+        when(mappingMapper.selectOne(any())).thenReturn(mapping);
+        when(emailIntegrationConfigService.getRuntimeConfig()).thenReturn(
+                new EmailIntegrationRuntimeConfig(false, null, null, null,
+                        false, null, null, null, null, null));
+        when(barkClient.isConfigured()).thenReturn(true);
+        when(barkClient.push(any(), any(), any())).thenReturn(true);
+
+        // 企微未配置：pushDate 不能因为 pushText 抛 IllegalStateException 而少发一条
+        assertThatCode(() -> assertThat(service.pushDate(LocalDate.of(2026, 3, 2))).isEqualTo(1))
+                .doesNotThrowAnyException();
+
+        verify(weComClient, never()).pushText(any(), any());
+        verify(barkClient).push(eq("【今日安排】 · 2026-03-02"), any(), isNull());
+        verify(briefService).markDelivered(eq(7L));
+    }
+
+    @Test
+    @DisplayName("pushOne：两个通道都不可用 → 不标 delivered、返回 false")
+    void noChannelAvailableDoesNotMarkDelivered() {
+        AiBrief brief = brief(JSON_CONTENT);
+        when(briefMapper.selectList(any())).thenReturn(List.of(brief));
+        when(mappingMapper.selectOne(any())).thenReturn((EmailWeComMapping) null);
+        when(barkClient.isConfigured()).thenReturn(false);
+
+        assertThat(service.pushDate(LocalDate.of(2026, 3, 2))).isZero();
+
+        verify(weComClient, never()).pushText(any(), any());
+        verify(barkClient, never()).push(any(), any(), any());
+        verify(briefService, never()).markDelivered(any());
     }
 
     private AiBrief brief(String content) {

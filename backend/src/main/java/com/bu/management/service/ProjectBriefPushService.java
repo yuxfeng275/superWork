@@ -20,7 +20,8 @@ import org.springframework.util.StringUtils;
 /**
  * 晨报站外到达：每天把「今天该做的事」推到手机上（一人一条，不群发）。
  *
- * <p>通道选择：该用户绑了企微 → 走企微；否则 Bark 已配置 → 走 Bark；两者都不可用不发。
+ * <p>通道选择：该用户绑了企微 <b>且</b> 企微已配置 → 走企微；否则 Bark 已配置 → 走 Bark；
+ * 两个通道都不可用不发（返回 false，只 warn 一次，不标 delivered）。
  * 没配 app.public-base-url 不推死链；已送达的不重复发（brief.delivered_at）。
  */
 @Slf4j
@@ -33,6 +34,7 @@ public class ProjectBriefPushService {
     private final ProjectBriefService briefService;
     private final WeComClient weComClient;
     private final BarkClient barkClient;
+    private final EmailIntegrationConfigService emailIntegrationConfigService;
     private final ObjectMapper objectMapper;
 
     /** 推送正文总长上限（手机上一屏能读完）。 */
@@ -70,9 +72,11 @@ public class ProjectBriefPushService {
         if (brief.getUserId() == null) {
             return false;
         }
-        // 通道 1：该用户绑了企微 → 原逻辑不变（企微未配置时这里自然走通道 2）
+        // 通道 1：绑定存在 **且** 企微已配置 才走企微。
+        // 只判绑定的话，企微未配置时 pushText 抛 IllegalStateException，异常被 pushDate 吞掉，
+        // Bark 就永远不会被尝试。
         String wecomUserId = wecomUserIdOf(brief.getUserId());
-        if (StringUtils.hasText(wecomUserId)) {
+        if (StringUtils.hasText(wecomUserId) && weComConfigured()) {
             weComClient.pushText(wecomUserId, render(brief));
             briefService.markDelivered(brief.getId());
             return true;
@@ -86,7 +90,20 @@ public class ProjectBriefPushService {
             briefService.markDelivered(brief.getId());
             return true;
         }
+        // 两个通道都不可用：不标记已送达，下次还会重试
+        log.warn("晨报推送跳过（企微未配置或未绑定，且 Bark 未配置）: briefId={}, userId={}",
+                brief.getId(), brief.getUserId());
         return false;
+    }
+
+    /** 企微通道是否可用：口径与 WeComClient 内部一致（EmailIntegrationConfigService 运行时配置）。 */
+    private boolean weComConfigured() {
+        try {
+            return emailIntegrationConfigService.getRuntimeConfig().isWeComConfigured();
+        } catch (Exception e) {
+            log.debug("读取企微配置失败，按未配置处理: {}", e.getMessage());
+            return false;
+        }
     }
 
     /** 两个通道共用的标题：企微正文首行与 Bark 的 title 是同一句。 */
