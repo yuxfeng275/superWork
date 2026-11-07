@@ -14,6 +14,7 @@ import {
   Alert,
   Button,
   Card,
+  Drawer,
   Empty,
   Input,
   message,
@@ -30,6 +31,7 @@ import {
   type AiArtifact,
   type AiBrief,
   type AiBriefItem,
+  type ProjectFact,
   type QuotationListVO,
   type Requirement,
   type SalesOpportunity,
@@ -106,6 +108,40 @@ const artifactKindLabel: Record<string, string> = {
   REVIEW_FIX: '审查意见处理',
   CHECKLIST: '清单',
 };
+/** 制品状态的中文叫法；未知状态回退原值。 */
+const artifactStatusLabel: Record<string, string> = {
+  DRAFT: '草稿',
+  IN_REVIEW: '待评审',
+  APPROVED: '已通过',
+  REJECTED: '已驳回',
+  APPLIED: '已采纳',
+};
+const artifactStatusTone: Record<string, string> = {
+  IN_REVIEW: 'processing',
+  APPROVED: 'success',
+  REJECTED: 'error',
+  APPLIED: 'cyan',
+};
+/** project_fact 来源类型的中文叫法。 */
+const factSourceLabel: Record<string, string> = {
+  FILE_UPLOAD: '文件投递',
+  NOTE: '人工说明',
+  CHAT_EXPORT: '聊天记录',
+  ARTIFACT: '夜间制品',
+};
+/** evidence 是 project_fact.id 的 JSON 数组字符串，坏数据当空处理。 */
+const evidenceFactIds = (evidence?: string | null): number[] => {
+  if (!evidence) return [];
+  try {
+    const parsed = JSON.parse(evidence) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0);
+  } catch {
+    return [];
+  }
+};
 
 export default function WorkbenchPage() {
   const { initialState } = useModel('@@initialState');
@@ -126,6 +162,11 @@ export default function WorkbenchPage() {
   const [applyingId, setApplyingId] = useState<number | null>(null);
   const [rejectTarget, setRejectTarget] = useState<AiArtifact | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  /** 详情抽屉：待评审与已通过两组合用。 */
+  const [detail, setDetail] = useState<AiArtifact | null>(null);
+  const [detailFacts, setDetailFacts] = useState<ProjectFact[]>([]);
+  const [detailFactLoading, setDetailFactLoading] = useState(false);
+  const [detailFactError, setDetailFactError] = useState('');
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -264,6 +305,47 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void loadApproved();
   }, [loadApproved]);
+  /** 详情抽屉的证据：按 project_fact.id 回查同项目事实，失败只影响证据区。 */
+  const loadDetailFacts = useCallback(async (artifact: AiArtifact) => {
+    const projectId = artifact.projectId;
+    if (!projectId) {
+      setDetailFacts([]);
+      setDetailFactError('这条制品没关联项目，取不到证据事实。');
+      return;
+    }
+    setDetailFactLoading(true);
+    setDetailFactError('');
+    try {
+      const list = await superworkApi.listProjectFacts(projectId, {
+        limit: 200,
+      });
+      setDetailFacts(Array.isArray(list) ? list : []);
+    } catch {
+      setDetailFacts([]);
+      setDetailFactError('证据事实暂时拉取不到，正文不受影响，可点重试。');
+    } finally {
+      setDetailFactLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!detail) {
+      setDetailFacts([]);
+      setDetailFactError('');
+      return;
+    }
+    void loadDetailFacts(detail);
+  }, [detail, loadDetailFacts]);
+  /** evidence 里的 id 映射到已拉回的事实，取不到的留空，由 UI 标「不可见」。 */
+  const detailEvidence = useMemo(() => {
+    if (!detail) return [] as Array<{ id: number; fact?: ProjectFact }>;
+    const byId = new Map(
+      detailFacts.map((fact) => [Number(fact.id), fact] as const),
+    );
+    return evidenceFactIds(detail.evidence).map((id) => ({
+      id,
+      fact: byId.get(id),
+    }));
+  }, [detail, detailFacts]);
   /** 采纳：APPROVED → APPLIED 并回写项目事实，成功后从本组移除。 */
   const applyArtifact = useCallback(async (artifact: AiArtifact) => {
     setApplyingId(artifact.id);
@@ -273,8 +355,10 @@ export default function WorkbenchPage() {
         current.filter((item) => item.id !== artifact.id),
       );
       message.success('已采纳，回写为项目事实');
+      return true;
     } catch (e) {
       message.error(e instanceof Error ? e.message : '采纳失败，请稍后重试');
+      return false;
     } finally {
       setApplyingId(null);
     }
@@ -314,8 +398,29 @@ export default function WorkbenchPage() {
     if (done) {
       setRejectTarget(null);
       setRejectReason('');
+      // 从抽屉入口驳回时一并收起详情。
+      setDetail(null);
     }
   }, [decideArtifact, rejectReason, rejectTarget]);
+  /** 抽屉内的通过 / 采纳：成功后关抽屉并刷新两个列表（行内按钮逻辑不变）。 */
+  const approveFromDetail = useCallback(async () => {
+    if (!detail) return;
+    const done = await decideArtifact(detail, true);
+    if (done) {
+      setDetail(null);
+      void loadReviews();
+      void loadApproved();
+    }
+  }, [decideArtifact, detail, loadApproved, loadReviews]);
+  const applyFromDetail = useCallback(async () => {
+    if (!detail) return;
+    const done = await applyArtifact(detail);
+    if (done) {
+      setDetail(null);
+      void loadReviews();
+      void loadApproved();
+    }
+  }, [applyArtifact, detail, loadApproved, loadReviews]);
   const briefItems = useMemo(
     () =>
       briefs
@@ -649,7 +754,13 @@ export default function WorkbenchPage() {
             {reviews.slice(0, 5).map((artifact) => (
               <li className="sw-recent-item" key={artifact.id}>
                 <div className="sw-recent-meta">
-                  <Typography.Text strong>{artifact.title}</Typography.Text>
+                  <Typography.Link
+                      className="sw-artifact-title"
+                    strong
+                      onClick={() => setDetail(artifact)}
+                    >
+                      {artifact.title}
+                  </Typography.Link>
                   <Tag color="blue">
                     {artifactKindLabel[artifact.kind || ''] ||
                       artifact.kind ||
@@ -698,9 +809,13 @@ export default function WorkbenchPage() {
                   key={`approved-${artifact.id}`}
                 >
                   <div className="sw-recent-meta">
-                    <Typography.Text strong>
+                    <Typography.Link
+                      className="sw-artifact-title"
+                        strong
+                        onClick={() => setDetail(artifact)}
+                      >
                       {artifact.title}
-                    </Typography.Text>
+                    </Typography.Link>
                     <Tag color="green">已通过</Tag>
                   </div>
                   <Button
@@ -884,6 +999,163 @@ export default function WorkbenchPage() {
           </Card>
         </aside>
         </div>
+      <Drawer
+        open={Boolean(detail)}
+        size={760}
+        destroyOnHidden
+        title={detail?.title || '方案详情'}
+        onClose={() => setDetail(null)}
+        footer={
+          detail ? (
+            <div className="sw-artifact-actions">
+              {detail.status === 'IN_REVIEW' && (
+                <>
+                  <Button
+                    type="primary"
+                    loading={decidingId === detail.id}
+                    onClick={() => void approveFromDetail()}
+                  >
+                    通过
+                  </Button>
+                  <Button
+                    type="text"
+                    danger
+                    loading={decidingId === detail.id}
+                    onClick={() => {
+                      setRejectTarget(detail);
+                      setRejectReason('');
+                    }}
+                  >
+                    驳回
+                  </Button>
+                </>
+              )}
+              {detail.status === 'APPROVED' && (
+                <Button
+                  type="primary"
+                  loading={applyingId === detail.id}
+                  onClick={() => void applyFromDetail()}
+                >
+                  采纳落地
+                </Button>
+              )}
+              <Button onClick={() => setDetail(null)}>关闭</Button>
+            </div>
+          ) : null
+        }
+      >
+        {detail && (
+          <div className="sw-artifact-detail">
+            <Space size={8} wrap>
+              <Tag color="blue">
+                {artifactKindLabel[detail.kind || ''] ||
+                  detail.kind ||
+                  '制品'}
+              </Tag>
+              <Tag color={artifactStatusTone[detail.status || ''] || 'default'}>
+                {artifactStatusLabel[detail.status || ''] ||
+                  detail.status ||
+                  '未知状态'}
+              </Tag>
+              <Typography.Text type="secondary">
+                产出人 #{detail.ownerUserId ?? '—'}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                产出时间{' '}
+                {detail.createdAt
+                  ? dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm')
+                  : '—'}
+              </Typography.Text>
+            </Space>
+            {detail.rejectReason && (
+              <Alert
+                className="sw-artifact-reject"
+                type="error"
+                showIcon
+                message="驳回原因"
+                description={detail.rejectReason}
+              />
+            )}
+            <Typography.Title level={5} className="sw-artifact-heading">
+              正文
+            </Typography.Title>
+            {detail.content?.trim() ? (
+              <div className="sw-artifact-content">{detail.content}</div>
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="（没有正文）"
+              />
+            )}
+            <Typography.Title level={5} className="sw-artifact-heading">
+              {detailEvidence.length ? `证据（${detailEvidence.length}）` : '证据'}
+            </Typography.Title>
+            {detailFactLoading ? (
+              <Skeleton active title={false} paragraph={{ rows: 2 }} />
+            ) : detailFactError ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="证据没加载出来"
+                description={detailFactError}
+                action={
+                  <Button
+                    size="small"
+                    onClick={() => void loadDetailFacts(detail)}
+                  >
+                    重试
+                  </Button>
+                }
+              />
+            ) : detailEvidence.length ? (
+              <ul className="sw-artifact-evidence">
+                {detailEvidence.map(({ id, fact }) => (
+                  <li className="sw-artifact-evidence-item" key={`fact-${id}`}>
+                    {fact ? (
+                      <>
+                        <Typography.Text strong>
+                          {fact.title ||
+                            (fact.digest || `fact#${id}`).slice(0, 80)}
+                        </Typography.Text>
+                        <div className="sw-artifact-evidence-meta">
+                          <span>
+                            {factSourceLabel[fact.sourceType || ''] ||
+                              fact.sourceType ||
+                              '未知来源'}
+                          </span>
+                          <span>
+                            {fact.happenedAt
+                              ? dayjs(fact.happenedAt).format('YYYY-MM-DD HH:mm')
+                              : '时间未知'}
+                          </span>
+                          {fact.sourceRef && isHttpUrl(fact.sourceRef) && (
+                            <a
+                              href={fact.sourceRef}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              查看原文
+                            </a>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <Typography.Text type="secondary">
+                        {`fact#${id}（不可见或已删除）`}
+                      </Typography.Text>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="（没有证据）"
+              />
+            )}
+          </div>
+        )}
+      </Drawer>
       <Modal
         open={Boolean(rejectTarget)}
         title={`驳回：${rejectTarget?.title || ''}`}

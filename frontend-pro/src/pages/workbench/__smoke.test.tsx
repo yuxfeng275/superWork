@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getMyReviews: vi.fn(),
   decideArtifact: vi.fn(),
   applyArtifact: vi.fn(),
+    listProjectFacts: vi.fn(),
 }));
 
 const navigateMock = vi.fn();
@@ -46,6 +47,7 @@ vi.mock('@/services/superwork/api', () => ({
       getMyReviews: mocks.getMyReviews,
     decideArtifact: mocks.decideArtifact,
     applyArtifact: mocks.applyArtifact,
+      listProjectFacts: mocks.listProjectFacts,
   },
 }));
 
@@ -117,6 +119,7 @@ describe('WorkbenchPage smoke', () => {
     mocks.getMyReviews.mockResolvedValue([]);
     mocks.decideArtifact.mockResolvedValue({ id: 1, status: 'APPROVED' });
     mocks.applyArtifact.mockResolvedValue({ id: 1, status: 'APPLIED' });
+    mocks.listProjectFacts.mockResolvedValue([]);
   });
 
   it('renders cross-module kpis, queues and shortcuts from live functions', async () => {
@@ -228,6 +231,57 @@ describe('WorkbenchPage smoke', () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByRole('button', { name: /驳\s*回/ }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('opens the artifact detail drawer with full content and evidence', async () => {
+    mocks.getMyReviews.mockImplementation((status?: string) =>
+      Promise.resolve(
+        status === 'APPROVED'
+          ? []
+          : [
+              {
+                id: 61,
+                kind: 'PLAN',
+                title: '对账口径对齐方案',
+                status: 'IN_REVIEW',
+                projectId: 5,
+                ownerUserId: 9,
+                createdAt: '2026-09-02T08:00:00',
+                content: '第一段：口径统一到 T+1 出账。\n第二段：差异需人工复核。',
+                evidence: JSON.stringify([101, 999]),
+              },
+            ],
+      ),
+    );
+    mocks.listProjectFacts.mockResolvedValue([
+      {
+        id: 101,
+        projectId: 5,
+        sourceType: 'CHAT_EXPORT',
+        title: '财务群对账口径',
+        happenedAt: '2026-09-01T10:00:00',
+        sourceRef: 'https://example.com/chat/1',
+      },
+    ]);
+
+    render(<WorkbenchPage />);
+
+    fireEvent.click(await screen.findByText('对账口径对齐方案'));
+
+    expect(
+      await screen.findByText(/口径统一到 T\+1 出账/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/证据/)).toBeInTheDocument();
+    expect(await screen.findByText('财务群对账口径')).toBeInTheDocument();
+    expect(screen.getByText('fact#999（不可见或已删除）')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '查看原文' })).toHaveAttribute(
+      'href',
+      'https://example.com/chat/1',
+    );
+    // 抽屉底部依旧是可用的评审操作
+    expect(
+      screen.getAllByRole('button', { name: /通\s*过/ }).length,
     ).toBeGreaterThan(0);
   });
 

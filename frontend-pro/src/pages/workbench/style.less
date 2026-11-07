@@ -133,4 +133,27 @@
 .sw-attention-icon { display: inline-grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 10px; }
 .sw-attention-icon.danger { color: #dc2626; background: #fef2f2; }
 .sw-attention-icon.blue { color: #2563eb; background: #eff6ff; }
+/* 方案详情抽屉（待我评审 / 已通过待采纳共用） */
+.sw-artifact-title { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-artifact-reject { margin-top: 12px; }
+.sw-artifact-heading { margin: 20px 0 8px !important; font-size: 13px; color: #69718c; }
+.sw-artifact-content {
+  max-height: 60vh;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #1f2329;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sw-artifact-evidence { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.sw-artifact-evidence-item { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid #eef1f5; }
+.sw-artifact-evidence-item:last-child { padding-bottom: 0; border-bottom: 0; }
+.sw-artifact-evidence-meta { display: flex; flex-wrap: wrap; gap: 8px; color: #69718c; font-size: 12px; }
+.sw-artifact-evidence-meta a { color: #2563eb; }
+.sw-artifact-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 768px) { .sw-page { padding-inline: 12px; } .sw-page-header { align-items: flex-start; flex-direction: column; } }
