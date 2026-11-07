@@ -44,7 +44,12 @@ public class BarkClient {
 
     public BarkClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        // 显式 HTTP/1.1：容器内 JDK 默认的 HTTP/2 协商在部分出口/代理下会卡在 connect 阶段超时。
+        this.client = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
     }
 
     /** 开关打开且填了 device-key 才算可用。 */
@@ -72,24 +77,27 @@ public class BarkClient {
         try {
             HttpRequest request = HttpRequest.newBuilder(
                             URI.create(trimSlash(server) + "/" + deviceKey.trim()))
-                    .timeout(Duration.ofSeconds(20))
+                    .timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                log.warn("Bark 推送失败: httpStatus={}", response.statusCode());
+                log.warn("Bark 推送失败: host={}, httpStatus={}, body={}",
+                        host(), response.statusCode(), mask(truncate(response.body())));
                 return false;
             }
             JsonNode json = objectMapper.readTree(response.body());
             int code = json.path("code").asInt(-1);
             if (code != 200) {
-                log.warn("Bark 推送失败: code={}, message={}", code, mask(json.path("message").asText("")));
+                log.warn("Bark 推送失败: host={}, code={}, message={}",
+                        host(), code, mask(json.path("message").asText("")));
                 return false;
             }
             return true;
         } catch (Exception exception) {
-            log.warn("Bark 推送异常: {}", mask(exception.getMessage()));
+            log.warn("Bark 推送异常: host={}, type={}, message={}",
+                    host(), exception.getClass().getSimpleName(), mask(exception.getMessage()));
             return false;
         }
     }
@@ -105,5 +113,24 @@ public class BarkClient {
     private String trimSlash(String value) {
         String trimmed = value == null ? "" : value.trim();
         return trimmed.endsWith("/") ? trimmed.substring(0, trimmed.length() - 1) : trimmed;
+    }
+
+    /** 只写 host：完整 URL 里带 device key，绝不进日志。 */
+    private String host() {
+        try {
+            String value = URI.create(trimSlash(server)).getHost();
+            return value == null ? "unknown" : value;
+        } catch (Exception exception) {
+            return "unknown";
+        }
+    }
+
+    /** 响应体截断 200 字，避免整页 HTML/JSON 刷屏。 */
+    private String truncate(String text) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replaceAll("\\s+", " ").trim();
+        return flat.length() <= 200 ? flat : flat.substring(0, 200) + "...";
     }
 }
