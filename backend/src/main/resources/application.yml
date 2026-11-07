@@ -51,6 +51,7 @@ spring:
   servlet:
     multipart:
       enabled: true
+      # 需 ≥ project-context.fact-max-file-mb（默认 50MB）
       max-file-size: 100MB
       max-request-size: 100MB
 
@@ -204,6 +205,9 @@ ai-agent:
 project-context:
   token: "${PROJECT_CONTEXT_TOKEN:}"
   max-source-rows: ${PROJECT_CONTEXT_MAX_SOURCE_ROWS:200}
+  # 手工投递（文件/说明/聊天）落盘目录与单文件大小上限
+  fact-storage-dir: ${PROJECT_CONTEXT_FACT_STORAGE_DIR:/data/project-facts}
+  fact-max-file-mb: ${PROJECT_CONTEXT_FACT_MAX_FILE_MB:50}
 
 # 项目事实层定时汇入（会议/邮件/云效工作项/大事儿 → project_fact）
 project:

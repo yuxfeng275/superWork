@@ -18,4 +18,10 @@ public class ProjectContextProperties {
 
     /** 单次汇入每个来源最多拉取的行数，防止首次汇入被历史数据淹没 */
     private int maxSourceRows = 200;
+
+    /** 手工投递（文件/说明/聊天）的落盘根目录 */
+    private String factStorageDir = "/data/project-facts";
+
+    /** 手工投递单文件大小上限（MB） */
+    private int factMaxFileMb = 50;
 }

@@ -49,12 +49,17 @@ public class ProjectFactService {
     public static final String SOURCE_WORKITEM = "WORKITEM";
     public static final String SOURCE_KEY_MATTER = "KEY_MATTER";
 
+    /** 手工投递来源：本机文件上传、补充说明、聊天记录导出（见 ProjectFactIntakeController）。 */
+    public static final String SOURCE_FILE_UPLOAD = "FILE_UPLOAD";
+    public static final String SOURCE_NOTE = "NOTE";
+    public static final String SOURCE_CHAT_EXPORT = "CHAT_EXPORT";
+
+    /** 制品采纳后的回流来源（不参与系统内汇入，只由 AiArtifactService 写入）。 */
+    public static final String SOURCE_ARTIFACT = "ARTIFACT";
+
     public static final String VISIBILITY_PROJECT = "PROJECT";
     public static final String VISIBILITY_COMPANY = "PRIVATE_COMPANY";
     public static final String VISIBILITY_OWNER = "OWNER";
-
-    /** 制品采纳后的回流来源（不参与系统内汇入，只由 AiArtifactService 写入）。 */
-    private static final String SOURCE_ARTIFACT = "ARTIFACT";
 
     private static final int MAX_TITLE = 300;
     private static final int MAX_DIGEST = 1000;
@@ -272,6 +277,39 @@ public class ProjectFactService {
                 truncate(title, MAX_TITLE),
                 content,
                 VISIBILITY_PROJECT));
+    }
+
+    /**
+     * 手工投递入口（文件 / 补充说明 / 聊天记录）：直接写一条事实，按 dedupe_hash 幂等。
+     *
+     * @param body 可为 null；title 截断到 300 字；visibility 缺省为项目可见
+     * @return 新增或更新的条数（0 表示入参不完整被跳过）
+     */
+    @Transactional
+    public int appendManual(Long projectId, String sourceType, String sourceRef, Long actorId,
+            LocalDateTime happenedAt, String title, String body, String visibility) {
+        if (projectId == null || !StringUtils.hasText(sourceType) || !StringUtils.hasText(sourceRef)) {
+            return 0;
+        }
+        return upsert(new FactDraft(
+                projectId,
+                sourceType.strip(),
+                sourceRef.strip(),
+                actorId,
+                happenedAt == null ? LocalDateTime.now() : happenedAt,
+                truncate(title, MAX_TITLE),
+                body,
+                StringUtils.hasText(visibility) ? visibility.strip() : VISIBILITY_PROJECT));
+    }
+
+    /** 按来源回读一条事实（投递接口用来把落库结果返回给调用方）。 */
+    public ProjectFact find(String sourceType, String sourceRef) {
+        if (!StringUtils.hasText(sourceType) || !StringUtils.hasText(sourceRef)) {
+            return null;
+        }
+        return factMapper.selectOne(new LambdaQueryWrapper<ProjectFact>()
+                .eq(ProjectFact::getDedupeHash, dedupeHash(sourceType.strip(), sourceRef.strip()))
+                .last("limit 1"));
     }
 
     private record FactDraft(Long projectId, String sourceType, String sourceRef, Long actorId,

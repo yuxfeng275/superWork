@@ -4,6 +4,7 @@ import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.service.AutomationRunService;
 import com.bu.management.service.ProjectBriefService;
+import com.bu.management.service.ProjectFactIntakeService;
 import com.bu.management.service.ProjectFactService;
 import com.bu.management.vo.Result;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectContextInternalController {
 
     private final ProjectFactService factService;
+    private final ProjectFactIntakeService intakeService;
     private final ProjectBriefService briefService;
     private final AutomationRunService automationRunService;
     private final ProjectContextProperties properties;
@@ -72,6 +74,22 @@ public class ProjectContextInternalController {
         }
         int changed = factService.ingestProject(projectId, LocalDateTime.now().minusHours(Math.max(hours, 1)));
         return ResponseEntity.ok(Result.success(changed));
+    }
+
+    /** 群机器人 / 脚本直接投递聊天记录：没有登录态，actorId 记 null。 */
+    @PostMapping("/internal/project-context/{projectId}/chat")
+    public ResponseEntity<?> chat(@PathVariable Long projectId,
+            @RequestBody ProjectFactIntakeService.ChatRequest body,
+            HttpServletRequest request) {
+        if (!tokenOk(request)) {
+            return ResponseEntity.status(401).body(Result.error(401, "invalid token"));
+        }
+        try {
+            return ResponseEntity.ok(Result.success(intakeService.intakeChat(
+                    projectId, null, body.messages(), body.visibility())));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
+        }
     }
 
     /** 无人在场的一轮 Agent 运行（agent-autoloop 的 command 通道入口）。 */
