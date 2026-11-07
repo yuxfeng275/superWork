@@ -31,6 +31,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
+import { useLocation } from '@umijs/max';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type AiModelSavePayload,
@@ -74,10 +75,17 @@ export default function ModelsPage() {
   const [testingDraft, setTestingDraft] = useState(false);
   const [remoteModels, setRemoteModels] = useState<string[]>([]);
   const [fetchingRemote, setFetchingRemote] = useState(false);
+  const { pathname } = useLocation();
   const load = useCallback(async () => {
-    // 该组件可能被挂载在当前路由之外（如 /workbench），此时不拉取列表，
-    // 避免普通成员因缺少 system:config:edit 权限而触发 403。
-    if (!window.location.pathname.startsWith('/models')) return;
+    // 正式路由是 /system/models，/models 为兼容前缀；其他路由（如 /workbench）
+    // 下本组件可能被挂载，此时不拉取列表，避免普通成员缺 system:config:edit 而 403。
+    const onModelsRoute = ['/models', '/system/models'].some((prefix) =>
+      pathname.startsWith(prefix),
+    );
+    if (!onModelsRoute) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -88,7 +96,7 @@ export default function ModelsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pathname]);
   useEffect(() => {
     void load();
   }, [load]);

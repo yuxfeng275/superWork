@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ describe('SystemPermissionsPage smoke', () => {
 
   it('renders permission rows and filters by keyword', async () => {
     render(<SystemPermissionsPage />);
-    expect(await screen.findByText('查看权限列表')).toBeInTheDocument();
+    expect((await screen.findAllByText('查看权限列表')).length).toBeGreaterThan(0);
     expect(screen.getByText('分配权限')).toBeInTheDocument();
     expect(screen.getByText('system:permission:list')).toBeInTheDocument();
     expect(screen.getAllByText('权限管理').length).toBeGreaterThan(0);
@@ -49,9 +49,11 @@ describe('SystemPermissionsPage smoke', () => {
     fireEvent.change(screen.getByPlaceholderText('名称 / 编码 / 说明'), {
       target: { value: '分配' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    fireEvent.click(screen.getByRole('button', { name: /查\s*询/ }));
 
-    expect(screen.queryByText('查看权限列表')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryAllByText('查看权限列表')).toHaveLength(0),
+    );
     expect(screen.getByText('分配权限')).toBeInTheDocument();
   });
 });

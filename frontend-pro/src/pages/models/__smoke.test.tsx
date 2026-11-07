@@ -9,7 +9,10 @@ const mocks = vi.hoisted(() => ({
   deleteAiModel: vi.fn(),
 }));
 
-vi.mock('@umijs/max', () => ({ history: { push: mocks.push } }));
+vi.mock('@umijs/max', () => ({
+  history: { push: mocks.push },
+  useLocation: () => ({ pathname: '/models' }),
+}));
 
 vi.mock('@/services/superwork/api', () => ({
   superworkApi: {
@@ -74,7 +77,7 @@ describe('ModelsPage smoke', () => {
       (await screen.findAllByText('deepseek-v4-flash')).length,
     ).toBeGreaterThan(0);
     expect(screen.getByText('GLM 5.3')).toBeInTheDocument();
-    expect(screen.getByText('接入未就绪')).toBeInTheDocument();
+    expect(screen.getByText('未就绪')).toBeInTheDocument();
     expect(screen.getByText(/接入未就绪：glm/)).toBeInTheDocument();
 
     const glmRow = screen
@@ -82,17 +85,17 @@ describe('ModelsPage smoke', () => {
       .find((row) => row.textContent?.includes('glm-5.3'));
     expect(glmRow).toBeTruthy();
     const glmSwitches = within(glmRow as HTMLElement).getAllByRole('switch');
-    // 列序：助手可用 / 摘要使用 / 决策 / 默认 / 启用
-    expect(glmSwitches).toHaveLength(5);
+    // 列序：助手可用 / 摘要使用 / 决策 / 启用（默认模型在编辑弹窗里设置）
+    expect(glmSwitches).toHaveLength(4);
     expect(mocks.getAiModels).toHaveBeenCalledTimes(1);
 
     fireEvent.click(glmSwitches[3]);
     await waitFor(() =>
-      expect(mocks.updateAiModel).toHaveBeenCalledWith(2, { isDefault: true }),
+      expect(mocks.updateAiModel).toHaveBeenCalledWith(2, { enabled: false }),
     );
     await waitFor(() => expect(mocks.getAiModels).toHaveBeenCalledTimes(2));
     await waitFor(() =>
-      expect(screen.getByText('已设为默认模型')).toBeInTheDocument(),
+      expect(screen.getByText('模型已停用')).toBeInTheDocument(),
     );
   });
 
@@ -101,7 +104,7 @@ describe('ModelsPage smoke', () => {
     await screen.findAllByText('deepseek-v4-flash');
 
     fireEvent.click(screen.getByRole('button', { name: /新\s*建\s*模\s*型/ }));
-    fireEvent.change(screen.getByPlaceholderText('如 deepseek-v4-flash'), {
+    fireEvent.change(screen.getByLabelText('模型名'), {
       target: { value: 'deepseek-v4' },
     });
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
