@@ -7,7 +7,7 @@ import {
   type ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import { createModels, createProvider, type Api, type MutableModels } from "@earendil-works/pi-ai";
-import type { FetchFunction, Message, Model } from "@earendil-works/pi-ai";
+import type { FetchFunction, Model } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
@@ -473,8 +473,11 @@ export function buildPiAgent(input: AgentFactoryInput): AgentLike {
     // Guard against a transcript the provider would reject outright.
     transformContext: async (messages: AgentMessage[]): Promise<AgentMessage[]> =>
       pruneMessages(messages, MAX_CONTEXT_CHARS),
-    convertToLlm: (msgs: AgentMessage[]): Message[] =>
-      msgs.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult") as unknown as Message[],
+    // No convertToLlm override on purpose: pi-agent-core's default converter
+    // keeps the leading `system` message, which is the ONLY carrier of the
+    // system prompt and of the folded tool declarations (`toolsAdded`).
+    // A role filter here (user/assistant/toolResult only) silently dropped it,
+    // so requests went out with no system message and n_tools=0.
   });
   return agent;
 }

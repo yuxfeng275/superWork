@@ -590,6 +590,44 @@ describe("sessionId", () => {
   });
 });
 
+describe("convertToLlm", () => {
+  it("keeps the system message so systemPrompt and tool declarations reach the provider", async () => {
+    const agent = buildPiAgent({
+      runId: "run-1",
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "sk-test",
+      model: "deepseek-flash",
+      systemPrompt: "SYS-TEST-MARKER",
+      messages: [{ role: "user", content: "hi", timestamp: 1 }],
+      tools: [
+        {
+          name: "project_facts",
+          description: "Read the recorded project facts",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+        },
+      ] as unknown as AgentFactoryInput["tools"],
+    }) as unknown as {
+      convertToLlm: (messages: AgentMessage[]) => Array<{ role: string }> | Promise<Array<{ role: string }>>;
+      state: { messages: AgentMessage[] };
+    };
+
+    const llmMessages = await agent.convertToLlm(agent.state.messages);
+    const roles = llmMessages.map((m) => m.role);
+
+    // Regression: the previous custom converter filtered to
+    // user/assistant/toolResult and dropped the leading system message, so
+    // requests reached the provider with roles:["user"] and n_tools=0.
+    assert.ok(roles.includes("system"), `expected a system message, got [${roles.join(",")}]`);
+    assert.ok(roles.includes("user"));
+
+    const system = llmMessages[0] as unknown as { role: string; content: string; toolsAdded?: unknown[] };
+    assert.equal(system.role, "system");
+    assert.equal(system.content, "SYS-TEST-MARKER");
+    assert.ok((system.toolsAdded?.length ?? 0) > 0, "system message must carry the tool declarations");
+  });
+});
+
 after(() => {
   // each test closes its own server
 });
