@@ -79,7 +79,7 @@ public class WeComCliToolService {
                 "读取企业微信文档正文（markdown）。",
                 objectSchema(Map.of("docId", stringProperty("文档 ID，必填（来自 wecom_search_docs）")), List.of("docId"))));
         defs.add(new AiAgentToolDefinition("wecom_send_message",
-                "用企业微信机器人向指定单聊/群聊发送文本消息。chatId 为成员 userid（单聊）或群会话 ID。",
+                "用企业微信机器人向指定单聊/群聊发送消息（按 markdown 渲染，纯文本可直接传入）。chatId 为成员 userid（单聊）或群会话 ID。",
                 objectSchema(Map.of(
                         "chatId", stringProperty("会话 ID：单聊传成员 userid，群聊传群会话 ID，必填"),
                         "text", stringProperty("消息文本，必填")), List.of("chatId", "text"))));

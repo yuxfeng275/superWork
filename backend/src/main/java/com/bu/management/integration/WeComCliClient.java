@@ -441,8 +441,8 @@ public class WeComCliClient {
         probes.put("contact", List.of("users", "search", "--keywords", "张"));
         probes.put("todo", List.of("list", "--limit", "1"));
         probes.put("calendar", List.of("schedules", "list", "--begin-time", recent, "--end-time", soon));
-        probes.put("message", List.of("send", "--chat-id", "__probe__", "--msg-type", "text",
-                "--json", "{\"text\":\"capability probe\"}"));
+        probes.put("message", List.of("aibot", "send", "--chat-id", "__probe__", "--msg-type", "markdown",
+                "--json", "{\"markdown\":{\"content\":\"capability probe\"}}"));
         probes.put("doc", List.of("search", "--keywords", "周报"));
         probes.put("disk", List.of("files", "list", "--limit", "1"));
         probes.put("mail", List.of("search"));

@@ -22,7 +22,7 @@ import org.springframework.util.StringUtils;
  *       用户 ID 取自部署配置 {@code opportunity.followup.pilot-owner-user-id}
  *       （环境变量 {@code OPPORTUNITY_FOLLOWUP_PILOT_OWNER_USER_ID} 可覆盖），
  *       企微 userid 取自系统配置或该用户自己的企微绑定映射；</li>
- *   <li>发送链优先级：企微机器人单聊（{@code wecom-cli message send}，渠道 {@code WECOM_BOT}）
+ *   <li>发送链优先级：企微机器人单聊（{@code wecom-cli message aibot send}，渠道 {@code WECOM_BOT}）
  *       → 企微应用消息（渠道 {@code WECOM_APP}，仅当绑定映射存在且 enabled=1）
  *       → 只留站内（渠道 {@code INAPP}）；</li>
  *   <li>每一级都单独 try/catch 降级，<b>任何异常都不向上抛</b>，绝不影响问句台账落库。</li>

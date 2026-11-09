@@ -137,7 +137,7 @@ POST /api/wecom-cli/auth/qrcode
 | `wecom_list_todos` / `wecom_create_todo` / `wecom_finish_todo` | `todo list/get/create/finish` | 机器人视角待办（与 OA 待办台互补：企微=个人待办，OA=审批流） |
 | `wecom_list_meetings` / `wecom_meeting_detail` | `meeting list/get` | **`meeting get` 返回智能纪要地址 + 录制文件地址** |
 | `wecom_search_doc` / `wecom_read_doc` | `doc search` / `doc contents get` | 企微文档检索与正文读取 |
-| `wecom_send_message` | `message send`（先 `message aibot sessions list` 取会话） | 机器人推送到单聊/群（补应用通道推送） |
+| `wecom_send_message` | `message aibot send`（先 `message aibot sessions list` 取会话；`message send` 本企业未开通 853006） | 机器人推送到单聊/群（补应用通道推送） |
 | `wecom_search_mail` / `wecom_read_mail` | `mail ...` | 只读邮件检索（与邮箱模块互补） |
 | `wecom_search_disk` / `wecom_download_disk_file` | `disk ...` | 微盘检索与下载（下载落 `/data/wecom-cli/workspace`） |
 

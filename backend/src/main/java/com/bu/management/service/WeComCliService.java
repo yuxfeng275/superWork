@@ -273,15 +273,21 @@ public class WeComCliService {
 
     // ==================== 消息 / 邮件 ====================
 
-    /** 向单聊或群聊发送文本消息（chatId 为成员 userid 或群会话 ID）。 */
+    /**
+     * 向单聊或群聊发送消息（chatId 为成员 userid 或群会话 ID）。
+     *
+     * <p>走机器人通道 {@code message aibot send}：官方的 {@code message send} 在本企业未开通
+     * （返回 853006 this tool is not available for your corporation），实测仅 aibot 子命令可用。
+     * 纯文本以 markdown 承载（{@code {"markdown":{"content":…}}}），换行与链接仍按 markdown 渲染。
+     */
     public JsonNode sendMessage(String chatId, String text) {
         if (!StringUtils.hasText(chatId) || !StringUtils.hasText(text)) {
             throw new IllegalArgumentException("会话 ID 与消息内容均不能为空");
         }
         ObjectNode payload = objectMapper.createObjectNode();
-        payload.put("text", text);
-        return cli.execOrThrow("message", List.of("send", "--chat-id", chatId.trim(),
-                "--msg-type", "text", "--json", payload.toString()));
+        payload.putObject("markdown").put("content", text);
+        return cli.execOrThrow("message", List.of("aibot", "send", "--chat-id", chatId.trim(),
+                "--msg-type", "markdown", "--json", payload.toString()));
     }
 
     /** 邮件检索（只读）。 */
