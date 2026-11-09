@@ -15,7 +15,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -163,6 +166,113 @@ class SalesOpportunityServiceTest {
         assertThatThrownBy(() -> service.createFollowUp(7L, request))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("不能回退");
+    }
+
+    @Test
+    void createFollowUpParsesNextFollowUpTextIntoStructuredTime() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setName("皇家续约");
+        opportunity.setStatus("需求确认");
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunityFollowUpRequest request = new SalesOpportunityFollowUpRequest();
+        request.setFollower("系统管理员");
+        request.setContent("约好下周过方案");
+        request.setStatus("需求确认");
+        request.setProbability(40);
+        request.setNextFollowUp("下周三 15:00");
+
+        service.createFollowUp(7L, request);
+
+        assertThat(opportunity.getNextFollowUpAt()).isNotNull();
+        assertThat(opportunity.getNextFollowUpAt().getDayOfWeek()).isEqualTo(DayOfWeek.WEDNESDAY);
+        assertThat(opportunity.getNextFollowUpAt().toLocalTime()).isEqualTo(LocalTime.of(15, 0));
+        assertThat(opportunity.getNextFollowUpAt().toLocalDate()).isAfter(LocalDate.now());
+        assertThat(opportunity.getFollowUpState()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void createFollowUpClearsStructuredTimeWhenTextUnparseable() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setStatus("需求确认");
+        // 上一次排的计划还在，改文案但解析不出时必须清掉，不能留着旧时间骗人
+        opportunity.setNextFollowUpAt(LocalDateTime.now().plusDays(1).withHour(10).withMinute(0));
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunityFollowUpRequest request = new SalesOpportunityFollowUpRequest();
+        request.setFollower("系统管理员");
+        request.setContent("客户让再看");
+        request.setStatus("需求确认");
+        request.setProbability(30);
+        request.setNextFollowUp("再看");
+
+        SalesOpportunityFollowUp result = service.createFollowUp(7L, request);
+
+        assertThat(result.getNextFollowUp()).isEqualTo("再看");
+        assertThat(opportunity.getNextFollowUp()).isEqualTo("再看");
+        assertThat(opportunity.getNextFollowUpAt()).isNull();
+        assertThat(opportunity.getFollowUpState()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void createFollowUpWithoutNextFollowUpTextLeavesOtherFieldsAlone() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setName("皇家续约");
+        opportunity.setNote("商机长期备注");
+        opportunity.setStatus("需求确认");
+        opportunity.setNextFollowUpAt(LocalDateTime.now().plusDays(2));
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunityFollowUpRequest request = new SalesOpportunityFollowUpRequest();
+        request.setFollower("系统管理员");
+        request.setContent("电话沟通了预算");
+        request.setStatus("需求确认");
+        request.setProbability(35);
+
+        service.createFollowUp(7L, request);
+
+        assertThat(opportunity.getName()).isEqualTo("皇家续约");
+        assertThat(opportunity.getNote()).isEqualTo("商机长期备注");
+        assertThat(opportunity.getStatus()).isEqualTo("需求确认");
+        assertThat(opportunity.getProbability()).isEqualTo(35);
+        assertThat(opportunity.getNextFollowUpAt()).isNull();
+        assertThat(opportunity.getFollowUpState()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void updateParsesNextFollowUpTextIntoStructuredTime() {
+        SalesOpportunity existing = new SalesOpportunity();
+        existing.setId(9L);
+        existing.setName("华东扩容");
+        existing.setStatus("需求确认");
+        when(opportunityMapper.selectById(9L)).thenReturn(existing);
+
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("华东扩容");
+        request.setStatus("需求确认");
+        request.setNextFollowUp("下周三 15:00");
+
+        service.update(9L, request);
+
+        assertThat(existing.getNextFollowUpAt()).isNotNull();
+        assertThat(existing.getNextFollowUpAt().getDayOfWeek()).isEqualTo(DayOfWeek.WEDNESDAY);
+        assertThat(existing.getNextFollowUpAt().toLocalTime()).isEqualTo(LocalTime.of(15, 0));
+    }
+
+    @Test
+    void createLeavesStructuredTimeNullWhenTextUnparseable() {
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("新商机");
+        request.setStatus("初步接触");
+        request.setNextFollowUp("再看");
+
+        SalesOpportunity created = service.create(request);
+
+        assertThat(created.getNextFollowUp()).isEqualTo("再看");
+        assertThat(created.getNextFollowUpAt()).isNull();
     }
 
     @Test

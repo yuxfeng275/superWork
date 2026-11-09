@@ -86,6 +86,9 @@ public class SalesOpportunityService {
         opportunity.setStatus(request.getStatus());
         opportunity.setProbability(request.getProbability());
         opportunity.setNextFollowUp(request.getNextFollowUp());
+        // 人工填写的新跟进 = 下一轮从「待跟进」开始；解析不出时间也要把旧值清掉
+        opportunity.setNextFollowUpAt(parseNextFollowUpAt(request.getNextFollowUp()));
+        opportunity.setFollowUpState("PENDING");
         mapper.updateById(opportunity);
         return item;
     }
@@ -152,6 +155,19 @@ public class SalesOpportunityService {
         item.setName(request.getName()); item.setCustomer(request.getCustomer()); item.setType(request.getType()); item.setStatus(request.getStatus());
         item.setAmount(request.getAmount()); item.setOwner(request.getOwner()); item.setBusinessLine(request.getBusinessLine()); item.setNextFollowUp(request.getNextFollowUp());
         item.setProbability(request.getProbability()); item.setExpectedClose(request.getExpectedClose()); item.setSource(request.getSource()); item.setNote(request.getNote());
+        // 新建/编辑入口同样把「下次跟进」文本落成结构化时间，否则今日/逾期两条规则永远取不到数
+        item.setNextFollowUpAt(parseNextFollowUpAt(request.getNextFollowUp()));
+    }
+
+    /**
+     * 把「下次跟进」自由文本解析成结构化时间；解析不出来一律写 NULL，绝不保留旧值。
+     *
+     * <p>写 NULL 而不是留着上一次的时间：文案改了但时间没变，会让人误以为计划已经排好。
+     * 解析统一走 {@link OpportunityFollowUpParser}，与 {@code OpportunityFollowUpService#backfillNextFollowUpAt()}
+     * 保持同一套口径，避免两条写入路径对同一句话给出不同结果。
+     */
+    private LocalDateTime parseNextFollowUpAt(String text) {
+        return OpportunityFollowUpParser.parseNextFollowUp(text, LocalDate.now());
     }
 
     /**
