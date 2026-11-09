@@ -31,4 +31,14 @@ public class SalesOpportunity {
     private LocalDate expectedClose;
     private String source;
     private String note;
+    /** 结构化下次跟进时间（优先于 nextFollowUp 文本）。 */
+    private LocalDateTime nextFollowUpAt;
+    /** 跟进状态：PENDING / DONE（本轮待跟进是否已闭环）。 */
+    private String followUpState;
+    /** 最后一次跟进时间（跟进记录落库时回写）。 */
+    private LocalDateTime lastFollowUpAt;
+    /** 负责人用户 ID；姓名匹配不上时为空，此时不做企微推送。 */
+    private Long ownerUserId;
+    /** 是否静音提醒：0=正常提醒，1=用户已手动静音。 */
+    private Integer remindMuted;
 }

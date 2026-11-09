@@ -195,6 +195,43 @@ export interface ProjectFact {
   createdAt?: string;
 }
 
+/**
+ * 事实汇总（投递箱顶部几个数字，工作台「未归类」那一行也用它）。
+ * 只统计当前用户可见的事实；口径是 created_at（「新增」），不是 happened_at。
+ */
+export interface ProjectFactsSummary {
+  /** 各来源类型条数，如 { FILE_UPLOAD: 3, NOTE: 1 } */
+  bySource?: Record<string, number> | null;
+  total?: number;
+  /** 低质事实条数（body 空且 digest 短） */
+  lowQuality?: number;
+  /** 最近 24 小时新增条数 */
+  last24h?: number;
+  /**
+   * 未归类邮件数；服务端统计失败时给 null，界面上别当 0 显示。
+   * ⚠️ **用户级**口径：同一个数字在每个项目汇总里都会出现，跨项目相加 = 重复计算，
+   * 要跨项目汇总只能取第一个非 null 的值，别求和。
+   */
+  ungrouped?: number | null;
+  /** 本周是否 0 新增（SOP 提醒用） */
+  thisWeekZero?: boolean;
+  /**
+   * 待补文件数（投上来但没有正文）：**项目级**口径，同一个文件只算在它自己的项目里，
+   * 所以可以跨项目求和。缺了显示占位，不拿别的数凑。
+   */
+  ungroupedFiles?: number | null;
+  /**
+   * 文件名命中敏感规则、被隔离的条数：服务端**恒为 null**（是否隔离只有本机客户端知道），
+   * 不参与跨项目求和的「敏感文件」数字，界面上别当 0，也别拿 ungroupedFiles 凑。
+   */
+  isolated?: number | null;
+  /**
+   * 统计是否被截断（true = 只覆盖前 N 条，上面这些数字都只是**下限**）。
+   * 界面不能把它当确定值展示，要明确提示「数字为下限」。
+   */
+  truncated?: boolean;
+}
+
 /** 投递聊天记录时的一条消息（前端把「[时间] 姓名: 内容」解析成它）。 */
 export interface ProjectFactChatMessage {
   sender: string;
@@ -791,6 +828,9 @@ export interface SalesOpportunity {
   owner?: string;
   businessLine?: string;
   nextFollowUp?: string;
+  nextFollowUpAt?: string | null;
+  followUpState?: string;
+  lastFollowUpAt?: string | null;
   createdAt?: string;
   probability?: number;
   expectedClose?: string;
@@ -3317,12 +3357,26 @@ export const superworkApi = {
       })}`
     );
   },
-  /** 拖一个文件进事实层；multipart 由浏览器自己定 boundary。 */
-  uploadProjectFactFile(
-    projectId: number,
-    payload: {
+  /**
+   * 项目事实汇总：各来源条数 / 总量 / 低质 / 最近 24h / 未归类 / 本周是否 0 新增。
+   * 权限同 listProjectFacts：非该项目成员 403。
+   */
+  getProjectFactsSummary(projectId: number) {
+    return requestJson<ProjectFactsSummary>(
+      `/api/projects/${projectId}/facts/summary`
+    );
+  },
+  /**
+     * 拖一个文件进事实层；multipart 由浏览器自己定 boundary。
+     * visibility 不传（undefined）= 请求体里**不出现** visibility 字段，
+     * 由后端 FactVisibilityPolicy 走默认策略（文件名命中敏感关键词 → OWNER，其余 PROJECT）。
+     */
+    uploadProjectFactFile(
+      projectId: number,
+      payload: {
       file: File;
       note?: string;
+      /** 显式选了才发；传 undefined 让后端决定默认可见性 */
       visibility?: ProjectFactVisibility;
       /** 真实上传进度（0-100），供上传列表画进度条 */
       onProgress?: (percent: number) => void;
@@ -3331,6 +3385,8 @@ export const superworkApi = {
     const body = new FormData();
     body.append("file", payload.file);
     if (payload.note) body.append("note", payload.note);
+    // 只有显式选了可见性才 append；没选就不发这个字段，后端按文件名决定默认值
+    // （命中敏感关键词 → OWNER），否则敏感文件会默认向全体项目成员公开。
     if (payload.visibility) body.append("visibility", payload.visibility);
     return uploadFormDataWithProgress<ProjectFact>(
       `/api/projects/${projectId}/facts/files`,
@@ -3338,31 +3394,54 @@ export const superworkApi = {
       payload.onProgress
     );
   },
-  /** 写一条补充说明进事实层。 */
-  addProjectFactNote(
-    projectId: number,
-    payload: {
-      title: string;
-      body: string;
+  /**
+     * 写一条补充说明进事实层。
+     * visibility 不传 = JSON 里不写这个 key，默认策略交给后端。
+     */
+    addProjectFactNote(
+      projectId: number,
+      payload: {
+        title: string;
+        body: string;
+        /** 显式选了才发；传 undefined 让后端决定默认可见性 */
       visibility?: ProjectFactVisibility;
-    }
-  ) {
-    return requestJson<ProjectFact>(
-      `/api/projects/${projectId}/facts/notes`,
-      { method: "POST", body: JSON.stringify(payload) }
-    );
-  },
-  /** 贴一段聊天记录（企微/微信导出）进事实层。 */
+      }
+    ) {
+      return requestJson<ProjectFact>(
+        `/api/projects/${projectId}/facts/notes`,
+        {
+          method: "POST",
+          // 显式拼 body：undefined 时整条 key 不出现，后端才会走默认策略。
+          body: JSON.stringify({
+            title: payload.title,
+            body: payload.body,
+            ...(payload.visibility ? { visibility: payload.visibility } : {}),
+          }),
+      }
+      );
+    },
+  /**
+   * 贴一段聊天记录（企微/微信导出）进事实层。
+   * visibility 不传 = JSON 里不写这个 key，默认策略交给后端。
+   */
   ingestProjectChat(
     projectId: number,
     payload: {
       messages: ProjectFactChatMessage[];
+      /** 显式选了才发；传 undefined 让后端决定默认可见性 */
       visibility?: ProjectFactVisibility;
     }
   ) {
     return requestJson<ProjectFact>(
       `/api/projects/${projectId}/facts/chat`,
-      { method: "POST", body: JSON.stringify(payload) }
+      {
+        method: "POST",
+        // 显式拼 body：undefined 时整条 key 不出现，后端才会走默认策略。
+        body: JSON.stringify({
+          messages: payload.messages,
+          ...(payload.visibility ? { visibility: payload.visibility } : {}),
+        }),
+      }
     );
   },
   getCustomerContacts(

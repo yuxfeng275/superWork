@@ -34,7 +34,8 @@ public class JevDecisionService {
             "wecom_create_todo",
             "wecom_finish_todo",
             "save_daily_brief",
-            "save_artifact");
+            "save_artifact",
+            "save_opportunity_followup");
 
     /** 自动化任务依赖的工具：任何意图下都保留，否则夜间任务会被意图收窄掐死。 */
     static final Set<String> ALWAYS_TOOLS = Set.of("project_facts", "save_daily_brief", "save_artifact");

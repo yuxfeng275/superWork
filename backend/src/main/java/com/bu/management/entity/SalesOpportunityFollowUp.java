@@ -20,4 +20,8 @@ public class SalesOpportunityFollowUp {
     private Integer probability;
     private String nextFollowUp;
     private LocalDateTime createdAt;
+    /** 记录来源：MANUAL=手工录入，WECOM_BOT=企微问句确认落库。 */
+    private String source;
+    /** 溯源问句 ID（ oportunidades_followup_prompt.id ），手工录入为空。 */
+    private Long promptId;
 }

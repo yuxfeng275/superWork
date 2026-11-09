@@ -5,6 +5,8 @@ import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.Issue;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.entity.Requirement;
+import com.bu.management.entity.SalesOpportunity;
+import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.Task;
 import com.bu.management.entity.WorkLog;
 import com.bu.management.mapper.IssueMapper;
@@ -42,6 +44,13 @@ public class AiAgentToolService {
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAX_LIMIT = 50;
 
+    /** 商机阶段白名单（与 OpportunityFollowUpParser 一致）。 */
+    private static final Set<String> OPPORTUNITY_STAGES = Set.of(
+            "初步接触", "需求确认", "方案报价", "商务谈判", "已成交");
+
+    /** 商机跟进清单的默认静默天数。 */
+    private static final int DEFAULT_SILENT_DAYS = 7;
+
     private final TaskMapper taskMapper;
     private final RequirementMapper requirementMapper;
     private final WorkLogMapper workLogMapper;
@@ -57,6 +66,7 @@ public class AiAgentToolService {
     private final ProjectBriefService projectBriefService;
     private final AiArtifactService aiArtifactService;
     private final ProjectFactAccessGuard projectFactAccessGuard;
+    private final OpportunityFollowUpService opportunityFollowUpService;
 
     /** 读事实被拒时的统一文案：让模型看到明确拒绝，而不是一个无解释的空列表。 */
     static final String NO_FACT_READ = "无权访问该项目的事实（需项目成员/项目负责人或管理角色）";
@@ -179,6 +189,30 @@ public class AiAgentToolService {
                         "content", stringProperty("制品正文（方案正文/补丁说明/diff 摘要），必填"),
                         "evidence", stringProperty("证据 JSON 数组字符串：project_fact.id 列表，如 [12,15]，必填"),
                         "taskId", stringProperty("agent-autoloop 任务号，可选，用于回溯")))));
+        defs.add(new AiAgentToolDefinition("query_my_opportunities",
+                "查询当前登录用户负责的商机，可按销售阶段和「超过几天没跟进」筛选；"
+                        + "回答「我手上哪些商机该跟进了」用这个",
+                objectSchema(Map.of(
+                        "stage", stringProperty("销售阶段过滤：初步接触/需求确认/方案报价/商务谈判/已成交，可选"),
+                        "silentDays", integerProperty("只看超过 N 天没跟进的商机，可选（例如 7）"),
+                        "limit", integerProperty("返回条数上限，默认 10，最大 50")))));
+        defs.add(new AiAgentToolDefinition("list_opportunity_followups_due",
+                "列出当前登录用户的商机跟进清单：今日待跟进、已逾期（带逾期天数）、长期未跟进；"
+                        + "逾期项直接告诉用户逾期了几天",
+                objectSchema(Map.of(
+                        "range", stringProperty("清单范围：today/overdue/silent/all，默认 all"),
+                        "silentDays", integerProperty("silent 口径的静默天数，默认 7"),
+                        "limit", integerProperty("返回条数上限，默认 10，最大 50")))));
+        defs.add(new AiAgentToolDefinition("save_opportunity_followup",
+                "给某个商机补一条跟进记录（聊了什么 + 阶段/概率/下次跟进时间），会同步刷新商机的阶段、"
+                        + "成交概率与下次跟进时间。写操作：正文必须先给用户确认再调用；"
+                        + "商机用上一步查询结果里的 opportunityId 指定",
+                objectSchema(Map.of(
+                        "opportunityId", integerProperty("商机 ID（必填，取自 query_my_opportunities 的返回）"),
+                        "content", stringProperty("跟进内容，必填"),
+                        "stage", stringProperty("推进到的阶段，可选：初步接触/需求确认/方案报价/商务谈判/已成交"),
+                        "probability", integerProperty("成交概率 0-100，可选"),
+                        "nextFollowUp", stringProperty("下次跟进时间，可选：明天 / 周三 15:00 / 2026-11-12 09:30")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
@@ -232,6 +266,9 @@ public class AiAgentToolService {
                 case "project_facts" -> projectFacts(userId, args);
                 case "save_daily_brief" -> saveDailyBrief(userId, args);
                 case "save_artifact" -> saveArtifact(userId, args);
+                case "query_my_opportunities" -> queryMyOpportunities(userId, args);
+                case "list_opportunity_followups_due" -> listOpportunityFollowupsDue(userId, args);
+                case "save_opportunity_followup" -> saveOpportunityFollowup(userId, args);
                 default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
                         : emailActionToolService.handles(toolName)
@@ -270,8 +307,20 @@ public class AiAgentToolService {
         return new AiAgentToolResult(render(userId, "任务", rows), false);
     }
 
+    /**
+     * 「我的需求」：只返回当前登录用户<b>本人创建</b>的需求。
+     *
+     * <p>需求实体上没有负责人字段（只有 creatorId，和 Task 的 assigneeId 不是一回事），
+     * 所以口径只能落到 creatorId，不能退化成全量。userId 缺失时直接返回空结果——
+     * 绝不因为条件缺省就退回「按 status + id 倒序」的全系统查询，那等于把别人的
+     * 需求标题/优先级/日期暴露给任意用户。
+     */
     private AiAgentToolResult queryMyRequirements(Long userId, JsonNode args) {
+        if (userId == null) {
+            return new AiAgentToolResult("缺少当前用户上下文，未返回任何需求（我的需求仅限本人创建）", false);
+        }
         LambdaQueryWrapper<Requirement> query = new LambdaQueryWrapper<Requirement>()
+                .eq(Requirement::getCreatorId, userId)
                 .orderByDesc(Requirement::getId);
         String status = textArg(args, "status");
         if (StringUtils.hasText(status)) {
@@ -467,6 +516,187 @@ public class AiAgentToolService {
         } catch (Exception e) {
             return new AiAgentToolResult("制品保存失败：" + e.getMessage(), true);
         }
+    }
+
+    // ==================== 商机跟进工具 ====================
+
+    /**
+     * 我的商机：只返回负责人是当前用户的商机，阶段/静默天数可选。
+     * 输出里带商机名与客户，id 只用于后续 save_opportunity_followup。
+     */
+    private AiAgentToolResult queryMyOpportunities(Long userId, JsonNode args) {
+        String stage = textArg(args, "stage");
+        if (StringUtils.hasText(stage) && !OPPORTUNITY_STAGES.contains(stage.strip())) {
+            return new AiAgentToolResult("stage 只能是：" + String.join("/", OPPORTUNITY_STAGES), true);
+        }
+        Integer silentDays = intArg(args, "silentDays");
+        try {
+            List<SalesOpportunity> opportunities = opportunityFollowUpService.mine(
+                    userId, stage, silentDays, limit(args));
+            List<Map<String, Object>> rows = opportunityRows(opportunities);
+            if (rows.isEmpty()) {
+                return new AiAgentToolResult("当前用户名下没有符合条件的商机"
+                        + (StringUtils.hasText(stage) ? "（阶段：" + stage.strip() + "）" : "")
+                        + (silentDays != null ? "（超过 " + silentDays + " 天没有跟进）" : "")
+                        + "；不要猜测，可以让用户确认负责人口径", false);
+            }
+            return new AiAgentToolResult(render(userId, "商机", rows), false);
+        } catch (Exception e) {
+            return new AiAgentToolResult("商机查询失败：" + e.getMessage(), true);
+        }
+    }
+
+    /**
+     * 跟进清单：今日 / 逾期 / 静默三个桶，桶标签进每一行。
+     * 复用 {@link OpportunityFollowUpService} 的三个查询，再按归属人收窄到「我的」。
+     */
+    private AiAgentToolResult listOpportunityFollowupsDue(Long userId, JsonNode args) {
+        String rawRange = textArg(args, "range");
+        String range = StringUtils.hasText(rawRange) ? rawRange.strip().toLowerCase() : "all";
+        if (!List.of("today", "overdue", "silent", "all").contains(range)) {
+            return new AiAgentToolResult("range 只能是 today/overdue/silent/all", true);
+        }
+        Integer silentDays = intArg(args, "silentDays");
+        int days = silentDays == null ? DEFAULT_SILENT_DAYS : Math.max(1, silentDays);
+        LocalDate today = LocalDate.now();
+        int cap = limit(args);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<Long> seen = new ArrayList<>();
+        try {
+            if ("today".equals(range) || "all".equals(range)) {
+                appendDueRows(rows, seen, "今日待跟进",
+                        opportunityFollowUpService.dueToday(today), userId, today, cap);
+            }
+            if ("overdue".equals(range) || "all".equals(range)) {
+                appendDueRows(rows, seen, "已逾期",
+                        opportunityFollowUpService.overdue(today), userId, today, cap);
+            }
+            if ("silent".equals(range) || "all".equals(range)) {
+                appendDueRows(rows, seen, "长期未跟进",
+                        opportunityFollowUpService.silent(days), userId, today, cap);
+            }
+            if (rows.isEmpty()) {
+                return new AiAgentToolResult("当前用户名下没有" + rangeLabel(range) + "的商机", false);
+            }
+            return new AiAgentToolResult(render(userId, "商机跟进清单", rows), false);
+        } catch (Exception e) {
+            return new AiAgentToolResult("跟进清单查询失败：" + e.getMessage(), true);
+        }
+    }
+
+    /**
+     * 写跟进：手工补一条记录并刷新商机快照。
+     * 阶段推进的报价前置条件由 Service 的同一套守卫把守，违反文案原样回给模型，不静默失败。
+     */
+    private AiAgentToolResult saveOpportunityFollowup(Long userId, JsonNode args) {
+        long opportunityId = args.path("opportunityId").asLong(0);
+        if (opportunityId <= 0) {
+            return new AiAgentToolResult("缺少 opportunityId（先用 query_my_opportunities 查到要记的商机）", true);
+        }
+        String content = textArg(args, "content");
+        if (!StringUtils.hasText(content)) {
+            return new AiAgentToolResult("content 不能为空（这条跟进聊了什么）", true);
+        }
+        String stage = textArg(args, "stage");
+        if (StringUtils.hasText(stage) && !OPPORTUNITY_STAGES.contains(stage.strip())) {
+            return new AiAgentToolResult("stage 只能是：" + String.join("/", OPPORTUNITY_STAGES), true);
+        }
+        Integer probability = intArg(args, "probability");
+        if (probability != null && (probability < 0 || probability > 100)) {
+            return new AiAgentToolResult("probability 必须是 0-100 的整数", true);
+        }
+        LocalDateTime nextAt = null;
+        String nextText = textArg(args, "nextFollowUp");
+        if (StringUtils.hasText(nextText)) {
+            nextAt = OpportunityFollowUpParser.parseNextFollowUp(nextText, LocalDate.now());
+            if (nextAt == null) {
+                return new AiAgentToolResult(
+                        "下次跟进时间解析不出（可写「明天」「周三 15:00」「2026-11-12 09:30」），请先跟用户确认", true);
+            }
+        }
+        try {
+            SalesOpportunityFollowUp saved = opportunityFollowUpService.recordManualFollowUp(
+                    opportunityId, userId, stage, probability, content, nextAt);
+            SalesOpportunity opportunity = opportunityFollowUpService.get(opportunityId);
+            return new AiAgentToolResult("已记入商机「" + opportunity.getName() + "」的跟进：阶段 "
+                    + saved.getStatus() + "，概率 " + saved.getProbability()
+                    + (StringUtils.hasText(saved.getNextFollowUp()) ? "，下次跟进 " + saved.getNextFollowUp() : ""),
+                    false);
+        } catch (Exception e) {
+            // 阶段守卫等业务异常原样回给模型，不吞成通用失败
+            return new AiAgentToolResult(StringUtils.hasText(e.getMessage())
+                    ? e.getMessage() : "跟进记录保存失败", true);
+        }
+    }
+
+    /** 按归属人收窄后追加一批商机行；同一商机只入第一个命中的桶。 */
+    private void appendDueRows(List<Map<String, Object>> rows, List<Long> seen, String bucket,
+                               List<SalesOpportunity> opportunities, Long userId, LocalDate today, int cap) {
+        if (opportunities == null) {
+            return;
+        }
+        for (SalesOpportunity opportunity : opportunities) {
+            if (rows.size() >= cap) {
+                return;
+            }
+            if (!opportunityFollowUpService.ownedBy(opportunity, userId) || seen.contains(opportunity.getId())) {
+                continue;
+            }
+            seen.add(opportunity.getId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("bucket", bucket);
+            row.putAll(opportunityRow(opportunity));
+            long overdueDays = opportunityFollowUpService.overdueDays(opportunity, today);
+            if (overdueDays > 0) {
+                row.put("overdueDays", "逾期 " + overdueDays + " 天");
+            }
+            rows.add(row);
+        }
+    }
+
+    private List<Map<String, Object>> opportunityRows(List<SalesOpportunity> opportunities) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (opportunities == null) {
+            return rows;
+        }
+        LocalDate today = LocalDate.now();
+        for (SalesOpportunity opportunity : opportunities) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.putAll(opportunityRow(opportunity));
+            long overdueDays = opportunityFollowUpService.overdueDays(opportunity, today);
+            if (overdueDays > 0) {
+                row.put("overdueDays", "逾期 " + overdueDays + " 天");
+            }
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 一行商机：名称/客户/阶段/概率/下次跟进；不含金额与毛利。 */
+    private Map<String, Object> opportunityRow(SalesOpportunity opportunity) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("opportunityId", opportunity.getId());
+        row.put("name", opportunity.getName());
+        row.put("customer", opportunity.getCustomer());
+        row.put("stage", opportunity.getStatus());
+        row.put("probability", opportunity.getProbability());
+        row.put("nextFollowUpAt", opportunity.getNextFollowUpAt());
+        row.put("lastFollowUpAt", opportunity.getLastFollowUpAt());
+        return row;
+    }
+
+    private String rangeLabel(String range) {
+        return switch (range) {
+            case "today" -> "今日待跟进";
+            case "overdue" -> "已逾期";
+            case "silent" -> "长期未跟进";
+            default -> "跟进中";
+        };
+    }
+
+    private Integer intArg(JsonNode args, String name) {
+        JsonNode node = args.path(name);
+        return node.canConvertToInt() ? node.asInt() : null;
     }
 
     private String textArg(JsonNode args, String name) {

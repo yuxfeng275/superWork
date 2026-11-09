@@ -102,6 +102,36 @@ type OpportunityForm = {
 
 const dateTime = (value?: string) =>
   value ? value.replace('T', ' ').slice(0, 16) : '未记录时间';
+/** 已结束的商机不再参与今日/逾期跟进视图 */
+const closedStatuses: SalesOpportunityStatus[] = ['已成交', '已流失'];
+/** 下次跟进时间：优先结构化字段 nextFollowUpAt，解析不出时回落旧文本 */
+const followUpAt = (row: SalesOpportunity) => {
+  if (row.nextFollowUpAt) {
+    const parsed = dayjs(row.nextFollowUpAt);
+    if (parsed.isValid()) return parsed;
+  }
+  return null;
+};
+/** 今日待跟进：按 nextFollowUpAt 的日历日比较，无结构化时间时回落旧文本「今天」 */
+const isFollowUpToday = (row: SalesOpportunity) => {
+  const at = followUpAt(row);
+  if (at) return at.isSame(dayjs(), 'day');
+  return Boolean(row.nextFollowUp?.includes('今天'));
+};
+/** 逾期天数：nextFollowUpAt 早于今日的天数，无结构化时间时解析旧文本「逾期 N 天」 */
+const followUpOverdueDays = (row: SalesOpportunity) => {
+  if (closedStatuses.includes(row.status)) return 0;
+  const at = followUpAt(row);
+  if (at) {
+    const days = dayjs().startOf('day').diff(at.startOf('day'), 'day');
+    return days > 0 ? days : 0;
+  }
+  if (row.nextFollowUp?.includes('逾期')) {
+    const matched = row.nextFollowUp.match(/逾期\s*(\d+)\s*天/);
+    return matched ? Number(matched[1]) : 1;
+  }
+  return 0;
+};
 const quoteStatusLabel: Record<string, string> = {
   DRAFT: '草稿',
   INTERNAL_REVIEW: '内部审核',
@@ -354,9 +384,9 @@ export default function OpportunitiesPage() {
         !quickFilter ||
         (quickFilter === 'mine' &&
           row.owner === initialState?.currentUser?.realName) ||
-        (quickFilter === 'today' && row.nextFollowUp?.includes('今天')) ||
+        (quickFilter === 'today' && isFollowUpToday(row)) ||
         (quickFilter === 'high' && Number(row.amount || 0) >= 500) ||
-        (quickFilter === 'overdue' && row.nextFollowUp?.includes('逾期'));
+        (quickFilter === 'overdue' && followUpOverdueDays(row) > 0);
       return (
         quick &&
         (!values.keyword || text.includes(values.keyword)) &&
@@ -687,8 +717,21 @@ export default function OpportunitiesPage() {
     {
       title: '下次跟进',
       dataIndex: 'nextFollowUp',
-      width: 130,
-      render: (value) => value || '待安排',
+      width: 160,
+      render: (value: string | undefined, row: SalesOpportunity) => {
+          const at = followUpAt(row);
+        const overdueDays = followUpOverdueDays(row);
+        return (
+          <Space size={4} wrap>
+            <Typography.Text>
+              {at ? at.format('YYYY-MM-DD HH:mm') : value || '待安排'}
+            </Typography.Text>
+            {overdueDays > 0 && (
+              <Tag color="error">逾期 {overdueDays} 天</Tag>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '累计工时',

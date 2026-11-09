@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.AiProactiveSuggestion;
 import com.bu.management.entity.Meeting;
 import com.bu.management.entity.MeetingTodo;
+import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.exception.ResourceNotFoundException;
 import com.bu.management.mapper.AiProactiveSuggestionMapper;
@@ -52,6 +53,11 @@ public class AiProactiveService {
     private static final String KIND_EMAIL = "email_digest";
     private static final String KIND_WEEKLY_TOC = "weekly_toc";
     private static final String KIND_MATTER_OVERDUE = "key_matter_overdue";
+    /** 商机跟进闭环：今日该跟进 / 已逾期 / 报价静默 / 长期静默。 */
+    private static final String KIND_FOLLOWUP_DUE = "opportunity_followup_due";
+    private static final String KIND_FOLLOWUP_OVERDUE = "opportunity_followup_overdue";
+    private static final String KIND_QUOTATION_SILENT = "opportunity_quotation_silent";
+    private static final String KIND_STALE = "opportunity_stale";
     /** 语雀目录挂载成功状态值（周报发布后由发布流程回写）。 */
     private static final String TOC_VERIFIED = "VERIFIED";
 
@@ -65,6 +71,7 @@ public class AiProactiveService {
     private final MeetingMapper meetingMapper;
     private final MeetingTodoMapper meetingTodoMapper;
     private final EmailDigestService emailDigestService;
+    private final OpportunityFollowUpService opportunityFollowUpService;
 
     private final Map<Long, Instant> lastScan = new ConcurrentHashMap<>();
 
@@ -129,6 +136,10 @@ public class AiProactiveService {
         runRule(userId, today, () -> emailDigestRule(userId, today.minusDays(1)));
         runRule(userId, today, () -> weeklyTocRule(monday));
         runRule(userId, today, () -> overdueMatterRule(userId, monday));
+        runRule(userId, today, () -> opportunityFollowUpDueRule(userId, today));
+        runRule(userId, today, () -> opportunityFollowUpOverdueRule(userId, today));
+        runRule(userId, today, () -> opportunityQuotationSilentRule(userId));
+        runRule(userId, today, () -> opportunityStaleRule(userId));
     }
 
     private void runRule(Long userId, LocalDate today, Rule rule) {
@@ -305,6 +316,75 @@ public class AiProactiveService {
                 "列出我已逾期的大事事儿，逐项给出：延期原因（缺资源/等外部/需求变更）、新的预计完成时间、需要谁协调，"
                         + "最后问我要不要直接写回系统",
                 target, 85 + overdue.size());
+    }
+
+    // ---------- 商机跟进闭环 ----------
+
+    /** 我负责、今天到点该跟进的商机。 */
+    private Draft opportunityFollowUpDueRule(Long userId, LocalDate today) {
+        List<SalesOpportunity> due = mine(opportunityFollowUpService.dueToday(today), userId);
+        if (due.isEmpty()) {
+            return null;
+        }
+        return new Draft(KIND_FOLLOWUP_DUE, "商机待跟进:" + today,
+                due.size() + " 个商机今天该跟进",
+                shortNames(due),
+                "用 list_opportunity_followups_due 取今天该跟进的商机，逐个给出跟进话术与下一步动作，"
+                        + "不要提金额，事实不足的字段直接问我",
+                "/opportunities", 80 + Math.min(10, due.size()));
+    }
+
+    /** 我负责、跟进时间已经过去的商机。 */
+    private Draft opportunityFollowUpOverdueRule(Long userId, LocalDate today) {
+        List<SalesOpportunity> overdue = mine(opportunityFollowUpService.overdue(today), userId);
+        if (overdue.isEmpty()) {
+            return null;
+        }
+        return new Draft(KIND_FOLLOWUP_OVERDUE, "商机逾期:" + today,
+                overdue.size() + " 个商机的跟进时间已逾期",
+                shortNames(overdue),
+                "用 query_my_opportunities 看待跟进时间已逾期的商机，逐条给出补救动作与新的跟进时间建议",
+                "/opportunities", 85 + Math.min(10, overdue.size()));
+    }
+
+    /** 报价已经发出去很久没有动静的商机。 */
+    private Draft opportunityQuotationSilentRule(Long userId) {
+        List<SalesOpportunity> silent = mine(opportunityFollowUpService.quotationSilent(5), userId);
+        if (silent.isEmpty()) {
+            return null;
+        }
+        return new Draft(KIND_QUOTATION_SILENT, "报价静默:" + LocalDate.now(),
+                silent.size() + " 个商机报价发出后一直没动静",
+                shortNames(silent),
+                "用 list_opportunity_followups_due 看报价静默的商机，给出一句催单话术和下一次跟进时间建议",
+                "/opportunities", 88);
+    }
+
+    /** 长期没有跟进记录的商机（静默唤醒）。 */
+    private Draft opportunityStaleRule(Long userId) {
+        List<SalesOpportunity> stale = mine(opportunityFollowUpService.silent(7), userId);
+        if (stale.isEmpty()) {
+            return null;
+        }
+        return new Draft(KIND_STALE, "商机静默:" + LocalDate.now(),
+                stale.size() + " 个商机超过一周没有跟进记录",
+                shortNames(stale),
+                "用 query_my_opportunities 取静默天数最长的商机，判断哪些该放弃、哪些该唤醒，并给出唤醒话术",
+                "/opportunities", 92);
+    }
+
+    /** 只保留我负责（ownerUserId 命中）的商机。 */
+    private static List<SalesOpportunity> mine(List<SalesOpportunity> rows, Long userId) {
+        if (rows == null || rows.isEmpty() || userId == null) {
+            return List.of();
+        }
+        return rows.stream().filter(row -> userId.equals(row.getOwnerUserId())).toList();
+    }
+
+    /** 商机名摘要，最多 3 个。 */
+    private static String shortNames(List<SalesOpportunity> rows) {
+        return rows.stream().map(SalesOpportunity::getName).filter(java.util.Objects::nonNull).limit(3)
+                .reduce((a, b) -> a + "、" + b).orElse("") + (rows.size() > 3 ? " 等" : "");
     }
 
     private static int size(JsonNode node) {
