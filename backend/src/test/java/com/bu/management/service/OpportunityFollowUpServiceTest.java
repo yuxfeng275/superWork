@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.bu.management.entity.EmailWeComMapping;
 import com.bu.management.entity.OpportunityFollowupPrompt;
+import com.bu.management.entity.OpportunityOwnerWecom;
 import com.bu.management.entity.Quotation;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
@@ -17,6 +18,7 @@ import com.bu.management.entity.User;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.mapper.EmailWeComMappingMapper;
 import com.bu.management.mapper.OpportunityFollowupPromptMapper;
+import com.bu.management.mapper.OpportunityOwnerWecomMapper;
 import com.bu.management.mapper.QuotationMapper;
 import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
@@ -51,6 +53,7 @@ class OpportunityFollowUpServiceTest {
     @Mock private OpportunityFollowupPromptMapper promptMapper;
     @Mock private QuotationMapper quotationMapper;
     @Mock private EmailWeComMappingMapper weComMappingMapper;
+    @Mock private OpportunityOwnerWecomMapper ownerWecomMapper;
     @Mock private UserMapper userMapper;
     @Mock private WeComClient weComClient;
     @Mock private WeComCliService weComCliService;
@@ -66,6 +69,7 @@ class OpportunityFollowUpServiceTest {
         when(promptMapper.selectOne(any())).thenReturn(null);
         when(quotationMapper.selectList(any())).thenReturn(List.of());
         when(weComMappingMapper.selectList(any())).thenReturn(List.of());
+        when(ownerWecomMapper.selectList(any())).thenReturn(List.of());
         when(userMapper.selectById(any())).thenReturn(null);
     }
 
@@ -350,7 +354,7 @@ class OpportunityFollowUpServiceTest {
     /** 试点发送器：与生产一致地用同一批 mock；pilotOwnerUserId 用测试值 25（不依赖库里的真实账号）。 */
     private OpportunityFollowUpSender sender() {
         OpportunityFollowUpSender sender = new OpportunityFollowUpSender(weComCliService, weComClient,
-                weComMappingMapper, promptMapper, systemConfigService);
+                weComMappingMapper, promptMapper, opportunityMapper, ownerWecomMapper, systemConfigService);
         sender.pilotOwnerUserId = 25L;
         return sender;
     }
@@ -504,6 +508,115 @@ class OpportunityFollowUpServiceTest {
         assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_INAPP);
         verify(weComCliService, never()).sendMessage(anyString(), anyString());
         verify(promptMapper, never()).updateById(any());
+    }
+
+    // ==================== 方案 B：负责人姓名 → 企微 userid 映射 ====================
+
+    /** 一条启用的姓名映射。 */
+    private OpportunityOwnerWecom ownerMapping(String ownerName, String wecomUserid, int enabled) {
+        OpportunityOwnerWecom row = new OpportunityOwnerWecom();
+        row.setOwnerName(ownerName);
+        row.setWecomUserid(wecomUserid);
+        row.setEnabled(enabled);
+        return row;
+    }
+
+    /** 现网形态的商机：owner_user_id 为空，只有 owner 文本。 */
+    private SalesOpportunity opportunityWithoutAccount() {
+        SalesOpportunity opp = opportunity();
+        opp.setOwnerUserId(null);
+        return opp;
+    }
+
+    @Test
+    void 开关关闭且ownerUserId为空时按负责人姓名映射发送() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunityWithoutAccount());
+        when(ownerWecomMapper.selectList(any())).thenReturn(List.of(ownerMapping("张三", "wxid_zhangsan", 1)));
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setOpportunityId(11L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getChannel()).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("wxid_zhangsan");
+        verify(weComCliService).sendMessage("wxid_zhangsan", prompt.getQuestionText());
+        verify(promptMapper).updateById(prompt);
+    }
+
+    @Test
+    void 开关关闭且姓名映射也没有时落站内不回落到试点人() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunityWithoutAccount());
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setOpportunityId(11L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_INAPP);
+        assertThat(prompt.getWecomUserid()).isNull();
+        verify(weComCliService, never()).sendMessage(anyString(), anyString());
+        verify(weComClient, never()).pushText(anyString(), anyString());
+        verify(promptMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 姓名映射enabled为0时不参与发送() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunityWithoutAccount());
+        // 托管给 mapper 的 SQL 已过滤 enabled=1；这里再模拟一条被误捞出来的停用行
+        when(ownerWecomMapper.selectList(any())).thenReturn(List.of(ownerMapping("张三", "wxid_zhangsan", 0)));
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setOpportunityId(11L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_INAPP);
+        verify(weComCliService, never()).sendMessage(anyString(), anyString());
+        verify(weComClient, never()).pushText(anyString(), anyString());
+    }
+
+    @Test
+    void 试点开关on时姓名映射不生效仍发试点人() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunityWithoutAccount());
+        when(ownerWecomMapper.selectList(any())).thenReturn(List.of(ownerMapping("张三", "wxid_zhangsan", 1)));
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setOpportunityId(11L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("yufeng");
+        verify(weComCliService).sendMessage("yufeng", prompt.getQuestionText());
+        verify(weComCliService, never()).sendMessage("wxid_zhangsan", prompt.getQuestionText());
+        verify(ownerWecomMapper, never()).selectList(any());
+    }
+
+    @Test
+    void 系统配置userid优先于姓名映射() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(systemConfigService.getValue("opportunity", "followup.wecom-userid.7", null))
+                .thenReturn("wxid_owner");
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunityWithoutAccount());
+        when(ownerWecomMapper.selectList(any())).thenReturn(List.of(ownerMapping("张三", "wxid_zhangsan", 1)));
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setOpportunityId(11L);
+        prompt.setTargetUserId(7L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("wxid_owner");
+        verify(ownerWecomMapper, never()).selectList(any());
     }
 
     // ==================== 其它 ====================

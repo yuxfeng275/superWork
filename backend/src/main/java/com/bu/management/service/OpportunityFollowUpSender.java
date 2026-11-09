@@ -3,9 +3,13 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.EmailWeComMapping;
 import com.bu.management.entity.OpportunityFollowupPrompt;
+import com.bu.management.entity.OpportunityOwnerWecom;
+import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.mapper.EmailWeComMappingMapper;
 import com.bu.management.mapper.OpportunityFollowupPromptMapper;
+import com.bu.management.mapper.OpportunityOwnerWecomMapper;
+import com.bu.management.mapper.SalesOpportunityMapper;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,8 +26,9 @@ import org.springframework.util.StringUtils;
  *       {@code opportunity.followup.pilot-owner-user-id}（环境变量 {@code OPPORTUNITY_FOLLOWUP_PILOT_OWNER_USER_ID}
  *       可覆盖），企微 userid 取自系统配置或该用户自己的企微绑定映射；</li>
  *   <li><b>试点开关 off</b>：按问句的 {@code targetUserId}（即商机负责人）解析企微 userid，口径为
- *       系统配置 {@code opportunity.followup.wecom-userid.<userId>} → {@code email_wecom_mapping}（enabled=1）；
- *       两个都空就<b>直落站内，不猜、不回落到试点人</b>。</li>
+ *       系统配置 {@code opportunity.followup.wecom-userid.<userId>} → {@code email_wecom_mapping}（enabled=1）
+ *       → <b>方案 B 的姓名映射</b>（按 {@code prompt.opportunityId} 取商机 {@code owner} 文本，
+ *       查 {@code opportunity_owner_wecom}（enabled=1））；三级都空就<b>直落站内，不猜、不回落到试点人</b>。</li>
  * </ul>
  *
  * <p>发送链（两条路由共用）：企微机器人单聊（{@code wecom-cli message aibot send}，渠道 {@code WECOM_BOT}）
@@ -52,6 +57,8 @@ public class OpportunityFollowUpSender {
     private final WeComClient weComClient;
     private final EmailWeComMappingMapper weComMappingMapper;
     private final OpportunityFollowupPromptMapper promptMapper;
+    private final SalesOpportunityMapper salesOpportunityMapper;
+    private final OpportunityOwnerWecomMapper ownerWecomMapper;
     private final SystemConfigService systemConfigService;
 
     /**
@@ -112,14 +119,10 @@ public class OpportunityFollowUpSender {
         boolean pilot = pilotEnabled();
         // 试点期：实际接收人是机器创建人；正式路由：实际接收人就是商机负责人
         Long receiverUserId = pilot ? pilotOwnerUserId : prompt.getTargetUserId();
-        if (!pilot && receiverUserId == null) {
-            // 负责人没映射到账号：直接站内留档，不猜、不回落试点人
-            return OpportunityFollowUpService.CHANNEL_INAPP;
-        }
 
         String wecomUserId = null;
         try {
-            wecomUserId = pilot ? pilotWecomUserId() : ownerWecomUserId(receiverUserId);
+            wecomUserId = pilot ? pilotWecomUserId() : resolveOwnerWecomUserId(prompt, receiverUserId);
         } catch (Exception e) {
             log.warn("商机问句接收人企微 userid 解析失败，转应用消息兜底: promptId={} err={}",
                     prompt.getId(), e.getMessage());
@@ -136,9 +139,13 @@ public class OpportunityFollowUpSender {
             }
         }
 
-        // 2) 企微应用消息：只在接收人有启用中的企微绑定映射时可用
+        // 2) 企微应用消息：接收人有启用中的企微绑定映射（或已解析出企微 userid）时可用
         try {
             String boundWecomUserId = boundWecomUserId(receiverUserId);
+            if (!StringUtils.hasText(boundWecomUserId)) {
+                // 方案 B：负责人没有系统账号，企微 userid 来自姓名映射，应用消息同样可用
+                boundWecomUserId = wecomUserId;
+            }
             if (StringUtils.hasText(boundWecomUserId)) {
                 weComClient.pushText(boundWecomUserId, text);
                 return record(prompt, OpportunityFollowUpService.CHANNEL_WECOM_APP, boundWecomUserId);
@@ -157,6 +164,51 @@ public class OpportunityFollowUpSender {
     /** 系统配置里的试点目标 wecom userid；配置缺失或为空返回 null。 */
     private String configuredPilotWecomUserId() {
         return systemConfigService.getValue(PILOT_CONFIG_GROUP, PILOT_WECOM_USERID_KEY, null);
+    }
+
+    /**
+     * 「商机负责人」的企微 userid，<b>三级降级</b>（方案 B）。
+     *
+     * <ol>
+     *   <li>{@code prompt.targetUserId} 非空：系统配置 {@code followup.wecom-userid.<userId>} →
+     *       {@code email_wecom_mapping}（enabled=1）；</li>
+     *   <li>仍空：按 {@code prompt.opportunityId} 取商机 {@code owner} 姓名文本，查
+     *       {@code opportunity_owner_wecom}（enabled=1）——现网 owner_user_id 恒为 NULL，这是唯一能落地的口径；</li>
+     *   <li>仍空：返回 null，由调用方直落站内（不猜、不回落到试点人）。</li>
+     * </ol>
+     */
+    private String resolveOwnerWecomUserId(OpportunityFollowupPrompt prompt, Long userId) {
+        String byUserId = ownerWecomUserId(userId);
+        if (StringUtils.hasText(byUserId)) {
+            return byUserId;
+        }
+        return ownerNameWecomUserId(prompt == null ? null : prompt.getOpportunityId());
+    }
+
+    /** 方案 B：商机负责人姓名 → 企微 userid（只认 enabled=1 的行）。 */
+    private String ownerNameWecomUserId(Long opportunityId) {
+        if (opportunityId == null) {
+            return null;
+        }
+        SalesOpportunity opportunity = salesOpportunityMapper.selectById(opportunityId);
+        if (opportunity == null || !StringUtils.hasText(opportunity.getOwner())) {
+            return null;
+        }
+        String ownerName = opportunity.getOwner().strip();
+        List<OpportunityOwnerWecom> rows = ownerWecomMapper.selectList(
+                new LambdaQueryWrapper<OpportunityOwnerWecom>()
+                        .eq(OpportunityOwnerWecom::getOwnerName, ownerName)
+                        .eq(OpportunityOwnerWecom::getEnabled, 1)
+                        .last("limit 1"));
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        OpportunityOwnerWecom row = rows.get(0);
+        if (row == null || row.getEnabled() == null || row.getEnabled() != 1) {
+            // enabled=0 的行保留在表里但不参与发送（SQL 已过滤，这里再兜一层）
+            return null;
+        }
+        return row.getWecomUserid();
     }
 
     /**

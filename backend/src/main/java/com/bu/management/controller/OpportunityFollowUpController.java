@@ -2,19 +2,26 @@ package com.bu.management.controller;
 
 import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.OpportunityFollowupPrompt;
+import com.bu.management.entity.OpportunityOwnerWecom;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.entity.SysRole;
+import com.bu.management.mapper.OpportunityOwnerWecomMapper;
 import com.bu.management.service.OpportunityFollowUpService;
 import com.bu.management.service.SysRoleService;
 import com.bu.management.vo.Result;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +42,7 @@ public class OpportunityFollowUpController {
 
     private final OpportunityFollowUpService service;
     private final SysRoleService sysRoleService;
+    private final OpportunityOwnerWecomMapper ownerWecomMapper;
 
     /**
      * 跟进看板一条记录。
@@ -43,6 +51,18 @@ public class OpportunityFollowUpController {
      * @param overdueDays 逾期天数（不逾期为 0）
      */
     public record BoardItem(SalesOpportunity opportunity, long overdueDays) {
+    }
+
+    /** 维护一条负责人→企微 userid 映射的请求体。 */
+    public record OwnerWecomRequest(String ownerName, String wecomUserId, Integer enabled, String remark) {
+    }
+
+    /** 批量导入的一行（来源由调用方声明：MANUAL / CALENDAR / SESSION）。 */
+    public record OwnerWecomImportItem(String ownerName, String wecomUserId, String source) {
+    }
+
+    /** 批量导入结果。 */
+    public record OwnerWecomImportResult(int inserted, int updated, int skipped) {
     }
 
     /** 跟进看板：today=今天该跟进，overdue=已逾期，silent=长期静默。 */
@@ -97,6 +117,103 @@ public class OpportunityFollowUpController {
     public Result<OpportunityFollowUpService.BackfillResult> backfill(@RequestAttribute("userId") Long userId) {
         requireAdmin(userId);
         return Result.success(service.backfillNextFollowUpAt());
+    }
+
+    // ==================== 方案 B：负责人姓名 → 企微 userid 映射 ====================
+
+    /** 列出全部负责人企微映射（按姓名排序，enabled=0 的也返回，便于运维看全貌）。 */
+    @GetMapping("/followup/owner-wecom")
+    public Result<List<OpportunityOwnerWecom>> listOwnerWecom(@RequestAttribute("userId") Long userId) {
+        requireAdmin(userId);
+        return Result.success(ownerWecomMapper.selectList(
+                new LambdaQueryWrapper<OpportunityOwnerWecom>().orderByAsc(OpportunityOwnerWecom::getOwnerName)));
+    }
+
+    /** 新增或更新一条映射（按 ownerName 唯一键 upsert）；不允许改来源，来源沿用旧值。 */
+    @PutMapping("/followup/owner-wecom")
+    public Result<OpportunityOwnerWecom> saveOwnerWecom(@RequestAttribute("userId") Long userId,
+                                                        @RequestBody OwnerWecomRequest request) {
+        requireAdmin(userId);
+        if (request == null || !StringUtils.hasText(request.ownerName())
+                || !StringUtils.hasText(request.wecomUserId())) {
+            throw new RuntimeException("负责人姓名与企微 userid 不能为空");
+        }
+        String ownerName = request.ownerName().strip();
+        OpportunityOwnerWecom existing = findByOwnerName(ownerName);
+        LocalDateTime now = LocalDateTime.now();
+        if (existing == null) {
+            OpportunityOwnerWecom row = new OpportunityOwnerWecom();
+            row.setOwnerName(ownerName);
+            row.setWecomUserid(request.wecomUserId().strip());
+            row.setEnabled(request.enabled() == null ? 1 : request.enabled());
+            row.setSource(OpportunityOwnerWecom.SOURCE_MANUAL);
+            row.setRemark(request.remark());
+            row.setCreatedAt(now);
+            row.setUpdatedAt(now);
+            ownerWecomMapper.insert(row);
+            return Result.success(row);
+        }
+        existing.setWecomUserid(request.wecomUserId().strip());
+        existing.setEnabled(request.enabled() == null ? existing.getEnabled() : request.enabled());
+        existing.setRemark(request.remark());
+        existing.setUpdatedAt(now);
+        ownerWecomMapper.updateById(existing);
+        return Result.success(existing);
+    }
+
+    /**
+     * 批量导入映射（人工整理 / 日程参会人 / 机器人会话三类来源都是这个入口）。
+     *
+     * <p>按 ownerName 幂等：已存在的改 userid、来源与 enabled=1，不存在的新增；姓名或 userid 为空的记 skipped。
+     */
+    @PostMapping("/followup/owner-wecom/import")
+    public Result<OwnerWecomImportResult> importOwnerWecom(@RequestAttribute("userId") Long userId,
+                                                           @RequestBody List<OwnerWecomImportItem> items) {
+        requireAdmin(userId);
+        int inserted = 0;
+        int updated = 0;
+        int skipped = 0;
+        LocalDateTime now = LocalDateTime.now();
+        for (OwnerWecomImportItem item : items == null ? List.<OwnerWecomImportItem>of() : items) {
+            if (item == null || !StringUtils.hasText(item.ownerName())
+                    || !StringUtils.hasText(item.wecomUserId())) {
+                skipped++;
+                continue;
+            }
+            String ownerName = item.ownerName().strip();
+            String source = StringUtils.hasText(item.source())
+                    ? item.source().strip().toUpperCase()
+                    : OpportunityOwnerWecom.SOURCE_MANUAL;
+            OpportunityOwnerWecom existing = findByOwnerName(ownerName);
+            if (existing == null) {
+                OpportunityOwnerWecom row = new OpportunityOwnerWecom();
+                row.setOwnerName(ownerName);
+                row.setWecomUserid(item.wecomUserId().strip());
+                row.setEnabled(1);
+                row.setSource(source);
+                row.setCreatedAt(now);
+                row.setUpdatedAt(now);
+                ownerWecomMapper.insert(row);
+                inserted++;
+            } else {
+                existing.setWecomUserid(item.wecomUserId().strip());
+                existing.setEnabled(1);
+                existing.setSource(source);
+                existing.setUpdatedAt(now);
+                ownerWecomMapper.updateById(existing);
+                updated++;
+            }
+        }
+        return Result.success(new OwnerWecomImportResult(inserted, updated, skipped));
+    }
+
+    /** 按负责人姓名取一条映射（唯一键 uk_owner_name）。 */
+    private OpportunityOwnerWecom findByOwnerName(String ownerName) {
+        List<OpportunityOwnerWecom> rows = ownerWecomMapper.selectList(
+                new LambdaQueryWrapper<OpportunityOwnerWecom>()
+                        .eq(OpportunityOwnerWecom::getOwnerName, ownerName)
+                        .last("limit 1"));
+        return rows == null || rows.isEmpty() ? null : rows.get(0);
     }
 
     private void requireAdmin(Long userId) {
