@@ -459,4 +459,63 @@ class OpportunityFollowUpServiceTest {
 
         assertThat(service.promptsSentToday(7L)).isEqualTo(3);
     }
+
+    // ==================== next_follow_up_at 一次性回填 ====================
+
+    private SalesOpportunity legacy(String text) {
+        SalesOpportunity opp = opportunity();
+        opp.setNextFollowUp(text);
+        opp.setNextFollowUpAt(null);
+        return opp;
+    }
+
+    @Test
+    void 回填把能解析的文本写成结构化时间() {
+        SalesOpportunity row = legacy("明天 15:30 再打电话");
+        when(opportunityMapper.selectList(any())).thenReturn(List.of(row));
+
+        OpportunityFollowUpService.BackfillResult result = service.backfillNextFollowUpAt();
+
+        assertThat(result.scanned()).isEqualTo(1);
+        assertThat(result.filled()).isEqualTo(1);
+        assertThat(result.skipped()).isZero();
+        assertThat(row.getNextFollowUpAt()).isEqualTo(LocalDate.now().plusDays(1).atTime(15, 30));
+        verify(opportunityMapper).updateById(row);
+    }
+
+    @Test
+    void 回填解析不出的保留为空且不写库() {
+        SalesOpportunity row = legacy("好的收到，我再想想");
+        when(opportunityMapper.selectList(any())).thenReturn(List.of(row));
+
+        OpportunityFollowUpService.BackfillResult result = service.backfillNextFollowUpAt();
+
+        assertThat(result.scanned()).isEqualTo(1);
+        assertThat(result.filled()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(row.getNextFollowUpAt()).isNull();
+        verify(opportunityMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 回填不覆盖已经有下次跟进时间的行() {
+        SalesOpportunity filled = opportunity();
+        filled.setNextFollowUp("明天 09:00");
+        filled.setNextFollowUpAt(LocalDateTime.of(2026, 11, 12, 9, 0));
+        when(opportunityMapper.selectList(any())).thenReturn(List.of(filled));
+
+        OpportunityFollowUpService.BackfillResult result = service.backfillNextFollowUpAt();
+
+        assertThat(result.filled()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(filled.getNextFollowUpAt()).isEqualTo(LocalDateTime.of(2026, 11, 12, 9, 0));
+        verify(opportunityMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 提醒排除名单含已流失与暂停推进但不含进行中阶段() {
+        assertThat(OpportunityFollowUpService.REMINDER_EXCLUDED_STATUSES)
+                .contains("已成交", "已流失", "已输单", "已关闭", "暂停推进")
+                .doesNotContain("初步接触", "需求确认", "方案报价", "商务谈判");
+    }
 }

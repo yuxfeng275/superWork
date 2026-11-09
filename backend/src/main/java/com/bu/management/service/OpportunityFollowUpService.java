@@ -66,8 +66,21 @@ public class OpportunityFollowUpService {
 
     /** 进入这两个阶段必须已有已批准的报价单（与 SalesOpportunityService 保持一致）。 */
     private static final List<String> STAGES_REQUIRING_APPROVAL = List.of("商务谈判", "已成交");
-    /** 已收口的商机不再催跟进。 */
+    /** 「我的商机」列表口径：已收口的商机不再催跟进（列表仍保留已流失/暂停推进供复盘）。 */
     private static final List<String> CLOSED_STATUSES = List.of("已成交", "已输单", "已关闭");
+    /**
+     * 提醒类查询（今日应跟 / 已逾期 / 静默 / 报价静默）统一排除的终态阶段。
+     *
+     * <p>权威阶段名单取自 {@code SalesOpportunityLinkService.STAGE_ORDER} 与前端商机筛选项：
+     * 初步接触 / 需求确认 / 方案报价 / 商务谈判 / 暂停推进 / 已成交 / 已流失。其中：
+     * <ul>
+     *   <li>已成交 / 已输单 / 已关闭 / 已流失：跟进已终止，再发问句就是骚扰已流失商机；</li>
+     *   <li><b>暂停推进 = 别打扰</b>：客户明说缓一缓，催办只会掉分；等人工改回进行中再提醒。</li>
+     * </ul>
+     * 名单写死在这里而不是复用 {@code CLOSED_STATUSES}：列表视图还要看已流失/暂停推进的商机。
+     */
+    static final List<String> REMINDER_EXCLUDED_STATUSES =
+            List.of("已成交", "已流失", "已输单", "已关闭", "暂停推进");
     /** 报价静默关注的阶段。 */
     private static final List<String> QUOTATION_STAGES = List.of("方案报价", "商务谈判");
     /** 回复只认 24 小时内最新一条已发送问句。 */
@@ -123,11 +136,11 @@ public class OpportunityFollowUpService {
                 .orderByAsc(SalesOpportunity::getLastQuotationAt));
     }
 
-    /** 未收口 + 未静音的商机查询基座。 */
+    /** 未收口（含暂停推进） + 未静音的商机查询基座：提醒类查询全部走这里。 */
     private LambdaQueryWrapper<SalesOpportunity> open() {
         return new LambdaQueryWrapper<SalesOpportunity>()
                 .eq(SalesOpportunity::getRemindMuted, 0)
-                .notIn(SalesOpportunity::getStatus, CLOSED_STATUSES);
+                .notIn(SalesOpportunity::getStatus, REMINDER_EXCLUDED_STATUSES);
     }
 
     public SalesOpportunity get(Long id) {
@@ -180,6 +193,51 @@ public class OpportunityFollowUpService {
     /** 商机按归属人过滤（AI 工具的「我的」口径）。 */
     public boolean ownedBy(SalesOpportunity opportunity, Long userId) {
         return opportunity != null && userId != null && userId.equals(opportunity.getOwnerUserId());
+    }
+
+    // ==================== 回填 ====================
+
+    /** 回填结果：扫到多少行、填了多少行、解析不出跳过多少行。 */
+    public record BackfillResult(int scanned, int filled, int skipped) {
+    }
+
+    /**
+     * 一次性回填 {@code next_follow_up_at}：把历史遗留的 {@code next_follow_up} 文本解析成结构化时间。
+     *
+     * <p>复用 {@link OpportunityFollowUpParser#parseNextFollowUp}，不另造一套解析；解析不出来就保留 NULL
+     * （宁可「今日应跟」漏一条，也不猜一个错时间把商机推给别人），由人工补录。
+     *
+     * <p>幂等：只扫 {@code next_follow_up <> '' AND next_follow_up_at IS NULL} 的行，已填过的一律不动，
+     * 重复调用安全。
+     *
+     * @return 扫描/填充/跳过的行数
+     */
+    public BackfillResult backfillNextFollowUpAt() {
+        LocalDate today = LocalDate.now();
+        List<SalesOpportunity> rows = opportunityMapper.selectList(new LambdaQueryWrapper<SalesOpportunity>()
+                .ne(SalesOpportunity::getNextFollowUp, "")
+                .isNull(SalesOpportunity::getNextFollowUpAt));
+        int scanned = 0;
+        int filled = 0;
+        int skipped = 0;
+        for (SalesOpportunity row : rows) {
+            scanned++;
+            // 双保险：查询已排除已填行，这里再挡一次，避免并发回填互相覆盖
+            if (row.getNextFollowUpAt() != null) {
+                skipped++;
+                continue;
+            }
+            LocalDateTime nextAt = OpportunityFollowUpParser.parseNextFollowUp(row.getNextFollowUp(), today);
+            if (nextAt == null) {
+                skipped++;
+                continue;
+            }
+            row.setNextFollowUpAt(nextAt);
+            opportunityMapper.updateById(row);
+            filled++;
+        }
+        log.info("下次跟进时间回填完成: scanned={}, filled={}, skipped={}", scanned, filled, skipped);
+        return new BackfillResult(scanned, filled, skipped);
     }
 
     // ==================== 问句 ====================

@@ -1,9 +1,12 @@
 package com.bu.management.controller;
 
+import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.OpportunityFollowupPrompt;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
+import com.bu.management.entity.SysRole;
 import com.bu.management.service.OpportunityFollowUpService;
+import com.bu.management.service.SysRoleService;
 import com.bu.management.vo.Result;
 import java.time.LocalDate;
 import java.util.List;
@@ -11,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +34,7 @@ public class OpportunityFollowUpController {
     private static final int SILENT_DAYS = 7;
 
     private final OpportunityFollowUpService service;
+    private final SysRoleService sysRoleService;
 
     /**
      * 跟进看板一条记录。
@@ -76,5 +81,31 @@ public class OpportunityFollowUpController {
         // 校验路径上的商机存在（问句本身按 promptId 定位，避免前端传错 id 时静默改到别的商机）
         service.get(id);
         return Result.success(service.confirmDraft(promptId, operatorUserId));
+    }
+
+    /**
+     * 一次性回填 {@code next_follow_up_at}（上线后手工触发一次，之后不用再调）。
+     *
+     * <p>此前只有解析器没有批量入口，导致 {@code next_follow_up_at} 全表为空、「今日应跟 / 已逾期」
+     * 永远命中 0 条。幂等：只扫还没填的行，重复调用不会覆盖已有时间。
+     *
+     * <p>仅管理岗位可调（{@link PositionRoles#isAdminRole}）：这是改数据面的批量写，不对普通销售开放。
+     *
+     * @return {scanned, filled, skipped}
+     */
+    @PostMapping("/followup/backfill")
+    public Result<OpportunityFollowUpService.BackfillResult> backfill(@RequestAttribute("userId") Long userId) {
+        requireAdmin(userId);
+        return Result.success(service.backfillNextFollowUpAt());
+    }
+
+    private void requireAdmin(Long userId) {
+        List<SysRole> roles = sysRoleService.getRolesByUserId(userId);
+        boolean admin = roles != null && roles.stream()
+                .map(SysRole::getCode)
+                .anyMatch(PositionRoles::isAdminRole);
+        if (!admin) {
+            throw new RuntimeException("仅管理岗位可执行下次跟进时间回填");
+        }
     }
 }
