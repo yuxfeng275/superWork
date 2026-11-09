@@ -11,21 +11,27 @@ import static org.mockito.Mockito.when;
 
 import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.entity.Requirement;
 import com.bu.management.mapper.IssueMapper;
 import com.bu.management.mapper.RequirementMapper;
 import com.bu.management.mapper.TaskMapper;
 import com.bu.management.mapper.WorkLogMapper;
 import com.bu.management.vo.AiAgentToolResult;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -53,15 +59,28 @@ class AiAgentToolServiceTest {
     @Mock private ProjectBriefService projectBriefService;
     @Mock private AiArtifactService aiArtifactService;
     @Mock private ProjectFactAccessGuard projectFactAccessGuard;
+    @Mock private OpportunityFollowUpService opportunityFollowUpService;
 
     private AiAgentToolService service;
+
+    /** LambdaQueryWrapper 解列名要有表信息，纯单元测试里自己初始化一次（带下划线转驼峰，跟生产一致）。 */
+    @BeforeAll
+    static void initTableInfo() {
+        org.apache.ibatis.session.Configuration configuration =
+                new org.apache.ibatis.session.Configuration();
+        configuration.setMapUnderscoreToCamelCase(true);
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(configuration, ""),
+                Requirement.class);
+    }
 
     @BeforeEach
     void setUp() {
         service = new AiAgentToolService(taskMapper, requirementMapper, workLogMapper, issueMapper,
                 new ObjectMapper(), connectorToolService, genericConnectorToolService, emailActionToolService,
                 weComCliToolService, weeklyReportService, jevDecisionService, projectFactService,
-                projectBriefService, aiArtifactService, projectFactAccessGuard);
+                projectBriefService, aiArtifactService, projectFactAccessGuard,
+                opportunityFollowUpService);
         when(jevDecisionService.gateWrite(anyString(), any(), anyString()))
                 .thenReturn(new JevDecisionService.WriteGate(true, true, "save_artifact", null));
         // 默认：本人是项目成员/负责人（准入通过）；拒绝用例再单独打桩
@@ -192,6 +211,50 @@ class AiAgentToolServiceTest {
         assertThat(saved.isError()).isFalse();
         verify(projectFactAccessGuard).canRead(OWNER, 11L);
         verify(projectFactAccessGuard).canWrite(OWNER, 11L);
+    }
+
+    @Test
+    @DisplayName("query_my_requirements：查询按 creatorId=当前用户过滤（否则任意用户能读全系统的需求）")
+    void queryMyRequirementsScopedToCreator() {
+        AiAgentToolResult result = service.execute(RUN_ID, "query_my_requirements", "{\"limit\":5}");
+
+        assertThat(result.isError()).isFalse();
+        Wrapper<Requirement> wrapper = capturedRequirementWrapper();
+        // 先把 SQL 拼出来（MP 的参数表是懒填充的），再断言条件里只绑了当前用户的 ID：
+        // 没有 status 时不能退化成全量，口径就是 creator_id。
+        String sqlSegment = wrapper.getCustomSqlSegment();
+        assertThat(sqlSegment).contains("creator_id").containsIgnoringCase("order by");
+        assertThat(capturedParams(wrapper)).containsExactly(OWNER);
+    }
+
+    @Test
+    @DisplayName("query_my_requirements：userId 为空时不查库、返回空结果（不退化成全量）")
+    void queryMyRequirementsWithoutUserReturnsEmpty() throws Exception {
+        Method method = AiAgentToolService.class.getDeclaredMethod(
+                "queryMyRequirements", Long.class, JsonNode.class);
+        method.setAccessible(true);
+
+        Object[] args = {null, new ObjectMapper().createObjectNode()};
+        AiAgentToolResult result = (AiAgentToolResult) method.invoke(service, args);
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).contains("未返回任何需求");
+        verify(requirementMapper, never()).selectList(any());
+    }
+
+    private Wrapper<Requirement> capturedRequirementWrapper() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Wrapper<Requirement>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(requirementMapper).selectList(captor.capture());
+        return captor.getValue();
+    }
+
+    /** wrapper 绑定的实参（LambdaQueryWrapper 只在 AbstractWrapper 上暴露参数表）。 */
+    private java.util.Collection<Object> capturedParams(Wrapper<Requirement> wrapper) {
+        assertThat(wrapper)
+                .isInstanceOf(com.baomidou.mybatisplus.core.conditions.AbstractWrapper.class);
+        return ((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) wrapper)
+                .getParamNameValuePairs().values();
     }
 
     private String argsJson() {

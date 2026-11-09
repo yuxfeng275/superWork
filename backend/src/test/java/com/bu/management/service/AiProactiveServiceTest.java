@@ -40,6 +40,7 @@ class AiProactiveServiceTest {
     @Mock private MeetingMapper meetingMapper;
     @Mock private MeetingTodoMapper meetingTodoMapper;
     @Mock private EmailDigestService emailDigestService;
+    @Mock private OpportunityFollowUpService opportunityFollowUpService;
 
     private AiProactiveService service;
     private final LocalDate monday = LocalDate.now().with(DayOfWeek.MONDAY);
@@ -47,7 +48,7 @@ class AiProactiveServiceTest {
     @BeforeEach
     void setUp() {
         service = new AiProactiveService(suggestionMapper, weeklyReportService, keyMatterService,
-                meetingMapper, meetingTodoMapper, emailDigestService);
+                meetingMapper, meetingTodoMapper, emailDigestService, opportunityFollowUpService);
         when(suggestionMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
         when(weeklyReportService.history(any(Integer.class))).thenReturn(List.of());
         when(keyMatterService.meeting(any())).thenReturn(List.of());
