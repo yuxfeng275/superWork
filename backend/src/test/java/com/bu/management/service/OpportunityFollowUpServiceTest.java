@@ -414,6 +414,98 @@ class OpportunityFollowUpServiceTest {
         verify(promptMapper, never()).updateById(any());
     }
 
+    // ==================== 试点开关（followup.pilot-enabled） ====================
+
+    @Test
+    void 开关缺省时仍发试点人不发负责人() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        when(systemConfigService.getValue("opportunity", "followup.wecom-userid.7", null))
+                .thenReturn("wxid_owner");
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setTargetUserId(7L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("yufeng");
+        verify(weComCliService).sendMessage("yufeng", prompt.getQuestionText());
+        verify(weComCliService, never()).sendMessage("wxid_owner", prompt.getQuestionText());
+    }
+
+    @Test
+    void 开关关闭时按商机负责人系统配置的userid路由() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        when(systemConfigService.getValue("opportunity", "followup.wecom-userid.7", null))
+                .thenReturn("wxid_owner");
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setTargetUserId(7L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getChannel()).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("wxid_owner");
+        verify(weComCliService).sendMessage("wxid_owner", prompt.getQuestionText());
+        verify(weComCliService, never()).sendMessage("yufeng", prompt.getQuestionText());
+        verify(weComClient, never()).pushText(anyString(), anyString());
+    }
+
+    @Test
+    void 开关关闭时负责人userid优先取系统配置再取企微映射() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        EmailWeComMapping mapping = new EmailWeComMapping();
+        mapping.setOwnerUserId(7L);
+        mapping.setWecomUserId("wxid_mapped");
+        mapping.setEnabled(1);
+        when(weComMappingMapper.selectList(any())).thenReturn(List.of(mapping));
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setTargetUserId(7L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(prompt.getWecomUserid()).isEqualTo("wxid_mapped");
+        verify(weComCliService).sendMessage("wxid_mapped", prompt.getQuestionText());
+    }
+
+    @Test
+    void 开关关闭且负责人无企微userid时直落站内不回落试点人() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        OpportunityFollowupPrompt prompt = prompt();
+        prompt.setTargetUserId(7L);
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_INAPP);
+        assertThat(prompt.getWecomUserid()).isNull();
+        verify(weComCliService, never()).sendMessage(anyString(), anyString());
+        verify(weComClient, never()).pushText(anyString(), anyString());
+        verify(promptMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 开关关闭且商机没有负责人时直落站内() {
+        when(systemConfigService.getValue("opportunity", "followup.pilot-enabled", "true"))
+                .thenReturn("false");
+        when(systemConfigService.getValue("opportunity", "followup.pilot-wecom-userid", null))
+                .thenReturn("yufeng");
+        OpportunityFollowupPrompt prompt = prompt();
+
+        String channel = sender().send(prompt);
+
+        assertThat(channel).isEqualTo(OpportunityFollowUpService.CHANNEL_INAPP);
+        verify(weComCliService, never()).sendMessage(anyString(), anyString());
+        verify(promptMapper, never()).updateById(any());
+    }
+
     // ==================== 其它 ====================
 
     @Test

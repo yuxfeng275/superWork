@@ -34,12 +34,21 @@ class SalesOpportunityServiceTest {
     @Mock private SalesOpportunitySupportWorkLogMapper supportWorkLogMapper;
     @Mock private SalesOpportunityFollowUpMapper followUpMapper;
     @Mock private com.bu.management.mapper.QuotationMapper quotationMapper;
+    @Mock private com.bu.management.mapper.UserMapper userMapper;
 
     private SalesOpportunityService service;
 
     @BeforeEach
     void setUp() {
-        service = new SalesOpportunityService(opportunityMapper, supportWorkLogMapper, followUpMapper, quotationMapper);
+        service = new SalesOpportunityService(opportunityMapper, supportWorkLogMapper, followUpMapper,
+                quotationMapper, userMapper);
+    }
+
+    /** 默认文案口径：MM-dd 周X。 */
+    private static String defaultText(LocalDate date) {
+        String[] names = {"周一", "周二", "周三", "周四", "周五", "周六", "周日"};
+        return String.format("%02d-%02d %s", date.getMonthValue(), date.getDayOfMonth(),
+                names[date.getDayOfWeek().getValue() - 1]);
     }
 
     @Test
@@ -193,11 +202,11 @@ class SalesOpportunityServiceTest {
     }
 
     @Test
-    void createFollowUpClearsStructuredTimeWhenTextUnparseable() {
+    void createFollowUpFillsWeeklyDefaultWhenTextUnparseable() {
         SalesOpportunity opportunity = new SalesOpportunity();
         opportunity.setId(7L);
         opportunity.setStatus("需求确认");
-        // 上一次排的计划还在，改文案但解析不出时必须清掉，不能留着旧时间骗人
+        // 上一次排的计划还在；手填了但解析不出 → 按周推算的默认值覆盖，不留旧时间
         opportunity.setNextFollowUpAt(LocalDateTime.now().plusDays(1).withHour(10).withMinute(0));
         when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
 
@@ -208,12 +217,36 @@ class SalesOpportunityServiceTest {
         request.setProbability(30);
         request.setNextFollowUp("再看");
 
+        LocalDate expectedDate = LocalDate.now().plusDays(7);
         SalesOpportunityFollowUp result = service.createFollowUp(7L, request);
 
-        assertThat(result.getNextFollowUp()).isEqualTo("再看");
-        assertThat(opportunity.getNextFollowUp()).isEqualTo("再看");
-        assertThat(opportunity.getNextFollowUpAt()).isNull();
+        assertThat(opportunity.getNextFollowUpAt()).isEqualTo(expectedDate.atTime(10, 0));
+        assertThat(opportunity.getNextFollowUp()).isEqualTo(defaultText(expectedDate));
+        assertThat(result.getNextFollowUp()).isEqualTo(defaultText(expectedDate));
         assertThat(opportunity.getFollowUpState()).isEqualTo("PENDING");
+    }
+
+    @Test
+    void createFollowUpDefaultsToNextWeekSameDayAtTen() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setStatus("需求确认");
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunityFollowUpRequest request = new SalesOpportunityFollowUpRequest();
+        request.setFollower("系统管理员");
+        request.setContent("周二例会跟进完");
+        request.setStatus("需求确认");
+        request.setProbability(30);
+        // 2026-08-11 是周二 → 默认下周同一天 2026-08-18 10:00，文案 08-18 周二
+        request.setFollowUpAt(LocalDateTime.of(2026, 8, 11, 14, 30));
+
+        SalesOpportunityFollowUp result = service.createFollowUp(7L, request);
+
+        assertThat(opportunity.getNextFollowUpAt()).isEqualTo(LocalDateTime.of(2026, 8, 18, 10, 0));
+        assertThat(opportunity.getNextFollowUpAt().getDayOfWeek()).isEqualTo(DayOfWeek.TUESDAY);
+        assertThat(opportunity.getNextFollowUp()).isEqualTo("08-18 周二");
+        assertThat(result.getNextFollowUp()).isEqualTo("08-18 周二");
     }
 
     @Test
@@ -232,13 +265,16 @@ class SalesOpportunityServiceTest {
         request.setStatus("需求确认");
         request.setProbability(35);
 
+        LocalDate expectedDate = LocalDate.now().plusDays(7);
         service.createFollowUp(7L, request);
 
         assertThat(opportunity.getName()).isEqualTo("皇家续约");
         assertThat(opportunity.getNote()).isEqualTo("商机长期备注");
         assertThat(opportunity.getStatus()).isEqualTo("需求确认");
         assertThat(opportunity.getProbability()).isEqualTo(35);
-        assertThat(opportunity.getNextFollowUpAt()).isNull();
+        // 没填下次跟进 → 默认今天 + 7 天 10:00
+        assertThat(opportunity.getNextFollowUpAt()).isEqualTo(expectedDate.atTime(10, 0));
+        assertThat(opportunity.getNextFollowUp()).isEqualTo(defaultText(expectedDate));
         assertThat(opportunity.getFollowUpState()).isEqualTo("PENDING");
     }
 
@@ -263,16 +299,93 @@ class SalesOpportunityServiceTest {
     }
 
     @Test
-    void createLeavesStructuredTimeNullWhenTextUnparseable() {
+    void createDefaultsToNextWeekWhenTextUnparseable() {
         com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
         request.setName("新商机");
         request.setStatus("初步接触");
         request.setNextFollowUp("再看");
 
+        LocalDate expectedDate = LocalDate.now().plusDays(7);
         SalesOpportunity created = service.create(request);
 
-        assertThat(created.getNextFollowUp()).isEqualTo("再看");
-        assertThat(created.getNextFollowUpAt()).isNull();
+        assertThat(created.getNextFollowUp()).isEqualTo(defaultText(expectedDate));
+        assertThat(created.getNextFollowUpAt()).isEqualTo(expectedDate.atTime(10, 0));
+    }
+
+    @Test
+    void createDefaultsNextFollowUpEvenWhenTextMissing() {
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("新商机");
+        request.setStatus("初步接触");
+
+        LocalDate expectedDate = LocalDate.now().plusDays(7);
+        SalesOpportunity created = service.create(request);
+
+        assertThat(created.getNextFollowUp()).isEqualTo(defaultText(expectedDate));
+        assertThat(created.getNextFollowUpAt()).isEqualTo(expectedDate.atTime(10, 0));
+    }
+
+    @Test
+    void updateKeepsExistingNextFollowUpWhenRequestLeavesItBlank() {
+        SalesOpportunity existing = new SalesOpportunity();
+        existing.setId(9L);
+        existing.setName("华东扩容");
+        existing.setStatus("需求确认");
+        existing.setNextFollowUp("11-17 周一");
+        existing.setNextFollowUpAt(LocalDateTime.of(2026, 11, 17, 10, 0));
+        existing.setOwnerUserId(42L);
+        when(opportunityMapper.selectById(9L)).thenReturn(existing);
+
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("华东扩容");
+        request.setStatus("需求确认");
+        request.setOwner("查无此人");
+
+        service.update(9L, request);
+
+        // 编辑不填下次跟进 → 不覆盖已有值（避免误清空）
+        assertThat(existing.getNextFollowUp()).isEqualTo("11-17 周一");
+        assertThat(existing.getNextFollowUpAt()).isEqualTo(LocalDateTime.of(2026, 11, 17, 10, 0));
+        // owner 本次匹配不上 → 保留旧值，不主动清空
+        assertThat(existing.getOwnerUserId()).isEqualTo(42L);
+    }
+
+    @Test
+    void createMatchesOwnerUserIdOnlyWhenRealNameUniquelyEquals() {
+        com.bu.management.entity.User owner = new com.bu.management.entity.User();
+        owner.setId(7L);
+        owner.setRealName("于丽娟");
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(owner));
+
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("皇家续约");
+        request.setStatus("初步接触");
+        request.setOwner("于丽娟");
+
+        SalesOpportunity created = service.create(request);
+
+        assertThat(created.getOwnerUserId()).isEqualTo(7L);
+    }
+
+    @Test
+    void createLeavesOwnerUserIdNullWhenNameMatchesNobodyOrSeveral() {
+        com.bu.management.entity.User first = new com.bu.management.entity.User();
+        first.setId(7L);
+        first.setRealName("刘晓文");
+        com.bu.management.entity.User second = new com.bu.management.entity.User();
+        second.setId(8L);
+        second.setRealName("刘晓文");
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(first, second));
+
+        com.bu.management.dto.SalesOpportunityRequest request = new com.bu.management.dto.SalesOpportunityRequest();
+        request.setName("皇家续约");
+        request.setStatus("初步接触");
+        request.setOwner("刘晓文");
+
+        SalesOpportunity created = service.create(request);
+
+        // 命中多条 = 不唯一 → 不猜，留空让问句走站内兜底
+        assertThat(created.getOwnerUserId()).isNull();
     }
 
     @Test
