@@ -493,7 +493,7 @@ class OpportunityCoachServiceTest {
                 .contains("支持全渠道库存一盘棋");
         // 知识包之后还会接【知识库片段】块（无命中时也有提示行），所以只断言知识包正文在里面且顺序在“本次回复”之后
         assertThat(userInput).contains("双 11 大促峰值已验证");
-        assertThat(userInput.indexOf("支持全渠道库存一盘棋"))
-                .isGreaterThan(userInput.indexOf("【知识库片段"));
+        assertThat(userInput.indexOf("【知识库片段"))
+                .isGreaterThan(userInput.indexOf("支持全渠道库存一盘棋"));
     }
 }
