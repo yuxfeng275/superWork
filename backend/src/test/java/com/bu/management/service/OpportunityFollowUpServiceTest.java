@@ -32,6 +32,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -65,12 +66,14 @@ class OpportunityFollowUpServiceTest {
     void setUp() {
         service = new OpportunityFollowUpService(opportunityMapper, followUpMapper, promptMapper,
                 quotationMapper, weComMappingMapper, userMapper, weComClient,
-                new ObjectMapper().registerModule(new JavaTimeModule()));
+                new ObjectMapper().registerModule(new JavaTimeModule()), systemConfigService);
         when(promptMapper.selectOne(any())).thenReturn(null);
         when(quotationMapper.selectList(any())).thenReturn(List.of());
         when(weComMappingMapper.selectList(any())).thenReturn(List.of());
         when(ownerWecomMapper.selectList(any())).thenReturn(List.of());
         when(userMapper.selectById(any())).thenReturn(null);
+        // 自动落库默认开（读不到同样按开），个别用例单独改回 "false"
+        when(systemConfigService.getValue("opportunity", "followup.auto-confirm", "true")).thenReturn("true");
     }
 
     private SalesOpportunity opportunity() {
@@ -145,6 +148,9 @@ class OpportunityFollowUpServiceTest {
 
     @Test
     void 回复解析出结构化结果时问句转已解析并记录回复() {
+        // 老口径：自动落库关掉时，解析出结构化结果也只落台账（等人工确认）
+        when(systemConfigService.getValue("opportunity", "followup.auto-confirm", "true"))
+                .thenReturn("false");
         OpportunityFollowupPrompt sent = new OpportunityFollowupPrompt();
         sent.setId(5L);
         sent.setState(OpportunityFollowupPrompt.STATE_SENT);
@@ -739,6 +745,9 @@ class OpportunityFollowUpServiceTest {
 
     @Test
     void 企微入站按senderKey命中最近未回复问句并写成PARSED() {
+        // 老口径：自动落库关掉时，企微入站只把台账置 PARSED
+        when(systemConfigService.getValue("opportunity", "followup.auto-confirm", "true"))
+                .thenReturn("false");
         OpportunityFollowupPrompt prompt = sentPrompt();
         // selectOne 只用来查 msgid 幂等（查无）；候选由 selectList 取
         when(promptMapper.selectOne(any())).thenReturn(null);
@@ -845,5 +854,93 @@ class OpportunityFollowUpServiceTest {
         assertThat(result).isSameAs(latest);
         verify(promptMapper).updateById(latest);
         verify(promptMapper, never()).updateById(older);
+    }
+
+    // ==================== 自动落库（解析出结构化字段直接写库，不等人工确认） ====================
+
+    /** 试点期的回复人：问句目标用户（于峰）。 */
+    private User replier() {
+        User user = new User();
+        user.setId(25L);
+        user.setUsername("yufeng");
+        user.setRealName("于峰");
+        return user;
+    }
+
+    @Test
+    void 企微入站解析出概率时直接落库不再等人工确认() {
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        prompt.setTargetUserId(25L);
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+        when(userMapper.selectById(25L)).thenReturn(replier());
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "概率 70%，下周三 15:00 再沟通", "msg-auto-1", "chat-auto-1",
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        ArgumentCaptor<SalesOpportunityFollowUp> captor =
+                ArgumentCaptor.forClass(SalesOpportunityFollowUp.class);
+        verify(followUpMapper).insert(captor.capture());
+        SalesOpportunityFollowUp item = captor.getValue();
+        // 跟进人 = 实际回复人（试点期就是问句接收人）
+        assertThat(item.getFollower()).isEqualTo("于峰");
+        assertThat(item.getContent()).isEqualTo("概率 70%，下周三 15:00 再沟通");
+        assertThat(item.getProbability()).isEqualTo(70);
+        assertThat(item.getNextFollowUp()).isNotNull();
+        assertThat(item.getStatus()).isEqualTo("需求确认");
+        assertThat(item.getSource()).isEqualTo(OpportunityFollowUpService.SOURCE_WECOM_BOT);
+        assertThat(item.getPromptId()).isEqualTo(1L);
+        // 商机：概率与下次跟进时间刷新，阶段不动
+        assertThat(opp.getProbability()).isEqualTo(70);
+        assertThat(opp.getStatus()).isEqualTo("需求确认");
+        assertThat(opp.getLastFollowUpAt()).isNotNull();
+        assertThat(opp.getNextFollowUpAt()).isNotNull();
+        assertThat(opp.getFollowUpState()).isEqualTo("PENDING");
+        verify(opportunityMapper).updateById(opp);
+    }
+
+    @Test
+    void 回复里没有概率和时间时只记原文不写商机() {
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "客户还在内部评估，暂时没有结论", "msg-auto-2", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_REPLIED);
+        assertThat(result.getReplyText()).isEqualTo("客户还在内部评估，暂时没有结论");
+        verify(followUpMapper, never()).insert(any());
+        verify(opportunityMapper, never()).updateById(any());
+        assertThat(opp.getProbability()).isEqualTo(40);
+        assertThat(opp.getStatus()).isEqualTo("需求确认");
+        assertThat(opp.getNextFollowUpAt()).isNull();
+    }
+
+    @Test
+    void 自动落库开关关掉时回到PARSED等人工确认() {
+        when(systemConfigService.getValue("opportunity", "followup.auto-confirm", "true"))
+                .thenReturn("false");
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "概率 80%，周五再聊", "msg-auto-3", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_PARSED);
+        verify(followUpMapper, never()).insert(any());
+        verify(opportunityMapper, never()).updateById(any());
+        assertThat(opp.getProbability()).isEqualTo(40);
     }
 }

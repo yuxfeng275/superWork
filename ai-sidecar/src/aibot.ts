@@ -3,7 +3,8 @@
  *
  * 用户在企微里给机器人发的文本消息，经长连接收到后转发到后端
  * POST /internal/opportunity/reply（X-Sidecar-Token 鉴权），由后端按
- * 「发送人 + 24 小时内最新一条待回复问句」自动匹配；随后回一句提示用户去站内确认。
+ * 「发送人 + 24 小时内最新一条待回复问句」自动匹配并直接落库；随后回一句「已自动写入合拍」，
+ * 带上解析出的成交概率 / 下次跟进时间。
  *
  * 设计原则：任何失败只打 console.warn，绝不抛错、绝不影响 ai-sidecar 现有 HTTP 能力。
  */
@@ -16,11 +17,12 @@ const CREDENTIAL_RETRY_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 /** 已处理 msgid 集合上限，防止长跑内存增长 */
 const SEEN_MSGID_LIMIT = 2000;
-/** 后端匹配到待回复问句时的回话 */
-const MATCHED_REPLY = "已收录到合拍，请在「商机-待确认回复」里确认后生效。";
 /** 后端未匹配到待回复问句时的回话 */
 const UNMATCHED_REPLY =
   "没找到对应的待回复问句（可能已超 24 小时或已在站内处理），可以去合拍里手工补录。";
+/** 后端已自动落库但没解析出成交概率/下次跟进时间时的回话 */
+const MATCHED_REPLY_NO_PARSED =
+  "已收到并写入合拍（未识别到成交概率/下次跟进时间，可在商机详情里补）。";
 /**
  * SDK 包名走变量形式，配合动态 import：
  * 依赖由部署侧 npm install 安装，若尚未装好，sidecar 仍能正常启动（只警告不崩）。
@@ -133,6 +135,59 @@ function markSeen(msgId: string): boolean {
   return true;
 }
 
+/** 后端回传的解析字段：成交概率（0-100）与下次跟进时间 */
+interface ParsedReplyFields {
+  probability?: number;
+  nextAt?: string;
+}
+
+/** 从 Result.data.parsedJson 里取解析值；取不到返回 null（按「未识别到」处理，不报错） */
+function readParsedFields(payload: unknown): ParsedReplyFields | null {
+  const data = (payload as { data?: unknown } | null)?.data;
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+  const raw = (data as { parsedJson?: unknown }).parsedJson;
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw) as { probability?: unknown; nextAt?: unknown };
+    const fields: ParsedReplyFields = {};
+    const probability = parsed?.probability;
+    if (typeof probability === "number" && Number.isFinite(probability)) {
+      fields.probability = probability;
+    }
+    const nextAt = parsed?.nextAt;
+    if (typeof nextAt === "string" && nextAt.trim().length > 0) {
+      fields.nextAt = nextAt;
+    }
+    return fields.probability === undefined && fields.nextAt === undefined ? null : fields;
+  } catch (err) {
+    console.warn("[aibot] parsedJson 解析失败：", err);
+    return null;
+  }
+}
+
+/** ISO 时间（2026-12-01T15:00:00）→「2026-12-01 15:00」 */
+function formatNextAt(value: string): string {
+  return value.trim().replace("T", " ").slice(0, 16);
+}
+
+/** 匹配到问句时的回话：有解析值就带上，没有就提示去商机详情补 */
+function matchedReplyText(parsed: ParsedReplyFields | null): string {
+  if (!parsed) return MATCHED_REPLY_NO_PARSED;
+  const parts: string[] = [];
+  if (typeof parsed.probability === "number") parts.push(`成交概率 ${parsed.probability}%`);
+  if (typeof parsed.nextAt === "string") {
+    const when = formatNextAt(parsed.nextAt);
+    if (when.length > 0) parts.push(`下次跟进 ${when}`);
+  }
+  return parts.length === 0 ? MATCHED_REPLY_NO_PARSED : `已写入合拍：${parts.join("，")}`;
+}
+
+/** 转发结果：matched=后端匹配到问句，parsed=后端解析出的概率/下次跟进时间 */
+interface ReplyOutcome {
+  matched: boolean;
+  parsed: ParsedReplyFields | null;
+}
+
 /** 判断后端是否匹配到待回复问句：data 非空才算匹配（为空是正常情况，不重试） */
 function hasMatchedData(payload: unknown): boolean {
   const data = (payload as { data?: unknown } | null)?.data;
@@ -145,9 +200,9 @@ function hasMatchedData(payload: unknown): boolean {
 
 /**
  * 把一条文本消息转发到后端。
- * 返回 true=匹配到问句，false=未匹配，null=请求本身失败（此时不回话，避免误导用户）。
+ * 返回 {matched,parsed}=请求成功（matched false 表示没匹配到问句），null=请求本身失败（此时不回话，避免误导用户）。
  */
-async function forwardToBackend(frame: WsFrame, text: string): Promise<boolean | null> {
+async function forwardToBackend(frame: WsFrame, text: string): Promise<ReplyOutcome | null> {
   const url = `${backendBaseUrl()}/internal/opportunity/reply`;
   try {
     const res = await fetch(url, {
@@ -172,7 +227,7 @@ async function forwardToBackend(frame: WsFrame, text: string): Promise<boolean |
       return null;
     }
     const json: unknown = await res.json().catch(() => null);
-    return hasMatchedData(json);
+    return { matched: hasMatchedData(json), parsed: readParsedFields(json) };
   } catch (err) {
     console.warn("[aibot] 入站转发异常：", err);
     return null;
@@ -216,13 +271,13 @@ async function replySafely(client: AibotWsClient, frame: WsFrame, content: strin
   }
 }
 
-/** 处理一条文本消息：转发后端 → 按匹配结果回话 */
+/** 处理一条文本消息：转发后端（后端已自动落库）→ 按匹配结果回话 */
 async function handleTextMessage(client: AibotWsClient, frame: WsFrame): Promise<void> {
   const content = frame.body?.text?.content;
   if (typeof content !== "string" || content.trim().length === 0) return;
-  const matched = await forwardToBackend(frame, content);
-  if (matched === null) return;
-  await replySafely(client, frame, matched ? MATCHED_REPLY : UNMATCHED_REPLY);
+  const outcome = await forwardToBackend(frame, content);
+  if (outcome === null) return;
+  await replySafely(client, frame, outcome.matched ? matchedReplyText(outcome.parsed) : UNMATCHED_REPLY);
 }
 
 /** 统一的帧入口：先去重，再只处理文本消息 */

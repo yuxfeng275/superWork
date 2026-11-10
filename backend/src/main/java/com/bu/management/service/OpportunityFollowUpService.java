@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
- * 商机跟进闭环：问句生成 → 企微/站内下发 → 回复解析 → 人工确认落库。
+ * 商机跟进闭环：问句生成 → 企微/站内下发 → 回复解析 → 自动落库（阶段仍由人工改）。
  *
  * <p>口径：
  * <ul>
@@ -94,6 +94,13 @@ public class OpportunityFollowUpService {
     private static final int MAX_NAME = 12;
     private static final DateTimeFormatter NEXT_TEXT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final DateTimeFormatter DEDUPE_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    /** 系统配置组：商机跟进。 */
+    private static final String CONFIG_GROUP = "opportunity";
+    /**
+     * 自动落库开关，<b>默认开</b>：企微回复解析出成交概率或下次跟进时间就直接写跟进记录 + 刷新商机，
+     * 不再等人去「待确认」里点一次。置 false 才回到「只记原文、人工确认」。
+     */
+    private static final String AUTO_CONFIRM_KEY = "followup.auto-confirm";
 
     private final SalesOpportunityMapper opportunityMapper;
     private final SalesOpportunityFollowUpMapper followUpMapper;
@@ -103,6 +110,7 @@ public class OpportunityFollowUpService {
     private final UserMapper userMapper;
     private final WeComClient weComClient;
     private final ObjectMapper objectMapper;
+    private final SystemConfigService systemConfigService;
 
     // ==================== 查询 ====================
 
@@ -610,6 +618,9 @@ public class OpportunityFollowUpService {
      * 把一条回复写进指定问句台账：reply_text + 解析结果 + state，并记下入站 msgid / 会话 ID。
      *
      * <p>企微按发送人反查与站内补录都走这里，保证两条入口的解析与状态口径完全一致。
+     *
+     * <p><b>解析出成交概率或下次跟进时间就直接落库</b>（写跟进记录 + 刷新商机，台账直置 CONFIRMED），
+     * 开关 {@code opportunity.followup.auto-confirm} 默认开；没解析到结构化字段时只记原文，台账保持 PARSED/REPLIED 等人工补。
      */
     private OpportunityFollowupPrompt applyReplyTo(OpportunityFollowupPrompt prompt, String senderKey,
                                                    String text, String msgId, String chatId) {
@@ -618,9 +629,17 @@ public class OpportunityFollowUpService {
         }
         String reply = shorten(text.strip(), 2000);
         OpportunityFollowUpParser.ReplyDraft draft = OpportunityFollowUpParser.parseReply(reply);
+        // 自动落库：只要解析出成交概率或下次跟进时间就直接写库，不再等人确认（开关见 AUTO_CONFIRM_KEY）
+        boolean autoConfirmable = draft != null
+                && (draft.probability() != null || draft.nextAt() != null)
+                && autoConfirmEnabled();
         prompt.setRepliedAt(LocalDateTime.now());
         prompt.setReplyText(reply);
-        if (draft != null && (draft.stage() != null || draft.probability() != null || draft.nextAt() != null)) {
+        if (autoConfirmable) {
+            prompt.setState(OpportunityFollowupPrompt.STATE_CONFIRMED);
+            prompt.setParsedJson(toJson(draft));
+        } else if (draft != null
+                && (draft.stage() != null || draft.probability() != null || draft.nextAt() != null)) {
             prompt.setState(OpportunityFollowupPrompt.STATE_PARSED);
             prompt.setParsedJson(toJson(draft));
         } else {
@@ -637,6 +656,9 @@ public class OpportunityFollowUpService {
             prompt.setChatId(shorten(chatId, 64));
         }
         promptMapper.updateById(prompt);
+        if (autoConfirmable) {
+            autoConfirm(prompt, draft);
+        }
         return prompt;
     }
 
@@ -705,6 +727,138 @@ public class OpportunityFollowUpService {
         }
         promptMapper.updateById(prompt);
         return item;
+    }
+
+    /**
+     * 自动落库：企微回复解析出成交概率/下次跟进时间后，直接写跟进记录并刷新商机快照。
+     *
+     * <p>与 {@link #confirmDraft} 的唯一差别是<b>绝不改阶段</b>：企微里随口提到阶段也不自动推进，
+     * 保持「阶段由人工口径决定」，因此这里不调 {@code ensureStageAllowed}，也不会被报价单前置条件卡住。
+     *
+     * @return 新写入的跟进记录
+     */
+    private SalesOpportunityFollowUp autoConfirm(OpportunityFollowupPrompt prompt,
+                                                 OpportunityFollowUpParser.ReplyDraft draft) {
+        SalesOpportunity opportunity = get(prompt.getOpportunityId());
+        LocalDateTime now = LocalDateTime.now();
+        Integer probability = draft != null && draft.probability() != null
+                ? draft.probability() : opportunity.getProbability();
+        LocalDateTime nextAt = draft == null ? null : draft.nextAt();
+        String nextText = nextAt == null ? null : NEXT_TEXT.format(nextAt);
+        // 阶段保持商机原值：自动落库只刷新概率与跟进时间
+        String status = opportunity.getStatus();
+
+        SalesOpportunityFollowUp item = new SalesOpportunityFollowUp();
+        item.setOpportunityId(opportunity.getId());
+        item.setFollowUpAt(now);
+        item.setFollower(replierName(prompt));
+        item.setContent(shorten(prompt.getReplyText(), 1000));
+        item.setStatus(shorten(status, 30));
+        item.setProbability(probability == null ? 0 : probability);
+        item.setNextFollowUp(shorten(nextText, 100));
+        item.setSource(SOURCE_WECOM_BOT);
+        item.setPromptId(prompt.getId());
+        item.setCreatedAt(now);
+        followUpMapper.insert(item);
+
+        opportunity.setProbability(probability);
+        opportunity.setLastFollowUpAt(now);
+        if (nextAt != null) {
+            opportunity.setNextFollowUpAt(nextAt);
+            opportunity.setNextFollowUp(nextText);
+            opportunity.setFollowUpState("PENDING");
+        }
+        opportunityMapper.updateById(opportunity);
+
+        prompt.setState(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        if (prompt.getRepliedAt() == null) {
+            prompt.setRepliedAt(now);
+        }
+        promptMapper.updateById(prompt);
+        log.info("企微回复自动落库: opportunityId={} promptId={} probability={} nextAt={}",
+                opportunity.getId(), prompt.getId(), probability, nextText);
+        return item;
+    }
+
+    /**
+     * 自动落库开关：读系统配置 {@code opportunity.followup.auto-confirm}，<b>读不到/异常都按开启</b>。
+     */
+    private boolean autoConfirmEnabled() {
+        try {
+            String value = systemConfigService.getValue(CONFIG_GROUP, AUTO_CONFIRM_KEY, "true");
+            return !StringUtils.hasText(value) || !"false".equalsIgnoreCase(value.strip());
+        } catch (Exception e) {
+            log.warn("读取自动落库开关失败，按开启处理: {}", e.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * 跟进人 = 「回复机器人的那个人」：
+     * 企微 userid 映射 → 问句目标用户 → 商机负责人文本 → 兜底文案；任一步取不到就降级不抛错。
+     */
+    private String replierName(OpportunityFollowupPrompt prompt) {
+        if (prompt == null) {
+            return "企微回复";
+        }
+        if (StringUtils.hasText(prompt.getWecomUserid())) {
+            String mapped = nameByWecomUserid(prompt.getWecomUserid().strip());
+            if (StringUtils.hasText(mapped)) {
+                return shorten(mapped, 100);
+            }
+        }
+        String target = userName(prompt.getTargetUserId());
+        if (StringUtils.hasText(target)) {
+            return shorten(target, 100);
+        }
+        try {
+            SalesOpportunity opportunity = prompt.getOpportunityId() == null
+                    ? null : opportunityMapper.selectById(prompt.getOpportunityId());
+            if (opportunity != null && StringUtils.hasText(opportunity.getOwner())) {
+                return shorten(opportunity.getOwner(), 100);
+            }
+        } catch (Exception e) {
+            log.warn("回复人回退商机负责人失败: opportunityId={} err={}", prompt.getOpportunityId(), e.getMessage());
+        }
+        return "企微回复";
+    }
+
+    /** 企微 userid → 绑定账号实名（enabled=1 才认）。 */
+    private String nameByWecomUserid(String wecomUserid) {
+        if (!StringUtils.hasText(wecomUserid)) {
+            return null;
+        }
+        try {
+            List<EmailWeComMapping> mappings = weComMappingMapper.selectList(
+                    new LambdaQueryWrapper<EmailWeComMapping>()
+                            .eq(EmailWeComMapping::getWecomUserId, wecomUserid)
+                            .eq(EmailWeComMapping::getEnabled, 1)
+                            .last("limit 1"));
+            if (mappings == null || mappings.isEmpty() || mappings.get(0) == null) {
+                return null;
+            }
+            return userName(mappings.get(0).getOwnerUserId());
+        } catch (Exception e) {
+            log.warn("回复人企微映射查询失败: wecomUserid={} err={}", wecomUserid, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 用户显示名：实名优先，没有就用户名；查不到/异常返回 null。 */
+    private String userName(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        try {
+            User user = userMapper.selectById(userId);
+            if (user == null) {
+                return null;
+            }
+            return StringUtils.hasText(user.getRealName()) ? user.getRealName() : user.getUsername();
+        } catch (Exception e) {
+            log.warn("回复人查询失败: userId={} err={}", userId, e.getMessage());
+            return null;
+        }
     }
 
     /**
