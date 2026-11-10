@@ -87,10 +87,17 @@ public class OpportunityFollowUpService {
     /** 回复只认 24 小时内已发送问句。 */
     private static final long REPLY_WINDOW_HOURS = 24;
     /**
-     * 同一人 24 小时内可能收到多条问句（一次调度可同时给多个商机发）：
-     * 候选最多取 10 条，再靠引用内容在里面挑出被回复的那一条。
+     * 引用匹配的回看窗口（天）：同一个商机要多次追进展，用户可能引用<b>已经回复过</b>的问句再回一次，
+     * 那条台账此刻是 PARSED/CONFIRMED，若候选集只取 SENT 就必然匹配不到。
      */
-    private static final int REPLY_CANDIDATE_LIMIT = 10;
+    private static final long REPLY_QUOTED_WINDOW_DAYS = 7;
+    /**
+     * 同一人 7 天内可能收到多条问句（一次调度可同时给多个商机发，同一商机还会反复追）：
+     * 候选最多取 20 条，再靠引用内容在里面挑出被回复的那一条。
+     */
+    private static final int REPLY_CANDIDATE_LIMIT = 20;
+    /** 再次回复已回复问句时，克隆台账的阶段标签。 */
+    private static final String STAGE_FOLLOWUP_REPLY = "跟进回复";
     private static final int MAX_NAME = 12;
     private static final DateTimeFormatter NEXT_TEXT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final DateTimeFormatter DEDUPE_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -391,11 +398,14 @@ public class OpportunityFollowUpService {
      *
      * <p>匹配顺序：
      * <ol>
-     *   <li>候选集：{@code wecom_userid = senderKey AND state = SENT AND sent_at 在 24 小时内}，
-     *       按 {@code sent_at desc, id desc} 取最多 10 条；</li>
+     *   <li>候选集：{@code wecom_userid = senderKey AND sent_at 在 7 天内}，<b>不限 state</b>，
+     *       按 {@code sent_at desc, id desc} 取最多 20 条；</li>
      *   <li>引用命中：候选问句正文第一行（去空白）出现在引用原文里 → 选中该条（多条命中取最新）；</li>
      *   <li>商机名兜底：引用原文里 {@code 「」} 之间 4 字以上的片段，与候选 questionText 比对；</li>
-     *   <li>都未命中：退回候选第一条（旧行为）并打日志，便于事后发现模板漂移。</li>
+     *   <li>命中 {@code SENT} 问句 → 直接写回该台账；命中 <b>已回复/已确认</b> 的问句（PARSED/REPLIED/
+     *       CONFIRMED）→ <b>克隆一条新台账</b>再写回，绝不覆盖历史；</li>
+     *   <li>引用未命中（或没带引用）：退回 24 小时内最新 {@code SENT}（旧行为）；连 SENT 都没有就返回
+     *       null，不凭猜造台账，由 sidecar 提示找人工。</li>
      * </ol>
      *
      * <p>{@code msgId} 落在 {@code inbound_msg_id}（唯一键）上做幂等，重复投递直接返回已有行、不覆盖。
@@ -422,11 +432,12 @@ public class OpportunityFollowUpService {
                 return delivered;
             }
         }
-        LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
+        // 候选集放宽到 7 天且不限 state：已经回复过（PARSED/REPLIED/CONFIRMED）的问句同样可能被再次引用回复，
+        // 只取 SENT 会漏掉「同一个商机多次追进展」这个真实场景。
+        LocalDateTime since = LocalDateTime.now().minusDays(REPLY_QUOTED_WINDOW_DAYS);
         List<OpportunityFollowupPrompt> candidates = promptMapper.selectList(
                 new LambdaQueryWrapper<OpportunityFollowupPrompt>()
                         .eq(OpportunityFollowupPrompt::getWecomUserid, key)
-                        .eq(OpportunityFollowupPrompt::getState, OpportunityFollowupPrompt.STATE_SENT)
                         .ge(OpportunityFollowupPrompt::getSentAt, since)
                         .orderByDesc(OpportunityFollowupPrompt::getSentAt)
                         .orderByDesc(OpportunityFollowupPrompt::getId)
@@ -436,14 +447,89 @@ public class OpportunityFollowUpService {
                     key, messageId, channel);
             return null;
         }
-        OpportunityFollowupPrompt prompt = pickByQuotedText(candidates, quotedText);
-        if (prompt == null) {
-            // 旧行为兜底：取候选第一条（sent_at 最新）。带引用却没命中说明问句模板或引用结构变了，留日志便于排查。
-            prompt = candidates.get(0);
-            log.info("企微入站回复的引用未匹配到问句，回退最新 SENT: senderKey={} msgId={} 候选数={} 有引用={}",
-                    key, messageId, candidates.size(), StringUtils.hasText(quotedText));
+        OpportunityFollowupPrompt matched = pickByQuotedText(candidates, quotedText);
+        if (matched != null) {
+            if (OpportunityFollowupPrompt.STATE_SENT.equals(matched.getState())) {
+                return applyReplyTo(matched, key, reply, messageId, sessionId);
+            }
+            // 被引用的问句已经回复过：不覆盖历史台账（它带着上次的 reply_text / parsed_json / 跟进记录 ID），
+            // 克隆一条新台账承载这次回复，自动落库后就是一条新的跟进记录。
+            OpportunityFollowupPrompt clone = clonePromptForReply(matched, channel);
+            log.info("企微回复命中的问句已回复过，克隆新台账: srcPromptId={} newPromptId={} oppId={}",
+                    matched.getId(), clone.getId(), matched.getOpportunityId());
+            return applyReplyTo(clone, key, reply, messageId, sessionId);
         }
-        return applyReplyTo(prompt, key, reply, messageId, sessionId);
+        // 旧行为兜底：24 小时内最新 SENT（带引用却没命中说明问句模板或引用结构变了，留日志便于排查）。
+        OpportunityFollowupPrompt latestSent = firstSentWithinWindow(candidates);
+        if (latestSent == null) {
+            // 既没命中引用、又没有待回复的 SENT：宁可返回 null（sidecar 提示找人工），也不乱造台账。
+            log.info("企微入站回复既未命中引用也无 24 小时内 SENT 问句，忽略: senderKey={} msgId={} 候选数={} 有引用={}",
+                    key, messageId, candidates.size(), StringUtils.hasText(quotedText));
+            return null;
+        }
+        log.info("企微入站回复的引用未匹配到问句，回退最新 SENT: senderKey={} msgId={} 候选数={} promptId={} 有引用={}",
+                key, messageId, candidates.size(), latestSent.getId(), StringUtils.hasText(quotedText));
+        return applyReplyTo(latestSent, key, reply, messageId, sessionId);
+    }
+
+    /** 候选里 24 小时内最新一条 {@code SENT}（旧行为兜底）；候选取不到 SENT 时返回 null。 */
+    private static OpportunityFollowupPrompt firstSentWithinWindow(
+            List<OpportunityFollowupPrompt> candidates) {
+        LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
+        for (OpportunityFollowupPrompt candidate : candidates) {
+            if (!OpportunityFollowupPrompt.STATE_SENT.equals(candidate.getState())) {
+                continue;
+            }
+            if (candidate.getSentAt() == null || candidate.getSentAt().isBefore(since)) {
+                continue;
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * 为「对已回复问句的再次回复」克隆一条新台账。
+     *
+     * <p>为什么克隆而不是复用原台账：原台账已经带着上一次的 {@code reply_text} / {@code parsed_json} /
+     * 跟进记录 ID，覆盖它等于抹掉历史跟进，溯源与审计都没了。
+     *
+     * <p>{@code question_text} 是 NOT NULL：原问句为空时用商机名拼一句；
+     * {@code dedupe_key} 带毫秒时间戳，避开 {@code opp:商机ID:阶段:日期} 的唯一键。
+     */
+    private OpportunityFollowupPrompt clonePromptForReply(OpportunityFollowupPrompt source, String channel) {
+        LocalDateTime now = LocalDateTime.now();
+        String questionText = shorten(source.getQuestionText(), 500);
+        if (!StringUtils.hasText(questionText)) {
+            questionText = shorten(fallbackPromptText(source.getOpportunityId()), 500);
+        }
+        OpportunityFollowupPrompt row = new OpportunityFollowupPrompt();
+        row.setOpportunityId(source.getOpportunityId());
+        row.setTargetUserId(source.getTargetUserId());
+        row.setWecomUserid(source.getWecomUserid());
+        row.setRemindStage(shorten(STAGE_FOLLOWUP_REPLY, 16));
+        row.setChannel(StringUtils.hasText(channel) ? channel : CHANNEL_INAPP);
+        row.setQuestionText(questionText);
+        row.setSentAt(now);
+        row.setState(OpportunityFollowupPrompt.STATE_SENT);
+        row.setCreatedAt(now);
+        row.setDedupeKey("opp:" + source.getOpportunityId() + ":" + STAGE_FOLLOWUP_REPLY + ":"
+                + DEDUPE_DATE.format(LocalDate.now()) + ":" + System.currentTimeMillis());
+        promptMapper.insert(row);
+        return row;
+    }
+
+    /** 克隆台账的兜底正文（原问句正文为空时用，保证 NOT NULL 列不落空）。 */
+    private String fallbackPromptText(Long opportunityId) {
+        String name = null;
+        try {
+            SalesOpportunity opportunity = opportunityId == null ? null : opportunityMapper.selectById(opportunityId);
+            name = opportunity == null ? null : shorten(opportunity.getName(), MAX_NAME);
+        } catch (Exception e) {
+            log.warn("克隆问句回查商机名失败，用兜底文案: opportunityId={} err={}", opportunityId, e.getMessage());
+        }
+        return "【" + STAGE_FOLLOWUP_REPLY + "】商机「" + (StringUtils.hasText(name) ? name : "未知")
+                + "」，现在什么进展？";
     }
 
     /**

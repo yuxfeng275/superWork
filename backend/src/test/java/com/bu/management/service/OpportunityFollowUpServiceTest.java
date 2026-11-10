@@ -943,4 +943,117 @@ class OpportunityFollowUpServiceTest {
         verify(opportunityMapper, never()).updateById(any());
         assertThat(opp.getProbability()).isEqualTo(40);
     }
+
+    // ==================== 引用已回复问句再次回复（同一商机多次追进展） ====================
+
+    /** 替身 insert：模拟 MyBatis 回填自增主键，否则克隆台账拿不到 id 就无法落库。 */
+    private void stubPromptInsertReturningId(long id) {
+        when(promptMapper.insert(any())).thenAnswer(invocation -> {
+            OpportunityFollowupPrompt row = invocation.getArgument(0);
+            row.setId(id);
+            return 1;
+        });
+    }
+
+    /** 一条 3 小时前发出、已经被处理过的问句（PARSED / CONFIRMED）。 */
+    private OpportunityFollowupPrompt answeredPrompt(Long id, String state) {
+        OpportunityFollowupPrompt prompt = candidate(id, 15L,
+                "【需求确认】商机「帝亚吉欧-全域及运营解决」，已逾期 2 天，现在什么进展？\n阶段：需求确认",
+                LocalDateTime.now().minusHours(3));
+        prompt.setState(state);
+        prompt.setTargetUserId(25L);
+        prompt.setReplyText("上次的回复内容");
+        return prompt;
+    }
+
+    @Test
+    void 引用已回复的问句再次回复时克隆新台账并自动落库() {
+        OpportunityFollowupPrompt source = answeredPrompt(2L, OpportunityFollowupPrompt.STATE_PARSED);
+        when(promptMapper.selectList(any())).thenReturn(List.of(source));
+        stubPromptInsertReturningId(9001L);
+        SalesOpportunity opp = opportunity();
+        opp.setId(15L);
+        when(opportunityMapper.selectById(15L)).thenReturn(opp);
+        when(userMapper.selectById(25L)).thenReturn(replier());
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "概率 70%，下周三 15:00 再沟通", "msg-clone-1", "chat-clone-1",
+                source.getQuestionText() + "\n\n概率 70%，下周三 15:00 再沟通",
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(9001L);
+        ArgumentCaptor<OpportunityFollowupPrompt> inserted =
+                ArgumentCaptor.forClass(OpportunityFollowupPrompt.class);
+        verify(promptMapper).insert(inserted.capture());
+        OpportunityFollowupPrompt clone = inserted.getValue();
+        assertThat(clone.getOpportunityId()).isEqualTo(15L);
+        assertThat(clone.getTargetUserId()).isEqualTo(25L);
+        assertThat(clone.getWecomUserid()).isEqualTo("yufeng");
+        assertThat(clone.getRemindStage()).isEqualTo("跟进回复");
+        assertThat(clone.getChannel()).isEqualTo(OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+        assertThat(clone.getQuestionText()).isNotBlank();
+        assertThat(clone.getInboundMsgId()).isEqualTo("msg-clone-1");
+        assertThat(clone.getDedupeKey()).startsWith("opp:15:跟进回复:" + LocalDate.now());
+        // 新台账自动落库：CONFIRMED，且跟进记录挂在克隆台账上
+        assertThat(clone.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        ArgumentCaptor<SalesOpportunityFollowUp> followUp =
+                ArgumentCaptor.forClass(SalesOpportunityFollowUp.class);
+        verify(followUpMapper).insert(followUp.capture());
+        assertThat(followUp.getValue().getPromptId()).isEqualTo(9001L);
+        assertThat(followUp.getValue().getOpportunityId()).isEqualTo(15L);
+        assertThat(opp.getProbability()).isEqualTo(70);
+        verify(opportunityMapper).updateById(opp);
+        // 历史台账一字不改
+        assertThat(source.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_PARSED);
+        assertThat(source.getReplyText()).isEqualTo("上次的回复内容");
+        verify(promptMapper, never()).updateById(source);
+    }
+
+    @Test
+    void 引用已确认的问句再次回复时同样克隆新台账落库() {
+        OpportunityFollowupPrompt source = answeredPrompt(7L, OpportunityFollowupPrompt.STATE_CONFIRMED);
+        when(promptMapper.selectList(any())).thenReturn(List.of(source));
+        stubPromptInsertReturningId(9002L);
+        SalesOpportunity opp = opportunity();
+        opp.setId(15L);
+        when(opportunityMapper.selectById(15L)).thenReturn(opp);
+        when(userMapper.selectById(25L)).thenReturn(replier());
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "概率 90%，这周五签约", "msg-clone-2", null,
+                source.getQuestionText(), OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(9002L);
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        verify(promptMapper).insert(any());
+        ArgumentCaptor<SalesOpportunityFollowUp> followUp =
+                ArgumentCaptor.forClass(SalesOpportunityFollowUp.class);
+        verify(followUpMapper).insert(followUp.capture());
+        assertThat(followUp.getValue().getPromptId()).isEqualTo(9002L);
+        assertThat(opp.getProbability()).isEqualTo(90);
+        assertThat(source.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        verify(promptMapper, never()).updateById(source);
+    }
+
+    @Test
+    void 引用已回复问句但既无SENT也没命中引用时返回null不乱造台账() {
+        OpportunityFollowupPrompt source = answeredPrompt(2L, OpportunityFollowupPrompt.STATE_PARSED);
+        when(promptMapper.selectList(any())).thenReturn(List.of(source));
+
+        // 引用是别的内容（不含「」，也不含问句首行）→ 不命中
+        assertThat(service.applyReplyBySender("yufeng", "好的收到", "msg-clone-3", null,
+                "【无关话题】这是一段完全不一样的内容",
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT)).isNull();
+        // 干脆没带引用，候选里也没有 SENT → 同样不乱落库
+        assertThat(service.applyReplyBySender("yufeng", "好的收到", "msg-clone-4", null, null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT)).isNull();
+
+        verify(promptMapper, never()).insert(any());
+        verify(promptMapper, never()).updateById(any());
+        verify(followUpMapper, never()).insert(any());
+        assertThat(source.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_PARSED);
+        assertThat(source.getReplyText()).isEqualTo("上次的回复内容");
+    }
 }
