@@ -38,7 +38,8 @@ public class JevDecisionService {
             "save_opportunity_followup");
 
     /** 自动化任务依赖的工具：任何意图下都保留，否则夜间任务会被意图收窄掐死。 */
-    static final Set<String> ALWAYS_TOOLS = Set.of("project_facts", "save_daily_brief", "save_artifact");
+    static final Set<String> ALWAYS_TOOLS = Set.of("project_facts", "save_daily_brief", "save_artifact",
+            "search_knowledge");
 
     private static final Map<String, Set<String>> INTENT_TOOLS = Map.of(
             "hours", Set.of(

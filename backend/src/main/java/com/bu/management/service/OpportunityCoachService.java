@@ -99,6 +99,8 @@ public class OpportunityCoachService {
     /** userInput 字符预算：超了就把历史条数往下砍，输入越短首字越快。 */
     private static final int CONTEXT_BUDGET = 1200;
     /** 运营维护的方案/案例知识包正文上限。 */
+    private static final int KNOWLEDGE_HITS = 5;
+    private static final int KNOWLEDGE_SNIPPET_CHARS = 2000;
     private static final int KNOWLEDGE_MAX = 2000;
     /** when 允许的最大前瞻天数：再远的时间基本是模型凑数，一律留空让人自己定。 */
     private static final int WHEN_MAX_DAYS = 180;
@@ -190,6 +192,8 @@ public class OpportunityCoachService {
             5. questions、solutions、nextActions 各至少 2 条；条数上限：questions 最多 3 条、
                  solutions 最多 2 条、nextActions 最多 3 条；nextActions 按时间先后排序。
             6. nextActions[].when 必须是 yyyy-MM-dd HH:mm 格式的具体时间，不要写「下周」「尽快」。
+            7. 若给了【知识库片段】，solutions[].evidence 必须写明依据的文档标题（如「据《会员通交付说明》」），不得引用片段之外的产品能力与案例。
+            8. 若【知识库片段】标注无命中，不得虚构产品能力或案例，把缺口写进 readiness.missing。
             7. nextActions[].owner 只能取以下值之一：销售、客户、我，或本次给定的商机负责人姓名；
                绝对不得出现其它人名（不得写「王总」「李经理」这类看似具体的人名），需要具体人时写 销售。
             """;
@@ -258,6 +262,8 @@ public class OpportunityCoachService {
     private final AiTaskService aiTaskService;
     private final PromptRegistry promptRegistry;
     private final AiCallRecorder aiCallRecorder;
+    /** 知识库检索（MySQL ngram）；无命中时也要明确告诉模型不得编造。 */
+    private final KbSearchService kbSearchService;
 
     /**
      * {@code ai.platform.task-enabled} 的 yml 默认值；库里 {@code ai-platform/task.enabled} 优先，
@@ -277,7 +283,8 @@ public class OpportunityCoachService {
                                    OpportunityFollowUpSender followUpSender,
                                    AiTaskService aiTaskService,
                                    PromptRegistry promptRegistry,
-                                   AiCallRecorder aiCallRecorder) {
+                                   AiCallRecorder aiCallRecorder,
+                                   KbSearchService kbSearchService) {
         this.coachMapper = coachMapper;
         this.opportunityMapper = opportunityMapper;
         this.followUpMapper = followUpMapper;
@@ -290,6 +297,7 @@ public class OpportunityCoachService {
         this.aiTaskService = aiTaskService;
         this.promptRegistry = promptRegistry;
         this.aiCallRecorder = aiCallRecorder;
+        this.kbSearchService = kbSearchService;
     }
 
     // ==================== 入队 ====================
@@ -386,14 +394,21 @@ public class OpportunityCoachService {
                 throw new IllegalStateException("商机不存在：" + coach.getOpportunityId());
             }
             LocalDate today = LocalDate.now();
-            String userInput = buildContext(opportunity, coach, today);
+            List<KbHit> kbHits = searchKnowledge(opportunity, coach);
+            String userInput = buildContext(opportunity, coach, today, kbHits);
             // 走 AiCallRecorder：一次调用落一行 ai_agent_usage（提示词编码/耗时/成败），返回值与异常口径不变
             DigestLlmClient.ChatResult result = aiCallRecorder.call(
                     new AiCallRecorder.CallSpec(PROMPT_CODE, null, coach.getId(), null),
                     coachSystemPrompt(today, opportunity.getOwner()), userInput, this::validate);
             // 落库前先把 when 的年份与越界、owner 的编造人名纠正掉：前端会原样展示给客户
-            coach.setContentJson(objectMapper.writeValueAsString(
-                    normalizeDates(result.json(), today, opportunity.getOwner())));
+            JsonNode normalized = normalizeDates(result.json(), today, opportunity.getOwner());
+            if (normalized instanceof ObjectNode node) {
+                ArrayNode refs = node.putArray("knowledgeRefs");
+                for (String title : knowledgeRefTitles(kbHits)) {
+                    refs.add(title);
+                }
+            }
+            coach.setContentJson(objectMapper.writeValueAsString(normalized));
             coach.setProvider(limit(result.providerCode(), 32));
             coach.setModel(limit(result.model(), 128));
             coach.setStatus(OpportunityCoach.STATUS_SUCCESS);
@@ -824,14 +839,15 @@ public class OpportunityCoachService {
      *
      * <p>紧凑文本块而不是 JSON：多数候选模型对键值文本的遵循度更稳，也省 token。
      */
-    private String buildContext(SalesOpportunity opportunity, OpportunityCoach coach, LocalDate today) {
+    private String buildContext(SalesOpportunity opportunity, OpportunityCoach coach, LocalDate today,
+                                List<KbHit> hits) {
         LocalDateTime now = LocalDateTime.now();
         String body = background(opportunity, now, CONTEXT_FOLLOW_UPS) + currentEvent(coach);
         if (body.length() > CONTEXT_BUDGET) {
             // 还是超预算：历史砍到 2 条，再长只会拖慢生成
             body = background(opportunity, now, CONTEXT_FOLLOW_UPS_MIN) + currentEvent(coach);
         }
-        return body + knowledge();
+        return body + knowledge() + knowledgeBlock(hits);
     }
 
     /** 背景块：当前时间 + 商机事实 + 历史跟进 + 报价概况。<b>它只是背景</b>，不是客户当下说了什么。 */
@@ -944,6 +960,59 @@ public class OpportunityCoachService {
         return "\n【已知方案与案例（内部参考，不得直接泄露客户名）】\n"
                 + clip(value, KNOWLEDGE_MAX) + '\n';
     }
+    /**
+     * 检索合拍知识库：用「商机名 + 客户 + 业务线 + 本次回复前 80 字」当 query。
+     *
+     * <p>任何异常都降级为空列表：知识库没命中只是少一块上下文，不能因此让教练包生成失败。
+     */
+    private List<KbHit> searchKnowledge(SalesOpportunity opportunity, OpportunityCoach coach) {
+        try {
+            StringBuilder q = new StringBuilder();
+            q.append(nz(opportunity.getName())).append(' ').append(nz(opportunity.getCustomer()));
+            if (StringUtils.hasText(opportunity.getBusinessLine())) {
+                q.append(' ').append(opportunity.getBusinessLine());
+            }
+            if (coach.getPromptId() != null) {
+                OpportunityFollowupPrompt prompt = promptMapper.selectById(coach.getPromptId());
+                if (prompt != null && StringUtils.hasText(prompt.getReplyText())) {
+                    q.append(' ').append(clip(prompt.getReplyText().strip(), 80));
+                }
+            }
+            Long userId = coach.getRequestedBy() == null ? opportunity.getOwnerUserId() : coach.getRequestedBy();
+            return kbSearchService.search(q.toString(), userId, null, KNOWLEDGE_HITS);
+        } catch (Exception e) {
+            log.warn("商机 AI 教练知识库检索失败，按无命中处理: err={}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** 知识片段块：命中就带出处，没命中就明确要求模型别编。 */
+    private String knowledgeBlock(List<KbHit> hits) {
+        if (hits == null || hits.isEmpty()) {
+            return "\n【知识库片段】无命中，不得编造产品能力/案例/交付与报价口径。\n";
+        }
+        return "\n【知识库片段（内部参考，不得直接泄露客户名）】\n"
+                + kbSearchService.buildContextSnippet(hits, KNOWLEDGE_SNIPPET_CHARS) + '\n';
+    }
+
+    /** 命中文档标题（去重最多 5 个），供前端展示依据。 */
+    private List<String> knowledgeRefTitles(List<KbHit> hits) {
+        List<String> titles = new ArrayList<>();
+        if (hits == null) {
+            return titles;
+        }
+        for (KbHit hit : hits) {
+            String title = hit.documentTitle();
+            if (StringUtils.hasText(title) && !titles.contains(title)) {
+                titles.add(title);
+            }
+            if (titles.size() >= 5) {
+                break;
+            }
+        }
+        return titles;
+    }
+
 
     /** 「距今多久」：30 天内写天数，超过写月数，让模型一眼看出这条是旧账还是现状。 */
     private String sinceText(LocalDateTime time, LocalDateTime now) {

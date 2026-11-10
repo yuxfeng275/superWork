@@ -63,6 +63,10 @@ class OpportunityCoachServiceTest {
     @Mock private AiPromptMapper aiPromptMapper;
     @Mock private AiAgentUsageMapper aiAgentUsageMapper;
 
+    /** 知识库检索：默认无命中，个别用例再单独打桩。 */
+    @Mock
+    private KbSearchService kbSearchService;
+
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private OpportunityCoachService service;
@@ -76,12 +80,14 @@ class OpportunityCoachServiceTest {
         PromptRegistry promptRegistry = new PromptRegistry(aiPromptMapper, 60);
         service = new OpportunityCoachService(coachMapper, opportunityMapper, followUpMapper, promptMapper,
                 quotationMapper, digestLlmClient, systemConfigService, objectMapper, followUpSender,
-                aiTaskService, promptRegistry, aiCallRecorder);
+                aiTaskService, promptRegistry, aiCallRecorder, kbSearchService);
         // 开关默认开、每日上限默认 10（读不到也按这套口径走）
         when(systemConfigService.getBoolean("opportunity", "coach.enabled", true)).thenReturn(true);
         when(systemConfigService.getBoolean("opportunity", "coach.wecom-push", true)).thenReturn(true);
         when(systemConfigService.getValue("opportunity", "coach.daily-limit", "10")).thenReturn("10");
         when(quotationMapper.selectList(any())).thenReturn(List.of());
+        // 默认知识库无命中（避免每个用例都要打桩）
+        when(kbSearchService.search(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of());
         when(followUpMapper.selectList(any())).thenReturn(List.of());
     }
 

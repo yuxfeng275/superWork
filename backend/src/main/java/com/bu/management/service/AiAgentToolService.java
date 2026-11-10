@@ -232,6 +232,11 @@ public class AiAgentToolService {
                         "stage", stringProperty("推进到的阶段，可选：初步接触/需求确认/方案报价/商务谈判/已成交"),
                         "probability", integerProperty("成交概率 0-100，可选"),
                         "nextFollowUp", stringProperty("下次跟进时间，可选：明天 / 周三 15:00 / 2026-11-12 09:30")))));
+        defs.add(new AiAgentToolDefinition("search_knowledge",
+                "检索合拍知识库（产品能力、标准方案、成功案例、报价与交付口径）。回答这类问题前先用它检索，不要凭常识编造",
+                objectSchema(Map.of(
+                        "query", stringProperty("检索关键词，例如「会员通 交付周期」"),
+                        "limit", integerProperty("返回条数，默认 5，最大 10，可选")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());
