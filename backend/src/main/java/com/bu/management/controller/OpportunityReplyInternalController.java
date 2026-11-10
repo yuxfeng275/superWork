@@ -32,9 +32,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class OpportunityReplyInternalController {
 
-    /** 入站请求体。 */
+    /**
+     * 入站请求体。
+     *
+     * <p>{@code quotedText} 是被引用消息的原文（企微回调 {@code body.quote.text.content}）：
+     * 同一个人同一天可能收到多条问句，只有引用内容能唯一定位用户在回哪一条。
+     */
     public record OpportunityReplyRequest(String senderKey, Long opportunityId, String text,
-                                         String msgId, String chatId, String channel, Boolean external) {
+                                         String msgId, String chatId, String channel, Boolean external,
+                                         String quotedText) {
     }
 
     private final OpportunityFollowUpService followUpService;
@@ -64,7 +70,8 @@ public class OpportunityReplyInternalController {
         }
         OpportunityFollowupPrompt prompt = body.opportunityId() == null
                 ? followUpService.applyReplyBySender(strip(body.senderKey()), text,
-                        strip(body.msgId()), strip(body.chatId()), strip(body.channel()))
+                        strip(body.msgId()), strip(body.chatId()), strip(body.quotedText()),
+                        strip(body.channel()))
                 : followUpService.applyReply(strip(body.senderKey()), body.opportunityId(), text,
                         strip(body.msgId()), strip(body.chatId()), strip(body.channel()));
         if (prompt == null) {

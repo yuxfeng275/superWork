@@ -39,6 +39,8 @@ export interface WsFrame {
     msgid?: string;
     msgtype?: string;
     text?: { content?: string };
+    /** 引用回复时企微带上的被引用消息（quote.text.content 是问句原文） */
+    quote?: { msgtype?: string; text?: { content?: string } };
     chatid?: string;
     from?: { userid?: string };
   };
@@ -50,6 +52,8 @@ interface AibotWsClient {
   disconnect(): void;
   on(event: string, handler: (payload: any) => void): unknown;
   reply(frame: WsFrame, payload: unknown, ...rest: any[]): unknown;
+  /** 被动回复唯一可用形态：msgtype 只支持 stream（SDK index.cjs.js:1034） */
+  replyStream(frame: WsFrame, streamId: string, content: string, finish: boolean): unknown;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,6 +161,8 @@ async function forwardToBackend(frame: WsFrame, text: string): Promise<boolean |
         text,
         msgId: frame.body?.msgid,
         chatId: frame.body?.chatid,
+        // 引用回复带上被引用问句原文：后端靠它区分「同一人同一天的多条问句」
+        quotedText: frame.body?.quote?.text?.content,
         channel: "WECOM_BOT",
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -173,15 +179,40 @@ async function forwardToBackend(frame: WsFrame, text: string): Promise<boolean |
   }
 }
 
-/** 回话给企微用户；SDK 的 reply 可能是同步也可能是 Promise，两种都兜住 */
-function replySafely(client: AibotWsClient, frame: WsFrame, content: string): void {
+/** SDK 导出的 generateReqId（若有），用于生成流式回复的 streamId */
+let sdkGenerateReqId: ((prefix: string) => string) | null = null;
+
+/** 生成 streamId：优先用 SDK 的 generateReqId('stream')，拿不到就本地生成 */
+function genStreamId(): string {
   try {
-    const maybePromise = client.reply(frame, { msgtype: "text", text: { content } });
-    void Promise.resolve(maybePromise).catch((err: unknown) => {
-      console.warn("[aibot] 回话失败：", err);
-    });
+    if (typeof sdkGenerateReqId === "function") {
+      const id = sdkGenerateReqId("stream");
+      if (typeof id === "string" && id.trim().length > 0) return id.trim();
+    }
   } catch (err) {
-    console.warn("[aibot] 回话异常：", err);
+    console.warn("[aibot] 生成 streamId 失败，改用本地 ID：", err);
+  }
+  return `stream_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * 回话给企微用户。
+ *
+ * 被动回复的 msgtype 只接受 stream：旧写法 reply(frame, { msgtype: "text" }) 会被企微
+ * 以 errcode 40008 invalid message type 拒绝（见 SDK index.cjs.js:1034 与 replyStream 便捷方法）。
+ * 这里先发一帧未结束的内容，再发一帧 finish=true 收尾。
+ */
+async function replySafely(client: AibotWsClient, frame: WsFrame, content: string): Promise<void> {
+  try {
+    if (typeof client.replyStream !== "function") {
+      console.warn("[aibot] SDK 未提供 replyStream，跳过回话");
+      return;
+    }
+    const streamId = genStreamId();
+    await Promise.resolve(client.replyStream(frame, streamId, content, false));
+    await Promise.resolve(client.replyStream(frame, streamId, content, true));
+  } catch (err) {
+    console.warn("[aibot] 回话失败：", err);
   }
 }
 
@@ -191,7 +222,7 @@ async function handleTextMessage(client: AibotWsClient, frame: WsFrame): Promise
   if (typeof content !== "string" || content.trim().length === 0) return;
   const matched = await forwardToBackend(frame, content);
   if (matched === null) return;
-  replySafely(client, frame, matched ? MATCHED_REPLY : UNMATCHED_REPLY);
+  await replySafely(client, frame, matched ? MATCHED_REPLY : UNMATCHED_REPLY);
 }
 
 /** 统一的帧入口：先去重，再只处理文本消息 */
@@ -219,6 +250,11 @@ async function startClient(): Promise<void> {
 
   const mod: any = await import(AIBOT_SDK_PACKAGE);
   const AiBot = mod?.default ?? mod;
+  const generateReqId = (AiBot as { generateReqId?: unknown } | null)?.generateReqId
+    ?? (mod as { generateReqId?: unknown } | null)?.generateReqId;
+  if (typeof generateReqId === "function") {
+    sdkGenerateReqId = generateReqId as (prefix: string) => string;
+  }
   const WSClient = AiBot?.WSClient;
   if (typeof WSClient !== "function") {
     console.warn("[aibot] SDK 未提供 WSClient，跳过长连接启动");

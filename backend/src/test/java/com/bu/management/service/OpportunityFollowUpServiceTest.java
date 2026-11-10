@@ -740,8 +740,9 @@ class OpportunityFollowUpServiceTest {
     @Test
     void 企微入站按senderKey命中最近未回复问句并写成PARSED() {
         OpportunityFollowupPrompt prompt = sentPrompt();
-        // 第一次 selectOne 查 msgid 幂等（查无），第二次查目标问句
-        when(promptMapper.selectOne(any())).thenReturn(null, prompt);
+        // selectOne 只用来查 msgid 幂等（查无）；候选由 selectList 取
+        when(promptMapper.selectOne(any())).thenReturn(null);
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
 
         OpportunityFollowupPrompt result = service.applyReplyBySender(
                 " yufeng ", "概率 70%，下周三 15:00 再沟通 ", " msg-1 ", " chat-1 ",
@@ -793,5 +794,56 @@ class OpportunityFollowUpServiceTest {
         assertThat(expired).isEqualTo(1);
         assertThat(stale.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_EXPIRED);
         verify(promptMapper).updateById(stale);
+    }
+
+    /** 候选问句（已按 SQL 的 sent_at desc, id desc 排好序传入）。 */
+    private OpportunityFollowupPrompt candidate(Long id, Long opportunityId, String questionText,
+                                               LocalDateTime sentAt) {
+        OpportunityFollowupPrompt prompt = new OpportunityFollowupPrompt();
+        prompt.setId(id);
+        prompt.setOpportunityId(opportunityId);
+        prompt.setState(OpportunityFollowupPrompt.STATE_SENT);
+        prompt.setWecomUserid("yufeng");
+        prompt.setSentAt(sentAt);
+        prompt.setQuestionText(questionText);
+        return prompt;
+    }
+
+    @Test
+    void 引用回复命中被引用的那条问句而不是最新的() {
+        OpportunityFollowupPrompt latest = candidate(3L, 18L,
+                "【静默唤醒】商机「某客户丁-产线改造」，现在什么进展？", LocalDateTime.now().minusMinutes(1));
+        OpportunityFollowupPrompt quoted = candidate(1L, 10L,
+                "【静默唤醒】商机「帝亚吉欧-全域及运营解决」，现在什么进展？\n阶段：方案报价｜上次跟进：3 天前",
+                LocalDateTime.now().minusMinutes(3));
+        // 候选第一条是最新的：旧逻辑直接选它，就会把回复写到错的商机上，正是本次要修的 bug
+        when(promptMapper.selectList(any())).thenReturn(List.of(latest, quoted));
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "已经和客户确认，下周签约", "msg-quote-1", null,
+                "【静默唤醒】商机「帝亚吉欧-全域及运营解决」，现在什么进展？\n阶段：方案报价｜上次跟进：3 天前\n\n已经和客户确认，下周签约",
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isSameAs(quoted);
+        assertThat(result.getReplyText()).isEqualTo("已经和客户确认，下周签约");
+        verify(promptMapper).updateById(quoted);
+        verify(promptMapper, never()).updateById(latest);
+    }
+
+    @Test
+    void 无引用时仍取最新SENT() {
+        OpportunityFollowupPrompt latest = candidate(3L, 18L,
+                "【静默唤醒】商机「某客户丁-产线改造」，现在什么进展？", LocalDateTime.now().minusMinutes(1));
+        OpportunityFollowupPrompt older = candidate(1L, 10L,
+                "【静默唤醒】商机「帝亚吉欧-全域及运营解决」，现在什么进展？", LocalDateTime.now().minusMinutes(3));
+        when(promptMapper.selectList(any())).thenReturn(List.of(latest, older));
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "还在等客户内部审批", "msg-quote-2", "chat-9", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isSameAs(latest);
+        verify(promptMapper).updateById(latest);
+        verify(promptMapper, never()).updateById(older);
     }
 }

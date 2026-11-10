@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -83,8 +84,13 @@ public class OpportunityFollowUpService {
             List.of("已成交", "已流失", "已输单", "已关闭", "暂停推进");
     /** 报价静默关注的阶段。 */
     private static final List<String> QUOTATION_STAGES = List.of("方案报价", "商务谈判");
-    /** 回复只认 24 小时内最新一条已发送问句。 */
+    /** 回复只认 24 小时内已发送问句。 */
     private static final long REPLY_WINDOW_HOURS = 24;
+    /**
+     * 同一人 24 小时内可能收到多条问句（一次调度可同时给多个商机发）：
+     * 候选最多取 10 条，再靠引用内容在里面挑出被回复的那一条。
+     */
+    private static final int REPLY_CANDIDATE_LIMIT = 10;
     private static final int MAX_NAME = 12;
     private static final DateTimeFormatter NEXT_TEXT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
     private static final DateTimeFormatter DEDUPE_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -356,15 +362,42 @@ public class OpportunityFollowUpService {
     /**
      * 按发送人反查最近未回复问句并写回台账（企微智能机器人/转发器回调走这里）。
      *
-     * <p>机器人回调只有发送人 userid + msgid，没有商机 ID：按
-     * {@code wecom_userid = senderKey AND state = SENT AND sent_at 在 24 小时内} 取最近一条；
-     * {@code msgId} 落在 {@code inbound_msg_id}（唯一键）上做幂等，重复投递直接返回已有行、不覆盖。
+     * <p>不区分引用（旧行为）：直接取 24 小时内最新一条 SENT 问句。
      *
      * @return 被更新的问句；没匹配到问句或 senderKey/text 为空时返回 null
      */
     @Transactional(rollbackFor = Exception.class)
     public OpportunityFollowupPrompt applyReplyBySender(String senderKey, String text, String msgId,
                                                         String chatId, String channel) {
+        return applyReplyBySender(senderKey, text, msgId, chatId, null, channel);
+    }
+
+    /**
+     * 按发送人反查未回复问句并写回台账，<b>优先用引用内容锚定</b>（企微智能机器人/转发器回调走这里）。
+     *
+     * <p>为什么不能只按「发送人 + 24h 内最新 SENT」取：同一个人同一天可能收到多条问句
+     * （例如调度器 09:20 一次给 3 个商机各发一条，sent_at 相差不到 2 秒），此时「最新一条」
+     * 与用户实际引用回复的那条没有必然关系，会把 A 商机的回复写到 B 商机台账上。
+     * <b>引用内容才是唯一可靠的锚点</b>：企微回调帧带 {@code body.quote.text.content}，
+     * 它是被引用问句的完整原文，据此可以精确还原用户到底在回哪一条。
+     *
+     * <p>匹配顺序：
+     * <ol>
+     *   <li>候选集：{@code wecom_userid = senderKey AND state = SENT AND sent_at 在 24 小时内}，
+     *       按 {@code sent_at desc, id desc} 取最多 10 条；</li>
+     *   <li>引用命中：候选问句正文第一行（去空白）出现在引用原文里 → 选中该条（多条命中取最新）；</li>
+     *   <li>商机名兜底：引用原文里 {@code 「」} 之间 4 字以上的片段，与候选 questionText 比对；</li>
+     *   <li>都未命中：退回候选第一条（旧行为）并打日志，便于事后发现模板漂移。</li>
+     * </ol>
+     *
+     * <p>{@code msgId} 落在 {@code inbound_msg_id}（唯一键）上做幂等，重复投递直接返回已有行、不覆盖。
+     *
+     * @param quotedText 被引用消息的原文（企微 {@code body.quote.text.content}），可为空
+     * @return 被更新的问句；没匹配到问句或 senderKey/text 为空时返回 null
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public OpportunityFollowupPrompt applyReplyBySender(String senderKey, String text, String msgId,
+                                                        String chatId, String quotedText, String channel) {
         String key = StringUtils.hasText(senderKey) ? senderKey.strip() : null;
         String reply = StringUtils.hasText(text) ? text.strip() : null;
         String messageId = StringUtils.hasText(msgId) ? msgId.strip() : null;
@@ -382,20 +415,106 @@ public class OpportunityFollowUpService {
             }
         }
         LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
-        OpportunityFollowupPrompt prompt = promptMapper.selectOne(
+        List<OpportunityFollowupPrompt> candidates = promptMapper.selectList(
                 new LambdaQueryWrapper<OpportunityFollowupPrompt>()
                         .eq(OpportunityFollowupPrompt::getWecomUserid, key)
                         .eq(OpportunityFollowupPrompt::getState, OpportunityFollowupPrompt.STATE_SENT)
                         .ge(OpportunityFollowupPrompt::getSentAt, since)
                         .orderByDesc(OpportunityFollowupPrompt::getSentAt)
                         .orderByDesc(OpportunityFollowupPrompt::getId)
-                        .last("limit 1"));
-        if (prompt == null) {
+                        .last("limit " + REPLY_CANDIDATE_LIMIT));
+        if (candidates == null || candidates.isEmpty()) {
             log.info("企微入站回复没有可处理的问句，忽略: senderKey={} msgId={} channel={}",
                     key, messageId, channel);
             return null;
         }
+        OpportunityFollowupPrompt prompt = pickByQuotedText(candidates, quotedText);
+        if (prompt == null) {
+            // 旧行为兜底：取候选第一条（sent_at 最新）。带引用却没命中说明问句模板或引用结构变了，留日志便于排查。
+            prompt = candidates.get(0);
+            log.info("企微入站回复的引用未匹配到问句，回退最新 SENT: senderKey={} msgId={} 候选数={} 有引用={}",
+                    key, messageId, candidates.size(), StringUtils.hasText(quotedText));
+        }
         return applyReplyTo(prompt, key, reply, messageId, sessionId);
+    }
+
+    /**
+     * 用引用原文在候选问句里挑出被回复的那条；挑不到返回 null。
+     *
+     * <p>候选已按 {@code sent_at desc} 排好序，顺序扫描即「命中多条时取最新」。
+     */
+    private OpportunityFollowupPrompt pickByQuotedText(List<OpportunityFollowupPrompt> candidates,
+                                                      String quotedText) {
+        String quoted = normalizeForMatch(quotedText);
+        if (quoted.isEmpty()) {
+            return null;
+        }
+        // 1) 引用命中：候选问句正文第一行出现在引用原文里
+        for (OpportunityFollowupPrompt candidate : candidates) {
+            String firstLine = normalizeForMatch(firstLineOf(candidate.getQuestionText()));
+            if (!firstLine.isEmpty() && quoted.contains(firstLine)) {
+                return candidate;
+            }
+        }
+        // 2) 商机名兜底：「」之间 4 字以上的片段，候选正文里也有同一片段
+        for (String fragment : bracketFragments(quotedText)) {
+            String normalized = normalizeForMatch(fragment);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            for (OpportunityFollowupPrompt candidate : candidates) {
+                if (normalizeForMatch(candidate.getQuestionText()).contains(normalized)) {
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 问句正文第一行（问句可能多行，首行才是引用时可稳定比对的部分）。 */
+    private static String firstLineOf(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        int breakAt = text.indexOf('\n');
+        String firstLine = breakAt < 0 ? text : text.substring(0, breakAt);
+        return firstLine.strip();
+    }
+
+    /** 比对用归一化：去首尾空白并把连续空白压成单空格（引用里会带缩进/换行）。 */
+    private static String normalizeForMatch(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        return text.strip().replaceAll("\\s+", " ");
+    }
+
+    /** 提取文本里 {@code 「…」} 中 4 字以上的片段（商机名），按出现顺序返回。 */
+    private static List<String> bracketFragments(String text) {
+        if (!StringUtils.hasText(text)) {
+            return List.of();
+        }
+        List<String> fragments = new ArrayList<>();
+        for (String opening : new String[] {"「", "『"}) {
+            String closing = "「".equals(opening) ? "」" : "』";
+            int from = 0;
+            while (true) {
+                int start = text.indexOf(opening, from);
+                if (start < 0) {
+                    break;
+                }
+                int end = text.indexOf(closing, start + opening.length());
+                if (end < 0) {
+                    break;
+                }
+                String fragment = text.substring(start + opening.length(), end).strip();
+                if (fragment.length() >= 4) {
+                    fragments.add(fragment);
+                }
+                from = end + closing.length();
+            }
+        }
+        return fragments;
     }
 
     /**
