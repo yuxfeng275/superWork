@@ -14,15 +14,19 @@ import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -61,12 +65,35 @@ public class OpportunityCoachService {
     static final String DAILY_LIMIT_KEY = "coach.daily-limit";
     /** 生成成功后是否推企微，默认开。 */
     static final String WECOM_PUSH_KEY = "coach.wecom-push";
+    /**
+     * 可配置知识包（Markdown：产品能力 / 标准方案 / 成功案例 / 报价口径），由运营维护。
+     *
+     * <p>没有这块时模型只能空想产品与案例，追问和方案就特别笼统；配了就以内部参考塞在 userInput 末尾。
+     */
+    static final String KNOWLEDGE_KEY = "coach.knowledge";
     /** 每日上限缺省值。 */
     static final int DEFAULT_DAILY_LIMIT = 10;
     /** 单条商机列表返回的最近条数。 */
     private static final int LIST_LIMIT = 5;
-    /** 上下文里带几条最近的跟进记录。 */
-    private static final int CONTEXT_FOLLOW_UPS = 5;
+    /**
+     * 上下文里带几条最近的跟进记录：3 条足够交代来龙去脉。
+     * 5 条 × 200 字只是把提示词撑长、把模型带歪（它会拿 9 个月前的旧事实当现状）。
+     */
+    private static final int CONTEXT_FOLLOW_UPS = 3;
+    /** 上下文超预算时历史条数的下限。 */
+    private static final int CONTEXT_FOLLOW_UPS_MIN = 2;
+    /** 单条跟进写进上下文的正文字数上限。 */
+    private static final int CONTEXT_FOLLOW_UP_MAX = 120;
+    /** 商机备注写进上下文的正文字数上限。 */
+    private static final int CONTEXT_NOTE_MAX = 200;
+    /** userInput 字符预算：超了就把历史条数往下砍，输入越短首字越快。 */
+    private static final int CONTEXT_BUDGET = 1200;
+    /** 运营维护的方案/案例知识包正文上限。 */
+    private static final int KNOWLEDGE_MAX = 2000;
+    /** when 允许的最大前瞻天数：再远的时间基本是模型凑数，一律留空让人自己定。 */
+    private static final int WHEN_MAX_DAYS = 180;
+    /** when 被判不可用时，追加到动作文本末尾的占位（前端与 markdown 都不展示时间括号）。 */
+    static final String WHEN_TBD = "（时间待定）";
     /** 兜底巡检单次最多重跑几行：一次都是 10~30s 的模型调用，扫多了会把线程和预算一起磨穿。 */
     private static final int SWEEP_LIMIT = 20;
     /** 企微外发正文上限（含标题与落款）。 */
@@ -81,6 +108,18 @@ public class OpportunityCoachService {
     private static final DateTimeFormatter WHEN_TEXT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final DateTimeFormatter WHEN_SECONDS_TEXT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter DAY_TEXT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    /** 星期几的中文写法（如「星期二」）：模型也需要知道今天是周几才好排跟进。 */
+    private static final DateTimeFormatter WEEK_TEXT =
+            DateTimeFormatter.ofPattern("EEEE", Locale.CHINA);
+    /**
+     * 从 when 里抠出「年（可缺）月日时分」：容忍 {@code 2025-11-12 10:00}、{@code 2025/11/12 10:00}、
+     * {@code 2025年11月12日 10:00}、{@code 2026-12-01T10:00} 以及只有 {@code 11-12 10:00} 的写法。
+     *
+     * <p>用正则而不是一堆 DateTimeFormatter：模型给的格式几乎没有一致过，正则一次就能兜住，
+     * 而且「缺年份」不会被解析器当成异常，可以直接补今年。
+     */
+    private static final Pattern WHEN_PARTS = Pattern.compile(
+            "(?:(\\d{4})[-/.年])?(\\d{1,2})[-/.月](\\d{1,2})日?(?:[ T]+(\\d{1,2})[:：]?(\\d{1,2})?)?");
 
     /**
      * 外发正文里的金额/毛利/概率数值一律抹掉：{@code 120 万}、{@code 35%}、{@code 3.5 万元} 之类。
@@ -119,6 +158,26 @@ public class OpportunityCoachService {
             5. questions、solutions、nextActions 各至少 2 条、最多 4 条；nextActions 按时间先后排序。
             6. nextActions[].when 必须是 yyyy-MM-dd HH:mm 格式的具体时间，不要写「下周」「尽快」。
             """;
+
+    /**
+     * 拼本次的系统提示：底线条款是常量（防运维改配置），只把「今天是几号」这类参数拼进去。
+     *
+     * <p><b>为什么必须告诉模型今天</b>：跟进记录只落「月-日 时:分」，没有年份；模型自身的知识截止
+     * 又早于当前日期，于是会把 {@code nextActions[].when} 猜成去年（实测写成 2025，而今年是 2026）。
+     * 这里明确给出今天与固定年份，再由 {@link #normalizeDates} 在写库前兜第二道。
+     *
+     * <p>用字符串拼接而不是 text block 占位符插值：插值容易把 {@code """} 与格式符搅在一起，编译期就炸。
+     */
+    static String systemPrompt(LocalDate today) {
+        LocalDate day = today == null ? LocalDate.now() : today;
+        return SYSTEM_PROMPT
+                + "7. 今天是 " + DAY_TEXT.format(day) + "；所有日期必须是今天及以后，年份固定为 "
+                + day.getYear() + "，返回一年前的日期视为错误。\n"
+                + "8. 不要把【历史跟进】里超过 14 天的记录当成当前状态：它们只是背景，"
+                + "若与本次回复冲突，以【本次回复】为准。\n"
+                + "9. 若给了【已知方案与案例】，优先复用其中真实的产品能力与案例口径，不得编造；"
+                + "转述时不得写出客户名，也不得把内部报价口径直接写进给客户的话术。\n";
+    }
 
     private final OpportunityCoachMapper coachMapper;
     private final SalesOpportunityMapper opportunityMapper;
@@ -234,10 +293,12 @@ public class OpportunityCoachService {
             if (opportunity == null) {
                 throw new IllegalStateException("商机不存在：" + coach.getOpportunityId());
             }
-            String userInput = buildContext(opportunity, coach);
+            LocalDate today = LocalDate.now();
+            String userInput = buildContext(opportunity, coach, today);
             DigestLlmClient.ChatResult result =
-                    digestLlmClient.chat(SYSTEM_PROMPT, userInput, this::validate);
-            coach.setContentJson(objectMapper.writeValueAsString(result.json()));
+                    digestLlmClient.chat(systemPrompt(today), userInput, this::validate);
+            // 落库前先把 when 的年份与越界纠正掉：模型爱把日期写成去年，前端会原样展示给客户
+            coach.setContentJson(objectMapper.writeValueAsString(normalizeDates(result.json(), today)));
             coach.setProvider(limit(result.providerCode(), 32));
             coach.setModel(limit(result.model(), 128));
             coach.setStatus(OpportunityCoach.STATUS_SUCCESS);
@@ -323,6 +384,123 @@ public class OpportunityCoachService {
                 throw new IllegalStateException("questions 中有条目缺少 question");
             }
         }
+    }
+
+    // ==================== 落库前纠正（防幻觉） ====================
+
+    /**
+     * 落库前对模型输出做一次修正：{@code nextActions[].when} 的年份与越界、概率与准备度分数。
+     *
+     * <p><b>为什么必须做</b>：模型的知识截止早于今天，最典型的幻觉就是把下一步时间写成去年
+     * （实测「2025-11-12 10:00」，今年是 2026）。前端会把 when 原样展示，企微摘要也会转发出去，
+     * 所以宁可把时间清空，也不让一个错的日期漂到客户面前。
+     *
+     * <p><b>规则</b>：年份 ≠ 今年 → 强制改成今年；改完仍早于今天 00:00 或晚于今天 + 180 天 →
+     * when 置空、动作文本追加 {@link #WHEN_TBD}；解析异常一律当空，<b>绝不抛异常</b>——
+     * 日子写歪是模型的常态，不该让整次生成失败。
+     *
+     * <p>入参是 {@code result.json()} 的深拷贝，改完再交给 {@code writeValueAsString}
+     * （{@code content_json} 是 String，所以只能在序列化前改副本）。
+     *
+     * @param json  模型返回的 JSON 对象
+     * @param today 今天（可空，空则取系统日期）
+     * @return 修正后的副本；入参不是对象时原样返回
+     */
+    JsonNode normalizeDates(JsonNode json, LocalDate today) {
+        if (json == null || !json.isObject()) {
+            return json;
+        }
+        LocalDate day = today == null ? LocalDate.now() : today;
+        JsonNode copied = json.deepCopy();
+        if (!(copied instanceof ObjectNode root)) {
+            return json;
+        }
+        JsonNode actions = root.path("nextActions");
+        if (actions.isArray()) {
+            for (JsonNode action : actions) {
+                if (action instanceof ObjectNode node) {
+                    fixWhen(node, day);
+                }
+            }
+        }
+        // 概率建议与准备度分数同口径截断：越界的数字会让前端进度条画歪，也可能被读成承诺
+        clampScore(root.path("probabilitySuggestion"), "value");
+        clampScore(root.path("readiness"), "score");
+        return root;
+    }
+
+    /** 修正单条 nextActions：能救的改成今年的合法时间，救不了的清空并标注「时间待定」。 */
+    private void fixWhen(ObjectNode action, LocalDate day) {
+        String raw = text(action.path("when"));
+        if (!StringUtils.hasText(raw)) {
+            // 模型没给时间：保持不展示，也不硬编一个
+            action.remove("when");
+            return;
+        }
+        LocalDateTime parsed = parseLooseWhen(raw, day);
+        if (parsed == null) {
+            markWhenUnknown(action);
+            return;
+        }
+        // 年份不等于今年的一律拉回今年：模型最常错的就是这一格
+        if (parsed.getYear() != day.getYear()) {
+            try {
+                parsed = parsed.withYear(day.getYear());
+            } catch (RuntimeException e) {
+                markWhenUnknown(action);
+                return;
+            }
+        }
+        if (parsed.isBefore(day.atStartOfDay())
+                || parsed.isAfter(day.plusDays(WHEN_MAX_DAYS).atTime(23, 59))) {
+            markWhenUnknown(action);
+            return;
+        }
+        action.put("when", WHEN_TEXT.format(parsed));
+    }
+
+    /** when 置空字符串（前端与 markdown 都不再打印时间括号），并把「待定」写进动作文本。 */
+    private void markWhenUnknown(ObjectNode action) {
+        action.put("when", "");
+        String name = text(action.path("action"));
+        if (StringUtils.hasText(name) && !name.contains(WHEN_TBD)) {
+            action.put("action", name + WHEN_TBD);
+        }
+    }
+
+    /** 宽松解析 when：抠出年月日时分，缺年按今年补；任何异常都返回 null（当没给）。 */
+    private LocalDateTime parseLooseWhen(String value, LocalDate day) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        Matcher matcher = WHEN_PARTS.matcher(value.strip());
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            int year = matcher.group(1) == null ? day.getYear() : Integer.parseInt(matcher.group(1));
+            int month = Integer.parseInt(matcher.group(2));
+            int dayOfMonth = Integer.parseInt(matcher.group(3));
+            int hour = matcher.group(4) == null ? 9 : Integer.parseInt(matcher.group(4));
+            int minute = matcher.group(5) == null ? 0 : Integer.parseInt(matcher.group(5));
+            return LocalDateTime.of(year, month, dayOfMonth, hour, minute);
+        } catch (RuntimeException e) {
+            // 2 月 30 号这类非法日期：当没给时间，不抛
+            return null;
+        }
+    }
+
+    /** 把 {@code field} 截断到 0-100 整数（模型偶尔给 120 或 -5）。 */
+    private void clampScore(JsonNode holder, String field) {
+        if (holder == null || !holder.isObject()) {
+            return;
+        }
+        Double value = numeric(holder.path(field));
+        if (value == null) {
+            return;
+        }
+        long clamped = Math.max(0, Math.min(100, Math.round(value)));
+        ((ObjectNode) holder).put(field, (int) clamped);
     }
 
     // ==================== 查询 / 视图 ====================
@@ -485,6 +663,7 @@ public class OpportunityCoachService {
             JsonNode first = actions.get(0);
             String action = clean(text(first.path("action")));
             if (StringUtils.hasText(action)) {
+                // when 被 normalizeDates 清空时不打印时间括号：宁可不写时间，也不给客户看一个错的日期
                 String when = clean(text(first.path("when")));
                 sb.append("下一步：").append(clip(action, 100));
                 if (StringUtils.hasText(when)) {
@@ -518,12 +697,32 @@ public class OpportunityCoachService {
     // ==================== 上下文组装 ====================
 
     /**
-     * 拼给模型的 userInput：商机字段 + 最近 5 条跟进 + 本次触发的问句与回复 + 报价概况。
+     * 拼给模型的 userInput：{当前时间 + 商机事实 + 最近 3 条跟进 + 报价概况} → 分隔语 → 【本次回复】 → 知识包。
+     *
+     * <p><b>第一行必须是当前时间</b>：跟进记录只落「月-日」，模型看不到年份，会把
+     * {@code nextActions[].when} 猜成去年。先告诉它今天是几号，再由 {@link #normalizeDates} 兜第二道。
+     *
+     * <p><b>预算</b>：userInput 目标 ≤ {@link #CONTEXT_BUDGET} 字，超了就把历史从 3 条降到 2 条——
+     * 输入越短首字越快（实测 45~60s），模型也越不容易把旧事实当现状。
      *
      * <p>紧凑文本块而不是 JSON：多数候选模型对键值文本的遵循度更稳，也省 token。
      */
-    private String buildContext(SalesOpportunity opportunity, OpportunityCoach coach) {
+    private String buildContext(SalesOpportunity opportunity, OpportunityCoach coach, LocalDate today) {
+        LocalDateTime now = LocalDateTime.now();
+        String body = background(opportunity, now, CONTEXT_FOLLOW_UPS) + currentEvent(coach);
+        if (body.length() > CONTEXT_BUDGET) {
+            // 还是超预算：历史砍到 2 条，再长只会拖慢生成
+            body = background(opportunity, now, CONTEXT_FOLLOW_UPS_MIN) + currentEvent(coach);
+        }
+        return body + knowledge();
+    }
+
+    /** 背景块：当前时间 + 商机事实 + 历史跟进 + 报价概况。<b>它只是背景</b>，不是客户当下说了什么。 */
+    private String background(SalesOpportunity opportunity, LocalDateTime now, int followUpCount) {
         StringBuilder sb = new StringBuilder();
+        // 第一行给「今天是几号、星期几」：模型不知道今天，就只能拿训练数据里的年份凑
+        sb.append("【当前时间】").append(WHEN_TEXT.format(now))
+                .append('（').append(WEEK_TEXT.format(now)).append("）\n");
         sb.append("【商机】\n")
                 .append("名称：").append(nz(opportunity.getName())).append('\n')
                 .append("客户：").append(nz(opportunity.getCustomer())).append('\n')
@@ -536,35 +735,28 @@ public class OpportunityCoachService {
                 .append("负责人：").append(nz(opportunity.getOwner())).append('\n')
                 .append("业务线：").append(nz(opportunity.getBusinessLine())).append('\n');
         if (StringUtils.hasText(opportunity.getNote())) {
-            sb.append("备注：").append(clip(opportunity.getNote().strip(), 300)).append('\n');
+            // 备注从 300 字降到 200 字：它是人工随手写的，越长越容易把模型带进无关细节
+            sb.append("备注：").append(clip(opportunity.getNote().strip(), CONTEXT_NOTE_MAX)).append('\n');
         }
 
-        sb.append("\n【最近跟进】\n");
-        List<SalesOpportunityFollowUp> followUps = recentFollowUps(opportunity.getId());
+        sb.append("\n【历史跟进】（仅 ").append(followUpCount)
+                .append(" 条，只是背景；超过 14 天的记录不代表当前状态）\n");
+        List<SalesOpportunityFollowUp> followUps = recentFollowUps(opportunity.getId(), followUpCount);
         if (followUps.isEmpty()) {
             sb.append("（暂无跟进记录：这是冷商机，先确认进展与决策链）\n");
         } else {
             for (SalesOpportunityFollowUp item : followUps) {
-                sb.append(item.getFollowUpAt() == null ? "-" : NEXT_TEXT.format(item.getFollowUpAt()))
-                        .append(' ')
+                // 格式：2026-10-13 14:32（28 天前）跟进人：内容——带年份又带「距今多久」，
+                // 否则模型会把 9/10 个月前的旧事实（比如「预算卡法务」）当成现状写进诊断
+                sb.append(item.getFollowUpAt() == null ? "时间未知" : WHEN_TEXT.format(item.getFollowUpAt()))
+                        .append('（').append(sinceText(item.getFollowUpAt(), now)).append('）')
                         .append(nz(item.getFollower()))
                         .append("：")
-                        .append(clip(item.getContent(), 200));
+                        .append(clip(item.getContent(), CONTEXT_FOLLOW_UP_MAX));
                 if (item.getProbability() != null) {
                     sb.append("（概率 ").append(item.getProbability()).append("%）");
                 }
                 sb.append('\n');
-            }
-        }
-
-        if (coach.getPromptId() != null) {
-            OpportunityFollowupPrompt prompt = promptMapper.selectById(coach.getPromptId());
-            if (prompt != null) {
-                sb.append("\n【本次触发的问句】\n");
-                sb.append(clip(prompt.getQuestionText(), 500)).append('\n');
-                sb.append("\n【客户的回复原文】\n");
-                sb.append(StringUtils.hasText(prompt.getReplyText())
-                        ? clip(prompt.getReplyText(), 800) : "（未记录回复）").append('\n');
             }
         }
 
@@ -587,15 +779,83 @@ public class OpportunityCoachService {
         return sb.toString();
     }
 
-    /** 最近 5 条跟进记录（新的在前）。查询异常返回空列表：上下文缺一块也不该让生成失败。 */
-    private List<SalesOpportunityFollowUp> recentFollowUps(Long opportunityId) {
+    /**
+     * 「刚刚发生的事」块：本次触发的问句与客户回复，<b>永远排在背景之后</b>。
+     *
+     * <p>前面那句分隔语是给模型的分界标：旧跟进与本次回复冲突时，一律以本次回复为准；
+     * 没有新回复（手动生成）时也明确写一句，容不得模型自己想象。
+     */
+    private String currentEvent(OpportunityCoach coach) {
+        StringBuilder sb = new StringBuilder("\n以上为背景，下面是刚刚发生的事\n");
+        if (coach.getPromptId() == null) {
+            sb.append("【本次回复】\n（本次为手动生成，客户没有新的回复；请基于上述背景给出下一步）\n");
+            return sb.toString();
+        }
+        OpportunityFollowupPrompt prompt = promptMapper.selectById(coach.getPromptId());
+        if (prompt == null) {
+            sb.append("【本次回复】\n（触发的问句已不存在，按客户没有新回复处理）\n");
+            return sb.toString();
+        }
+        // 问句 300 字、回复 500 字：再长也不会让建议更准，只会把生成拖慢
+        sb.append("【引用问句】\n").append(clip(prompt.getQuestionText(), 300)).append('\n');
+        sb.append("\n【本次回复】\n")
+                .append(StringUtils.hasText(prompt.getReplyText())
+                        ? clip(prompt.getReplyText(), 500) : "（未记录回复）")
+                .append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * 运营维护的方案/案例知识包（配置 {@code opportunity.coach.knowledge}，Markdown）。
+     *
+     * <p>没这块时模型只能空想产品能力与案例，追问和方案就特别笼统；配了就以内部参考放在
+     * userInput 末尾，并把「不得直接泄露客户名 / 不得把内部报价口径写进客户话术」说清楚。
+     *
+     * <p>读不到或为空一律跳过，绝不能因为知识库没配或配错而让整次生成失败。
+     */
+    private String knowledge() {
+        String value;
+        try {
+            value = systemConfigService.getValue(CONFIG_GROUP, KNOWLEDGE_KEY, null);
+        } catch (Exception e) {
+            log.warn("商机 AI 教练知识包读取失败，本次跳过: err={}", e.getMessage());
+            return "";
+        }
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return "\n【已知方案与案例（内部参考，不得直接泄露客户名）】\n"
+                + clip(value, KNOWLEDGE_MAX) + '\n';
+    }
+
+    /** 「距今多久」：30 天内写天数，超过写月数，让模型一眼看出这条是旧账还是现状。 */
+    private String sinceText(LocalDateTime time, LocalDateTime now) {
+        if (time == null) {
+            return "时间未知";
+        }
+        long days = ChronoUnit.DAYS.between(time.toLocalDate(), now.toLocalDate());
+        if (days <= 0) {
+            return "今天";
+        }
+        if (days <= 30) {
+            return days + " 天前";
+        }
+        return Math.max(1, days / 30) + " 个月前";
+    }
+
+    /**
+     * 最近 N 条跟进记录（新的在前）。
+     *
+     * <p>查询异常返回空列表：上下文缺一块也不该让生成失败。
+     */
+    private List<SalesOpportunityFollowUp> recentFollowUps(Long opportunityId, int count) {
         try {
             List<SalesOpportunityFollowUp> rows = followUpMapper.selectList(
                     new LambdaQueryWrapper<SalesOpportunityFollowUp>()
                             .eq(SalesOpportunityFollowUp::getOpportunityId, opportunityId)
                             .orderByDesc(SalesOpportunityFollowUp::getFollowUpAt)
                             .orderByDesc(SalesOpportunityFollowUp::getId)
-                            .last("limit " + CONTEXT_FOLLOW_UPS));
+                            .last("limit " + Math.max(1, count)));
             return rows == null ? new ArrayList<>() : rows;
         } catch (Exception e) {
             log.warn("商机 AI 教练上下文取跟进记录失败: opportunityId={} err={}",

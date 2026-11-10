@@ -2,6 +2,7 @@ package com.bu.management.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
@@ -22,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -314,5 +316,103 @@ class OpportunityCoachServiceTest {
 
         verify(digestLlmClient, never()).chat(anyString(), anyString(), any());
         verify(coachMapper, never()).updateById(any());
+    }
+
+    // ==================== 落库前的日期纠正（防幻觉：模型爱把年份写成去年） ====================
+
+    /**
+     * 跑一次 generate，返回落库的 content_json。模型只回一条 nextActions，方便断言。
+     *
+     * @param modelWhen 模型给出的 when 原文（故意写成非法/过去的日期）
+     * @param coachId   教练行 ID
+     */
+    private String generateAndCaptureContent(String modelWhen, Long coachId) throws Exception {
+        String json = "{\"readiness\":{\"score\":50},\"questions\":[{\"question\":\"预算谁定？\"}],"
+                + "\"solutions\":[{\"title\":\"先聊决策链\"}],"
+                + "\"nextActions\":[{\"action\":\"约陈总\",\"when\":\"" + modelWhen + "\"}]}";
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(
+                new DigestLlmClient.ChatResult(objectMapper.readTree(json), "openai", "gpt-4o-mini"));
+        when(coachMapper.selectById(coachId)).thenReturn(coach(coachId, null));
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
+
+        service.generate(coachId);
+
+        String content = lastUpdate().getContentJson();
+        assertThat(content).isNotNull();
+        return content;
+    }
+
+    @Test
+    void 模型把when写成去年时落库前被拉回今年() throws Exception {
+        int year = LocalDate.now().getYear();
+        LocalDate target = LocalDate.now().plusDays(10);
+        // 恰好跨年那几天，「拉回今年」会把目标日期打到过去，这条用例在那种窗口没有意义
+        assumeTrue(target.getYear() == year);
+        String monthDay = String.format("%02d-%02d", target.getMonthValue(), target.getDayOfMonth());
+
+        // 实测模型给的就是去年：2025-11-12 10:00（今年 2026）
+        String content = generateAndCaptureContent((year - 1) + "-" + monthDay + " 10:00", 20L);
+
+        JsonNode when = objectMapper.readTree(content).path("nextActions").get(0).path("when");
+        assertThat(when.asText()).isEqualTo(year + "-" + monthDay + " 10:00");
+    }
+
+    @Test
+    void 模型把when写成过去年时清空并在动作末尾标时间待定() throws Exception {
+        // 元旦当天「早于今天 00:00」不成立，跳过
+        assumeTrue(LocalDate.now().getDayOfYear() > 1);
+
+        // 2020 被拉回今年后仍然早于今天，只能空着，绝不能把错时间发给客户
+        String content = generateAndCaptureContent("2020-01-01 10:00", 21L);
+
+        JsonNode action = objectMapper.readTree(content).path("nextActions").get(0);
+        assertThat(action.path("when").asText()).isEmpty();
+        assertThat(action.path("action").asText()).isEqualTo("约陈总" + OpportunityCoachService.WHEN_TBD);
+    }
+
+    // ==================== 上下文：当前时间 / 可配知识包 ====================
+
+    /** 跑一次 generate 并截下传给模型的 userInput（第 2 个参数）。 */
+    private String captureUserInput(Long coachId) {
+        AtomicReference<String> captured = new AtomicReference<>();
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            captured.set(invocation.getArgument(1));
+            return new DigestLlmClient.ChatResult(objectMapper.readTree(
+                    "{\"readiness\":{\"score\":50},\"questions\":[{\"question\":\"预算谁定？\"}],"
+                            + "\"solutions\":[{\"title\":\"先聊决策链\"}],"
+                            + "\"nextActions\":[{\"action\":\"约陈总\",\"when\":\"\"}]}"),
+                    "openai", "gpt-4o-mini");
+        });
+        when(coachMapper.selectById(coachId)).thenReturn(coach(coachId, null));
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
+
+        service.generate(coachId);
+
+        assertThat(captured.get()).isNotNull();
+        return captured.get();
+    }
+
+    @Test
+    void 上下文第一行是带星期几的今天() {
+        String userInput = captureUserInput(30L);
+
+        String firstLine = userInput.lines().findFirst().orElse("");
+        // 模型不知道今天是几号时就只能猜年份，所以这一行必须在最前面
+        assertThat(firstLine).startsWith("【当前时间】").contains(LocalDate.now().toString());
+    }
+
+    @Test
+    void 配了知识包时userInput末尾带上它没配时不带() {
+        // 没配：静默跳过，不报错也不留空标题
+        assertThat(captureUserInput(31L)).doesNotContain("已知方案与案例");
+
+        when(systemConfigService.getValue("opportunity", "coach.knowledge", null))
+                .thenReturn("## 电商中台标准方案\n- 支持全渠道库存一盘棋\n- 双 11 大促峰值已验证");
+
+        String userInput = captureUserInput(32L);
+        assertThat(userInput).contains("【已知方案与案例（内部参考，不得直接泄露客户名）】")
+                .contains("支持全渠道库存一盘棋");
+        // 知识包必须排在最后：前面的背景与本次回复才是判断依据
+        assertThat(userInput.trim()).endsWith("双 11 大促峰值已验证");
     }
 }
