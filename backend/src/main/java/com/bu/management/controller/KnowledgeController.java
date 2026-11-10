@@ -7,6 +7,7 @@ import com.bu.management.mapper.KbDocumentMapper;
 import com.bu.management.service.KbHit;
 import com.bu.management.service.KbIngestService;
 import com.bu.management.service.KbSearchService;
+import com.bu.management.service.KbYuqueImportService;
 import com.bu.management.service.SysRoleService;
 import com.bu.management.vo.Result;
 import java.util.List;
@@ -40,6 +41,8 @@ public class KnowledgeController {
     private final SysRoleService sysRoleService;
 
     private final KbDocumentMapper kbDocumentMapper;
+
+    private final KbYuqueImportService kbYuqueImportService;
 
     /**
      * 入库请求体。
@@ -80,6 +83,26 @@ public class KnowledgeController {
      * @param q     问句，至少 2 个字（ngram_token_size=2，更短的切不出 token）
      * @param limit 条数，默认 5，最大 10
      */
+    /** 语雀导入请求体。 */
+    public record YuqueImportRequest(String repoId, String scopeType, Long scopeId, String businessLine) {
+    }
+
+    /**
+     * 把一个语雀仓库的文档批量导入知识库（仅管理岗位）。
+     *
+     * <p>业务自己用语雀维护方案/案例，这里只负责搬运与切块；重复导入按内容校验和幂等。
+     */
+    @PostMapping("/import/yuque")
+    public Result<KbYuqueImportService.ImportResult> importYuque(@RequestAttribute("userId") Long userId,
+                                                                 @RequestBody YuqueImportRequest request) {
+        requireAdmin(userId);
+        String scopeType = request == null || request.scopeType() == null ? "COMPANY" : request.scopeType();
+        Long scopeId = request == null ? null : request.scopeId();
+        String businessLine = request == null ? null : request.businessLine();
+        String repoId = request == null ? null : request.repoId();
+        return Result.success(kbYuqueImportService.importRepo(repoId, scopeType, scopeId, businessLine, userId));
+    }
+
     /**
      * 知识库文档列表（最近更新的在前，最多 100 条）。
      *
