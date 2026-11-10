@@ -1,6 +1,11 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.capability.CapabilityContext;
+import com.bu.management.capability.CapabilityGateway;
+import com.bu.management.capability.CapabilityRegistry;
+import com.bu.management.capability.CapabilityResult;
+import com.bu.management.capability.CapabilityTextPayload;
 import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.Issue;
 import com.bu.management.entity.ProjectFact;
@@ -28,6 +33,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -67,6 +73,19 @@ public class AiAgentToolService {
     private final AiArtifactService aiArtifactService;
     private final ProjectFactAccessGuard projectFactAccessGuard;
     private final OpportunityFollowUpService opportunityFollowUpService;
+
+    /** 能力网关：注册表优先路径的唯一执行入口（门禁 / 超时 / 审计都在它里边）。 */
+    private final CapabilityGateway capabilityGateway;
+
+    /** 能力注册表：只用来判断「这个工具名有没有被能力化」，命中才走网关。 */
+    private final CapabilityRegistry capabilityRegistry;
+
+    /**
+     * 注册表优先开关。默认开启；关掉后 12 个已能力化的工具全部回到下面的旧 switch，
+     * 单个工具要回退时只需让它从注册表里消失（或整体关掉这个开关）。
+     */
+    @Value("${capability.gateway.tools-enabled:true}")
+    private boolean gatewayToolsEnabled = true;
 
     /** 读事实被拒时的统一文案：让模型看到明确拒绝，而不是一个无解释的空列表。 */
     static final String NO_FACT_READ = "无权访问该项目的事实（需项目成员/项目负责人或管理角色）";
@@ -255,6 +274,16 @@ public class AiAgentToolService {
                 if (!gate.allow()) {
                     return new AiAgentToolResult(gate.reason(), true);
                 }
+            }
+            // 注册表优先：工具名在注册表里 + 开关打开 → 走能力网关（门禁 / 超时 / 审计集中在网关）；
+            // 否则原样落到下面的 switch——旧实现一行未删，任何时候都能退回去。
+            if (gatewayToolsEnabled && capabilityRegistry.find(toolName).isPresent()) {
+                CapabilityResult result = capabilityGateway.invoke(toolName, args,
+                        CapabilityContext.agent(userId, runId, unattended));
+                if (!result.ok()) {
+                    return new AiAgentToolResult(result.errorMessage(), true);
+                }
+                return new AiAgentToolResult(CapabilityTextPayload.unwrap(result.dataJson()), false);
             }
             return switch (toolName) {
                 case "query_my_tasks" -> queryMyTasks(userId, args);

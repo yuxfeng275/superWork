@@ -5,17 +5,26 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.capability.CapabilityContext;
+import com.bu.management.capability.CapabilityDescriptor;
+import com.bu.management.capability.CapabilityGateway;
+import com.bu.management.capability.CapabilityKind;
+import com.bu.management.capability.CapabilityRegistry;
+import com.bu.management.capability.CapabilityRisk;
 import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.entity.Requirement;
+import com.bu.management.entity.Task;
 import com.bu.management.mapper.IssueMapper;
 import com.bu.management.mapper.RequirementMapper;
 import com.bu.management.mapper.TaskMapper;
 import com.bu.management.mapper.WorkLogMapper;
+import com.bu.management.plugin.tasks.QueryMyTasksCapability;
 import com.bu.management.vo.AiAgentToolResult;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -33,6 +42,8 @@ import org.mockito.quality.Strictness;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * AI 工具入口的两件事：save_artifact 建完草稿自己送审；吃模型给的 projectId 的读写工具
@@ -60,6 +71,8 @@ class AiAgentToolServiceTest {
     @Mock private AiArtifactService aiArtifactService;
     @Mock private ProjectFactAccessGuard projectFactAccessGuard;
     @Mock private OpportunityFollowUpService opportunityFollowUpService;
+    @Mock private CapabilityGateway capabilityGateway;
+    @Mock private CapabilityRegistry capabilityRegistry;
 
     private AiAgentToolService service;
 
@@ -80,7 +93,9 @@ class AiAgentToolServiceTest {
                 new ObjectMapper(), connectorToolService, genericConnectorToolService, emailActionToolService,
                 weComCliToolService, weeklyReportService, jevDecisionService, projectFactService,
                 projectBriefService, aiArtifactService, projectFactAccessGuard,
-                opportunityFollowUpService);
+                opportunityFollowUpService, capabilityGateway, capabilityRegistry);
+        // 默认：注册表里什么都没注册 → 全部走旧 switch（旧用例的行为完全不变）
+        when(capabilityRegistry.find(anyString())).thenReturn(Optional.empty());
         when(jevDecisionService.gateWrite(anyString(), any(), anyString()))
                 .thenReturn(new JevDecisionService.WriteGate(true, true, "save_artifact", null));
         // 默认：本人是项目成员/负责人（准入通过）；拒绝用例再单独打桩
@@ -240,6 +255,69 @@ class AiAgentToolServiceTest {
         assertThat(result.isError()).isFalse();
         assertThat(result.content()).contains("未返回任何需求");
         verify(requirementMapper, never()).selectList(any());
+    }
+
+    // ==================== 注册表优先 + 旧 switch 兜底 ====================
+
+    @Test
+    @DisplayName("双跑对比：query_my_tasks 网关开 / 关两次返回文本逐字相等")
+    void queryMyTasksGatewayMatchesLegacySwitch() throws Exception {
+        Task task = new Task();
+        task.setTitle("写周报");
+        task.setTaskType("DAILY");
+        task.setStatus("进行中");
+        when(taskMapper.selectList(any())).thenReturn(List.of(task));
+
+        String args = "{\"status\":\"进行中\",\"limit\":5}";
+        AiAgentToolResult viaSwitch = service.execute(RUN_ID, "query_my_tasks", args);
+
+        // 打开注册表优先：find 命中 + invoke 落到真实插件（同一个 taskMapper 桩）
+        when(capabilityRegistry.find("query_my_tasks"))
+                .thenReturn(Optional.of(descriptor("query_my_tasks")));
+        when(capabilityGateway.invoke(eq("query_my_tasks"), any(), any())).thenAnswer(invocation ->
+                new QueryMyTasksCapability(taskMapper).execute(
+                        invocation.getArgument(1), invocation.getArgument(2)));
+
+        AiAgentToolResult viaGateway = service.execute(RUN_ID, "query_my_tasks", args);
+
+        assertThat(viaGateway.isError()).isFalse();
+        assertThat(viaSwitch.isError()).isFalse();
+        assertThat(viaGateway.content()).isEqualTo(viaSwitch.content());
+        assertThat(viaGateway.content()).contains("写周报");
+    }
+
+    @Test
+    @DisplayName("未知工具：注册表里没有，仍然返回原来的「未知工具」文案")
+    void unknownToolReturnsLegacyMessage() {
+        when(genericConnectorToolService.execute(anyString(), any()))
+                .thenReturn(new AiAgentToolResult("未知工具：bogus_tool", true));
+
+        AiAgentToolResult result = service.execute(RUN_ID, "bogus_tool", "{}");
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.content()).isEqualTo("未知工具：bogus_tool");
+        verify(capabilityGateway, never()).invoke(anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("开关关闭：能力已注册也全部走旧 switch，网关一次都不调")
+    void gatewayDisabledFallsBackToSwitch() throws Exception {
+        ReflectionTestUtils.setField(service, "gatewayToolsEnabled", false);
+        when(capabilityRegistry.find("query_my_tasks"))
+                .thenReturn(Optional.of(descriptor("query_my_tasks")));
+        when(taskMapper.selectList(any())).thenReturn(List.of());
+
+        AiAgentToolResult result = service.execute(RUN_ID, "query_my_tasks", "{}");
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.content()).isEqualTo("当前用户（ID=9）暂无符合条件的任务记录");
+        verify(capabilityGateway, never()).invoke(anyString(), any(), any());
+    }
+
+    /** 一个最小可用的能力描述符（服务层只关心 find 是否命中）。 */
+    private CapabilityDescriptor descriptor(String id) throws Exception {
+        return new CapabilityDescriptor(id, CapabilityKind.TOOL, CapabilityRisk.READ, id, "",
+                new ObjectMapper().readTree("{}"), 15000, true, "bean-" + id);
     }
 
     private Wrapper<Requirement> capturedRequirementWrapper() {
