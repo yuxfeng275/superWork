@@ -3,6 +3,7 @@ package com.bu.management.controller;
 import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.KbDocument;
 import com.bu.management.entity.SysRole;
+import com.bu.management.mapper.KbDocumentMapper;
 import com.bu.management.service.KbHit;
 import com.bu.management.service.KbIngestService;
 import com.bu.management.service.KbSearchService;
@@ -37,6 +38,8 @@ public class KnowledgeController {
     private final KbSearchService kbSearchService;
 
     private final SysRoleService sysRoleService;
+
+    private final KbDocumentMapper kbDocumentMapper;
 
     /**
      * 入库请求体。
@@ -77,6 +80,40 @@ public class KnowledgeController {
      * @param q     问句，至少 2 个字（ngram_token_size=2，更短的切不出 token）
      * @param limit 条数，默认 5，最大 10
      */
+    /**
+     * 知识库文档列表（最近更新的在前，最多 100 条）。
+     *
+     * <p>管理页用它看“知识库里到底有什么”，避免入库后没人知道写了什么。
+     */
+    @GetMapping("/documents")
+    public Result<List<KbDocument>> listDocuments(@RequestAttribute("userId") Long userId,
+                                                  @RequestParam(required = false) Integer limit) {
+        requireAdmin(userId);
+        int size = limit == null ? 50 : Math.max(1, Math.min(100, limit));
+        return Result.success(kbDocumentMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KbDocument>()
+                        .orderByDesc(KbDocument::getUpdatedAt)
+                        .last("limit " + size)));
+    }
+
+    /**
+     * 启用 / 停用一篇文档：停用后不进检索，但切片保留，随时可再开。
+     */
+    @PostMapping("/documents/{id}/enabled")
+    public Result<Void> setEnabled(@RequestAttribute("userId") Long userId,
+                                   @org.springframework.web.bind.annotation.PathVariable Long id,
+                                   @RequestParam(defaultValue = "true") boolean value) {
+        requireAdmin(userId);
+        KbDocument doc = kbDocumentMapper.selectById(id);
+        if (doc == null) {
+            throw new RuntimeException("知识库文档不存在");
+        }
+        doc.setEnabled(value ? 1 : 0);
+        doc.setUpdatedAt(java.time.LocalDateTime.now());
+        kbDocumentMapper.updateById(doc);
+        return Result.success();
+    }
+
     @GetMapping("/search")
     public Result<List<KbHit>> search(@RequestAttribute("userId") Long userId,
                                       @RequestParam(value = "q", required = false) String q,
