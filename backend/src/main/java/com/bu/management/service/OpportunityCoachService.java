@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.entity.AiTask;
 import com.bu.management.entity.OpportunityCoach;
 import com.bu.management.entity.OpportunityFollowupPrompt;
 import com.bu.management.entity.Quotation;
@@ -28,12 +29,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -47,7 +48,8 @@ import org.springframework.util.StringUtils;
  * {@code OpportunityFollowUpService}（会构成循环依赖）。因此采纳落库这里直接用
  * {@link SalesOpportunityFollowUpMapper} + {@link SalesOpportunityMapper} 写。
  *
- * <p><b>异步</b>：{@link #enqueue} 只落 PENDING 行 + 丢线程池，{@link #generate} <b>不带事务</b>
+ * <p><b>异步</b>：{@link #enqueue} 只落 PENDING 行 + 往统一 {@link AiTaskService} 投一条 {@code coach} 任务，
+ * 调度器随后回调 {@link CoachTaskHandler} 再进 {@link #generate}；{@link #generate} <b>不带事务</b>
  * （LLM 一次 10~30s，包在事务里会长时间占连接）。
  *
  * <p>配置项（配置组 {@code opportunity}）：{@code coach.enabled}（默认 true）、
@@ -62,6 +64,11 @@ public class OpportunityCoachService {
 
     /** 系统配置组：商机（与问句闭环同组）。 */
     static final String CONFIG_GROUP = "opportunity";
+    /** {@code ai_task.type}：商机 AI 教练。 */
+    static final String TASK_TYPE_COACH = "coach";
+    /** AI 任务编排开关所在的配置组与键（与 {@link AiTaskService} 同口径，库里优先）。 */
+    private static final String TASK_CONFIG_GROUP = "ai-platform";
+    private static final String TASK_ENABLED_KEY = "task.enabled";
     /** 教练总开关，默认开。 */
     static final String ENABLED_KEY = "coach.enabled";
     /** 每人每日生成上限，默认 10：LLM 按次计费，且催太勤没人看。 */
@@ -97,8 +104,7 @@ public class OpportunityCoachService {
     private static final int WHEN_MAX_DAYS = 180;
     /** when 被判不可用时，追加到动作文本末尾的占位（前端与 markdown 都不展示时间括号）。 */
     static final String WHEN_TBD = "（时间待定）";
-    /** 兜底巡检单次最多重跑几行：一次都是 10~30s 的模型调用，扫多了会把线程和预算一起磨穿。 */
-    private static final int SWEEP_LIMIT = 20;
+
     /** 企微外发正文上限（含标题与落款）。 */
     private static final int MARKDOWN_MAX = 500;
     /** 企微外发「诊断」一行上限。 */
@@ -155,8 +161,13 @@ public class OpportunityCoachService {
     /** 抹掉后的占位符。 */
     private static final String REDACTED = "（数值略）";
 
+    /** Prompt 注册表编码：运营可在「提示词管理」改正文，读不到时代码常量兜底。 */
+    static final String PROMPT_CODE = "opportunity.coach";
+
     /**
-     * System prompt：写死在这里而不是配置，避免运维改配置把「不许编造」这条底线改没了。
+     * System prompt 的兜底文案：写死在这里而不是只靠配置，避免运维改配置把「不许编造」这条底线改没了。
+     *
+     * <p>正文优先取 {@link PromptRegistry}（编码 {@link #PROMPT_CODE}），这段常量退化为兜底。
      */
     static final String SYSTEM_PROMPT = """
             你是 ToB 企业服务销售教练，服务对象是一线销售与销售主管。
@@ -197,6 +208,14 @@ public class OpportunityCoachService {
     }
 
     /**
+     * 与 {@link #systemPrompt(LocalDate, String)} 同构，但正文先问 {@link PromptRegistry}：
+     * 运营在管理页改提示词不必发版；库里没配或读失败则用 {@link #SYSTEM_PROMPT} 兜底。
+     */
+    String coachSystemPrompt(LocalDate today, String ownerName) {
+        return systemPromptTail(today, ownerName, promptRegistry.get(PROMPT_CODE, SYSTEM_PROMPT));
+    }
+
+    /**
      * 同上，并把「本次商机负责人」写进提示词。
      *
      * <p><b>为什么点名道姓</b>：不点名时模型会自己补人名（实测 {@code owner:"王赢"}、{@code "刘晓文"}，
@@ -206,13 +225,18 @@ public class OpportunityCoachService {
      * @param ownerName 商机负责人姓名（可空）
      */
     static String systemPrompt(LocalDate today, String ownerName) {
+        return systemPromptTail(today, ownerName, SYSTEM_PROMPT);
+    }
+
+    /** 在提示词正文之后拼 8~11 条（今天是几号、owner 白名单）。正文可能来自 DB，所以正文当参数传。 */
+    private static String systemPromptTail(LocalDate today, String ownerName, String base) {
         LocalDate day = today == null ? LocalDate.now() : today;
         String owner = StringUtils.hasText(ownerName) ? ownerName.strip() : "";
         String ownerLine = owner.isEmpty()
                 ? "11. 本次未给定商机负责人：nextActions[].owner 只能写 销售 / 客户 / 我，不得写具体人名。\n"
                 : "11. 本次商机负责人是「" + owner + "」：nextActions[].owner 只能写 销售 / 客户 / 我 / "
                         + owner + "，写其它人名一律视为错误。\n";
-        return SYSTEM_PROMPT
+        return base
                 + "8. 今天是 " + DAY_TEXT.format(day) + "；所有日期必须是今天及以后，年份固定为 "
                 + day.getYear() + "，返回一年前的日期视为错误。\n"
                 + "9. 不要把【历史跟进】里超过 14 天的记录当成当前状态：它们只是背景，"
@@ -231,7 +255,16 @@ public class OpportunityCoachService {
     private final SystemConfigService systemConfigService;
     private final ObjectMapper objectMapper;
     private final OpportunityFollowUpSender followUpSender;
-    private final Executor executor;
+    private final AiTaskService aiTaskService;
+    private final PromptRegistry promptRegistry;
+    private final AiCallRecorder aiCallRecorder;
+
+    /**
+     * {@code ai.platform.task-enabled} 的 yml 默认值；库里 {@code ai-platform/task.enabled} 优先，
+     * 关闭时 {@link #enqueue} 退回同步生成（见该方法注释）。
+     */
+    @Value("${ai.platform.task-enabled:true}")
+    private boolean taskEnabledByDefault = true;
 
     public OpportunityCoachService(OpportunityCoachMapper coachMapper,
                                    SalesOpportunityMapper opportunityMapper,
@@ -242,7 +275,9 @@ public class OpportunityCoachService {
                                    SystemConfigService systemConfigService,
                                    ObjectMapper objectMapper,
                                    OpportunityFollowUpSender followUpSender,
-                                   @Qualifier("opportunityTaskExecutor") Executor executor) {
+                                   AiTaskService aiTaskService,
+                                   PromptRegistry promptRegistry,
+                                   AiCallRecorder aiCallRecorder) {
         this.coachMapper = coachMapper;
         this.opportunityMapper = opportunityMapper;
         this.followUpMapper = followUpMapper;
@@ -252,7 +287,9 @@ public class OpportunityCoachService {
         this.systemConfigService = systemConfigService;
         this.objectMapper = objectMapper;
         this.followUpSender = followUpSender;
-        this.executor = executor;
+        this.aiTaskService = aiTaskService;
+        this.promptRegistry = promptRegistry;
+        this.aiCallRecorder = aiCallRecorder;
     }
 
     // ==================== 入队 ====================
@@ -291,11 +328,23 @@ public class OpportunityCoachService {
             row.setRequestedBy(requestedBy);
             row.setCreatedAt(LocalDateTime.now());
             coachMapper.insert(row);
+            // 业务行先落（PENDING），再往统一队列投一条 coach 任务：调度器扫到后回调
+            // CoachTaskHandler → generate(coachId)。业务行 id 与 ai_task id 都进日志，出问题能对上号。
             try {
-                executor.execute(() -> generate(row.getId()));
+                if (taskSwitchOn()) {
+                    AiTask task = aiTaskService.enqueue(TASK_TYPE_COACH, requestedBy,
+                            "{\"coachId\":" + row.getId() + "}");
+                    log.info("商机 AI 教练已入 AI 任务队列: coachId={} aiTaskId={} requestedBy={}",
+                            row.getId(), task == null ? null : task.getId(), requestedBy);
+                } else {
+                    // 兼容回退：ai.platform.task-enabled=false 时没有调度器消费 ai_task，只能同步生成。
+                    // 线程池已随 OpportunityTaskConfig 一起删除，这里退回同步执行（请求会等一次 LLM 调用）。
+                    log.info("AI 任务编排开关关闭，商机 AI 教练退回同步生成: coachId={}", row.getId());
+                    generate(row.getId());
+                }
             } catch (Exception e) {
-                // 线程池排满：把行标失败，别让前端一直看到「生成中」
-                log.warn("商机 AI 教练线程池拒绝任务: coachId={} err={}", row.getId(), e.getMessage());
+                // 入队失败：把行标失败，别让前端一直看到「生成中」
+                log.warn("商机 AI 教练任务入队失败: coachId={} err={}", row.getId(), e.getMessage());
                 markFailed(row.getId(), "生成任务入队失败：" + e.getMessage());
             }
             return row;
@@ -338,8 +387,10 @@ public class OpportunityCoachService {
             }
             LocalDate today = LocalDate.now();
             String userInput = buildContext(opportunity, coach, today);
-            DigestLlmClient.ChatResult result =
-                    digestLlmClient.chat(systemPrompt(today, opportunity.getOwner()), userInput, this::validate);
+            // 走 AiCallRecorder：一次调用落一行 ai_agent_usage（提示词编码/耗时/成败），返回值与异常口径不变
+            DigestLlmClient.ChatResult result = aiCallRecorder.call(
+                    new AiCallRecorder.CallSpec(PROMPT_CODE, null, coach.getId(), null),
+                    coachSystemPrompt(today, opportunity.getOwner()), userInput, this::validate);
             // 落库前先把 when 的年份与越界、owner 的编造人名纠正掉：前端会原样展示给客户
             coach.setContentJson(objectMapper.writeValueAsString(
                     normalizeDates(result.json(), today, opportunity.getOwner())));
@@ -358,49 +409,6 @@ public class OpportunityCoachService {
                     coach.getId(), coach.getOpportunityId(), message, e);
             markFailed(coach.getId(), message);
         }
-    }
-
-    // ==================== 兜底巡检 ====================
-
-    /**
-     * 兜底巡检：扫「2 分钟前入队、至今仍是 PENDING」的行并逐行重跑 {@link #generate}。
-     *
-     * <p>存在意义：入队与事务的竞态（异步线程抢在提交前查不到行）、线程池丢任务、实例重启
-     * 都会留下一行永远 PENDING 却没人生成的死数据。这里每 2 分钟清扫一次，单行失败不影响其它行。
-     *
-     * <p>只扫 PENDING：GENERATING 归线程池管，SUCCESS/FAILED 已经出过结果，{@link #generate} 也会再幂等拦一次。
-     */
-    @Scheduled(fixedDelay = 120_000, zone = "Asia/Shanghai")
-    public void sweepPending() {
-        List<OpportunityCoach> stalled;
-        try {
-            stalled = coachMapper.selectList(new LambdaQueryWrapper<OpportunityCoach>()
-                    .eq(OpportunityCoach::getStatus, OpportunityCoach.STATUS_PENDING)
-                    .lt(OpportunityCoach::getCreatedAt, LocalDateTime.now().minusMinutes(2))
-                    .orderByAsc(OpportunityCoach::getId)
-                    .last("limit " + SWEEP_LIMIT));
-        } catch (Exception e) {
-            // 定时任务里抛异常会被调度器吞掉，这里主动记一笔，否则问题永远无声
-            log.warn("商机 AI 教练巡检查询失败: {}", e.getMessage());
-            return;
-        }
-        if (stalled == null || stalled.isEmpty()) {
-            return;
-        }
-        int generated = 0;
-        for (OpportunityCoach row : stalled) {
-            if (row == null || row.getId() == null) {
-                continue;
-            }
-            try {
-                generate(row.getId());
-                generated++;
-            } catch (Exception e) {
-                // 单行炸掉不能拖垮整轮：后面的行还要扫
-                log.warn("商机 AI 教练巡检单行失败: coachId={} err={}", row.getId(), e.getMessage());
-            }
-        }
-        log.info("商机 AI 教练巡检完成: 扫到={} 重跑={}", stalled.size(), generated);
     }
 
     /**
@@ -1051,6 +1059,38 @@ public class OpportunityCoachService {
         }
     }
 
+    /** 从 {@code {"coachId":123}} 解析教练行 ID；空 payload / 缺该字段返回 null。 */
+    Long coachIdOf(String payloadJson) {
+        if (!StringUtils.hasText(payloadJson)) {
+            return null;
+        }
+        try {
+            JsonNode json = objectMapper.readTree(payloadJson);
+            JsonNode id = json == null ? null : json.get("coachId");
+            return id == null || id.isNull() || !id.canConvertToLong() ? null : id.asLong();
+        } catch (Exception e) {
+            log.warn("商机 AI 教练任务 payload 解析失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 是否走统一 AI 任务编排：库里 {@code ai-platform/task.enabled} 优先，读不到用 yml 默认值。
+     *
+     * <p>关闭时 {@link #enqueue} 退回同步生成——只是兼容回退，保证关掉编排后教练仍可用。
+     */
+    private boolean taskSwitchOn() {
+        if (systemConfigService == null) {
+            return taskEnabledByDefault;
+        }
+        try {
+            return systemConfigService.getBoolean(TASK_CONFIG_GROUP, TASK_ENABLED_KEY, taskEnabledByDefault);
+        } catch (Exception e) {
+            log.warn("读取 AI 任务开关失败，按默认值 {} 处理: {}", taskEnabledByDefault, e.getMessage());
+            return taskEnabledByDefault;
+        }
+    }
+
     /** 解析 content_json；为空/解析失败返回空对象节点（调用方统一走 path 取值，不必判空）。 */
     private JsonNode contentOf(OpportunityCoach coach) {
         JsonNode empty = objectMapper.createObjectNode();
@@ -1174,5 +1214,45 @@ public class OpportunityCoachService {
             return null;
         }
         return clip(value, max);
+    }
+
+    /**
+     * {@code ai_task.type = "coach"} 的处理器：解析 {@code {"coachId":123}} 后回到 {@link #generate}。
+     *
+     * <p>为什么挂在服务内部：handler 只做 payload 解析与转发，没必要为几行代码单开一个文件；
+     * 标 {@code @Component} 后由 {@link AiTaskService} 构造期按 {@link AiTaskHandler#type()} 自动装配。
+     *
+     * <p>异常语义：payload 缺 {@code coachId} 说明这条任务永远跑不通，直接抛（调度器按重试策略处理，
+     * 最终 FAILED 并在 {@code ai_task.error} 留下原因）；{@link #generate} 自己吞掉业务失败并回写 FAILED 行，
+     * 所以正常路径永远返回 null（视为成功）。
+     */
+    @Component
+    public static class CoachTaskHandler implements AiTaskHandler {
+
+        private final OpportunityCoachService coachService;
+
+        /**
+         * {@code @Lazy}：AiTaskService 要收集全部 handler，而 handler 又要回到业务服务，
+         * 业务服务又依赖 AiTaskService——不延迟注入就成构造期循环依赖，启动直接失败。
+         * 代理只延迟创建时机，handler 真正执行时业务服务早已就绪。
+         */
+        public CoachTaskHandler(@Lazy OpportunityCoachService coachService) {
+            this.coachService = coachService;
+        }
+
+        @Override
+        public String type() {
+            return TASK_TYPE_COACH;
+        }
+
+        @Override
+        public String handle(String payloadJson) throws Exception {
+            Long coachId = coachService.coachIdOf(payloadJson);
+            if (coachId == null) {
+                throw new IllegalArgumentException("coach 任务 payload 缺少 coachId：" + payloadJson);
+            }
+            coachService.generate(coachId);
+            return null;
+        }
     }
 }

@@ -42,5 +42,20 @@ public class AiAgentUsage {
 
     private BigDecimal costUsd;
 
+    /** Prompt 编码（对应 ai_prompt.code），标识这次调用用的是哪段提示词。 */
+    private String promptCode;
+
+    /** Prompt 版本号（对应 ai_prompt.version），便于回溯「同一段提示词哪个版本更省/更准」。 */
+    private Integer promptVersion;
+
+    /** 单次调用耗时（毫秒）：从发起请求到返回/抛异常的墙钟时间，看板用它算平均耗时。 */
+    private Long latencyMs;
+
+    /** 关联业务任务 ID（如周报、会议纪要主键），可为空；用于把用量回挂到具体任务。 */
+    private Long taskId;
+
+    /** 调用结果状态：SUCCESS=成功返回，FAILED=抛异常（失败原因只进日志，不落库）。 */
+    private String status;
+
     private LocalDateTime createdAt;
 }

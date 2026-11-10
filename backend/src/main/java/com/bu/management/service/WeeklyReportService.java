@@ -3,6 +3,7 @@ package com.bu.management.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 
+import com.bu.management.entity.AiTask;
 import com.bu.management.entity.BizLineProfitReport;
 import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.Connector;
@@ -25,11 +26,12 @@ import com.bu.management.vo.BuKeyMatterWeeklyUpdateView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -46,7 +48,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -60,6 +61,13 @@ public class WeeklyReportService {
 
     private static final String CONFIG_GROUP = "weekly-report";
     private static final String MINUTES_TITLE = "# 电商业务BU周会会议纪要";
+    /** {@code ai_task.type}：周报生成。 */
+    static final String TASK_TYPE_WEEKLY_REPORT = "weekly_report";
+    /** Prompt 注册表编码：周报生成提示词。 */
+    static final String PROMPT_CODE_WEEKLY_REPORT = "weekly.report";
+    /** AI 任务编排开关所在的配置组与键（与 {@link AiTaskService} 同口径，库里优先）。 */
+    private static final String TASK_CONFIG_GROUP = "ai-platform";
+    private static final String TASK_ENABLED_KEY = "task.enabled";
     /** 单段文本上限：MEDIUMTEXT 足够大，但前端/接口先给一个明确、可提示的上限。 */
     private static final int MAX_FIELD_CHARS = 100_000;
     private static final DateTimeFormatter MONTH_FMT = DateTimeFormatter.ofPattern("yyyy-MM");
@@ -90,8 +98,21 @@ public class WeeklyReportService {
 
     private final ObjectMapper objectMapper;
 
-    @Resource(name = "emailTaskExecutor")
-    private Executor taskExecutor;
+    /** 提示词注册表：正文可在管理页改，未配置/读失败时用代码常量兜底。 */
+    private final PromptRegistry promptRegistry;
+
+    /** 调用可观测层：一次生成落一行 {@code ai_agent_usage}。 */
+    private final AiCallRecorder aiCallRecorder;
+
+    /** 统一 AI 任务编排：生成改为入队，由调度器回调 {@link WeeklyReportTaskHandler}。 */
+    private final AiTaskService aiTaskService;
+
+    /**
+     * {@code ai.platform.task-enabled} 的 yml 默认值；库里 {@code ai-platform/task.enabled} 优先，
+     * 关闭时 {@link #generateAsync} 退回同步生成（见该方法注释）。
+     */
+    @Value("${ai.platform.task-enabled:true}")
+    private boolean taskEnabledByDefault = true;
 
     /** 生成失败时的企微告警接收人（与周五自动生成用同一个配置）。 */
     @Value("${weekly.report-notify-wecom-user:}")
@@ -419,7 +440,18 @@ public class WeeklyReportService {
         report.setStatus(WeeklyReport.STATUS_GENERATING);
         report.setGenerationError(null);
         reportMapper.updateById(report);
-        taskExecutor.execute(() -> generate(weekStart));
+        // 状态先落库再入队：调度器扫到 ai_task 后回调 WeeklyReportTaskHandler → generate(weekStart)。
+        // 不把 weekStart 写进 payload 就会在重试时依赖「当前时间」，跨周重试就生成错周了。
+        if (taskSwitchOn()) {
+            AiTask task = aiTaskService.enqueue(TASK_TYPE_WEEKLY_REPORT, null,
+                    "{\"weekStart\":\"" + weekStart + "\"}");
+            log.info("周报生成已入 AI 任务队列: weekStart={} aiTaskId={}",
+                    weekStart, task == null ? null : task.getId());
+        } else {
+            // 兼容回退：ai.platform.task-enabled=false 时没有调度器消费 ai_task，退回原同步生成路径
+            log.info("AI 任务编排开关关闭，周报退回同步生成: weekStart={}", weekStart);
+            generate(weekStart);
+        }
         return report;
     }
 
@@ -443,8 +475,10 @@ public class WeeklyReportService {
             String userInput = buildUserInput(report, factsJson, systemKpi, projectGroups);
             // 按「模型管理」排序的摘要模型依次尝试：额度/鉴权失败、返回非 JSON、
             // 或 JSON 缺字段（由 validateResult 判）都会自动换下一个候选
-            DigestLlmClient.ChatResult chat =
-                    digestLlmClient.chat(generationSystemPrompt(), userInput, this::validateResult);
+            // 走 AiCallRecorder：一次生成落一行 ai_agent_usage（提示词编码/耗时/成败），返回值与异常口径不变
+            DigestLlmClient.ChatResult chat = aiCallRecorder.call(
+                    new AiCallRecorder.CallSpec(PROMPT_CODE_WEEKLY_REPORT, null, null, null),
+                    generationSystemPrompt(), userInput, this::validateResult);
             chat = regenerateIfOffTemplate(userInput, chat, weekStart);
             JsonNode result = chat.json();
 
@@ -896,9 +930,17 @@ public class WeeklyReportService {
         return compact.length() <= max ? compact : compact.substring(0, max);
     }
 
-    /** 生成提示词：固定模版（见 docs/weekly-report-template.md），生成指引优先级最高，KPI 数字由系统覆盖。 */
+    /**
+     * 生成提示词：正文优先取 {@link PromptRegistry}（编码 {@code weekly.report}，运营可在管理页改），
+     * 未配置或读失败时退回下面的固定模版常量。
+     */
     public String generationSystemPrompt() {
-        return "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，保留本周有信息量的进展，不要写成只有几条口号的简报。\n"
+        return promptRegistry.get(PROMPT_CODE_WEEKLY_REPORT, WEEKLY_REPORT_SYSTEM_PROMPT);
+    }
+
+    /** 生成提示词兜底文案：固定模版（见 docs/weekly-report-template.md），生成指引优先级最高，KPI 数字由系统覆盖。 */
+    private static final String WEEKLY_REPORT_SYSTEM_PROMPT =
+            "你是陆泽科技电商业务BU负责人的周报秘书。给管理层看，保留本周有信息量的进展，不要写成只有几条口号的简报。\n"
                 + "\n== 材料 ==\n"
                 + "1. 生成指引是用户对本次生成的硬性要求，优先级最高：侧重点、取舍口径、排除项都要逐条落实；与本提示词其它条目冲突时以生成指引为准。\n"
                 + "2. 企微智能总结、人为补充信息是必用材料。里面的进展、结论、风险、待决策和下周动作都要写进周报或纪要，不得因为自动事实做了省略就丢掉。\n"
@@ -933,7 +975,6 @@ public class WeeklyReportService {
                 + "\"risks\":\"项目：…\\n  项目名：\\n  - 风险：…\","
                 + "\"nextWeekPlan\":\"- 工作项\","
                 + "\"minutesMarkdown\":\"# 电商业务BU周会会议纪要\\n…\"}";
-    }
 
     // ==================== 发布：语雀 ====================
 
@@ -1223,6 +1264,42 @@ public class WeeklyReportService {
         }
     }
 
+    /** 从 {@code {"weekStart":"2026-09-14"}} 解析周起始；空 payload / 格式非法 / 非周一都返回 null。 */
+    LocalDate weekStartOf(String payloadJson) {
+        if (!StringUtils.hasText(payloadJson)) {
+            return null;
+        }
+        try {
+            JsonNode json = objectMapper.readTree(payloadJson);
+            JsonNode value = json == null ? null : json.get("weekStart");
+            if (value == null || value.isNull() || !StringUtils.hasText(value.asText())) {
+                return null;
+            }
+            LocalDate weekStart = LocalDate.parse(value.asText().strip());
+            return weekStart.getDayOfWeek() == DayOfWeek.MONDAY ? weekStart : null;
+        } catch (Exception e) {
+            log.warn("周报任务 payload 解析失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 是否走统一 AI 任务编排：库里 {@code ai-platform/task.enabled} 优先，读不到用 yml 默认值。
+     *
+     * <p>关闭时 {@link #generateAsync} 退回同步生成——只是兼容回退，保证关掉编排后周报仍可用。
+     */
+    private boolean taskSwitchOn() {
+        if (configService == null) {
+            return taskEnabledByDefault;
+        }
+        try {
+            return configService.getBoolean(TASK_CONFIG_GROUP, TASK_ENABLED_KEY, taskEnabledByDefault);
+        } catch (Exception e) {
+            log.warn("读取 AI 任务开关失败，按默认值 {} 处理: {}", taskEnabledByDefault, e.getMessage());
+            return taskEnabledByDefault;
+        }
+    }
+
     /** 语雀参数取自连接器（code=yuque）的扩展参数，页面入口在「连接器管理」。 */
     private String yuqueConfig(String key, String fallback) {
         return registryService.findByCode(ConnectorRegistryService.CODE_YUQUE)
@@ -1235,5 +1312,44 @@ public class WeeklyReportService {
                 .map(Connector::getBaseUrl)
                 .filter(StringUtils::hasText)
                 .orElse("https://lucidata.yuque.com");
+    }
+
+    /**
+     * {@code ai_task.type = "weekly_report"} 的处理器：解析 {@code {"weekStart":"2026-09-14"}} 后
+     * 回到 {@link #generate(LocalDate)}。
+     *
+     * <p>为什么挂在服务内部：handler 只做 payload 解析与转发，单开一个文件没有收益；
+     * 标 {@code @Component} 后由 {@link AiTaskService} 构造期按 {@link AiTaskHandler#type()} 自动装配。
+     *
+     * <p>异常语义：payload 缺 {@code weekStart} 说明这条任务永远跑不通，直接抛（最终 FAILED 并留原因）；
+     * {@link #generate(LocalDate)} 自己吞掉失败并回写 FAILED 状态 + 失败通知，所以正常路径返回 null（视为成功）。
+     */
+    @Component
+    public static class WeeklyReportTaskHandler implements AiTaskHandler {
+
+        private final WeeklyReportService reportService;
+
+        /**
+         * {@code @Lazy}：AiTaskService 要收集全部 handler，而 handler 又要回到业务服务，
+         * 业务服务又依赖 AiTaskService——不延迟注入就成构造期循环依赖，启动直接失败。
+         */
+        public WeeklyReportTaskHandler(@Lazy WeeklyReportService reportService) {
+            this.reportService = reportService;
+        }
+
+        @Override
+        public String type() {
+            return TASK_TYPE_WEEKLY_REPORT;
+        }
+
+        @Override
+        public String handle(String payloadJson) throws Exception {
+            LocalDate weekStart = reportService.weekStartOf(payloadJson);
+            if (weekStart == null) {
+                throw new IllegalArgumentException("weekly_report 任务 payload 缺少 weekStart：" + payloadJson);
+            }
+            reportService.generate(weekStart);
+            return null;
+        }
     }
 }

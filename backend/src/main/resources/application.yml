@@ -55,6 +55,14 @@ spring:
       max-file-size: 100MB
       max-request-size: 100MB
 
+  # 定时任务调度线程池：全仓 @Scheduled 共用（Spring 默认只有 1 个线程，
+  # AI 任务编排一轮会跑多条、每条可能几十秒，单线程会把其它巡检任务全部排队堵死）
+  task:
+    scheduling:
+      pool:
+        size: 4
+      thread-name-prefix: sch-
+
 # MyBatis Plus 配置
 mybatis-plus:
   configuration:
@@ -148,6 +156,13 @@ ai:
   proactive:
     push-enabled: ${AI_PROACTIVE_PUSH_ENABLED:true}
     push-cron: ${AI_PROACTIVE_PUSH_CRON:0 50 8 * * MON-FRI}
+
+  # AI 平台地基层开关（YAML 顶层 key ai 已在此块声明，不能再写第二个 ai:，故合并在本块内）
+  platform:
+    task-enabled: true          # 统一任务编排开关；false 时业务回退旧路径
+    gateway-enabled: false      # 能力网关旁路开关，默认关（先灰度）
+    remote-capability-enabled: false  # 是否允许 kind=REMOTE 转发到外部 worker
+    prompt-cache-seconds: 60    # Prompt 热更新缓存时间
 
 # 服务器配置
 server:
