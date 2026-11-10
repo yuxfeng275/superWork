@@ -58,6 +58,8 @@ public class OpportunityFollowUpService {
     public static final String SOURCE_WECOM_BOT = "WECOM_BOT";
     /** 手工/AI 工具录入的跟进记录来源。 */
     public static final String SOURCE_MANUAL = "MANUAL";
+    /** 采纳商机 AI 教练建议落库的跟进记录来源。 */
+    public static final String SOURCE_AI_COACH = "AI_COACH";
 
     /** 提醒阶段标签。 */
     public static final String STAGE_DUE = "今日跟进";
@@ -118,6 +120,12 @@ public class OpportunityFollowUpService {
     private final WeComClient weComClient;
     private final ObjectMapper objectMapper;
     private final SystemConfigService systemConfigService;
+    /**
+     * 商机 AI 教练（单向依赖：回复入站后入队一次生成）。
+     *
+     * <p>教练那边<b>不</b>注入本类，所以这里不存在循环依赖；入队失败也绝不能影响回复落库。
+     */
+    private final OpportunityCoachService coachService;
 
     // ==================== 查询 ====================
 
@@ -744,6 +752,12 @@ public class OpportunityFollowUpService {
         promptMapper.updateById(prompt);
         if (autoConfirmable) {
             autoConfirm(prompt, draft);
+        }
+        // 回复已落库之后才入队教练：教练生成是「锦上添花」，任何异常都必须止步于日志
+        try {
+            coachService.enqueue(prompt.getOpportunityId(), prompt.getId(), "INBOUND", prompt.getTargetUserId());
+        } catch (Exception e) {
+            log.warn("商机 AI 教练生成入队失败（不影响回复落库）: promptId={} err={}", prompt.getId(), e.getMessage());
         }
         return prompt;
     }

@@ -159,7 +159,80 @@ public class OpportunityFollowUpSender {
         return OpportunityFollowUpService.CHANNEL_INAPP;
     }
 
+    /**
+     * 把一段 markdown/纯文本摘要推到企微（商机 AI 教练的「一句话诊断 + 追问」用）。
+     *
+     * <p>路由与 {@link #send} 完全一致：试点开关 on 发机器人创建人，off 按 {@code targetUserId}
+     * 解析企微 userid（<b>不回落到试点人</b>）。发送链：机器人单聊 → 应用消息 → 只留站内；
+     * 每一级都单独 try/catch 降级，<b>任何异常都不向上抛</b>，因为教练建议本身已经落库。
+     *
+     * <p>不改问句台账（这里没有 {@code prompt}），因此不调用 {@link #record}。
+     *
+     * @param opportunityId 商机 ID（方案 B 姓名映射兜底用）
+     * @param targetUserId  目标用户 ID（试点期忽略）
+     * @param markdown      正文
+     * @return 实际渠道：WECOM_BOT / WECOM_APP / INAPP
+     */
+    public String pushMarkdown(Long opportunityId, Long targetUserId, String markdown) {
+        if (!StringUtils.hasText(markdown)) {
+            return OpportunityFollowUpService.CHANNEL_INAPP;
+        }
+        String text = markdown.strip();
+        boolean pilot = pilotEnabled();
+        Long receiverUserId = pilot || targetUserId == null ? pilotOwnerUserId : targetUserId;
+
+        String wecomUserId = null;
+        try {
+            wecomUserId = pilot ? pilotWecomUserId() : resolveOwnerWecomUserId(opportunityId, receiverUserId);
+        } catch (Exception e) {
+            log.warn("商机教练摘要接收人企微 userid 解析失败，转应用消息兜底: opportunityId={} err={}",
+                    opportunityId, e.getMessage());
+        }
+
+        // 1) 企微机器人单聊（首选）
+        if (StringUtils.hasText(wecomUserId)) {
+            try {
+                weComCliService.sendMessage(wecomUserId, text);
+                return OpportunityFollowUpService.CHANNEL_WECOM_BOT;
+            } catch (Exception e) {
+                log.warn("商机教练摘要机器人单聊失败，回退应用消息: opportunityId={} err={}",
+                        opportunityId, e.getMessage());
+            }
+        }
+
+        // 2) 企微应用消息
+        try {
+            String boundWecomUserId = boundWecomUserId(receiverUserId);
+            if (!StringUtils.hasText(boundWecomUserId)) {
+                boundWecomUserId = wecomUserId;
+            }
+            if (StringUtils.hasText(boundWecomUserId)) {
+                weComClient.pushText(boundWecomUserId, text);
+                return OpportunityFollowUpService.CHANNEL_WECOM_APP;
+            }
+        } catch (Exception e) {
+            log.warn("商机教练摘要应用消息回退失败，降级为站内: opportunityId={} err={}",
+                    opportunityId, e.getMessage());
+        }
+
+        // 3) 都不可用：只留站内
+        log.warn("商机教练摘要未送达企微，仅站内可见: opportunityId={} targetUserId={}",
+                opportunityId, receiverUserId);
+        return OpportunityFollowUpService.CHANNEL_INAPP;
+    }
+
     // ==================== 内部工具 ====================
+
+    /**
+     * 「商机负责人」的企微 userid：先按用户 ID 查配置/绑定映射，再按姓名映射兜底（方案 B）。
+     */
+    private String resolveOwnerWecomUserId(Long opportunityId, Long userId) {
+        String byUserId = ownerWecomUserId(userId);
+        if (StringUtils.hasText(byUserId)) {
+            return byUserId;
+        }
+        return ownerNameWecomUserId(opportunityId);
+    }
 
     /** 系统配置里的试点目标 wecom userid；配置缺失或为空返回 null。 */
     private String configuredPilotWecomUserId() {

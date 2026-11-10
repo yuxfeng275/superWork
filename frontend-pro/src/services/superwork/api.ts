@@ -885,6 +885,57 @@ export interface OpportunityFollowupPrompt {
   createdAt?: string | null;
 }
 
+/** AI 教练状态：PENDING/GENERATING 需要前端轮询，SUCCESS/FAILED 为终态 */
+export type OpportunityCoachStatus =
+  | "PENDING"
+  | "GENERATING"
+  | "SUCCESS"
+  | "FAILED";
+
+/**
+ * AI 教练建议内容：后端已把模型输出校验并解析成对象，前端不再自己 JSON.parse。
+ * 字段全部可选——老数据/模型缺项时不该让整张卡片炸掉。
+ */
+export interface OpportunityCoachContent {
+  readiness?: {
+    score?: number;
+    missing?: string[];
+  };
+  diagnosis?: string;
+  risks?: string[];
+  questions?: {
+    question: string;
+    why?: string;
+    expect?: string;
+  }[];
+  solutions?: {
+    title: string;
+    pitch?: string;
+    evidence?: string;
+  }[];
+  nextActions?: {
+    action: string;
+    when?: string;
+    owner?: string;
+  }[];
+  probabilitySuggestion?: {
+    value?: number;
+    reason?: string;
+  };
+}
+
+/** 一次 AI 教练生成记录；接口按时间倒序返回，取 [0] 即最新 */
+export interface OpportunityCoach {
+  id: number;
+  status: OpportunityCoachStatus;
+  triggerSource?: string | null;
+  createdAt?: string | null;
+  generatedAt?: string | null;
+  model?: string | null;
+  error?: string | null;
+  content?: OpportunityCoachContent | null;
+}
+
 export interface SalesOpportunitySupportWorklog {
   id: number;
   opportunityId: number;
@@ -3565,6 +3616,30 @@ export const superworkApi = {
   getOpportunityFollowupPrompts(id: number) {
     return requestJson<OpportunityFollowupPrompt[]>(
       `/api/opportunities/${id}/followup-prompts`
+    );
+  },
+  /** AI 教练历史建议：新的在前，取 [0] 即最新一次生成结果 */
+  getOpportunityCoach(id: number) {
+    return requestJson<OpportunityCoach[]>(`/api/opportunities/${id}/coach`);
+  },
+  /**
+   * 触发生成：返回新建的那一行（PENDING/GENERATING）。
+   * 无可用模型时后端 400，message 里带「模型管理」字样，直接展示给用户。
+   */
+  generateOpportunityCoach(id: number) {
+    return requestJson<OpportunityCoach>(`/api/opportunities/${id}/coach`, {
+      method: "POST",
+    });
+  },
+  /** 采纳第 actionIndex 条「下一步动作」：后端写入跟进记录并返回该记录 */
+  adoptOpportunityCoachAction(
+    id: number,
+    coachId: number,
+    actionIndex: number
+  ) {
+    return requestJson<SalesOpportunityFollowUp>(
+      `/api/opportunities/${id}/coach/${coachId}/adopt`,
+      { method: "POST", body: JSON.stringify({ actionIndex }) }
     );
   },
   /** 粘贴企微回复原文：后端解析出概率/下次跟进时间，但仍需人工确认才入账 */

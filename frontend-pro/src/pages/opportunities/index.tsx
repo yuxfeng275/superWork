@@ -8,6 +8,7 @@ import {
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
+  RobotOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
@@ -36,6 +37,7 @@ import {
   Segmented,
   Select,
   Space,
+  Spin,
   Statistic,
   Table,
   Tag,
@@ -43,8 +45,9 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type OpportunityCoach,
   type OpportunityFollowupPrompt,
   type QuotationListVO,
   type SalesOpportunity,
@@ -256,6 +259,13 @@ export default function OpportunitiesPage() {
   // 企微跟进问句台账：PARSED/REPLIED 的回复需人工确认后才写入商机
   const [prompts, setPrompts] = useState<OpportunityFollowupPrompt[]>([]);
   const [promptsLoading, setPromptsLoading] = useState(false);
+  // AI 教练建议：接口按时间倒序返回，coaches[0] 即最新一次生成结果
+  const [coaches, setCoaches] = useState<OpportunityCoach[]>([]);
+  const [coachLoading, setCoachLoading] = useState(false);
+  const [coachPolling, setCoachPolling] = useState(false);
+  // 轮询句柄 + 序号：序号一变旧循环立即作废，保证切商机/关抽屉/卸载后不泄漏
+  const coachTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const coachPollSeq = useRef(0);
   const [pasteText, setPasteText] = useState('');
   const [pasting, setPasting] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -289,6 +299,65 @@ export default function OpportunitiesPage() {
       )
       .slice(0, 5);
   }, [prompts]);
+  const clearCoachTimer = () => {
+    if (coachTimer.current) {
+      clearTimeout(coachTimer.current);
+      coachTimer.current = null;
+    }
+  };
+  const stopCoachPolling = useCallback(() => {
+    // 序号自增：在途的轮询循环下一次醒来会发现序号已换，直接退出
+    coachPollSeq.current += 1;
+    clearCoachTimer();
+    setCoachPolling(false);
+  }, []);
+  const loadCoach = useCallback(
+    async (id: number, silent = false): Promise<OpportunityCoach[]> => {
+      if (!silent) setCoachLoading(true);
+      try {
+        const list = await superworkApi.getOpportunityCoach(id);
+        const next = list || [];
+        setCoaches(next);
+        return next;
+      } catch {
+        // 老环境没有该接口时不阻塞详情，只是不展示 AI 教练
+        if (!silent) setCoaches([]);
+        return [];
+      } finally {
+        if (!silent) setCoachLoading(false);
+      }
+    },
+    [],
+  );
+  /**
+   * 轮询：仅当最新一条仍为 PENDING/GENERATING 时启动，每 3 秒一次、最多 20 次。
+   * 循环自己持有 seq 快照，stopCoachPolling / 切商机 / 卸载都会把它作废，不会幽灵回调。
+   */
+  const startCoachPolling = useCallback(
+    (id: number) => {
+      stopCoachPolling();
+      const seq = coachPollSeq.current;
+      setCoachPolling(true);
+      let attempts = 0;
+      const tick = async () => {
+        if (coachPollSeq.current !== seq) return;
+        attempts += 1;
+        const list = await loadCoach(id, true);
+        if (coachPollSeq.current !== seq) return;
+        const latest = list[0];
+        const settled =
+          !latest ||
+          (latest.status !== 'PENDING' && latest.status !== 'GENERATING');
+        if (settled || attempts >= 20) {
+          setCoachPolling(false);
+          return;
+        }
+        coachTimer.current = setTimeout(() => void tick(), 3000);
+      };
+      coachTimer.current = setTimeout(() => void tick(), 3000);
+    },
+    [loadCoach, stopCoachPolling],
+  );
   const hasFreshFollowUp = (id: number) => {
     const latest = latestFollowUpAt[id];
     return Boolean(latest && dayjs().diff(dayjs(latest), 'day', true) <= 3);
@@ -404,6 +473,8 @@ export default function OpportunitiesPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  // 卸载时兜底清定时器（轮询循环自身也会检查序号作废）
+  useEffect(() => () => stopCoachPolling(), [stopCoachPolling]);
   useEffect(() => {
     if (formOpen && opportunityDraft)
       opportunityForm.setFieldsValue(opportunityDraft);
@@ -555,10 +626,265 @@ export default function OpportunitiesPage() {
       setPromptsLoading(false);
     }
   };
+  const generateCoach = async () => {
+    if (!detail) return;
+    stopCoachPolling();
+    setCoachLoading(true);
+    try {
+      await superworkApi.generateOpportunityCoach(detail.id);
+      message.success('已触发 AI 分析，稍候自动刷新');
+      const list = await loadCoach(detail.id);
+      const latest = list[0];
+      if (
+        latest &&
+        (latest.status === 'PENDING' || latest.status === 'GENERATING')
+      ) {
+        startCoachPolling(detail.id);
+      }
+    } catch (e) {
+      // 后端无可用模型时 400，message 里带「模型管理」提示，原样展示
+      message.error(e instanceof Error ? e.message : 'AI 教练生成失败');
+    } finally {
+      setCoachLoading(false);
+    }
+  };
+  const adoptCoachAction = async (actionIndex: number) => {
+    const latest = coaches[0];
+    if (!detail || !latest) return;
+    try {
+      await superworkApi.adoptOpportunityCoachAction(
+        detail.id,
+        latest.id,
+        actionIndex,
+      );
+      message.success('已写入跟进');
+      await load();
+      await loadHistory(detail.id);
+      await loadCoach(detail.id);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '采纳失败');
+    }
+  };
+  const renderCoachContent = () => {
+    const latest = coaches[0];
+    if (!latest) {
+      return (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="还没有建议，点右上角生成"
+        />
+      );
+    }
+    if (latest.status === 'FAILED') {
+      return (
+        <Alert type="error" showIcon message={latest.error || '生成失败'} />
+      );
+    }
+    if (latest.status === 'PENDING' || latest.status === 'GENERATING') {
+      return (
+        <Space direction="vertical" size={6}>
+          <Space>
+            <Spin size="small" />
+            <Typography.Text>AI 正在分析这条反馈…</Typography.Text>
+          </Space>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {coachPolling
+              ? '每 3 秒自动刷新一次（最多 20 次）'
+              : '已达轮询上限，可点右上角重新生成'}
+          </Typography.Text>
+        </Space>
+      );
+    }
+    const content = latest.content;
+    if (!content) {
+      return (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="本次未返回内容，可重新生成"
+        />
+      );
+    }
+    return (
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        {content.readiness && (
+          <div>
+            <Typography.Text strong>要素完备度</Typography.Text>
+            <Progress
+              size="small"
+              percent={Math.min(
+                100,
+                Math.max(0, Number(content.readiness.score ?? 0)),
+              )}
+            />
+            {Boolean(content.readiness.missing?.length) && (
+              <Space wrap size={4}>
+                <Typography.Text type="danger">
+                  缺：{content.readiness.missing?.join('、')}
+                </Typography.Text>
+                {content.readiness.missing?.map((item) => (
+                  <Tag key={item} color="red">
+                    {item}
+                  </Tag>
+                ))}
+              </Space>
+            )}
+          </div>
+        )}
+        {content.diagnosis && (
+          <div>
+            <Typography.Text strong>诊断</Typography.Text>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>
+              {content.diagnosis}
+            </Typography.Paragraph>
+          </div>
+        )}
+        {Boolean(content.risks?.length) && (
+          <div>
+            <Typography.Text strong>风险</Typography.Text>
+            <List
+              size="small"
+              dataSource={content.risks || []}
+              renderItem={(item) => (
+                <List.Item style={{ padding: '2px 0' }}>{item}</List.Item>
+              )}
+            />
+          </div>
+        )}
+        {Boolean(content.questions?.length) && (
+          <div>
+            <Typography.Text strong>追问</Typography.Text>
+            <List
+              size="small"
+              dataSource={(content.questions || []).slice(0, 4)}
+              renderItem={(item) => (
+                <List.Item style={{ padding: '4px 0' }}>
+                  <Space
+                    direction="vertical"
+                    size={0}
+                    style={{ width: '100%' }}
+                  >
+                    <Typography.Text>问：{item.question}</Typography.Text>
+                    {item.why && (
+                      <Typography.Text type="secondary">
+                        为什么问：{item.why}
+                      </Typography.Text>
+                    )}
+                    {item.expect && (
+                      <Typography.Text type="secondary">
+                        想听到：{item.expect}
+                      </Typography.Text>
+                    )}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+        {Boolean(content.solutions?.length) && (
+          <div>
+            <Typography.Text strong>方案建议</Typography.Text>
+            <List
+              size="small"
+              dataSource={content.solutions || []}
+              renderItem={(item) => (
+                <List.Item style={{ padding: '4px 0' }}>
+                  <Space
+                    direction="vertical"
+                    size={0}
+                    style={{ width: '100%' }}
+                  >
+                    <Typography.Text strong>{item.title}</Typography.Text>
+                    {item.pitch && (
+                      <Typography.Text>{item.pitch}</Typography.Text>
+                    )}
+                    {item.evidence && (
+                      <Typography.Text type="secondary">
+                        {item.evidence}
+                      </Typography.Text>
+                    )}
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+        {Boolean(content.nextActions?.length) && (
+          <div>
+            <Typography.Text strong>下一步动作</Typography.Text>
+            <List
+              size="small"
+              dataSource={content.nextActions || []}
+              renderItem={(item, index) => (
+                <List.Item
+                  style={{ padding: '4px 0' }}
+                  actions={[
+                    <Button
+                      key="adopt"
+                      type="link"
+                      size="small"
+                      onClick={() => void adoptCoachAction(index)}
+                    >
+                      采纳
+                    </Button>,
+                  ]}
+                >
+                  <Space
+                    direction="vertical"
+                    size={2}
+                    style={{ width: '100%' }}
+                  >
+                    <Typography.Text>{item.action}</Typography.Text>
+                    <Space size={4} wrap>
+                      {item.when && <Tag>{item.when}</Tag>}
+                      {item.owner && (
+                        <Typography.Text type="secondary">
+                          {item.owner}
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+        {content.probabilitySuggestion && (
+          <div>
+            <Typography.Text strong>成交概率</Typography.Text>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>
+              建议 {content.probabilitySuggestion.value ?? '—'}%（原{' '}
+              {detail?.probability ?? '—'}%）
+              {content.probabilitySuggestion.reason
+                ? `——${content.probabilitySuggestion.reason}`
+                : ''}
+            </Typography.Paragraph>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              仅建议，不会自动改商机
+            </Typography.Text>
+          </div>
+        )}
+      </Space>
+    );
+  };
   const openDetail = async (row: SalesOpportunity) => {
     setDetail(row);
     setDetailOpen(true);
-    await Promise.all([loadHistory(row.id), loadPrompts(row.id)]);
+    // 切商机先停掉上一条的轮询并清空旧建议，避免旧 timer 写进新详情
+    stopCoachPolling();
+    setCoaches([]);
+    await Promise.all([
+      loadHistory(row.id),
+      loadPrompts(row.id),
+      loadCoach(row.id).then((list) => {
+        const latest = list[0];
+        if (
+          latest &&
+          (latest.status === 'PENDING' || latest.status === 'GENERATING')
+        ) {
+          startCoachPolling(row.id);
+        }
+      }),
+    ]);
   };
   const openFollow = async (row: SalesOpportunity) => {
     setDetail(row);
@@ -1414,7 +1740,11 @@ export default function OpportunitiesPage() {
         title={detail?.name || '商机详情'}
         size={580}
         open={detailOpen}
-        onClose={() => setDetailOpen(false)}
+        onClose={() => {
+          setDetailOpen(false);
+          // 关抽屉即停轮询，不留后台 timer
+          stopCoachPolling();
+        }}
       >
         {detail && (
           <>
@@ -1559,6 +1889,27 @@ export default function OpportunitiesPage() {
               >
                 解析并保存
               </Button>
+            </Card>
+            <Card
+              size="small"
+              style={{ marginBottom: 16 }}
+              title={
+                <Space>
+                  <RobotOutlined />
+                  AI 教练
+                </Space>
+              }
+              extra={
+                <Button
+                  size="small"
+                  loading={coachLoading}
+                  onClick={() => void generateCoach()}
+                >
+                  生成 / 重新生成
+                </Button>
+              }
+            >
+              {renderCoachContent()}
             </Card>
             <Divider />
             <Typography.Title level={5}>售前支持工时</Typography.Title>

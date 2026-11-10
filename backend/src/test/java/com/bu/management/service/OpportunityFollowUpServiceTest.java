@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +61,7 @@ class OpportunityFollowUpServiceTest {
     @Mock private WeComClient weComClient;
     @Mock private WeComCliService weComCliService;
     @Mock private SystemConfigService systemConfigService;
+    @Mock private OpportunityCoachService coachService;
 
     private OpportunityFollowUpService service;
 
@@ -66,7 +69,7 @@ class OpportunityFollowUpServiceTest {
     void setUp() {
         service = new OpportunityFollowUpService(opportunityMapper, followUpMapper, promptMapper,
                 quotationMapper, weComMappingMapper, userMapper, weComClient,
-                new ObjectMapper().registerModule(new JavaTimeModule()), systemConfigService);
+                new ObjectMapper().registerModule(new JavaTimeModule()), systemConfigService, coachService);
         when(promptMapper.selectOne(any())).thenReturn(null);
         when(quotationMapper.selectList(any())).thenReturn(List.of());
         when(weComMappingMapper.selectList(any())).thenReturn(List.of());
@@ -1055,5 +1058,48 @@ class OpportunityFollowUpServiceTest {
         verify(followUpMapper, never()).insert(any());
         assertThat(source.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_PARSED);
         assertThat(source.getReplyText()).isEqualTo("上次的回复内容");
+    }
+
+    // ==================== 商机 AI 教练入队（回复落库之后再入队，失败不回溯） ====================
+
+    @Test
+    void 入站回复落库后自动入队一次AI教练生成() {
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        prompt.setTargetUserId(25L);
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+        when(userMapper.selectById(25L)).thenReturn(replier());
+
+        service.applyReplyBySender("yufeng", "概率 70%，下周三 15:00 再沟通", "msg-coach-1", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        // 用商机 ID / 问句 ID / 触发源 / 触发人四个参数入队，缺一个都会算错配额
+        verify(coachService).enqueue(eq(10L), eq(1L), eq("INBOUND"), any());
+    }
+
+    @Test
+    void 教练入队抛异常时回复台账与商机仍然写库() {
+        when(coachService.enqueue(any(), any(), any(), any()))
+                .thenThrow(new IllegalStateException("线程池已满"));
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        prompt.setTargetUserId(25L);
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+        when(userMapper.selectById(25L)).thenReturn(replier());
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
+                "概率 70%，下周三 15:00 再沟通", "msg-coach-2", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        // 教练是锦上添花：入队炸了也只能记日志，台账与商机必须照旧落库
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
+        verify(promptMapper, atLeastOnce()).updateById(prompt);
+        verify(followUpMapper).insert(any());
+        verify(opportunityMapper).updateById(opp);
+        assertThat(opp.getProbability()).isEqualTo(70);
     }
 }
