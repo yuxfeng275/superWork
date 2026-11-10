@@ -98,6 +98,32 @@ class SalesOpportunityServiceTest {
     }
 
     @Test
+    void createFollowUpStampsLastFollowUpAtWithServerNow() {
+        SalesOpportunity opportunity = new SalesOpportunity();
+        opportunity.setId(7L);
+        opportunity.setStatus("需求确认");
+        when(opportunityMapper.selectById(7L)).thenReturn(opportunity);
+
+        SalesOpportunityFollowUpRequest request = new SalesOpportunityFollowUpRequest();
+        // 补录的是三天前的跟进：last_follow_up_at 仍应写服务器当前时间，静默计时才不会被提前触发
+        request.setFollowUpAt(LocalDateTime.now().minusDays(3));
+        request.setFollower("系统管理员");
+        request.setContent("补录上一次沟通");
+        request.setStatus("需求确认");
+        request.setProbability(30);
+
+        LocalDateTime before = LocalDateTime.now();
+        service.createFollowUp(7L, request);
+        LocalDateTime after = LocalDateTime.now();
+
+        ArgumentCaptor<SalesOpportunity> captor = ArgumentCaptor.forClass(SalesOpportunity.class);
+        verify(opportunityMapper).updateById(captor.capture());
+        LocalDateTime lastFollowUpAt = captor.getValue().getLastFollowUpAt();
+        assertThat(lastFollowUpAt).isNotNull();
+        assertThat(lastFollowUpAt).isBetween(before, after);
+    }
+
+    @Test
     void createFollowUpRejectsBlankContentWithoutWritingHistory() {
         SalesOpportunity opportunity = new SalesOpportunity();
         opportunity.setId(7L);

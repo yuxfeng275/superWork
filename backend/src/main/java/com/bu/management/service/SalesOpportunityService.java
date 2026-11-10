@@ -101,6 +101,9 @@ public class SalesOpportunityService {
 
         opportunity.setStatus(request.getStatus());
         opportunity.setProbability(request.getProbability());
+        // 静默计时口径：last_follow_up_at 取「真正记录跟进的服务器时间」now，而不是用户填的跟进时间 followUpAt，
+        // 与 OpportunityFollowUpService#recordManualFollowUp / autoConfirm 保持一致，避免补录旧时间被当成仍在静默
+        opportunity.setLastFollowUpAt(now);
         // 人工填写的新跟进 = 下一轮从「待跟进」开始
         opportunity.setFollowUpState("PENDING");
         applyOwnerUserId(opportunity, opportunity.getOwner());
