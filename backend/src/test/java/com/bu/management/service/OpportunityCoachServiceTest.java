@@ -14,6 +14,8 @@ import com.bu.management.entity.OpportunityCoach;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.integration.DigestLlmClient;
+import com.bu.management.mapper.AiAgentUsageMapper;
+import com.bu.management.mapper.AiPromptMapper;
 import com.bu.management.mapper.OpportunityCoachMapper;
 import com.bu.management.mapper.OpportunityFollowupPromptMapper;
 import com.bu.management.mapper.QuotationMapper;
@@ -26,7 +28,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,10 @@ class OpportunityCoachServiceTest {
     @Mock private DigestLlmClient digestLlmClient;
     @Mock private SystemConfigService systemConfigService;
     @Mock private OpportunityFollowUpSender followUpSender;
-    @Mock private Executor executor;
+    /** 新基建：入队改走 ai_task，旧线程池已删除，构造参数同步换成这三个。 */
+    @Mock private AiTaskService aiTaskService;
+    @Mock private AiPromptMapper aiPromptMapper;
+    @Mock private AiAgentUsageMapper aiAgentUsageMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
@@ -65,8 +69,14 @@ class OpportunityCoachServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 构造参数变化：@Qualifier("opportunityTaskExecutor") Executor → AiTaskService + PromptRegistry + AiCallRecorder。
+        // AiCallRecorder / PromptRegistry 用真实现包住 mock：前者转调 mock 的 DigestLlmClient（原有 chat 打桩与断言口径不变），
+        // 后者查不到 ai_prompt 就退回代码常量（提示词断言与原来一致）。
+        AiCallRecorder aiCallRecorder = new AiCallRecorder(digestLlmClient, aiAgentUsageMapper);
+        PromptRegistry promptRegistry = new PromptRegistry(aiPromptMapper, 60);
         service = new OpportunityCoachService(coachMapper, opportunityMapper, followUpMapper, promptMapper,
-                quotationMapper, digestLlmClient, systemConfigService, objectMapper, followUpSender, executor);
+                quotationMapper, digestLlmClient, systemConfigService, objectMapper, followUpSender,
+                aiTaskService, promptRegistry, aiCallRecorder);
         // 开关默认开、每日上限默认 10（读不到也按这套口径走）
         when(systemConfigService.getBoolean("opportunity", "coach.enabled", true)).thenReturn(true);
         when(systemConfigService.getBoolean("opportunity", "coach.wecom-push", true)).thenReturn(true);
@@ -171,7 +181,8 @@ class OpportunityCoachServiceTest {
 
         assertThat(row).isNull();
         verify(coachMapper, never()).insert(any());
-        verify(executor, never()).execute(any());
+        // 超额时一条 ai_task 也不得落（旧断言是「不丢线程池」）
+        verify(aiTaskService, never()).enqueue(anyString(), any(), anyString());
     }
 
     @Test
@@ -264,55 +275,46 @@ class OpportunityCoachServiceTest {
         assertThat(markdown.length()).isLessThanOrEqualTo(500);
     }
 
-    // ==================== 兜底巡检（事务竞态 / 线程池丢任务留下的 PENDING 行） ====================
+    // ==================== 任务处理器（原兜底巡检已交给 AiTaskService 的调度与重试） ====================
+
+    private OpportunityCoachService.CoachTaskHandler handler() {
+        return new OpportunityCoachService.CoachTaskHandler(service);
+    }
 
     @Test
-    void 巡检重跑超过两分钟仍PENDING的行() {
+    void 任务处理器按payload重跑PENDING行() throws Exception {
         OpportunityCoach stalled = coach(7L, 1L);
         stalled.setCreatedAt(LocalDateTime.now().minusMinutes(5));
-        when(coachMapper.selectList(any())).thenReturn(List.of(stalled));
         when(coachMapper.selectById(7L)).thenReturn(stalled);
         when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
         when(digestLlmClient.chat(anyString(), anyString(), any()))
                 .thenThrow(new IllegalStateException("AI 模型未配置"));
 
-        service.sweepPending();
+        String result = handler().handle("{\"coachId\":7}");
 
+        // handler 不向上抛（生成失败已回写到业务行），成功返回 null
+        assertThat(result).isNull();
         // 真的重跑了一遍 generate：先置 GENERATING、失败后落 FAILED
         assertThat(stalled.getStatus()).isEqualTo(OpportunityCoach.STATUS_FAILED);
         verify(coachMapper, atLeast(2)).updateById(any());
     }
 
     @Test
-    void 巡检单行失败不影响后面的行() {
-        OpportunityCoach broken = coach(8L, null);
-        broken.setCreatedAt(LocalDateTime.now().minusMinutes(5));
-        OpportunityCoach healthy = coach(9L, null);
-        healthy.setCreatedAt(LocalDateTime.now().minusMinutes(3));
-        when(coachMapper.selectList(any())).thenReturn(List.of(broken, healthy));
-        when(coachMapper.selectById(8L)).thenThrow(new IllegalStateException("数据库抖了一下"));
-        when(coachMapper.selectById(9L)).thenReturn(healthy);
-        when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
-        when(digestLlmClient.chat(anyString(), anyString(), any()))
-                .thenThrow(new IllegalStateException("AI 模型未配置"));
-
-        service.sweepPending();
-
-        // 第一行炸了，第二行照样跑到底
-        assertThat(healthy.getStatus()).isEqualTo(OpportunityCoach.STATUS_FAILED);
+    void 任务处理器payload缺coachId时抛异常且不调模型() {
+        // 这种任务永远跑不通，抛异常让调度器重试到 FAILED 并留下原因
+        assertThatThrownBy(() -> handler().handle("{}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("coachId");
+        verify(digestLlmClient, never()).chat(anyString(), anyString(), any());
     }
 
     @Test
-    void 巡检碰到已经出结果或已在生成中的行不再调模型也不改状态() {
+    void 任务处理器碰到已经出结果的行不再调模型也不改状态() throws Exception {
         OpportunityCoach success = coach(10L, null);
         success.setStatus(OpportunityCoach.STATUS_SUCCESS);
-        OpportunityCoach generating = coach(11L, null);
-        generating.setStatus(OpportunityCoach.STATUS_GENERATING);
-        when(coachMapper.selectList(any())).thenReturn(List.of(success, generating));
         when(coachMapper.selectById(10L)).thenReturn(success);
-        when(coachMapper.selectById(11L)).thenReturn(generating);
 
-        service.sweepPending();
+        handler().handle("{\"coachId\":10}");
 
         verify(digestLlmClient, never()).chat(anyString(), anyString(), any());
         verify(coachMapper, never()).updateById(any());

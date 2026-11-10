@@ -19,6 +19,8 @@ import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DigestLlmClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
+import com.bu.management.mapper.AiAgentUsageMapper;
+import com.bu.management.mapper.AiPromptMapper;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.ProjectMapper;
@@ -36,7 +38,6 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -56,13 +57,25 @@ class WeeklyReportServiceTest {
     @Mock private SalesOpportunityFollowUpMapper opportunityFollowUpMapper;
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
     @Mock private ConnectorRegistryService registryService;
+    /** 新基建：入队走 ai_task，调用走 AiCallRecorder，提示词走 PromptRegistry。 */
+    @Mock private AiTaskService aiTaskService;
+    @Mock private AiPromptMapper aiPromptMapper;
+    @Mock private AiAgentUsageMapper aiAgentUsageMapper;
 
-    @InjectMocks private WeeklyReportService service;
+    private WeeklyReportService service;
 
     private WeeklyReport report;
 
     @BeforeEach
     void setUp() {
+        // 构造参数变化：新增 PromptRegistry / AiCallRecorder / AiTaskService（原来靠 @InjectMocks 装配，现改显式构造）。
+        // 前两个用真实现包住已有 mock：AiCallRecorder 转调 mock 的 DigestLlmClient（原 chat 打桩/断言不变），
+        // PromptRegistry 查不到 ai_prompt 则退回代码常量（提示词断言与原来一致）。
+        service = new WeeklyReportService(reportMapper, digestLlmClient, yuqueClient, weComClient, keyMatterService,
+                contractEntryMapper, profitReportMapper, businessLineMapper, projectMapper, opportunityFollowUpMapper,
+                salesOpportunityMapper, configService, registryService, new ObjectMapper(),
+                new PromptRegistry(aiPromptMapper, 60), new AiCallRecorder(digestLlmClient, aiAgentUsageMapper),
+                aiTaskService);
         report = new WeeklyReport();
         report.setId(3L);
         report.setWeekStartDate(LocalDate.of(2026, 9, 14));

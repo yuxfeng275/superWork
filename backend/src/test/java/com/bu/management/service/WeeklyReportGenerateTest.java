@@ -14,6 +14,8 @@ import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DigestLlmClient;
 import com.bu.management.integration.WeComClient;
 import com.bu.management.integration.YuqueMcpClient;
+import com.bu.management.mapper.AiAgentUsageMapper;
+import com.bu.management.mapper.AiPromptMapper;
 import com.bu.management.mapper.BizLineProfitReportMapper;
 import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.ProjectMapper;
@@ -31,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -56,15 +57,27 @@ class WeeklyReportGenerateTest {
     @Mock private SalesOpportunityMapper salesOpportunityMapper;
     @Mock private SystemConfigService configService;
     @Mock private ConnectorRegistryService registryService;
+    /** 新基建：入队走 ai_task，调用走 AiCallRecorder，提示词走 PromptRegistry。 */
+    @Mock private AiTaskService aiTaskService;
+    @Mock private AiPromptMapper aiPromptMapper;
+    @Mock private AiAgentUsageMapper aiAgentUsageMapper;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
 
-    @InjectMocks private WeeklyReportService service;
+    private WeeklyReportService service;
 
     private static final LocalDate WEEK_START = LocalDate.of(2026, 11, 2);
     private static final String NOTIFY_USER = "yufeng";
 
     @BeforeEach
     void setUp() {
+        // 构造参数变化：新增 PromptRegistry / AiCallRecorder / AiTaskService（原来靠 @InjectMocks 装配，现改显式构造）。
+        // 前两个用真实现包住已有 mock：AiCallRecorder 转调 mock 的 DigestLlmClient（原 chat 打桩/校验不变），
+        // PromptRegistry 查不到 ai_prompt 则退回代码常量。
+        service = new WeeklyReportService(reportMapper, digestLlmClient, yuqueClient, weComClient, keyMatterService,
+                contractEntryMapper, profitReportMapper, businessLineMapper, projectMapper, opportunityFollowUpMapper,
+                salesOpportunityMapper, configService, registryService, objectMapper,
+                new PromptRegistry(aiPromptMapper, 60), new AiCallRecorder(digestLlmClient, aiAgentUsageMapper),
+                aiTaskService);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", NOTIFY_USER);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "publicBaseUrl", "https://bu.example.com");
         WeeklyReport report = new WeeklyReport();
