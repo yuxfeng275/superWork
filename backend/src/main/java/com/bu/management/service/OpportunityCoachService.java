@@ -14,6 +14,7 @@ import com.bu.management.mapper.SalesOpportunityFollowUpMapper;
 import com.bu.management.mapper.SalesOpportunityMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -22,9 +23,11 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -102,6 +105,24 @@ public class OpportunityCoachService {
     private static final int MARKDOWN_DIAGNOSIS_MAX = 80;
     /** 企微外发最多几条追问 / 几条下一步。 */
     private static final int MARKDOWN_QUESTIONS_MAX = 3;
+    /**
+     * 一个教练包各段最多几条：条数越多输出越长、首字越慢，而且第 4 条基本都是凑数的。
+     * 提示词里也写了同一组上限，这里是模型不听话时的硬截断。
+     */
+    private static final int MAX_NEXT_ACTIONS = 3;
+    /** 打法最多 2 条。 */
+    private static final int MAX_SOLUTIONS = 2;
+    /** 追问最多 3 条。 */
+    private static final int MAX_QUESTIONS = 3;
+    /**
+     * nextActions[].owner 的三个角色名：模型只能从这三个里挑，或写本次商机负责人。
+     * 其它人名一律当幻觉，落库前改写成「销售」。
+     */
+    static final String OWNER_SALES = "销售";
+    /** owner 角色名：客户侧。 */
+    static final String OWNER_CUSTOMER = "客户";
+    /** owner 角色名：本次触发的销售本人。 */
+    static final String OWNER_ME = "我";
     /** 跟进内容长度上限（与 follow_up.content 列一致）。 */
     private static final int CONTENT_MAX = 1000;
     private static final DateTimeFormatter NEXT_TEXT = DateTimeFormatter.ofPattern("MM-dd HH:mm");
@@ -155,8 +176,11 @@ public class OpportunityCoachService {
               "nextActions": [{"action": "具体动作", "when": "yyyy-MM-dd HH:mm", "owner": "谁来做"}],
               "probabilitySuggestion": {"value": 0-100 的整数, "reason": "为什么"}
             }
-            5. questions、solutions、nextActions 各至少 2 条、最多 4 条；nextActions 按时间先后排序。
+            5. questions、solutions、nextActions 各至少 2 条；条数上限：questions 最多 3 条、
+                 solutions 最多 2 条、nextActions 最多 3 条；nextActions 按时间先后排序。
             6. nextActions[].when 必须是 yyyy-MM-dd HH:mm 格式的具体时间，不要写「下周」「尽快」。
+            7. nextActions[].owner 只能取以下值之一：销售、客户、我，或本次给定的商机负责人姓名；
+               绝对不得出现其它人名（不得写「王总」「李经理」这类看似具体的人名），需要具体人时写 销售。
             """;
 
     /**
@@ -169,14 +193,33 @@ public class OpportunityCoachService {
      * <p>用字符串拼接而不是 text block 占位符插值：插值容易把 {@code """} 与格式符搅在一起，编译期就炸。
      */
     static String systemPrompt(LocalDate today) {
+        return systemPrompt(today, null);
+    }
+
+    /**
+     * 同上，并把「本次商机负责人」写进提示词。
+     *
+     * <p><b>为什么点名道姓</b>：不点名时模型会自己补人名（实测 {@code owner:"王赢"}、{@code "刘晓文"}，
+     * 上下文里根本没这两个人，真实负责人是「王瀛」）。给了允许值，编造才有个明确的否定边界。
+     *
+     * @param today     今天（可空，空则取系统日期）
+     * @param ownerName 商机负责人姓名（可空）
+     */
+    static String systemPrompt(LocalDate today, String ownerName) {
         LocalDate day = today == null ? LocalDate.now() : today;
+        String owner = StringUtils.hasText(ownerName) ? ownerName.strip() : "";
+        String ownerLine = owner.isEmpty()
+                ? "11. 本次未给定商机负责人：nextActions[].owner 只能写 销售 / 客户 / 我，不得写具体人名。\n"
+                : "11. 本次商机负责人是「" + owner + "」：nextActions[].owner 只能写 销售 / 客户 / 我 / "
+                        + owner + "，写其它人名一律视为错误。\n";
         return SYSTEM_PROMPT
-                + "7. 今天是 " + DAY_TEXT.format(day) + "；所有日期必须是今天及以后，年份固定为 "
+                + "8. 今天是 " + DAY_TEXT.format(day) + "；所有日期必须是今天及以后，年份固定为 "
                 + day.getYear() + "，返回一年前的日期视为错误。\n"
-                + "8. 不要把【历史跟进】里超过 14 天的记录当成当前状态：它们只是背景，"
+                + "9. 不要把【历史跟进】里超过 14 天的记录当成当前状态：它们只是背景，"
                 + "若与本次回复冲突，以【本次回复】为准。\n"
-                + "9. 若给了【已知方案与案例】，优先复用其中真实的产品能力与案例口径，不得编造；"
-                + "转述时不得写出客户名，也不得把内部报价口径直接写进给客户的话术。\n";
+                + "10. 若给了【已知方案与案例】，优先复用其中真实的产品能力与案例口径，不得编造；"
+                + "转述时不得写出客户名，也不得把内部报价口径直接写进给客户的话术。\n"
+                + ownerLine;
     }
 
     private final OpportunityCoachMapper coachMapper;
@@ -296,9 +339,10 @@ public class OpportunityCoachService {
             LocalDate today = LocalDate.now();
             String userInput = buildContext(opportunity, coach, today);
             DigestLlmClient.ChatResult result =
-                    digestLlmClient.chat(systemPrompt(today), userInput, this::validate);
-            // 落库前先把 when 的年份与越界纠正掉：模型爱把日期写成去年，前端会原样展示给客户
-            coach.setContentJson(objectMapper.writeValueAsString(normalizeDates(result.json(), today)));
+                    digestLlmClient.chat(systemPrompt(today, opportunity.getOwner()), userInput, this::validate);
+            // 落库前先把 when 的年份与越界、owner 的编造人名纠正掉：前端会原样展示给客户
+            coach.setContentJson(objectMapper.writeValueAsString(
+                    normalizeDates(result.json(), today, opportunity.getOwner())));
             coach.setProvider(limit(result.providerCode(), 32));
             coach.setModel(limit(result.model(), 128));
             coach.setStatus(OpportunityCoach.STATUS_SUCCESS);
@@ -402,11 +446,21 @@ public class OpportunityCoachService {
      * <p>入参是 {@code result.json()} 的深拷贝，改完再交给 {@code writeValueAsString}
      * （{@code content_json} 是 String，所以只能在序列化前改副本）。
      *
-     * @param json  模型返回的 JSON 对象
-     * @param today 今天（可空，空则取系统日期）
+     * <p>同一个方法里还兜另外两件模型说不听的：{@code nextActions[].owner} 只允许「销售 / 客户 / 我 /
+     * 本次商机负责人」，其它人名一律改写成「销售」（实测模型会凭空编出 {@code 王赢}、{@code 刘晓文}）；
+     * 以及各数组的条数上限（超出的直接截掉，条数越多输出越慢越跑题）。
+     *
+     * @param json      模型返回的 JSON 对象
+     * @param today     今天（可空，空则取系统日期）
+     * @param ownerName 本次商机负责人姓名（可空）：加进 owner 白名单
      * @return 修正后的副本；入参不是对象时原样返回
      */
     JsonNode normalizeDates(JsonNode json, LocalDate today) {
+        return normalizeDates(json, today, null);
+    }
+
+    /** 同上，额外把「本次商机负责人」放进 owner 白名单。 */
+    JsonNode normalizeDates(JsonNode json, LocalDate today, String ownerName) {
         if (json == null || !json.isObject()) {
             return json;
         }
@@ -415,11 +469,17 @@ public class OpportunityCoachService {
         if (!(copied instanceof ObjectNode root)) {
             return json;
         }
+        // 先按条数上限截断，再逐条纠正：白名单与日期只修真正会落库的那几条
+        trimArray(root, "questions", MAX_QUESTIONS);
+        trimArray(root, "solutions", MAX_SOLUTIONS);
+        trimArray(root, "nextActions", MAX_NEXT_ACTIONS);
         JsonNode actions = root.path("nextActions");
         if (actions.isArray()) {
+            Set<String> owners = ownerWhitelist(ownerName);
             for (JsonNode action : actions) {
                 if (action instanceof ObjectNode node) {
                     fixWhen(node, day);
+                    fixOwner(node, owners);
                 }
             }
         }
@@ -457,6 +517,55 @@ public class OpportunityCoachService {
             return;
         }
         action.put("when", WHEN_TEXT.format(parsed));
+    }
+
+    /**
+     * 修正单条 nextActions 的 owner：只允许「销售 / 客户 / 我 / 本次商机负责人」，其它一律改写成「销售」。
+     *
+     * <p><b>为什么这么硬</b>：owner 会被前端原样展示，也可能跟着企微摘要转发出去。模型爱把常识里的
+     * 中文名顺手写进来——实测给的是 {@code "王赢"}、{@code "刘晓文"}，而上下文里根本没有这两个人
+     * （真实负责人是「王瀛」）。编一个人名出去比不给名字更糟，所以宁可降级成角色名。
+     */
+    private void fixOwner(ObjectNode action, Set<String> allowed) {
+        String raw = text(action.path("owner"));
+        String value = raw == null ? "" : raw.strip();
+        if (allowed.contains(value)) {
+            if (!value.equals(raw)) {
+                // 允许但带空格：顺手去掉，否则前端展示会多出空隙
+                action.put("owner", value);
+            }
+            return;
+        }
+        action.put("owner", OWNER_SALES);
+    }
+
+    /** owner 允许集：三个角色名 + 商机负责人（原样与去掉空白两种写法）。 */
+    private Set<String> ownerWhitelist(String ownerName) {
+        Set<String> allowed = new LinkedHashSet<>();
+        allowed.add(OWNER_SALES);
+        allowed.add(OWNER_CUSTOMER);
+        allowed.add(OWNER_ME);
+        if (StringUtils.hasText(ownerName)) {
+            allowed.add(ownerName.strip());
+            allowed.add(ownerName.strip().replaceAll("\\s+", ""));
+        }
+        return allowed;
+    }
+
+    /** 数组超长时只留前 {@code max} 条（模型常无视条数上限）。 */
+    private void trimArray(ObjectNode root, String field, int max) {
+        JsonNode node = root.path(field);
+        if (!node.isArray() || node.size() <= max) {
+            return;
+        }
+        ArrayNode kept = objectMapper.createArrayNode();
+        for (JsonNode item : node) {
+            if (kept.size() >= max) {
+                break;
+            }
+            kept.add(item);
+        }
+        root.set(field, kept);
     }
 
     /** when 置空字符串（前端与 markdown 都不再打印时间括号），并把「待定」写进动作文本。 */

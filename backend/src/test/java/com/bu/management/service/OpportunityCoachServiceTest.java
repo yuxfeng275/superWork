@@ -370,6 +370,77 @@ class OpportunityCoachServiceTest {
         assertThat(action.path("action").asText()).isEqualTo("约陈总" + OpportunityCoachService.WHEN_TBD);
     }
 
+    // ==================== 落库前的 owner 白名单与条数上限（防幻觉：模型爱编人名） ====================
+
+    /**
+     * 跑一次 generate，商机负责人固定为 {@code opportunityOwner}，返回落库的 content_json。
+     *
+     * @param opportunityOwner 商机负责人姓名（写进 owner 白名单）
+     * @param questions        questions 数组原文
+     * @param solutions        solutions 数组原文
+     * @param nextActions      nextActions 数组原文
+     * @param coachId          教练行 ID
+     */
+    private String generateAndCapture(String opportunityOwner, String questions, String solutions,
+            String nextActions, Long coachId) throws Exception {
+        String json = "{\"readiness\":{\"score\":50},\"questions\":" + questions
+                + ",\"solutions\":" + solutions
+                + ",\"nextActions\":" + nextActions + "}";
+        when(digestLlmClient.chat(anyString(), anyString(), any())).thenReturn(
+                new DigestLlmClient.ChatResult(objectMapper.readTree(json), "openai", "gpt-4o-mini"));
+        when(coachMapper.selectById(coachId)).thenReturn(coach(coachId, null));
+        SalesOpportunity opp = opportunity();
+        opp.setOwner(opportunityOwner);
+        when(opportunityMapper.selectById(11L)).thenReturn(opp);
+
+        service.generate(coachId);
+
+        String content = lastUpdate().getContentJson();
+        assertThat(content).isNotNull();
+        return content;
+    }
+
+    private static final String ONE_QUESTION = "[{\"question\":\"预算谁定？\"}]";
+    private static final String ONE_SOLUTION = "[{\"title\":\"先聊决策链\"}]";
+
+    @Test
+    void 模型编造的人名owner落库前被改成销售() throws Exception {
+        // 实测模型给的是「王赢」，而上下文里根本没有这个人（负责人是「王瀛」）——直接按幻觉处理
+        String content = generateAndCapture("王瀛", ONE_QUESTION, ONE_SOLUTION,
+                "[{\"action\":\"发方案\",\"when\":\"\",\"owner\":\"王赢\"}]", 40L);
+
+        JsonNode action = objectMapper.readTree(content).path("nextActions").get(0);
+        assertThat(action.path("owner").asText()).isEqualTo(OpportunityCoachService.OWNER_SALES);
+    }
+
+    @Test
+    void owner为客户或负责人本人时保持不变() throws Exception {
+        String content = generateAndCapture("王瀛", ONE_QUESTION, ONE_SOLUTION,
+                "[{\"action\":\"约复盘\",\"when\":\"\",\"owner\":\"客户\"},"
+                        + "{\"action\":\"梳理决策链\",\"when\":\"\",\"owner\":\"王瀛\"}]", 41L);
+
+        JsonNode actions = objectMapper.readTree(content).path("nextActions");
+        assertThat(actions.get(0).path("owner").asText()).isEqualTo(OpportunityCoachService.OWNER_CUSTOMER);
+        assertThat(actions.get(1).path("owner").asText()).isEqualTo("王瀛");
+    }
+
+    @Test
+    void 追问方案下一步超过条数上限时落库前被截断() throws Exception {
+        String content = generateAndCapture("王瀛",
+                "[{\"question\":\"q1\"},{\"question\":\"q2\"},{\"question\":\"q3\"},{\"question\":\"q4\"}]",
+                "[{\"title\":\"s1\"},{\"title\":\"s2\"},{\"title\":\"s3\"}]",
+                "[{\"action\":\"a1\",\"when\":\"\",\"owner\":\"销售\"},"
+                        + "{\"action\":\"a2\",\"when\":\"\",\"owner\":\"销售\"},"
+                        + "{\"action\":\"a3\",\"when\":\"\",\"owner\":\"销售\"},"
+                        + "{\"action\":\"a4\",\"when\":\"\",\"owner\":\"销售\"}]", 42L);
+
+        JsonNode root = objectMapper.readTree(content);
+        // 条数越多输出越长、首字越慢，第 4 条基本都是凑数的
+        assertThat(root.path("questions").size()).isEqualTo(3);
+        assertThat(root.path("solutions").size()).isEqualTo(2);
+        assertThat(root.path("nextActions").size()).isEqualTo(3);
+    }
+
     // ==================== 上下文：当前时间 / 可配知识包 ====================
 
     /** 跑一次 generate 并截下传给模型的 userInput（第 2 个参数）。 */
