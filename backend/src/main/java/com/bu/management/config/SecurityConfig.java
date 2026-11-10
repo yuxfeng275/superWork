@@ -85,6 +85,8 @@ public class SecurityConfig {
                         .requestMatchers("/internal/project-context/**").permitAll()
                         // 商机跟进问句的企微回复入站：同样靠 X-Sidecar-Token 校验
                         .requestMatchers("/internal/opportunity/**").permitAll()
+                        // 供 ai-sidecar 取企微智能机器人凭据，靠 X-Sidecar-Token 校验
+                        .requestMatchers("/internal/wecom/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         // 其他所有请求需要认证
                         .anyRequest().authenticated()

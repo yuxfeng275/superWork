@@ -723,4 +723,75 @@ class OpportunityFollowUpServiceTest {
                 .contains("已成交", "已流失", "已输单", "已关闭", "暂停推进")
                 .doesNotContain("初步接触", "需求确认", "方案报价", "商务谈判");
     }
+
+    // ==================== 企微入站（按 senderKey 反查最近问句） ====================
+
+    /** 一条 24 小时内、发给 yufeng 的待回复问句。 */
+    private OpportunityFollowupPrompt sentPrompt() {
+        OpportunityFollowupPrompt prompt = new OpportunityFollowupPrompt();
+        prompt.setId(1L);
+        prompt.setOpportunityId(10L);
+        prompt.setState(OpportunityFollowupPrompt.STATE_SENT);
+        prompt.setWecomUserid("yufeng");
+        prompt.setSentAt(LocalDateTime.now().minusHours(2));
+        return prompt;
+    }
+
+    @Test
+    void 企微入站按senderKey命中最近未回复问句并写成PARSED() {
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        // 第一次 selectOne 查 msgid 幂等（查无），第二次查目标问句
+        when(promptMapper.selectOne(any())).thenReturn(null, prompt);
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender(
+                " yufeng ", "概率 70%，下周三 15:00 再沟通 ", " msg-1 ", " chat-1 ",
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isSameAs(prompt);
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_PARSED);
+        assertThat(result.getInboundMsgId()).isEqualTo("msg-1");
+        assertThat(result.getChatId()).isEqualTo("chat-1");
+        assertThat(result.getReplyText()).isEqualTo("概率 70%，下周三 15:00 再沟通");
+        assertThat(result.getRepliedAt()).isNotNull();
+        verify(promptMapper).updateById(prompt);
+    }
+
+    @Test
+    void 同一msgId重复投递返回已有行不覆盖() {
+        OpportunityFollowupPrompt existing = sentPrompt();
+        existing.setState(OpportunityFollowupPrompt.STATE_PARSED);
+        existing.setInboundMsgId("msg-9");
+        existing.setReplyText("已经报价了");
+        when(promptMapper.selectOne(any())).thenReturn(existing);
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender(
+                "yufeng", "换一句不一样的话", "msg-9", null, OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result).isSameAs(existing);
+        assertThat(result.getReplyText()).isEqualTo("已经报价了");
+        verify(promptMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 没有24小时内SENT问句时企微入站返回null() {
+        when(promptMapper.selectOne(any())).thenReturn(null);
+
+        assertThat(service.applyReplyBySender("nobody", "客户说下周再聊", "msg-x", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT)).isNull();
+        verify(promptMapper, never()).updateById(any());
+    }
+
+    @Test
+    void 过期巡检把超过24小时的SENT问句置为EXPIRED() {
+        OpportunityFollowupPrompt stale = sentPrompt();
+        stale.setSentAt(LocalDateTime.now().minusHours(30));
+        // 过滤条件在 SQL 侧，mock 只验证「逐条置 EXPIRED 并计数」
+        when(promptMapper.selectList(any())).thenReturn(List.of(stale));
+
+        int expired = service.expireStale();
+
+        assertThat(expired).isEqualTo(1);
+        assertThat(stale.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_EXPIRED);
+        verify(promptMapper).updateById(stale);
+    }
 }

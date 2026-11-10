@@ -45,6 +45,12 @@ public class OpportunityFollowupPrompt {
      */
     private String wecomUserid;
 
+    /** 企微入站消息 ID（幂等键）：同一 msgid 重复投递只写一次，撞唯一键直接返回已有行。 */
+    private String inboundMsgId;
+
+    /** 企微会话 ID（群聊/单聊链路排查用，可空）。 */
+    private String chatId;
+
     /** 触发这条问句的提醒阶段（今日跟进 / 逾期跟进 / 静默唤醒 / 报价静默）。 */
     private String remindStage;
 

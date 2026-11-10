@@ -126,6 +126,10 @@ services:
     environment:
       PORT: 8787
       SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
+      # 企微智能机器人长连接（入站消息→后端）；关闭时 sidecar 不建连，不影响 AI 助手
+      AIBOT_ENABLED: "true"
+      BACKEND_BASE_URL: http://backend:8081
+      PROJECT_CONTEXT_TOKEN: ${PROJECT_CONTEXT_TOKEN:-}
     networks:
       - bu-network
 

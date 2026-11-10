@@ -20,7 +20,9 @@ import org.springframework.stereotype.Service;
  *   <li><b>试点期一律单发给机器人创建人</b>，不发给商机负责人；每人每天最多 3 条问句，
  *       试点期按<b>实际接收人</b>计数，超了直接跳过（不补发、不排队）；</li>
  *   <li>任何异常都吞掉并降级，绝不影响落库与其它商机的提醒；</li>
- *   <li>执行时间取 {@code opportunity.followup.scan-cron}，默认工作日 09:20（Asia/Shanghai）。</li>
+ *   <li>执行时间取 {@code opportunity.followup.scan-cron}，默认工作日 09:20（Asia/Shanghai）；</li>
+ *   <li>每日 {@code opportunity.followup.expire-cron}（默认 00:10）巡检一次，把超过 24 小时没人回复的
+ *       问句置为 EXPIRED，避免旧问句被当成「待回」被入站回复误命中。</li>
  * </ul>
  */
 @Slf4j
@@ -47,6 +49,24 @@ public class OpportunityFollowUpScheduler {
         dispatch(OpportunityFollowUpService.STAGE_SILENT, () -> followUpService.silent(silentDays()));
         dispatch(OpportunityFollowUpService.STAGE_QUOTATION_SILENT,
                 () -> followUpService.quotationSilent(quotationSilentDays()));
+    }
+
+    /**
+     * 每日巡检：超过 24 小时没人回复的问句置为 EXPIRED。
+     *
+     * <p>入站回复只认 24 小时内的 SENT 问句，旧问句不清理会一直挂着「等回复」的状态。
+     */
+    @Scheduled(cron = "${opportunity.followup.expire-cron:0 10 0 * * *}", zone = "Asia/Shanghai")
+    public void expireStale() {
+        try {
+            int expired = followUpService.expireStale();
+            if (expired > 0) {
+                log.info("商机问句过期巡检完成: {} 条置为 EXPIRED", expired);
+            }
+        } catch (Exception e) {
+            // 巡检失败不影响业务，下一轮再来
+            log.warn("商机问句过期巡检失败: {}", e.getMessage());
+        }
     }
 
     private void dispatch(String stage, Supplier<List<SalesOpportunity>> source) {

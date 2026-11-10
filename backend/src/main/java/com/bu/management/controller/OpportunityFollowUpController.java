@@ -93,6 +93,10 @@ public class OpportunityFollowUpController {
         return Result.success();
     }
 
+    /** 站内手工粘贴企微回复的请求体。 */
+    public record PasteReplyRequest(String text) {
+    }
+
     /** 确认一条问句的解析结果：写跟进记录并更新商机快照。 */
     @PostMapping("/{id}/followup-drafts/{promptId}/confirm")
     public Result<SalesOpportunityFollowUp> confirm(@PathVariable Long id,
@@ -101,6 +105,26 @@ public class OpportunityFollowUpController {
         // 校验路径上的商机存在（问句本身按 promptId 定位，避免前端传错 id 时静默改到别的商机）
         service.get(id);
         return Result.success(service.confirmDraft(promptId, operatorUserId));
+    }
+
+    /**
+     * 站内手工粘贴一条客户回复：命中 24 小时内最新问句就写回该行，没有就补一条「站内补录」台账。
+     *
+     * <p>企微机器人漏推/企微侧回复拿不到时，人把客户原话贴进来，解析与确认链路与企微入站一致。
+     */
+    @PostMapping("/{id}/followup-replies")
+    public Result<OpportunityFollowupPrompt> pasteReply(@PathVariable Long id,
+                                                        @RequestBody PasteReplyRequest body) {
+        return Result.success(service.pasteReply(id, body == null ? null : body.text()));
+    }
+
+    /** 忽略一条问句：不再等回复，台账置 EXPIRED。 */
+    @PostMapping("/{id}/followup-prompts/{promptId}/ignore")
+    public Result<Void> ignorePrompt(@PathVariable Long id, @PathVariable Long promptId) {
+        // 同 confirm：先校验路径上的商机存在，避免传错 id 时改到别的商机台账
+        service.get(id);
+        service.ignorePrompt(promptId);
+        return Result.success();
     }
 
     /**

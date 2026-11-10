@@ -855,6 +855,36 @@ export interface SalesOpportunityFollowUp {
   createdAt?: string;
 }
 
+/** 企微跟进问句状态：已发问 → 已回复 → 已解析 → 已确认入账（或过期） */
+export type OpportunityFollowupPromptState =
+  | "SENT"
+  | "REPLIED"
+  | "PARSED"
+  | "CONFIRMED"
+  | "EXPIRED";
+
+/**
+ * 企微问句台账：一条问句的发送/回复/解析结果。
+ * parsedJson 是后端存的 JSON 字符串，形如
+ * {"stage":null,"probability":5,"nextAt":"2026-11-18T09:00:00",...}，前端按需解析。
+ */
+export interface OpportunityFollowupPrompt {
+  id: number;
+  opportunityId: number;
+  targetUserId?: number | null;
+  wecomUserid?: string | null;
+  remindStage?: string | null;
+  channel?: string | null;
+  questionText?: string | null;
+  sentAt?: string | null;
+  repliedAt?: string | null;
+  replyText?: string | null;
+  parsedJson?: string | null;
+  state: OpportunityFollowupPromptState;
+  dedupeKey?: string | null;
+  createdAt?: string | null;
+}
+
 export interface SalesOpportunitySupportWorklog {
   id: number;
   opportunityId: number;
@@ -3530,6 +3560,37 @@ export const superworkApi = {
     return requestJson<SalesOpportunityFollowUp>(
       `/api/sales-opportunities/${id}/follow-ups`,
       { method: "POST", body: JSON.stringify(payload) }
+    );
+  },
+  getOpportunityFollowupPrompts(id: number) {
+    return requestJson<OpportunityFollowupPrompt[]>(
+      `/api/opportunities/${id}/followup-prompts`
+    );
+  },
+  /** 粘贴企微回复原文：后端解析出概率/下次跟进时间，但仍需人工确认才入账 */
+  pasteOpportunityFollowupReply(id: number, text: string) {
+    return requestJson<OpportunityFollowupPrompt>(
+      `/api/opportunities/${id}/followup-replies`,
+      { method: "POST", body: JSON.stringify({ text }) }
+    );
+  },
+  /** 确认入账：确认后商机的成交概率/下次跟进时间才会变 */
+  confirmOpportunityFollowupPrompt(
+    id: number,
+    promptId: number,
+    operatorUserId?: number
+  ) {
+    return requestJson<SalesOpportunityFollowUp>(
+      `/api/opportunities/${id}/followup-drafts/${promptId}/confirm${query({
+        operatorUserId,
+      })}`,
+      { method: "POST" }
+    );
+  },
+  ignoreOpportunityFollowupPrompt(id: number, promptId: number) {
+    return requestJson<OpportunityFollowupPrompt>(
+      `/api/opportunities/${id}/followup-prompts/${promptId}/ignore`,
+      { method: "POST" }
     );
   },
   getSalesOpportunitySupportWorklogs(id: number) {

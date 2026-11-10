@@ -45,6 +45,7 @@ import {
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  type OpportunityFollowupPrompt,
   type QuotationListVO,
   type SalesOpportunity,
   type SalesOpportunityFollowUp,
@@ -102,6 +103,24 @@ type OpportunityForm = {
 
 const dateTime = (value?: string) =>
   value ? value.replace('T', ' ').slice(0, 16) : '未记录时间';
+/** 解析问句台账里的 parsedJson（后端存的是字符串），解析失败时不展示解析结果 */
+const parseFollowupParsed = (
+  raw?: string | null,
+): { probability?: number; nextAt?: string } => {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const record = parsed as Record<string, unknown>;
+    return {
+      probability:
+        typeof record.probability === 'number' ? record.probability : undefined,
+      nextAt: typeof record.nextAt === 'string' ? record.nextAt : undefined,
+    };
+  } catch {
+    return {};
+  }
+};
 /** 已结束的商机不再参与今日/逾期跟进视图 */
 const closedStatuses: SalesOpportunityStatus[] = ['已成交', '已流失'];
 /** 下次跟进时间：优先结构化字段 nextFollowUpAt，解析不出时回落旧文本 */
@@ -234,6 +253,11 @@ export default function OpportunitiesPage() {
   const [quotations, setQuotations] = useState<QuotationListVO[]>([]);
   const [compareOpen, setCompareOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // 企微跟进问句台账：PARSED/REPLIED 的回复需人工确认后才写入商机
+  const [prompts, setPrompts] = useState<OpportunityFollowupPrompt[]>([]);
+  const [promptsLoading, setPromptsLoading] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pasting, setPasting] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [quoteTarget, setQuoteTarget] = useState<SalesOpportunity>();
   const [businessLines, setBusinessLines] = useState<string[]>([]);
@@ -250,6 +274,21 @@ export default function OpportunitiesPage() {
   >({});
   // 「本月支持工时」卡片点击查看按月明细
   const [monthlyOpen, setMonthlyOpen] = useState(false);
+  // 待确认回复：PARSED/REPLIED，以及 SENT 且尚未回复，取最近 5 条
+  const pendingPrompts = useMemo(() => {
+    const visible = prompts.filter((item) => {
+      if (item.state === 'PARSED' || item.state === 'REPLIED') return true;
+      return item.state === 'SENT' && !item.replyText;
+    });
+    return visible
+      .slice()
+      .sort((a, b) =>
+        (b.sentAt || b.createdAt || '').localeCompare(
+          a.sentAt || a.createdAt || '',
+        ),
+      )
+      .slice(0, 5);
+  }, [prompts]);
   const hasFreshFollowUp = (id: number) => {
     const latest = latestFollowUpAt[id];
     return Boolean(latest && dayjs().diff(dayjs(latest), 'day', true) <= 3);
@@ -504,10 +543,22 @@ export default function OpportunitiesPage() {
       setHistoryLoading(false);
     }
   };
+  const loadPrompts = async (id: number) => {
+    setPromptsLoading(true);
+    try {
+        const list = await superworkApi.getOpportunityFollowupPrompts(id);
+        setPrompts(list || []);
+    } catch {
+      // 老环境没有该接口时不阻塞详情，只是不展示待确认回复
+      setPrompts([]);
+    } finally {
+      setPromptsLoading(false);
+    }
+  };
   const openDetail = async (row: SalesOpportunity) => {
     setDetail(row);
     setDetailOpen(true);
-    await loadHistory(row.id);
+    await Promise.all([loadHistory(row.id), loadPrompts(row.id)]);
   };
   const openFollow = async (row: SalesOpportunity) => {
     setDetail(row);
@@ -547,6 +598,58 @@ export default function OpportunitiesPage() {
       message.error(e instanceof Error ? e.message : '跟进记录保存失败');
     } finally {
       setFollowSaving(false);
+    }
+  };
+  // 确认入账：只有确认后后端才会改概率/下次跟进时间，所以列表+历史+问句三处都刷
+  const confirmPrompt = async (prompt: OpportunityFollowupPrompt) => {
+    if (!detail) return;
+    try {
+      await superworkApi.confirmOpportunityFollowupPrompt(
+        detail.id,
+        prompt.id,
+        initialState?.currentUser?.id,
+      );
+      message.success('已写入商机');
+      await load();
+      await loadHistory(detail.id);
+      await loadPrompts(detail.id);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '确认入账失败');
+    }
+  };
+  const ignorePrompt = async (prompt: OpportunityFollowupPrompt) => {
+    if (!detail) return;
+    try {
+      await superworkApi.ignoreOpportunityFollowupPrompt(
+        detail.id,
+        prompt.id,
+      );
+      message.success('已忽略该问句');
+      await loadPrompts(detail.id);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '忽略失败');
+    }
+  };
+  // 粘贴企微回复原文：后端解析出概率/下次跟进时间，仍需人工确认才入账
+  const pasteReply = async () => {
+    if (!detail) return;
+    const text = pasteText.trim();
+    if (!text) {
+      message.warning('请先粘贴回复原文');
+      return;
+    }
+    setPasting(true);
+    try {
+      await superworkApi.pasteOpportunityFollowupReply(detail.id, text);
+      setPasteText('');
+      message.success('已解析，请确认入账');
+      await load();
+      await loadHistory(detail.id);
+      await loadPrompts(detail.id);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '解析失败，请稍后重试');
+    } finally {
+      setPasting(false);
     }
   };
   const canLogHours = (row?: SalesOpportunity | null) => row?.status !== '已成交';
@@ -1366,6 +1469,97 @@ export default function OpportunitiesPage() {
             <Divider />
             <Typography.Title level={5}>跟进历史</Typography.Title>
             {followHistoryTimeline}
+            <Divider />
+            <Card size="small" title="待确认回复" style={{ marginBottom: 16 }}>
+              <Typography.Paragraph
+                type="secondary"
+                style={{ marginBottom: 12 }}
+              >
+                企微问句的回复在这里确认后才写进商机（概率/下次跟进时间才会变）。
+              </Typography.Paragraph>
+              <List
+                size="small"
+                loading={promptsLoading}
+                dataSource={pendingPrompts}
+                locale={{ emptyText: '暂无待确认回复' }}
+                renderItem={(item) => {
+                  const parsed = parseFollowupParsed(item.parsedJson);
+                  return (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="confirm"
+                          type="link"
+                          size="small"
+                          disabled={item.state === 'SENT'}
+                          onClick={() => void confirmPrompt(item)}
+                        >
+                          确认入账
+                        </Button>,
+                        <Button
+                          key="ignore"
+                          type="link"
+                          size="small"
+                          danger
+                          onClick={() => void ignorePrompt(item)}
+                        >
+                          忽略
+                        </Button>,
+                      ]}
+                    >
+                      <Space
+                        direction="vertical"
+                        size={2}
+                        style={{ width: '100%' }}
+                      >
+                        <Space wrap>
+                          <Tag color="processing">
+                            {item.remindStage || '跟进问句'}
+                          </Tag>
+                          <Typography.Text type="secondary">
+                            {dateTime(
+                              item.sentAt || item.createdAt || undefined,
+                            )}
+                          </Typography.Text>
+                        </Space>
+                        <Typography.Text>
+                          {item.replyText || '等待回复'}
+                        </Typography.Text>
+                        {(parsed.probability !== undefined ||
+                          parsed.nextAt) && (
+                          <Typography.Text type="secondary">
+                            {parsed.probability !== undefined
+                              ? `概率 ${parsed.probability}%`
+                              : ''}
+                            {parsed.probability !== undefined && parsed.nextAt
+                              ? ' · '
+                              : ''}
+                            {parsed.nextAt
+                              ? `下次跟进 ${dateTime(parsed.nextAt)}`
+                              : ''}
+                          </Typography.Text>
+                        )}
+                      </Space>
+                    </List.Item>
+                  );
+                }}
+              />
+              <Input.TextArea
+                rows={2}
+                style={{ marginTop: 12 }}
+                value={pasteText}
+                onChange={(event) => setPasteText(event.target.value)}
+                placeholder="把企微里的回复原文粘贴到这里，例如『下周三 15:00 再沟通，概率 8%』"
+              />
+              <Button
+                type="primary"
+                loading={pasting}
+                style={{ marginTop: 8 }}
+                onClick={() => void pasteReply()}
+              >
+                解析并保存
+              </Button>
+            </Card>
             <Divider />
             <Typography.Title level={5}>售前支持工时</Typography.Title>
             <List

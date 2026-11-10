@@ -34,7 +34,7 @@ public class OpportunityReplyInternalController {
 
     /** 入站请求体。 */
     public record OpportunityReplyRequest(String senderKey, Long opportunityId, String text,
-                                         String msgId, String channel, Boolean external) {
+                                         String msgId, String chatId, String channel, Boolean external) {
     }
 
     private final OpportunityFollowUpService followUpService;
@@ -53,15 +53,20 @@ public class OpportunityReplyInternalController {
             return ResponseEntity.badRequest().body(Result.error(400,
                     "外部联系人单聊不走本端点：需企业管理员开通会话内容存档（msgaudit）授权"));
         }
-        if (body.opportunityId() == null) {
-            return ResponseEntity.badRequest().body(Result.error(400, "opportunityId 不能为空"));
+        // 企微机器人回调只带 userid + msgid，没有商机 ID：此时按发送人反查最近未回复问句
+        if (body.opportunityId() == null && !StringUtils.hasText(body.senderKey())) {
+            return ResponseEntity.badRequest().body(Result.error(400,
+                    "opportunityId 与 senderKey 至少传一个"));
         }
         String text = strip(body.text());
         if (text.isEmpty()) {
             return ResponseEntity.badRequest().body(Result.error(400, "text 不能为空"));
         }
-        OpportunityFollowupPrompt prompt = followUpService.applyReply(
-                strip(body.senderKey()), body.opportunityId(), text, strip(body.msgId), strip(body.channel()));
+        OpportunityFollowupPrompt prompt = body.opportunityId() == null
+                ? followUpService.applyReplyBySender(strip(body.senderKey()), text,
+                        strip(body.msgId()), strip(body.chatId()), strip(body.channel()))
+                : followUpService.applyReply(strip(body.senderKey()), body.opportunityId(), text,
+                        strip(body.msgId()), strip(body.chatId()), strip(body.channel()));
         if (prompt == null) {
             // 没有 24 小时内的待回问句：明确告知已忽略，重复投递同样落到这里
             return ResponseEntity.ok(Result.success("没有待回复的问句，已忽略", null));

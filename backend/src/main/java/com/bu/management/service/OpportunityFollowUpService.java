@@ -328,27 +328,173 @@ public class OpportunityFollowUpService {
      * @param senderKey     企微 userid（用于核对归属，可空）
      * @param opportunityId 商机 ID
      * @param text          回复正文
-     * @param msgId         消息 ID，仅用于日志与排查
+     * @param msgId         消息 ID，用于幂等与排查
      * @param channel       入站渠道（WECOM_APP / INAPP）
      * @return 被更新的问句；没有可处理问句时返回 null
      */
     @Transactional(rollbackFor = Exception.class)
     public OpportunityFollowupPrompt applyReply(String senderKey, Long opportunityId, String text,
                                                 String msgId, String channel) {
+        return applyReply(senderKey, opportunityId, text, msgId, null, channel);
+    }
+
+    /** 同上，额外带上企微会话 ID（单聊场景可空）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public OpportunityFollowupPrompt applyReply(String senderKey, Long opportunityId, String text,
+                                                String msgId, String chatId, String channel) {
         if (opportunityId == null || !StringUtils.hasText(text)) {
             return null;
+        }
+        OpportunityFollowupPrompt prompt = findLatestSent(opportunityId);
+        if (prompt == null) {
+            log.info("商机回复没有可处理的问句，忽略: oppId={} msgId={} channel={}", opportunityId, msgId, channel);
+            return null;
+        }
+        return applyReplyTo(prompt, senderKey, text, msgId, chatId);
+    }
+
+    /**
+     * 按发送人反查最近未回复问句并写回台账（企微智能机器人/转发器回调走这里）。
+     *
+     * <p>机器人回调只有发送人 userid + msgid，没有商机 ID：按
+     * {@code wecom_userid = senderKey AND state = SENT AND sent_at 在 24 小时内} 取最近一条；
+     * {@code msgId} 落在 {@code inbound_msg_id}（唯一键）上做幂等，重复投递直接返回已有行、不覆盖。
+     *
+     * @return 被更新的问句；没匹配到问句或 senderKey/text 为空时返回 null
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public OpportunityFollowupPrompt applyReplyBySender(String senderKey, String text, String msgId,
+                                                        String chatId, String channel) {
+        String key = StringUtils.hasText(senderKey) ? senderKey.strip() : null;
+        String reply = StringUtils.hasText(text) ? text.strip() : null;
+        String messageId = StringUtils.hasText(msgId) ? msgId.strip() : null;
+        String sessionId = StringUtils.hasText(chatId) ? chatId.strip() : null;
+        if (key == null || reply == null) {
+            return null;
+        }
+        if (messageId != null) {
+            OpportunityFollowupPrompt delivered = findByInboundMsgId(messageId);
+            if (delivered != null) {
+                // 企微回调会重试：同一 msgid 再来一次直接返回已有行，不覆盖已解析结果
+                log.info("企微入站回复重复投递，返回已有台账: senderKey={} msgId={} promptId={}",
+                        key, messageId, delivered.getId());
+                return delivered;
+            }
         }
         LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
         OpportunityFollowupPrompt prompt = promptMapper.selectOne(
                 new LambdaQueryWrapper<OpportunityFollowupPrompt>()
-                        .eq(OpportunityFollowupPrompt::getOpportunityId, opportunityId)
+                        .eq(OpportunityFollowupPrompt::getWecomUserid, key)
                         .eq(OpportunityFollowupPrompt::getState, OpportunityFollowupPrompt.STATE_SENT)
                         .ge(OpportunityFollowupPrompt::getSentAt, since)
                         .orderByDesc(OpportunityFollowupPrompt::getSentAt)
                         .orderByDesc(OpportunityFollowupPrompt::getId)
                         .last("limit 1"));
         if (prompt == null) {
-            log.info("商机回复没有可处理的问句，忽略: oppId={} msgId={} channel={}", opportunityId, msgId, channel);
+            log.info("企微入站回复没有可处理的问句，忽略: senderKey={} msgId={} channel={}",
+                    key, messageId, channel);
+            return null;
+        }
+        return applyReplyTo(prompt, key, reply, messageId, sessionId);
+    }
+
+    /**
+     * 站内手工粘贴企微回复（企微转发失败/漏推时的兜底入口）。
+     *
+     * <p>先按 {@code opportunityId} 找 24 小时内最新 {@code SENT} 问句；没有就补一条「站内补录」台账
+     * （dedupe_key 带秒级时间戳，保证不撞唯一键），再走同一套解析写回。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public OpportunityFollowupPrompt pasteReply(Long opportunityId, String text) {
+        if (!StringUtils.hasText(text)) {
+            throw new RuntimeException("回复内容不能为空");
+        }
+        SalesOpportunity opportunity = get(opportunityId);
+        OpportunityFollowupPrompt prompt = findLatestSent(opportunity.getId());
+        if (prompt == null) {
+            LocalDateTime now = LocalDateTime.now();
+            OpportunityFollowupPrompt row = new OpportunityFollowupPrompt();
+            row.setOpportunityId(opportunity.getId());
+            row.setTargetUserId(opportunity.getOwnerUserId());
+            row.setRemindStage("站内补录");
+            row.setChannel(CHANNEL_INAPP);
+            row.setQuestionText("站内补录：请补充客户回复");
+            row.setSentAt(now);
+            row.setState(OpportunityFollowupPrompt.STATE_SENT);
+            // 补录行没有「阶段 + 日期」语义的天然幂等键，用秒级时间戳保证每次手贴都是独立一行
+            row.setDedupeKey("opp:" + opportunity.getId() + ":站内补录:" + DEDUPE_DATE.format(LocalDate.now())
+                    + ":" + (System.currentTimeMillis() / 1000));
+            row.setCreatedAt(now);
+            promptMapper.insert(row);
+            prompt = row;
+        }
+        return applyReplyTo(prompt, null, text, null, null);
+    }
+
+    /** 忽略一条问句：不再等回复，台账置 EXPIRED（repliedAt 补 now 便于看「什么时候被放弃的」）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void ignorePrompt(Long promptId) {
+        OpportunityFollowupPrompt prompt = promptId == null ? null : promptMapper.selectById(promptId);
+        if (prompt == null) {
+            throw new RuntimeException("问句不存在");
+        }
+        prompt.setState(OpportunityFollowupPrompt.STATE_EXPIRED);
+        if (prompt.getRepliedAt() == null) {
+            prompt.setRepliedAt(LocalDateTime.now());
+        }
+        promptMapper.updateById(prompt);
+    }
+
+    /**
+     * 过期巡检：超过 24 小时仍是 {@code SENT} 的问句批量置 EXPIRED。
+     *
+     * <p>先查再逐条 update（量小），不走批量 SQL，保持与其它台账写法一致。
+     *
+     * @return 置为 EXPIRED 的条数
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int expireStale() {
+        LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
+        List<OpportunityFollowupPrompt> rows = promptMapper.selectList(
+                new LambdaQueryWrapper<OpportunityFollowupPrompt>()
+                        .eq(OpportunityFollowupPrompt::getState, OpportunityFollowupPrompt.STATE_SENT)
+                        .lt(OpportunityFollowupPrompt::getSentAt, since));
+        int expired = 0;
+        for (OpportunityFollowupPrompt row : rows == null ? List.<OpportunityFollowupPrompt>of() : rows) {
+            row.setState(OpportunityFollowupPrompt.STATE_EXPIRED);
+            promptMapper.updateById(row);
+            expired++;
+        }
+        return expired;
+    }
+
+    /** 商机 24 小时内最新一条待回复问句（找不到返回 null）。 */
+    private OpportunityFollowupPrompt findLatestSent(Long opportunityId) {
+        LocalDateTime since = LocalDateTime.now().minusHours(REPLY_WINDOW_HOURS);
+        return promptMapper.selectOne(new LambdaQueryWrapper<OpportunityFollowupPrompt>()
+                .eq(OpportunityFollowupPrompt::getOpportunityId, opportunityId)
+                .eq(OpportunityFollowupPrompt::getState, OpportunityFollowupPrompt.STATE_SENT)
+                .ge(OpportunityFollowupPrompt::getSentAt, since)
+                .orderByDesc(OpportunityFollowupPrompt::getSentAt)
+                .orderByDesc(OpportunityFollowupPrompt::getId)
+                .last("limit 1"));
+    }
+
+    /** 按企微入站消息 ID 找台账（幂等键）。 */
+    private OpportunityFollowupPrompt findByInboundMsgId(String msgId) {
+        return promptMapper.selectOne(new LambdaQueryWrapper<OpportunityFollowupPrompt>()
+                .eq(OpportunityFollowupPrompt::getInboundMsgId, msgId)
+                .last("limit 1"));
+    }
+
+    /**
+     * 把一条回复写进指定问句台账：reply_text + 解析结果 + state，并记下入站 msgid / 会话 ID。
+     *
+     * <p>企微按发送人反查与站内补录都走这里，保证两条入口的解析与状态口径完全一致。
+     */
+    private OpportunityFollowupPrompt applyReplyTo(OpportunityFollowupPrompt prompt, String senderKey,
+                                                   String text, String msgId, String chatId) {
+        if (prompt == null || prompt.getId() == null || !StringUtils.hasText(text)) {
             return null;
         }
         String reply = shorten(text.strip(), 2000);
@@ -364,6 +510,12 @@ public class OpportunityFollowUpService {
         }
         if (StringUtils.hasText(senderKey) && !StringUtils.hasText(prompt.getWecomUserid())) {
             prompt.setWecomUserid(shorten(senderKey, 64));
+        }
+        if (StringUtils.hasText(msgId)) {
+            prompt.setInboundMsgId(shorten(msgId, 64));
+        }
+        if (StringUtils.hasText(chatId)) {
+            prompt.setChatId(shorten(chatId, 64));
         }
         promptMapper.updateById(prompt);
         return prompt;

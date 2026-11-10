@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import { handleRun, type AgentFactory } from "./run.js";
+import { startAibotBridge } from "./aibot.js";
 
 /**
  * ai-sidecar HTTP entry: minimal node:http server.
@@ -54,5 +55,7 @@ if (isMain) {
   const server = createSidecarServer();
   server.listen(port, () => {
     console.log(`ai-sidecar listening on port ${port}`);
+    // HTTP 服务起来之后再拉起企微智能机器人长连接；AIBOT_ENABLED 未开启时函数内部直接返回。
+    startAibotBridge();
   });
 }
