@@ -173,17 +173,20 @@ class OpportunityFollowUpServiceTest {
     }
 
     @Test
-    void 回复没解析出结构时只标已回复() {
+    void 纯确认词回复保持已回复且不落跟进记录() {
         OpportunityFollowupPrompt sent = new OpportunityFollowupPrompt();
         sent.setId(5L);
         sent.setState(OpportunityFollowupPrompt.STATE_SENT);
         when(promptMapper.selectOne(any())).thenReturn(sent);
 
-        OpportunityFollowupPrompt updated = service.applyReply(null, 11L, "好的收到，我再想想", "msg-2", "INAPP");
+        OpportunityFollowupPrompt updated = service.applyReply(null, 11L, "好的", "msg-2", "INAPP");
 
+        // 「好的」没有任何新信息，落跟进记录只会把跟进列表刷成应答词
         assertThat(updated.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_REPLIED);
         assertThat(updated.getRepliedAt()).isNotNull();
         assertThat(updated.getWecomUserid()).isNull();
+        verify(followUpMapper, never()).insert(any());
+        verify(opportunityMapper, never()).updateById(any());
     }
 
     @Test
@@ -830,6 +833,10 @@ class OpportunityFollowUpServiceTest {
                 LocalDateTime.now().minusMinutes(3));
         // 候选第一条是最新的：旧逻辑直接选它，就会把回复写到错的商机上，正是本次要修的 bug
         when(promptMapper.selectList(any())).thenReturn(List.of(latest, quoted));
+        // 回复是实质文本，按新口径会落一条跟进记录 → 被命中的商机必须能查到
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
 
         OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
                 "已经和客户确认，下周签约", "msg-quote-1", null,
@@ -838,7 +845,8 @@ class OpportunityFollowUpServiceTest {
 
         assertThat(result).isSameAs(quoted);
         assertThat(result.getReplyText()).isEqualTo("已经和客户确认，下周签约");
-        verify(promptMapper).updateById(quoted);
+        // 台账会写两次（落回复一次、自动落库回写 CONFIRMED 一次），这里只关心命中哪一条
+        verify(promptMapper, atLeastOnce()).updateById(quoted);
         verify(promptMapper, never()).updateById(latest);
     }
 
@@ -849,13 +857,17 @@ class OpportunityFollowUpServiceTest {
         OpportunityFollowupPrompt older = candidate(1L, 10L,
                 "【静默唤醒】商机「帝亚吉欧-全域及运营解决」，现在什么进展？", LocalDateTime.now().minusMinutes(3));
         when(promptMapper.selectList(any())).thenReturn(List.of(latest, older));
+        // 同上：实质文本会触发自动落库，这里只关心命中哪一条
+        SalesOpportunity opp = opportunity();
+        opp.setId(18L);
+        when(opportunityMapper.selectById(18L)).thenReturn(opp);
 
         OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng",
                 "还在等客户内部审批", "msg-quote-2", "chat-9", null,
                 OpportunityFollowUpService.CHANNEL_WECOM_BOT);
 
         assertThat(result).isSameAs(latest);
-        verify(promptMapper).updateById(latest);
+        verify(promptMapper, atLeastOnce()).updateById(latest);
         verify(promptMapper, never()).updateById(older);
     }
 
@@ -907,7 +919,7 @@ class OpportunityFollowUpServiceTest {
     }
 
     @Test
-    void 回复里没有概率和时间时只记原文不写商机() {
+    void 回复里没有概率和时间但有实质文本时仍落跟进记录且不硬改概率与时间() {
         SalesOpportunity opp = opportunity();
         opp.setId(10L);
         OpportunityFollowupPrompt prompt = sentPrompt();
@@ -918,13 +930,64 @@ class OpportunityFollowUpServiceTest {
                 "客户还在内部评估，暂时没有结论", "msg-auto-2", null,
                 OpportunityFollowUpService.CHANNEL_WECOM_BOT);
 
-        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_REPLIED);
+        // 只记原文会让商机 last_follow_up_at 一动不动，跟进节奏整个失真 → 实质文本也要落库
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_CONFIRMED);
         assertThat(result.getReplyText()).isEqualTo("客户还在内部评估，暂时没有结论");
+        ArgumentCaptor<SalesOpportunityFollowUp> captor =
+                ArgumentCaptor.forClass(SalesOpportunityFollowUp.class);
+        verify(followUpMapper).insert(captor.capture());
+        SalesOpportunityFollowUp item = captor.getValue();
+        assertThat(item.getContent()).isEqualTo("客户还在内部评估，暂时没有结论");
+        // 没解析出概率就沿用商机当前值，没解析出时间就不写时间
+        assertThat(item.getProbability()).isEqualTo(40);
+        assertThat(item.getNextFollowUp()).isNull();
+        verify(opportunityMapper).updateById(opp);
+        assertThat(opp.getProbability()).isEqualTo(40);
+        assertThat(opp.getStatus()).isEqualTo("需求确认");
+        assertThat(opp.getLastFollowUpAt()).isNotNull();
+        assertThat(opp.getNextFollowUpAt()).isNull();
+    }
+
+    @Test
+    void 纯确认词入站回复保持REPLIED且不写跟进不刷商机() {
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+
+        OpportunityFollowupPrompt result = service.applyReplyBySender("yufeng", "好的", "msg-auto-4", null,
+                OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        assertThat(result.getState()).isEqualTo(OpportunityFollowupPrompt.STATE_REPLIED);
         verify(followUpMapper, never()).insert(any());
         verify(opportunityMapper, never()).updateById(any());
         assertThat(opp.getProbability()).isEqualTo(40);
-        assertThat(opp.getStatus()).isEqualTo("需求确认");
-        assertThat(opp.getNextFollowUpAt()).isNull();
+        assertThat(opp.getLastFollowUpAt()).isNull();
+    }
+
+    @Test
+    void 忙双11双十一之后再跟进这类回复直接解析出下次跟进时间() {
+        // 线上原话：信息量很大（观望 + 明确时间锚点），以前只记了原文，商机一点没动
+        SalesOpportunity opp = opportunity();
+        opp.setId(10L);
+        OpportunityFollowupPrompt prompt = sentPrompt();
+        when(promptMapper.selectList(any())).thenReturn(List.of(prompt));
+        when(opportunityMapper.selectById(10L)).thenReturn(opp);
+
+        service.applyReplyBySender("yufeng",
+                "客户还没有想好要不要做，目前在忙双 11，需要双十一之后在继续跟进",
+                "msg-auto-5", null, OpportunityFollowUpService.CHANNEL_WECOM_BOT);
+
+        verify(followUpMapper).insert(any());
+        assertThat(opp.getLastFollowUpAt()).isNotNull();
+        assertThat(opp.getNextFollowUpAt()).isNotNull();
+        // 「双十一之后」= 11-12（年份取决于今天，只钉月日）
+        assertThat(opp.getNextFollowUpAt().getMonthValue()).isEqualTo(11);
+        assertThat(opp.getNextFollowUpAt().getDayOfMonth()).isEqualTo(12);
+        assertThat(opp.getFollowUpState()).isEqualTo("PENDING");
+        // 概率没解析出来就沿用当前值，不硬改
+        assertThat(opp.getProbability()).isEqualTo(40);
     }
 
     @Test
@@ -1101,5 +1164,58 @@ class OpportunityFollowUpServiceTest {
         verify(followUpMapper).insert(any());
         verify(opportunityMapper).updateById(opp);
         assertThat(opp.getProbability()).isEqualTo(70);
+    }
+
+    // ==================== 解析器：电商大促 / 节假日相对时间词 ====================
+
+    @Test
+    void 解析双十一及其之后() {
+        LocalDate base = LocalDate.of(2026, 11, 5);
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("双十一之后", base))
+                .isEqualTo(LocalDateTime.of(2026, 11, 12, 9, 0));
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("双11 后", base))
+                .isEqualTo(LocalDateTime.of(2026, 11, 12, 9, 0));
+        // 没带「之后」就是当天默认 09:00
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("双 11 再聊", base))
+                .isEqualTo(LocalDateTime.of(2026, 11, 11, 9, 0));
+        // 双十一已过则顺延到次年
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("双十一之后", LocalDate.of(2026, 11, 20)))
+                .isEqualTo(LocalDateTime.of(2027, 11, 12, 9, 0));
+    }
+
+    @Test
+    void 一句话里多次提到双十一时取带之后的那一处() {
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp(
+                "目前在忙双 11，需要双十一之后在继续跟进", LocalDate.of(2026, 11, 5)))
+                .isEqualTo(LocalDateTime.of(2026, 11, 12, 9, 0));
+    }
+
+    @Test
+    void 解析月底月初与年底() {
+        LocalDate base = LocalDate.of(2026, 11, 5);
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("月底再说", base))
+                .isEqualTo(LocalDateTime.of(2026, 11, 30, 9, 0));
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("月初 10:00 再联系", base))
+                .isEqualTo(LocalDateTime.of(2026, 12, 1, 10, 0));
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("年底再谈", base))
+                .isEqualTo(LocalDateTime.of(2026, 12, 31, 9, 0));
+        // 「月底后」按通用规则 +1 天
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("月底后联系", base))
+                .isEqualTo(LocalDateTime.of(2026, 12, 1, 9, 0));
+    }
+
+    @Test
+    void 解析国庆后且已过顺延到次年() {
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("国庆后联系", LocalDate.of(2026, 9, 20)))
+                .isEqualTo(LocalDateTime.of(2026, 10, 2, 9, 0));
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("国庆后联系", LocalDate.of(2026, 10, 15)))
+                .isEqualTo(LocalDateTime.of(2027, 10, 2, 9, 0));
+    }
+
+    @Test
+    void 中文月日不被新规则误伤() {
+        // 「11月20号」这种写法解析器本来就支持不了，必须老实返回 null，不能被当成双十一 / 月底之类
+        assertThat(OpportunityFollowUpParser.parseNextFollowUp("11月20号", LocalDate.of(2026, 11, 5)))
+                .isNull();
     }
 }

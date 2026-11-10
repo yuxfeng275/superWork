@@ -20,11 +20,14 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 /**
@@ -110,6 +113,13 @@ public class OpportunityFollowUpService {
      * 不再等人去「待确认」里点一次。置 false 才回到「只记原文、人工确认」。
      */
     private static final String AUTO_CONFIRM_KEY = "followup.auto-confirm";
+    /**
+     * 纯确认词：没有任何新信息，落一条跟进记录只会把跟进列表刷成「好的/收到」。
+     *
+     * <p>命中这些词的回复保持 REPLIED，等人工补；其余只要有实质文本（≥6 字）就落库。
+     */
+    private static final Set<String> TRIVIAL_REPLIES =
+            Set.of("好", "好的", "收到", "ok", "嗯", "对", "行", "明白", "了解", "知道了");
 
     private final SalesOpportunityMapper opportunityMapper;
     private final SalesOpportunityFollowUpMapper followUpMapper;
@@ -713,8 +723,9 @@ public class OpportunityFollowUpService {
      *
      * <p>企微按发送人反查与站内补录都走这里，保证两条入口的解析与状态口径完全一致。
      *
-     * <p><b>解析出成交概率或下次跟进时间就直接落库</b>（写跟进记录 + 刷新商机，台账直置 CONFIRMED），
-     * 开关 {@code opportunity.followup.auto-confirm} 默认开；没解析到结构化字段时只记原文，台账保持 PARSED/REPLIED 等人工补。
+     * <p><b>落库门槛</b>：解析出成交概率/下次跟进时间，或回复文本本身有实质信息（≥6 字且不是「好的」这类纯确认词），
+     * 就直接写跟进记录 + 刷新商机 {@code last_follow_up_at}（台账直置 CONFIRMED）；开关
+     * {@code opportunity.followup.auto-confirm} 默认开，关掉才回到 PARSED/REPLIED 等人工确认。
      */
     private OpportunityFollowupPrompt applyReplyTo(OpportunityFollowupPrompt prompt, String senderKey,
                                                    String text, String msgId, String chatId) {
@@ -723,10 +734,14 @@ public class OpportunityFollowUpService {
         }
         String reply = shorten(text.strip(), 2000);
         OpportunityFollowUpParser.ReplyDraft draft = OpportunityFollowUpParser.parseReply(reply);
-        // 自动落库：只要解析出成交概率或下次跟进时间就直接写库，不再等人确认（开关见 AUTO_CONFIRM_KEY）
-        boolean autoConfirmable = draft != null
-                && (draft.probability() != null || draft.nextAt() != null)
-                && autoConfirmEnabled();
+        // 自动落库口径（开关见 AUTO_CONFIRM_KEY）：
+        //   1) structured：解析出成交概率或下次跟进时间，直接算数；
+        //   2) substantial：没有百分号/具体日期，但文本本身有信息量（「目前在忙双 11，双十一之后继续跟进」）；
+        //      这种回复以前只记原文，商机 last_follow_up_at 一动不动，跟进节奏整个失真；
+        //   3) 纯确认词（「好的」「收到」）保持 REPLIED，不污染跟进列表。
+        boolean structured = draft != null && (draft.probability() != null || draft.nextAt() != null);
+        boolean substantial = reply.length() >= 6 && !TRIVIAL_REPLIES.contains(reply.strip().toLowerCase());
+        boolean autoConfirmable = autoConfirmEnabled() && (structured || substantial);
         prompt.setRepliedAt(LocalDateTime.now());
         prompt.setReplyText(reply);
         if (autoConfirmable) {
@@ -754,12 +769,42 @@ public class OpportunityFollowUpService {
             autoConfirm(prompt, draft);
         }
         // 回复已落库之后才入队教练：教练生成是「锦上添花」，任何异常都必须止步于日志
-        try {
-            coachService.enqueue(prompt.getOpportunityId(), prompt.getId(), "INBOUND", prompt.getTargetUserId());
-        } catch (Exception e) {
-            log.warn("商机 AI 教练生成入队失败（不影响回复落库）: promptId={} err={}", prompt.getId(), e.getMessage());
-        }
+        enqueueCoach(prompt);
         return prompt;
+    }
+
+    /**
+     * 教练入队：<b>事务提交之后</b>再调 {@code coachService.enqueue}。
+     *
+     * <p>踩过的坑：以前在 {@link #applyReplyTo} 的事务里直接入队，enqueue 插入 PENDING 行后立即
+     * {@code executor.execute(...)}，异步线程抢在事务提交前去查那行，查不到就直接跳过
+     * （日志「商机 AI 教练行不存在，跳过生成」），教练包因此根本没生成过。
+     * 改成 afterCommit 回调后，异步线程一定能读到已提交的行。
+     *
+     * <p>没有事务上下文（例如站内补录）时同步直接调；异常一律只记日志，不影响回复落库。
+     */
+    private void enqueueCoach(OpportunityFollowupPrompt prompt) {
+        Long opportunityId = prompt.getOpportunityId();
+        Long promptId = prompt.getId();
+        Long targetUserId = prompt.getTargetUserId();
+        Runnable task = () -> {
+            try {
+                coachService.enqueue(opportunityId, promptId, "INBOUND", targetUserId);
+            } catch (Exception e) {
+                log.warn("商机 AI 教练生成入队失败（不影响回复落库）: promptId={} err={}",
+                        promptId, e.getMessage());
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+            return;
+        }
+        task.run();
     }
 
     // ==================== 确认落库 ====================
@@ -834,6 +879,9 @@ public class OpportunityFollowUpService {
      *
      * <p>与 {@link #confirmDraft} 的唯一差别是<b>绝不改阶段</b>：企微里随口提到阶段也不自动推进，
      * 保持「阶段由人工口径决定」，因此这里不调 {@code ensureStageAllowed}，也不会被报价单前置条件卡住。
+     *
+     * <p>解析不全也能落：{@code probability} 为空就沿用商机当前值（不硬改），{@code nextAt} 为空就不写
+     * 下次跟进时间，只刷 {@code last_follow_up_at} 并落一条跟进记录。
      *
      * @return 新写入的跟进记录
      */

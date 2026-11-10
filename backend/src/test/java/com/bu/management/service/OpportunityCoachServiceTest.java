@@ -261,4 +261,58 @@ class OpportunityCoachServiceTest {
         assertThat(markdown).contains("详细建议见合拍商机详情");
         assertThat(markdown.length()).isLessThanOrEqualTo(500);
     }
+
+    // ==================== 兜底巡检（事务竞态 / 线程池丢任务留下的 PENDING 行） ====================
+
+    @Test
+    void 巡检重跑超过两分钟仍PENDING的行() {
+        OpportunityCoach stalled = coach(7L, 1L);
+        stalled.setCreatedAt(LocalDateTime.now().minusMinutes(5));
+        when(coachMapper.selectList(any())).thenReturn(List.of(stalled));
+        when(coachMapper.selectById(7L)).thenReturn(stalled);
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("AI 模型未配置"));
+
+        service.sweepPending();
+
+        // 真的重跑了一遍 generate：先置 GENERATING、失败后落 FAILED
+        assertThat(stalled.getStatus()).isEqualTo(OpportunityCoach.STATUS_FAILED);
+        verify(coachMapper, atLeast(2)).updateById(any());
+    }
+
+    @Test
+    void 巡检单行失败不影响后面的行() {
+        OpportunityCoach broken = coach(8L, null);
+        broken.setCreatedAt(LocalDateTime.now().minusMinutes(5));
+        OpportunityCoach healthy = coach(9L, null);
+        healthy.setCreatedAt(LocalDateTime.now().minusMinutes(3));
+        when(coachMapper.selectList(any())).thenReturn(List.of(broken, healthy));
+        when(coachMapper.selectById(8L)).thenThrow(new IllegalStateException("数据库抖了一下"));
+        when(coachMapper.selectById(9L)).thenReturn(healthy);
+        when(opportunityMapper.selectById(11L)).thenReturn(opportunity());
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("AI 模型未配置"));
+
+        service.sweepPending();
+
+        // 第一行炸了，第二行照样跑到底
+        assertThat(healthy.getStatus()).isEqualTo(OpportunityCoach.STATUS_FAILED);
+    }
+
+    @Test
+    void 巡检碰到已经出结果或已在生成中的行不再调模型也不改状态() {
+        OpportunityCoach success = coach(10L, null);
+        success.setStatus(OpportunityCoach.STATUS_SUCCESS);
+        OpportunityCoach generating = coach(11L, null);
+        generating.setStatus(OpportunityCoach.STATUS_GENERATING);
+        when(coachMapper.selectList(any())).thenReturn(List.of(success, generating));
+        when(coachMapper.selectById(10L)).thenReturn(success);
+        when(coachMapper.selectById(11L)).thenReturn(generating);
+
+        service.sweepPending();
+
+        verify(digestLlmClient, never()).chat(anyString(), anyString(), any());
+        verify(coachMapper, never()).updateById(any());
+    }
 }

@@ -54,6 +54,10 @@ public final class OpportunityFollowUpParser {
             Pattern.compile("(?<!\\d)(\\d{1,2})[点时](\\d{1,2})?分?");
     private static final Pattern PROBABILITY =
             Pattern.compile("(?:概率|成交率|把握|可能性)?\\s*(\\d{1,3})\\s*(?:%|％|个点)");
+    /** 双 11：{@code 双十一} / {@code 双11} / {@code 双 11} 三种写法。 */
+    private static final Pattern DOUBLE_ELEVEN = Pattern.compile("双\\s*十一|双\\s*11");
+    /** 国庆：{@code 国庆} / {@code 十一国庆}。 */
+    private static final Pattern NATIONAL_DAY = Pattern.compile("十一\\s*国庆|国庆");
 
     private OpportunityFollowUpParser() {
     }
@@ -96,6 +100,12 @@ public final class OpportunityFollowUpParser {
         LocalDate relative = relativeDate(raw, base);
         if (relative != null) {
             return relative.atTime(parseTime(raw));
+        }
+
+        // 电商大促 / 节假日 / 月段：排在「今天明天」之后、「周三」之前
+        LocalDate holiday = holidayRelativeDate(raw, base);
+        if (holiday != null) {
+            return holiday.atTime(parseTime(raw));
         }
 
         Matcher week = WEEKDAY.matcher(raw);
@@ -209,6 +219,77 @@ public final class OpportunityFollowUpParser {
             return base;
         }
         return null;
+    }
+
+    /**
+     * 电商大促 / 节假日 / 月段这类相对时间词。
+     *
+     * <p>优先级：{@code relativeDate}（今天/明天/后天）之后、{@code WEEKDAY}（周三）之前 ——
+     * 客户说「双十一之后再看」时具体日期比星期几更明确，两者同时出现以节日为准。
+     *
+     * <p>已过去的日期一律顺延到下一轮：双十一 / 国庆过了就是明年，月底按当月实际天数算。
+     * 解析不出返回 null，上层按「只记原文」处理，绝不猜。
+     */
+    private static LocalDate holidayRelativeDate(String text, LocalDate base) {
+        LocalDate doubleEleven = matchHoliday(text, DOUBLE_ELEVEN, 11, 11, base);
+        if (doubleEleven != null) {
+            return doubleEleven;
+        }
+        LocalDate nationalDay = matchHoliday(text, NATIONAL_DAY, 10, 1, base);
+        if (nationalDay != null) {
+            return nationalDay;
+        }
+        int monthEnd = text.indexOf("月底");
+        if (monthEnd >= 0) {
+            return plusOneDayIfAfter(base.with(TemporalAdjusters.lastDayOfMonth()), text, monthEnd + 2);
+        }
+        int monthBegin = text.indexOf("月初");
+        if (monthBegin >= 0) {
+            return plusOneDayIfAfter(base.plusMonths(1).withDayOfMonth(1), text, monthBegin + 2);
+        }
+        int yearEnd = text.indexOf("年底");
+        if (yearEnd >= 0) {
+            return plusOneDayIfAfter(LocalDate.of(base.getYear(), 12, 31), text, yearEnd + 2);
+        }
+        return null;
+    }
+
+    /**
+     * 关键词后 4 个字符内出现「之后 / 以后 / 后 / 过后」时日期 +1 天：
+     * 例「双十一之后」→ 11-12（客户说的「之后」是那一天再往后，不是当天）。
+     */
+    private static LocalDate plusOneDayIfAfter(LocalDate day, String text, int from) {
+        if (from < 0 || from >= text.length()) {
+            return day;
+        }
+        String tail = text.substring(from, Math.min(text.length(), from + 4));
+        return tail.contains("后") ? day.plusDays(1) : day;
+    }
+
+    /**
+     * 在文本里找节日：同一个词可能出现多次（「目前在忙双 11，需要双十一之后在继续跟进」），
+     * <b>优先取带「之后 / 后」的那一次</b> —— 那句才是客户说的跟进时点；都没带就用第一处。
+     */
+    private static LocalDate matchHoliday(String text, Pattern pattern, int month, int day, LocalDate base) {
+        LocalDate fallback = null;
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            LocalDate date = holidayDate(base, month, day);
+            LocalDate shifted = plusOneDayIfAfter(date, text, matcher.end());
+            if (!shifted.equals(date)) {
+                return shifted;
+            }
+            if (fallback == null) {
+                fallback = date;
+            }
+        }
+        return fallback;
+    }
+
+    /** 当年该节日；该日已过则顺延到次年。 */
+    private static LocalDate holidayDate(LocalDate base, int month, int day) {
+        LocalDate date = LocalDate.of(base.getYear(), month, day);
+        return date.isBefore(base) ? LocalDate.of(base.getYear() + 1, month, day) : date;
     }
 
     private static LocalTime parseTime(String text) {

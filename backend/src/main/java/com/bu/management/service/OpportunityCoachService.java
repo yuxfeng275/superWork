@@ -26,6 +26,7 @@ import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -66,6 +67,8 @@ public class OpportunityCoachService {
     private static final int LIST_LIMIT = 5;
     /** 上下文里带几条最近的跟进记录。 */
     private static final int CONTEXT_FOLLOW_UPS = 5;
+    /** 兜底巡检单次最多重跑几行：一次都是 10~30s 的模型调用，扫多了会把线程和预算一起磨穿。 */
+    private static final int SWEEP_LIMIT = 20;
     /** 企微外发正文上限（含标题与落款）。 */
     private static final int MARKDOWN_MAX = 500;
     /** 企微外发「诊断」一行上限。 */
@@ -215,6 +218,15 @@ public class OpportunityCoachService {
             log.warn("商机 AI 教练行不存在，跳过生成: coachId={}", coachId);
             return;
         }
+        // 幂等：兜底巡检与线程池可能同时触达同一行，已出结果（SUCCESS/FAILED）或已在生成中的行直接返回，
+        // 既不重复调模型，也不把状态来回改写成 GENERATING
+        String current = coach.getStatus();
+        if (OpportunityCoach.STATUS_SUCCESS.equals(current)
+                || OpportunityCoach.STATUS_FAILED.equals(current)
+                || OpportunityCoach.STATUS_GENERATING.equals(current)) {
+            log.debug("商机 AI 教练行已是终态或生成中，跳过生成: coachId={} status={}", coachId, current);
+            return;
+        }
         coach.setStatus(OpportunityCoach.STATUS_GENERATING);
         coachMapper.updateById(coach);
         try {
@@ -241,6 +253,49 @@ public class OpportunityCoachService {
                     coach.getId(), coach.getOpportunityId(), message, e);
             markFailed(coach.getId(), message);
         }
+    }
+
+    // ==================== 兜底巡检 ====================
+
+    /**
+     * 兜底巡检：扫「2 分钟前入队、至今仍是 PENDING」的行并逐行重跑 {@link #generate}。
+     *
+     * <p>存在意义：入队与事务的竞态（异步线程抢在提交前查不到行）、线程池丢任务、实例重启
+     * 都会留下一行永远 PENDING 却没人生成的死数据。这里每 2 分钟清扫一次，单行失败不影响其它行。
+     *
+     * <p>只扫 PENDING：GENERATING 归线程池管，SUCCESS/FAILED 已经出过结果，{@link #generate} 也会再幂等拦一次。
+     */
+    @Scheduled(fixedDelay = 120_000, zone = "Asia/Shanghai")
+    public void sweepPending() {
+        List<OpportunityCoach> stalled;
+        try {
+            stalled = coachMapper.selectList(new LambdaQueryWrapper<OpportunityCoach>()
+                    .eq(OpportunityCoach::getStatus, OpportunityCoach.STATUS_PENDING)
+                    .lt(OpportunityCoach::getCreatedAt, LocalDateTime.now().minusMinutes(2))
+                    .orderByAsc(OpportunityCoach::getId)
+                    .last("limit " + SWEEP_LIMIT));
+        } catch (Exception e) {
+            // 定时任务里抛异常会被调度器吞掉，这里主动记一笔，否则问题永远无声
+            log.warn("商机 AI 教练巡检查询失败: {}", e.getMessage());
+            return;
+        }
+        if (stalled == null || stalled.isEmpty()) {
+            return;
+        }
+        int generated = 0;
+        for (OpportunityCoach row : stalled) {
+            if (row == null || row.getId() == null) {
+                continue;
+            }
+            try {
+                generate(row.getId());
+                generated++;
+            } catch (Exception e) {
+                // 单行炸掉不能拖垮整轮：后面的行还要扫
+                log.warn("商机 AI 教练巡检单行失败: coachId={} err={}", row.getId(), e.getMessage());
+            }
+        }
+        log.info("商机 AI 教练巡检完成: 扫到={} 重跑={}", stalled.size(), generated);
     }
 
     /**
