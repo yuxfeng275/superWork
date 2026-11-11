@@ -104,6 +104,12 @@ export default [
     component: './opportunities',
   },
   {
+    path: '/knowledge',
+    name: '知识库',
+    icon: 'book',
+    component: './knowledge',
+  },
+  {
     path: '/quotation-policies',
     name: '报价策略管理',
     icon: 'sliders',

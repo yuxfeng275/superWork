@@ -2146,6 +2146,38 @@ export interface RevenueCellDetail {
   estimates?: RevenueEstimateEntry[];
 }
 
+export interface KbDocument {
+  id: number;
+  title: string;
+  sourceType: string;
+  sourceRef?: string | null;
+  scopeType: string;
+  scopeId?: number | null;
+  businessLine?: string | null;
+  tags?: string | null;
+  checksum?: string | null;
+  enabled?: number;
+  createdBy?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface KbHit {
+  id: number;
+  documentId: number;
+  documentTitle: string;
+  heading?: string | null;
+  content: string;
+  score: number;
+}
+
+export interface KbImportResult {
+  imported: number;
+  skipped: number;
+  failures: string[];
+  message: string;
+}
+
 export const superworkApi = {
   login(username: string, password: string) {
     return requestJson<LoginResponse>("/api/auth/login", {
@@ -3689,6 +3721,42 @@ export const superworkApi = {
     return requestJson<QuotationListVO[]>(
       `/api/sales-opportunities/${id}/quotations`
     );
+  },
+  getKnowledgeDocuments(limit = 50) {
+    return requestJson<KbDocument[]>(`/api/knowledge/documents?limit=${limit}`);
+  },
+  setKnowledgeDocumentEnabled(id: number, value: boolean) {
+    return requestJson<void>(`/api/knowledge/documents/${id}/enabled?value=${value}`, {
+      method: "POST",
+    });
+  },
+  createKnowledgeDocument(payload: {
+    title: string;
+    content: string;
+    sourceType?: string;
+    scopeType?: string;
+    scopeId?: number | null;
+    businessLine?: string | null;
+    tags?: string | null;
+  }) {
+    return requestJson<KbDocument>(`/api/knowledge/documents`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  importKnowledgeFromYuque(payload: {
+    repoId: string;
+    scopeType?: string;
+    scopeId?: number | null;
+    businessLine?: string | null;
+  }) {
+    return requestJson<KbImportResult>(`/api/knowledge/import/yuque`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  searchKnowledge(q: string, limit = 5) {
+    return requestJson<KbHit[]>(`/api/knowledge/search?q=${encodeURIComponent(q)}&limit=${limit}`);
   },
   getQuotationPolicies(
     params: { type?: string; taxMode?: string; status?: string } = {}
