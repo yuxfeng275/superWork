@@ -1,0 +1,152 @@
+From 2a1a0a27ce5d1738e7f89e697bc2dee1255d654f Mon Sep 17 00:00:00 2001
+From: S1ow <275908654@qq.com>
+Date: Wed, 18 Nov 2026 00:47:26 +0800
+Subject: [PATCH] =?UTF-8?q?fix(ai-assistant):=20=E5=8E=86=E5=8F=B2?=
+ =?UTF-8?q?=E6=B6=88=E6=81=AF=E9=87=8D=E8=BD=BD=E6=97=B6=E4=B8=8D=E5=86=8D?=
+ =?UTF-8?q?=E6=8A=8A=20thinking=20=E5=BD=93=E6=AD=A3=E6=96=87?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+会话消息重建时把 text 与 thinking 分片分开：正文只收 type=text，
+思考进 Think 折叠区。此前 thinking 与 text 一起拼进气泡，
+E2E 上表现为回答前出现整段英文推理。
+---
+ frontend-pro/src/pages/ai-assistant/index.tsx | 22 ++---------
+ .../src/pages/ai-assistant/messages.test.ts   | 26 +++++++++++++
+ .../src/pages/ai-assistant/messages.ts        | 38 +++++++++++++++++++
+ 3 files changed, 68 insertions(+), 18 deletions(-)
+ create mode 100644 frontend-pro/src/pages/ai-assistant/messages.test.ts
+ create mode 100644 frontend-pro/src/pages/ai-assistant/messages.ts
+
+diff --git a/frontend-pro/src/pages/ai-assistant/index.tsx b/frontend-pro/src/pages/ai-assistant/index.tsx
+index a5eb004..9642220 100644
+--- a/frontend-pro/src/pages/ai-assistant/index.tsx
++++ b/frontend-pro/src/pages/ai-assistant/index.tsx
+@@ -52,6 +52,7 @@ import {
+   superworkApi,
+ } from '@/services/superwork/api';
+ import '../workbench/style.less';
++import { extractMessageText, extractMessageThinking } from './messages';
+ import './style.less';
+ 
+ /** token 展示：1200 → 1.2k */
+@@ -100,22 +101,6 @@ const slashSuggestions = welcomePrompts.map((item) => ({
+   icon: item.icon,
+   extra: item.label,
+ }));
+-const extractText = (content: unknown) => {
+-  if (typeof content === 'string') return content;
+-  if (Array.isArray(content))
+-    return content
+-      .map((part) =>
+-        typeof part === 'object' && part
+-          ? String(
+-              (part as { text?: unknown }).text ||
+-                (part as { thinking?: unknown }).thinking ||
+-                '',
+-            )
+-          : '',
+-      )
+-      .join('');
+-  return '';
+-};
+ 
+ export default function AiAssistantPage() {
+   const [sessions, setSessions] = useState<AiAgentSessionSummary[]>([]);
+@@ -254,13 +239,14 @@ export default function AiAssistantPage() {
+           result.push({
+             id: `m-${index}`,
+             role: 'user',
+-            text: extractText(item.content),
++            text: extractMessageText(item.content),
+           });
+         else if (item.role === 'assistant')
+           result.push({
+             id: `m-${index}`,
+             role: 'assistant',
+-            text: extractText(item.content),
++            text: extractMessageText(item.content),
++            thinking: extractMessageThinking(item.content) || undefined,
+           });
+         return result;
+       },
+diff --git a/frontend-pro/src/pages/ai-assistant/messages.test.ts b/frontend-pro/src/pages/ai-assistant/messages.test.ts
+new file mode 100644
+index 0000000..5d49f65
+--- /dev/null
++++ b/frontend-pro/src/pages/ai-assistant/messages.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from 'vitest';
++import { extractMessageText, extractMessageThinking } from './messages';
++
++describe('assistant message parts', () => {
++  it('keeps thinking out of the visible text', () => {
++    const content = [
++      { type: 'thinking', thinking: 'The tool only allows one status. Let me query all.' },
++      { type: 'text', text: '你当前未完成的任务有 2 条。' },
++      { type: 'toolCall', name: 'query_my_tasks', arguments: '{}' },
++    ];
++    expect(extractMessageText(content)).toBe('你当前未完成的任务有 2 条。');
++    expect(extractMessageThinking(content)).toBe(
++      'The tool only allows one status. Let me query all.',
++    );
++  });
++
++  it('accepts legacy string content as text', () => {
++    expect(extractMessageText('纯文本')).toBe('纯文本');
++    expect(extractMessageThinking('纯文本')).toBe('');
++  });
++
++  it('returns empty text when the message only has thinking/tool parts', () => {
++    expect(extractMessageText([{ type: 'thinking', thinking: '推理' }])).toBe('');
++    expect(extractMessageThinking([{ type: 'text', text: '正文' }])).toBe('');
++  });
++});
+diff --git a/frontend-pro/src/pages/ai-assistant/messages.ts b/frontend-pro/src/pages/ai-assistant/messages.ts
+new file mode 100644
+index 0000000..0d19688
+--- /dev/null
++++ b/frontend-pro/src/pages/ai-assistant/messages.ts
+@@ -0,0 +1,38 @@
++/**
++ * 会话消息的内容分片解析：把「给用户看的正文」与「模型思考」分开。
++ *
++ * 为什么单独抽出来：历史消息在页面重载后要重新渲染，如果沿用流式阶段的合并逻辑，
++ * 会把 thinking 分片当成正文显示。E2E 上看到的「英文推理过程夹杂在回答里」就是这个原因。
++ */
++
++type Part = { type?: unknown; text?: unknown; thinking?: unknown };
++
++const asPart = (value: unknown): Part | null =>
++  typeof value === 'object' && value !== null ? (value as Part) : null;
++
++/** 正文：只收 type=text（或无 type 但带 text）的分片，thinking / toolCall 一律不收。 */
++export function extractMessageText(content: unknown): string {
++  if (typeof content === 'string') return content;
++  if (!Array.isArray(content)) return '';
++  return content
++    .map((item) => {
++      const part = asPart(item);
++      if (!part) return '';
++      if (part.type !== undefined && part.type !== 'text') return '';
++      return typeof part.text === 'string' ? part.text : '';
++    })
++    .join('');
++}
++
++/** 思考：只收 type=thinking（或无 type 但带 thinking）的分片，空串表示没有。 */
++export function extractMessageThinking(content: unknown): string {
++  if (!Array.isArray(content)) return '';
++  return content
++    .map((item) => {
++      const part = asPart(item);
++      if (!part) return '';
++      if (part.type !== undefined && part.type !== 'thinking') return '';
++      return typeof part.thinking === 'string' ? part.thinking : '';
++    })
++    .join('');
++}
+-- 
+2.55.0
+
