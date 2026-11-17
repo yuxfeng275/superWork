@@ -38,6 +38,8 @@ public class EmailMessage {
   private java.math.BigDecimal groupingConfidence;
   private String groupingReason;
   private String groupingModel;
+  /** 命中的项目邮箱别名（形如 +XM，来自收件地址 local part 的 +token） */
+  private String groupingAlias;
   private LocalDateTime groupedAt;
   private LocalDateTime createdAt;
 }

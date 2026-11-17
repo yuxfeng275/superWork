@@ -16,6 +16,10 @@ public class EmailAccount {
   private String emailAddress;
   private String encryptedCredential;
   private Integer enabled;
+  /** 模式：PERSONAL=个人邮箱（缺省） / ARCHIVE=归档共享邮箱 */
+  private String mode;
+  /** 归档模式的共享范围标记（如部门/全员），当前仅落库 */
+  private String sharedScope;
   private String connectionStatus;
   private String connectionMessage;
   private LocalDateTime lastTestedAt;

@@ -104,6 +104,133 @@ class EmailProjectGroupingServiceTest {
                 "vendor@royal.com".equals(rule.getSenderPattern()) && rule.getProjectId() == 11L));
     }
 
+    @Test
+    void learnsSenderRuleOnlyAfterThreeHits() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        EmailMessage seed = message(1L, 7L);
+        seed.setSenderAddress("Seller@Royal.com");
+        when(messageMapper.selectCount(any())).thenReturn(1L);
+        when(messageMapper.selectList(any()))
+                .thenReturn(List.of(seed))
+                .thenReturn(List.of(
+                        groupedMessage(11L, 7L, "Seller@Royal.com", 11L),
+                        groupedMessage(12L, 7L, "seller@royal.com", 11L),
+                        groupedMessage(13L, 7L, "seller@royal.com", 11L)));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(11L, "CRM项目")));
+        when(ruleMapper.selectList(any())).thenReturn(List.of());
+        when(client.groupByProjects(any(), any(), any())).thenReturn(List.of());
+        when(client.configuredModel()).thenReturn("deepseek-v4-flash");
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, Runnable::run);
+
+        service.startAsync(7L, false);
+
+        org.mockito.Mockito.verify(ruleMapper).insert(org.mockito.ArgumentMatchers.argThat(rule ->
+                "seller@royal.com".equals(rule.getSenderPattern())
+                        && rule.getProjectId() == 11L
+                        && "AUTO".equals(rule.getSource())
+                        && rule.getHitCount() == 3));
+    }
+
+    @Test
+    void doesNotLearnSenderRuleBelowThreshold() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        EmailMessage seed = message(1L, 7L);
+        seed.setSenderAddress("seller@royal.com");
+        when(messageMapper.selectCount(any())).thenReturn(1L);
+        when(messageMapper.selectList(any()))
+                .thenReturn(List.of(seed))
+                .thenReturn(List.of(
+                        groupedMessage(11L, 7L, "seller@royal.com", 11L),
+                        groupedMessage(12L, 7L, "seller@royal.com", 11L)));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(11L, "CRM项目")));
+        when(ruleMapper.selectList(any())).thenReturn(List.of());
+        when(client.groupByProjects(any(), any(), any())).thenReturn(List.of());
+        when(client.configuredModel()).thenReturn("deepseek-v4-flash");
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, Runnable::run);
+
+        service.startAsync(7L, false);
+
+        org.mockito.Mockito.verify(ruleMapper, org.mockito.Mockito.never()).insert(any(EmailSenderProjectRule.class));
+    }
+
+    @Test
+    void skipsLearningWhenSenderHitMultipleProjects() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        EmailMessage seed = message(1L, 7L);
+        seed.setSenderAddress("seller@royal.com");
+        when(messageMapper.selectCount(any())).thenReturn(1L);
+        when(messageMapper.selectList(any()))
+                .thenReturn(List.of(seed))
+                .thenReturn(List.of(
+                        groupedMessage(11L, 7L, "seller@royal.com", 11L),
+                        groupedMessage(12L, 7L, "seller@royal.com", 11L),
+                        groupedMessage(13L, 7L, "seller@royal.com", 11L),
+                        groupedMessage(14L, 7L, "seller@royal.com", 22L)));
+        when(projectMapper.selectList(any())).thenReturn(List.of(project(11L, "CRM项目")));
+        when(ruleMapper.selectList(any())).thenReturn(List.of());
+        when(client.groupByProjects(any(), any(), any())).thenReturn(List.of());
+        when(client.configuredModel()).thenReturn("deepseek-v4-flash");
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, Runnable::run);
+
+        service.startAsync(7L, false);
+
+        org.mockito.Mockito.verify(ruleMapper, org.mockito.Mockito.never()).insert(any(EmailSenderProjectRule.class));
+    }
+
+    @Test
+    void keepsAliasGroupingWhenAiUnavailable() {
+        EmailMessageMapper messageMapper = mock(EmailMessageMapper.class);
+        ProjectMapper projectMapper = mock(ProjectMapper.class);
+        EmailSenderProjectRuleMapper ruleMapper = mock(EmailSenderProjectRuleMapper.class);
+        DeepSeekDigestClient client = mock(DeepSeekDigestClient.class);
+        Project project = project(11L, "CRM项目");
+        project.setCode("crm");
+        EmailMessage aliased = message(1L, 7L);
+        aliased.setToAddressesJson("[\"inbox+crm@royal.com\"]");
+        EmailMessage plain = message(2L, 7L);
+        when(messageMapper.selectCount(any())).thenReturn(2L);
+        when(messageMapper.selectList(any()))
+                .thenReturn(List.of(aliased, plain))
+                .thenReturn(List.of());
+        when(projectMapper.selectList(any())).thenReturn(List.of(project));
+        when(ruleMapper.selectList(any())).thenReturn(List.of());
+        when(client.groupByProjects(any(), any(), any()))
+                .thenThrow(new RuntimeException("deepseek 超时"));
+        when(client.configuredModel()).thenReturn("deepseek-v4-flash");
+        EmailProjectGroupingService service = new EmailProjectGroupingService(
+                messageMapper, projectMapper, ruleMapper, client, Runnable::run);
+
+        service.startAsync(7L, false);
+
+        assertThat(aliased.getGroupingStatus()).isEqualTo("GROUPED");
+        assertThat(aliased.getProjectId()).isEqualTo(11L);
+        assertThat(aliased.getGroupingAlias()).isEqualTo("+CRM");
+        assertThat(plain.getGroupingStatus()).isEqualTo("UNGROUPED");
+        assertThat(plain.getProjectId()).isNull();
+        assertThat(plain.getGroupingReason()).startsWith("智能分组失败：");
+    }
+
+    private EmailMessage groupedMessage(Long id, Long ownerId, String sender, Long projectId) {
+        EmailMessage message = message(id, ownerId);
+        message.setSenderAddress(sender);
+        message.setProjectId(projectId);
+        message.setGroupingStatus("GROUPED");
+        message.setGroupingMethod("AI");
+        return message;
+    }
+
     private Project project(Long id, String name) {
         Project project = new Project();
         project.setId(id); project.setName(name); project.setFullPath(name); project.setStatus(1);
