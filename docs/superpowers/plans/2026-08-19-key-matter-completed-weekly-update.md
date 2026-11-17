@@ -896,7 +896,7 @@ Expected: health 为 `UP`，前端首页资源存在，生产 URL 的完成事�
 ssh 241 '
 TOKEN=$(curl -fsS -X POST http://localhost:18080/api/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"123456\"}" | jq -r .data.accessToken)
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .data.accessToken)
 MATTER_ID=$(curl -fsS http://localhost:18080/api/key-matters \
   -H "Authorization: Bearer $TOKEN" | jq -r ".data[] | select(.status == \"已完成\") | .id" | head -1)
 FUTURE_WEEK=$(date -d "next monday + 14 days" +%F)

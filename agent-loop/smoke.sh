@@ -119,7 +119,7 @@ if [ -z "$JWT" ]; then
   echo "SKIP ④ 读晨报：未提供 HUJI_JWT。"
   echo "     取 token 的方式：curl -sS -X POST '$BASE/api/auth/login' \\"
   echo "       -H 'Content-Type: application/json' \\"
-  echo "       -d '{\"username\":\"admin\",\"password\":\"123456\"}'   # 换成试点成员账号"
+  echo "       -d '{\"username\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}'   # 换成试点成员账号"
   echo "     然后 HUJI_JWT=<data.token> 重跑本脚本；或直接用内部读法/DB 确认："
   echo "       SELECT id,brief_date,project_id,content FROM ai_brief WHERE user_id=$TEST_USER_ID AND brief_date='$TODAY';"
   echo "已完成 3/4 步（第 4 步需登录态）。"

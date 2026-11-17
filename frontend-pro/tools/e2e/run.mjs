@@ -16,8 +16,12 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SHOTS = join(HERE, 'screenshots');
 const BASE = process.env.E2E_BASE || 'http://192.168.1.241:18080';
-const USER = process.env.E2E_USER || 'admin';
-const PASSWORD = process.env.E2E_PASSWORD || '123456';
+const USER = process.env.E2E_USER || 'e2e_admin';
+const PASSWORD = process.env.E2E_PASSWORD;
+if (!PASSWORD) {
+  console.error('缺少 E2E_PASSWORD（测试账号密码只从环境变量读，不写仓库）');
+  process.exit(2);
+}
 
 mkdirSync(SHOTS, { recursive: true });
 

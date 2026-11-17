@@ -24,7 +24,7 @@ services:
       AI_SIDECAR_URL: http://superwork-bu-ai-sidecar:8787
       AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
       AI_SIDECAR_TOOL_CALLBACK_URL: http://bu-ai-backend:8081/internal/ai-agent/tools
-      JWT_SECRET: superwork-bu-management-server-241-change-me
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       EMAIL_CREDENTIAL_ENCRYPTION_KEY: ${EMAIL_CREDENTIAL_ENCRYPTION_KEY:-}
     ports:
       - "18082:8081"

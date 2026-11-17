@@ -1,6 +1,6 @@
 -- ====================================
 -- V13: 恢复受保护超级管理员账号
--- admin / 123456
+-- admin / 初始密码由部署时设置，首次登录必须改密
 -- ====================================
 
 INSERT INTO sys_role (code, name, description, status, data_scope, data_scope_value) VALUES

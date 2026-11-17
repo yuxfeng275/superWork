@@ -47,3 +47,4 @@ ai-sidecar/dist/
 # Python caches
 __pycache__/
 *.pyc
+DEPLOYED_COMMIT

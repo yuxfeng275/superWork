@@ -336,14 +336,14 @@ docker-compose up -d --build
 
 | 用户名 | 密码 | 角色 | 说明 |
 |--------|------|------|------|
-| admin | 123456 | BU_ADMIN | 系统管理员 |
-| pm_zhang | 123456 | PM | 项目经理 |
-| tech_li | 123456 | TECH_MANAGER | 技术经理 |
-| product_wang | 123456 | PRODUCT | 产品经理 |
-| dev_zhao | 123456 | DEVELOPER | 前端开发 |
-| dev_qian | 123456 | DEVELOPER | 后端开发 |
-| test_sun | 123456 | TESTER | 测试工程师 |
-| ui_zhou | 123456 | UI_DESIGN | UI设计师 |
+| admin | 见运维交付（首登改密） | BU_ADMIN | 系统管理员 |
+| pm_zhang | 见运维交付（首登改密） | PM | 项目经理 |
+| tech_li | 见运维交付（首登改密） | TECH_MANAGER | 技术经理 |
+| product_wang | 见运维交付（首登改密） | PRODUCT | 产品经理 |
+| dev_zhao | 见运维交付（首登改密） | DEVELOPER | 前端开发 |
+| dev_qian | 见运维交付（首登改密） | DEVELOPER | 后端开发 |
+| test_sun | 见运维交付（首登改密） | TESTER | 测试工程师 |
+| ui_zhou | 见运维交付（首登改密） | UI_DESIGN | UI设计师 |
 
 ---
 

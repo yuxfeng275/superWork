@@ -153,7 +153,7 @@ Vue 3.4.x (Composition API)
 
 #### 1. BCrypt 密码哈希错误
 - **问题:** V3 迁移脚本中 BCrypt 哈希值不正确，导致所有测试账号无法登录
-- **原因:** 硬编码的哈希值与 "123456" 不匹配
+- **原因:** 硬编码的哈希值与 "初始口令" 不匹配
 - **修复:**
   - 生成正确的 BCrypt 哈希: `$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e`
   - 更新 `V3__init_test_data.sql` 中的密码哈希
@@ -216,11 +216,11 @@ Vue 3.4.x (Composition API)
 
 ```
 用户名: admin
-密码: 123456
+密码: 初始口令
 角色: BU_ADMIN (BU负责人)
 ```
 
-其他测试账号（密码均为 123456）:
+其他测试账号（初始口令见运维交付）:
 - pm_zhang (PM - 项目经理)
 - tech_li (TECH_MANAGER - 技术经理)
 - product_wang (PRODUCT - 产品经理)

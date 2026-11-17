@@ -7,11 +7,6 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/auth/my-menu-tree"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/auth/my-menus"
   },
   {
@@ -22,12 +17,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/auth/my-menus"
+    "path": "/api/auth/my-menu-tree"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/requirements?page=1&size=1"
+    "path": "/api/auth/my-menus"
   },
   {
     "method": "GET",
@@ -37,12 +32,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai/notices/unread-count"
+    "path": "/api/requirements?size=100"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai/notices"
+    "path": "/api/requirements?page=1&size=1"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/ai/notices/unread-count"
   },
   {
     "method": "GET",
@@ -57,7 +57,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/requirements?size=100"
+    "path": "/api/ai/notices"
   },
   {
     "method": "GET",
@@ -72,17 +72,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/tasks/overview"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/ai-agent/proactive"
-  },
-  {
-    "method": "GET",
-    "status": 200,
-    "path": "/api/ai-agent/proactive/stats?days=30"
   },
   {
     "method": "GET",
@@ -107,12 +97,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/22/facts/summary"
+    "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
+    "path": "/api/projects/22/facts/summary"
   },
   {
     "method": "GET",
@@ -122,12 +112,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/20/facts/summary"
+    "path": "/api/ai-agent/proactive/stats?days=30"
   },
   {
     "method": "GET",
     "status": 200,
     "path": "/api/projects/19/facts/summary"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/projects/20/facts/summary"
   },
   {
     "method": "GET",
@@ -162,12 +157,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/11/facts/summary"
+    "path": "/api/projects/10/facts/summary"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/10/facts/summary"
+    "path": "/api/projects/11/facts/summary"
   },
   {
     "method": "GET",
@@ -182,7 +177,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/7/facts/summary"
+    "path": "/api/projects/6/facts/summary"
   },
   {
     "method": "GET",
@@ -192,12 +187,17 @@
   {
     "method": "GET",
     "status": 200,
+    "path": "/api/projects/7/facts/summary"
+  },
+  {
+    "method": "GET",
+    "status": 200,
     "path": "/api/projects/4/facts/summary"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/6/facts/summary"
+    "path": "/api/tasks/overview"
   },
   {
     "method": "GET",
@@ -217,7 +217,12 @@
   {
     "method": "POST",
     "status": 200,
-    "path": "/api/ai-agent/proactive/53/accept"
+    "path": "/api/ai-agent/proactive/56/accept"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/ai-agent/sessions"
   },
   {
     "method": "GET",
@@ -232,22 +237,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai/assistant/models"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/ai-agent/jev/status"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-agent/connectors"
+    "path": "/api/ai/assistant/models"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-agent/sessions"
+    "path": "/api/ai-agent/connectors"
   },
   {
     "method": "POST",
@@ -267,22 +267,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/auth/my-menu-tree"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/auth/my-menus"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/requirements?page=1&size=1"
+    "path": "/api/auth/my-menu-tree"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/key-matters/access"
+    "path": "/api/requirements?page=1&size=1"
   },
   {
     "method": "GET",
@@ -297,12 +292,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-agent/usage"
-  },
-  {
-    "method": "GET",
-    "status": 200,
-    "path": "/api/ai-agent/proactive"
+    "path": "/api/key-matters/access"
   },
   {
     "method": "GET",
@@ -312,12 +302,22 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-agent/jev/status"
+    "path": "/api/ai-agent/usage"
   },
   {
     "method": "GET",
     "status": 200,
     "path": "/api/ai/assistant/models"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/ai-agent/jev/status"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/ai-agent/proactive"
   },
   {
     "method": "GET",
@@ -337,12 +337,12 @@
   {
     "method": "POST",
     "status": 200,
-    "path": "/api/ai-agent/sessions/100/messages"
+    "path": "/api/ai-agent/sessions/103/messages"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-agent/sessions/100"
+    "path": "/api/ai-agent/sessions/103"
   },
   {
     "method": "GET",
@@ -412,6 +412,11 @@
   {
     "method": "GET",
     "status": 200,
+    "path": "/api/auth/my-menus"
+  },
+  {
+    "method": "GET",
+    "status": 200,
     "path": "/api/auth/my-menu-tree"
   },
   {
@@ -422,22 +427,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/auth/my-menus"
-  },
-  {
-    "method": "GET",
-    "status": 200,
-    "path": "/api/key-matters/access"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/ai/notices/unread-count"
   },
   {
     "method": "GET",
     "status": 200,
     "path": "/api/ai/notices"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/key-matters/access"
   },
   {
     "method": "GET",
@@ -452,6 +452,11 @@
   {
     "method": "GET",
     "status": 200,
+    "path": "/api/auth/my-menus"
+  },
+  {
+    "method": "GET",
+    "status": 200,
     "path": "/api/auth/my-menu-tree"
   },
   {
@@ -462,17 +467,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/auth/my-menus"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/key-matters/access"
-  },
-  {
-    "method": "GET",
-    "status": 200,
-    "path": "/api/ai/notices/unread-count"
   },
   {
     "method": "GET",
@@ -482,12 +477,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/requirements?size=100"
+    "path": "/api/ai/notices/unread-count"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/quotations?size=20"
+    "path": "/api/requirements?size=100"
   },
   {
     "method": "GET",
@@ -497,7 +492,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects?page=1&size=100"
+    "path": "/api/quotations?size=20"
   },
   {
     "method": "GET",
@@ -507,7 +502,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-briefs?date=2026-11-18"
+    "path": "/api/projects?page=1&size=100"
   },
   {
     "method": "GET",
@@ -517,12 +512,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/key-matters"
+    "path": "/api/ai-briefs?date=2026-11-18"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
+    "path": "/api/key-matters"
   },
   {
     "method": "GET",
@@ -537,11 +532,6 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/tasks/overview"
-  },
-  {
-    "method": "GET",
-    "status": 200,
     "path": "/api/projects/23/facts/summary"
   },
   {
@@ -552,12 +542,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/21/facts/summary"
+    "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
   },
   {
     "method": "GET",
     "status": 200,
     "path": "/api/projects/20/facts/summary"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/projects/21/facts/summary"
   },
   {
     "method": "GET",
@@ -572,12 +567,12 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/16/facts/summary"
+    "path": "/api/projects/17/facts/summary"
   },
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/17/facts/summary"
+    "path": "/api/projects/16/facts/summary"
   },
   {
     "method": "GET",
@@ -587,12 +582,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/13/facts/summary"
-  },
-  {
-    "method": "GET",
-    "status": 200,
-    "path": "/api/projects/12/facts/summary"
+    "path": "/api/tasks/overview"
   },
   {
     "method": "GET",
@@ -602,7 +592,17 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/10/facts/summary"
+    "path": "/api/projects/12/facts/summary"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/projects/13/facts/summary"
+  },
+  {
+    "method": "GET",
+    "status": 200,
+    "path": "/api/projects/7/facts/summary"
   },
   {
     "method": "GET",
@@ -617,7 +617,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/7/facts/summary"
+    "path": "/api/projects/4/facts/summary"
   },
   {
     "method": "GET",
@@ -632,7 +632,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/4/facts/summary"
+    "path": "/api/projects/3/facts/summary"
   },
   {
     "method": "GET",
@@ -642,7 +642,7 @@
   {
     "method": "GET",
     "status": 200,
-    "path": "/api/projects/3/facts/summary"
+    "path": "/api/projects/10/facts/summary"
   },
   {
     "method": "GET",
