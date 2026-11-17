@@ -191,7 +191,7 @@ export default [
     path: '/system/models',
     name: '模型管理',
     icon: 'ChatDotRound',
-    component: './models',
+    component: './model-settings',
   },
   { path: '/ai-connectors', redirect: '/system/connectors' },
   {

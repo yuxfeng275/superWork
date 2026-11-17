@@ -3820,6 +3820,9 @@ export const superworkApi = {
   getKnowledgeHealth() {
     return requestJson<KbHealth>(`/api/knowledge/health`);
   },
+  deleteKnowledgeDocument(id: number) {
+    return requestJson<void>(`/api/knowledge/documents/${id}`, { method: "DELETE" });
+  },
   getAiCapabilityStats(days = 7) {
     return requestJson<AiCapabilityStats>(`/api/ai-capabilities/stats?days=${days}`);
   },

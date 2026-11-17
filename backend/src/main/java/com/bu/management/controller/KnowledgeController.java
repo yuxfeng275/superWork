@@ -87,6 +87,21 @@ public class KnowledgeController {
     }
 
     /**
+     * 删除知识库文档（连同切片）；仅管理岗位。
+     *
+     * <p>用于清理评估语料/过期文档。删除不可恢复，前端必须二次确认。
+     */
+    @org.springframework.web.bind.annotation.DeleteMapping("/documents/{id}")
+    public Result<Void> delete(@RequestAttribute("userId") Long userId,
+                               @org.springframework.web.bind.annotation.PathVariable Long id) {
+        requireAdmin(userId);
+        if (!kbIngestService.delete(id)) {
+            throw new com.bu.management.exception.ResourceNotFoundException("知识库文档不存在");
+        }
+        return Result.success();
+    }
+
+    /**
      * 检索知识库。
      *
      * @param q     问句，至少 2 个字（ngram_token_size=2，更短的切不出 token）

@@ -14,6 +14,7 @@ import {
   List,
   message,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -100,6 +101,16 @@ export default function KnowledgePage() {
       message.error(e instanceof Error ? e.message : '检索失败');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const remove = async (row: KbDocument) => {
+    try {
+      await superworkApi.deleteKnowledgeDocument(row.id);
+      message.success('已删除文档与切片');
+      void load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败');
     }
   };
 
@@ -197,6 +208,22 @@ export default function KnowledgePage() {
       dataIndex: 'updatedAt',
       width: 180,
       render: (value?: string) => (value ? value.replace('T', ' ').slice(0, 16) : '-'),
+    },
+    {
+      title: '操作',
+      width: 90,
+      render: (_: unknown, row) => (
+        <Popconfirm
+          title="删除后不可恢复，切片一并删除"
+          okText="删除"
+          cancelText="取消"
+          onConfirm={() => void remove(row)}
+        >
+          <Button danger size="small" type="text">
+            删除
+          </Button>
+        </Popconfirm>
+      ),
     },
   ];
 

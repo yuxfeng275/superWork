@@ -42,6 +42,32 @@ class KbIngestServiceTest {
     }
 
     @Test
+    @DisplayName("删除文档：先删切片再删文档")
+    void deleteRemovesChunksThenDocument() {
+        KbDocument document = new KbDocument();
+        document.setId(5L);
+        document.setTitle("待清理语料");
+        when(documentMapper.selectById(5L)).thenReturn(document);
+        when(chunkMapper.deleteByDocumentId(5L)).thenReturn(3);
+
+        assertThat(service.delete(5L)).isTrue();
+
+        verify(chunkMapper).deleteByDocumentId(5L);
+        verify(documentMapper).deleteById(5L);
+    }
+
+    @Test
+    @DisplayName("删除不存在的文档：返回 false，不删切片")
+    void deleteMissingDocumentIsNoop() {
+        when(documentMapper.selectById(99L)).thenReturn(null);
+
+        assertThat(service.delete(99L)).isFalse();
+
+        verify(chunkMapper, never()).deleteByDocumentId(any());
+        verify(documentMapper, never()).deleteById(org.mockito.ArgumentMatchers.<java.io.Serializable>any());
+    }
+
+    @Test
     @DisplayName("长文本被切成多块，每块不超过 600 字 + 重叠，相邻块首尾重叠 80 字")
     void splitsLongContentIntoOverlappingChunks() {
         String sentence = "合拍是面向业务线的经营分析平台，".repeat(40);

@@ -58,6 +58,30 @@ public class KbIngestService {
     private final KbChunkMapper chunkMapper;
 
     /**
+     * 删除文档及全部切片：知识库下线/清理评估语料用。
+     *
+     * <p>先删切片再删文档，避免全文索引里留下指向不存在文档的行；
+     * 只允许管理岗位调用（controller 校验），这里不做权限判断。
+     *
+     * @param documentId 文档 ID
+     * @return 是否真的删除了（不存在返回 false）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean delete(Long documentId) {
+        if (documentId == null) {
+            return false;
+        }
+        KbDocument document = documentMapper.selectById(documentId);
+        if (document == null) {
+            return false;
+        }
+        int chunks = chunkMapper.deleteByDocumentId(documentId);
+        documentMapper.deleteById(documentId);
+        log.info("知识库文档已删除：id={} title={} 切片={}", documentId, document.getTitle(), chunks);
+        return true;
+    }
+
+    /**
      * 入库（幂等）。
      *
      * @param title          标题，必填
