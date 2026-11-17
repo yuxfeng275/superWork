@@ -32,6 +32,9 @@ public class AiBrief {
 
     private LocalDateTime deliveredAt;
 
+    /** 送达通道：IN_APP / WECOM / BARK（空表示尚未送达）。 */
+    private String deliveryChannel;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

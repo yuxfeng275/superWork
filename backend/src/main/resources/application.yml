@@ -152,6 +152,13 @@ weekly:
   generation-timeout-minutes: ${WEEKLY_GENERATION_TIMEOUT_MINUTES:15}
 
 # AI 助手主动建议（站外到达：工作日早上一条企微消息）
+# 企业微信 HTTP 回调（与长连接机器人并存的第二条入站通道）；三项都配置才启用
+wecom:
+  callback:
+    token: ${WECOM_CALLBACK_TOKEN:}
+    aes-key: ${WECOM_CALLBACK_AES_KEY:}
+    corp-id: ${WECOM_CALLBACK_CORP_ID:}
+
 ai:
   proactive:
     push-enabled: ${AI_PROACTIVE_PUSH_ENABLED:true}

@@ -52,6 +52,28 @@ class DigestLlmClientTest {
     }
 
     @Test
+    void drillsProxyFailureAndFallsBackToDirectCandidate() throws Exception {
+        // 真实 drill：第一个候选走一个死代理（127.0.0.1:1），第二个候选直连本地 HTTP 服务。
+        AtomicInteger secondHits = new AtomicInteger();
+        second = stub(200, chatResponse("{\"summary\":\"direct-ok\"}"), secondHits);
+        AiModelConfigService models = candidates(
+                new AiModelConfigService.DigestModel("bai", "https://api.b.ai/v1",
+                        "deepseek-v4.1-flash", "sk-bai"),
+                new AiModelConfigService.DigestModel("deepseek", baseUrl(second),
+                        "deepseek-flash", "sk-direct"));
+        when(models.proxyFor("bai")).thenReturn("http://127.0.0.1:1");
+        when(models.proxyFor("deepseek")).thenReturn(null);
+
+        // 不注入 HttpClient：让客户端按 proxyFor 的真实分支走
+        DigestLlmClient.ChatResult result = new DigestLlmClient(models, objectMapper)
+                .chat("system", "user");
+
+        assertThat(secondHits.get()).isEqualTo(1);
+        assertThat(result.providerCode()).isEqualTo("deepseek");
+        assertThat(result.json().path("summary").asText()).isEqualTo("direct-ok");
+    }
+
+    @Test
     void fallsThroughWhenCandidateAnswersValidJsonButMissingFields() throws Exception {
         // 弱模型常见：返回合法 JSON 对象，但缺 coreWork 之类的必填字段
         first = stub(200, chatResponse("{\"summary\":\"only-summary\"}"), new AtomicInteger());

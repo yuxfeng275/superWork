@@ -107,6 +107,23 @@
 - **smoke**：`cd ai-sidecar && npm test`，`aibot.test.ts` 用假 WS client + 假 fetch 覆盖
   「入站→后端→回话」「重复 msgid 只转一次」「凭据失败返回 null」，不产生真实群发。
 
+## 四之三、企微 HTTP 回调（可选通道）
+
+长连接是默认通道；如果长连接未开通或企业要求走公网回调，配置以下三项后启用
+`GET/POST /api/wecom/callback`（未配置时明确返回 503 `WECOM_CALLBACK_NOT_CONFIGURED`）：
+
+| 环境变量 | 说明 |
+|---|---|
+| `WECOM_CALLBACK_TOKEN` | 企微后台「接收消息」的 Token |
+| `WECOM_CALLBACK_AES_KEY` | 43 位 EncodingAESKey |
+| `WECOM_CALLBACK_CORP_ID` | 企业 CorpID（校验 receiveId） |
+
+- 验签：`SHA1(sorted(token,timestamp,nonce,encrypt))`；
+- 解密：AES-256-CBC（PKCS#7），明文含 random16 + msgLen + msg + receiveId；
+- GET 验证原样返回解密后的 `echostr`；POST 文本经同一套商机回复台账处理，并加密被动回复；
+- 单测覆盖往返加解密、签名不匹配、receiveId 不匹配、未配置降级与消息入站
+  （`WeComCallbackCryptoTest`、`WeComCallbackControllerTest`），不产生真实群发。
+
 ## 五、已知边界
 
 - 附件只做文本摘要注入（txt/md/csv/json/xml/log 等 ≤8000 字），不做图片/PDF/Office 解析。

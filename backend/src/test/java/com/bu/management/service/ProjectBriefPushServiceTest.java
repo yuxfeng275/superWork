@@ -128,7 +128,7 @@ class ProjectBriefPushServiceTest {
         verify(barkClient).push(title.capture(), body.capture(), isNull());
         assertThat(title.getValue()).isEqualTo("【今日安排】 · 2026-03-02");
         assertThat(body.getValue()).doesNotContain("{\"items\"");
-        verify(briefService).markDelivered(eq(7L));
+        verify(briefService).markDelivered(eq(7L), eq("BARK"));
     }
 
     @Test
@@ -152,7 +152,7 @@ class ProjectBriefPushServiceTest {
 
         verify(weComClient, never()).pushText(any(), any());
         verify(barkClient).push(eq("【今日安排】 · 2026-03-02"), any(), isNull());
-        verify(briefService).markDelivered(eq(7L));
+        verify(briefService).markDelivered(eq(7L), eq("BARK"));
     }
 
     @Test
@@ -176,22 +176,22 @@ class ProjectBriefPushServiceTest {
 
         verify(weComClient, never()).pushText(any(), any());
         verify(barkClient).push(eq("【今日安排】 · 2026-03-02"), any(), isNull());
-        verify(briefService).markDelivered(eq(7L));
+        verify(briefService).markDelivered(eq(7L), eq("BARK"));
     }
 
     @Test
-    @DisplayName("pushOne：两个通道都不可用 → 不标 delivered、返回 false")
-    void noChannelAvailableDoesNotMarkDelivered() {
+    @DisplayName("pushOne：两个外部通道都不可用 → 记站内送达（IN_APP）")
+    void noExternalChannelMarksInAppDelivered() {
         AiBrief brief = brief(JSON_CONTENT);
         when(briefMapper.selectList(any())).thenReturn(List.of(brief));
         when(mappingMapper.selectOne(any())).thenReturn((EmailWeComMapping) null);
         when(barkClient.isConfigured()).thenReturn(false);
 
-        assertThat(service.pushDate(LocalDate.of(2026, 3, 2))).isZero();
+        assertThat(service.pushDate(LocalDate.of(2026, 3, 2))).isEqualTo(1);
 
         verify(weComClient, never()).pushText(any(), any());
         verify(barkClient, never()).push(any(), any(), any());
-        verify(briefService, never()).markDelivered(any());
+        verify(briefService).markDelivered(eq(7L), eq("IN_APP"));
     }
 
     private AiBrief brief(String content) {

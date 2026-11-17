@@ -78,7 +78,7 @@ public class ProjectBriefPushService {
         String wecomUserId = wecomUserIdOf(brief.getUserId());
         if (StringUtils.hasText(wecomUserId) && weComConfigured()) {
             weComClient.pushText(wecomUserId, render(brief));
-            briefService.markDelivered(brief.getId());
+            briefService.markDelivered(brief.getId(), "WECOM");
             return true;
         }
         // 通道 2：Bark（iOS 推送）；title 带上晨报日期，正文复用 render，详情链走 /workbench
@@ -87,13 +87,15 @@ public class ProjectBriefPushService {
             if (!barkClient.push(titleOf(brief), render(brief), detailUrl)) {
                 return false;
             }
-            briefService.markDelivered(brief.getId());
+            briefService.markDelivered(brief.getId(), "BARK");
             return true;
         }
-        // 两个通道都不可用：不标记已送达，下次还会重试
-        log.warn("晨报推送跳过（企微未配置或未绑定，且 Bark 未配置）: briefId={}, userId={}",
+        // 两个外部通道都不可用：晨报已在工作台可见，按「站内送达」记录，
+        // 不再让 delivered_at 永远为空；外部通道仍会在配置好后由下次定时任务补发（已送达行不覆盖）。
+        log.info("晨报外部通道未配置，记录站内送达: briefId={}, userId={}",
                 brief.getId(), brief.getUserId());
-        return false;
+        briefService.markDelivered(brief.getId(), "IN_APP");
+        return true;
     }
 
     /** 企微通道是否可用：口径与 WeComClient 内部一致（EmailIntegrationConfigService 运行时配置）。 */

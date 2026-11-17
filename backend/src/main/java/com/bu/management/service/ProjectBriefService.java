@@ -72,11 +72,17 @@ public class ProjectBriefService {
 
     /** 标记送达（企微/站内），只写一次。 */
     public void markDelivered(Long briefId) {
+        markDelivered(briefId, null);
+    }
+
+    /** 标记送达并记录通道；已送达的行不覆盖（避免站内先到、外部后到时改口径）。 */
+    public void markDelivered(Long briefId, String channel) {
         AiBrief brief = briefMapper.selectById(briefId);
         if (brief == null || brief.getDeliveredAt() != null) {
             return;
         }
         brief.setDeliveredAt(LocalDateTime.now());
+        brief.setDeliveryChannel(channel);
         brief.setUpdatedAt(LocalDateTime.now());
         briefMapper.updateById(brief);
     }
