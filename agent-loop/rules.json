@@ -16,11 +16,18 @@
   },
   "rules": [
     {
-      "name": "皇家项目夜间扫描",
+      "name": "项目清单夜间扫描",
       "when": { "cron": "0 22 * * 1-5" },
       "to": "huji",
       "cwd": "/home/openclaw/huji-agent",
-      "prompt": "任务：为皇家项目准备明天的工作，产出制品并写晨报。步骤：1) 先调 project_facts 取该项目最近 3 天的事实（projectId 用系统提示词里给出的「目标项目 ID」，types 不填），这是唯一的证据来源；2) 从事实里挑出「需要方案 / 需要修复」的事：缺方案的报价、卡住的缺陷、未闭环的决议、有风险/受阻的大事、无人认领的待办；3) 对每一件调 save_artifact 产出制品：projectId 同 1)，title 写清是哪件事，kind 取 PLAN（需要方案）或 FIX_NOTE（需要修复说明），content 放可直接评审的正文，evidence 传这件事用到的 factId 组成的 JSON 数组字符串，如 [\"fact_12\",\"fact_18\"]；**无证据不要 save_artifact**——拿不出对应 factId 的事就不产出制品，宁可少写；4) 再调 save_daily_brief 把上述事情汇总进**明天**的晨报：briefDate 传系统提示词里给出的明天日期（不要自己算），projectId 同 1)，content 为 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}，最多 3 条，links 里带 /workbench（指向工作台的待评审卡）；5) 最后一行用一句话总结。证据不足就少写，不要编。"
+      "prompt": "任务：按系统提示词里给出的「目标项目清单」逐个项目准备明天的工作，产出制品并写晨报。项目之间的证据不能串用。步骤：0) 项目清单：系统提示词里会给出多个项目 ID（可能带项目名），这就是本轮要扫的全部项目；若清单为空或只给了一个项目，退回本文件里的「单项目兜底」规则，不要自己猜项目 ID；1) 逐个项目调 project_facts 取最近 3 天的事实（projectId 用清单里的该项目 ID，types 不填），这是唯一的证据来源；2) 每个项目从事实里挑出「需要方案 / 需要修复」的事：缺方案的报价、卡住的缺陷、未闭环的决议、有风险/受阻的大事、无人认领的待办；**低质事实（body 是空的、digest 只有一句半句）少写**——不拿它凑方案，而是在晨报里写清缺什么，例如「缺客户确认的价格原文」「缺本周对账表」；3) 每个项目最多产出 3 条制品：调 save_artifact 时 projectId 用该项目 ID，title 写清是哪件事，kind 取 PLAN（需要方案）或 FIX_NOTE（需要修复说明），content 放可直接评审的正文，evidence 传这件事用到的 factId 组成的 JSON 数组字符串，如 [\"fact_12\",\"fact_18\"]；**无证据不要 save_artifact**——拿不出对应 factId 的事只写进晨报，不产出制品，宁可少写；4) 每个项目调 save_daily_brief 写**明天**的晨报：briefDate 传系统提示词里给出的明天日期（不要自己算），projectId 用该项目 ID，content 为 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}，**每个项目最多 3 条**，links 里带 /workbench；证据不足的条目把「缺什么」写进 why；5) 全部项目跑完，最后用不超过 5 行总结：每个项目各产出几条制品、几条晨报、缺哪些材料。证据不足就少写，不要编。"
+      },
+      {
+        "name": "皇家项目夜间扫描（单项目兜底）",
+        "when": { "cron": "30 22 * * 1-5" },
+        "to": "huji",
+        "cwd": "/home/openclaw/huji-agent",
+        "prompt": "任务（单项目兜底）：0) 先看系统提示词里有没有「目标项目清单」——有清单就按清单扫描那条规则来，若今晚已按清单产出过制品或晨报，只回复「今晚已由清单扫描覆盖，无需兜底」并结束；没有清单时按下面步骤只扫「目标项目 ID」这一个项目。为该项目准备明天的工作，产出制品并写晨报。步骤：1) 先调 project_facts 取该项目最近 3 天的事实（projectId 用系统提示词里给出的「目标项目 ID」，types 不填），这是唯一的证据来源；2) 从事实里挑出「需要方案 / 需要修复」的事：缺方案的报价、卡住的缺陷、未闭环的决议、有风险/受阻的大事、无人认领的待办；3) 对每一件调 save_artifact 产出制品：projectId 同 1)，title 写清是哪件事，kind 取 PLAN（需要方案）或 FIX_NOTE（需要修复说明），content 放可直接评审的正文，evidence 传这件事用到的 factId 组成的 JSON 数组字符串，如 [\"fact_12\",\"fact_18\"]；**无证据不要 save_artifact**——拿不出对应 factId 的事就不产出制品，宁可少写；4) 再调 save_daily_brief 把上述事情汇总进**明天**的晨报：briefDate 传系统提示词里给出的明天日期（不要自己算），projectId 同 1)，content 为 JSON 字符串：{\"items\":[{\"title\",\"why\",\"links\"}]}，最多 3 条，links 里带 /workbench（指向工作台的待评审卡）；5) 最后一行用一句话总结。证据不足就少写，不要编。"
     },
     {
       "name": "皇家项目晨报补发",
