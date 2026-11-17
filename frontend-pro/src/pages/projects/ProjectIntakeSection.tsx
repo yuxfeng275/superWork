@@ -19,15 +19,27 @@ import {
   type ProjectFactChatMessage,
   type ProjectFactSourceType,
   type ProjectFactVisibility,
+  type ProjectFactsSummary,
+  type ProjectTreeNode,
   superworkApi,
 } from '@/services/superwork/api';
 
+/**
+ * 可见性选项。首项「跟随默认」是正确姿势：不显式发 visibility，
+ * 后端的 FactVisibilityPolicy 才会按文件名判（命中敏感关键词 → OWNER，其余 PROJECT）。
+ */
 const VISIBILITY_OPTIONS = [
+  { label: '跟随默认（敏感文件名仅自己可见）', value: '' },
   { label: '项目可见', value: 'PROJECT' },
   { label: '仅本公司', value: 'PRIVATE_COMPANY' },
 ];
 
-const DEFAULT_VISIBILITY: ProjectFactVisibility = 'PROJECT';
+/** Select 的空串 = 「跟随默认」，提交前转回 undefined（请求体里就整条不出现）。 */
+const toVisibility = (value: string): ProjectFactVisibility | undefined =>
+  value ? (value as ProjectFactVisibility) : undefined;
+
+/** 反向：undefined 在 Select 里显示成空串，即「跟随默认」那一项。 */
+const fromVisibility = (value?: ProjectFactVisibility) => value ?? '';
 
 /** 投递箱只关心人工喂进去的几类事实，制品是夜间回流进来的。 */
 const INTAKE_TYPES: ProjectFactSourceType[] = [
@@ -52,6 +64,20 @@ const SOURCE_COLOR: Record<string, string> = {
 };
 
 const INTAKE_DONE_TEXT = '已入事实，今晚会用到';
+
+/**
+ * 公司邮箱域名：项目邮箱别名 = inbox+<project.code>@<公司邮箱域名>。
+ * 口径：后端别名路由只认 project.code，域名只决定展示出来的地址长什么样；
+ * 域名由构建期环境变量 COMPANY_MAIL_DOMAIN 提供（同 Footer 的 process.env 口径），
+ * 不硬编码真实公司域名入库，也不编造占位域名——未配置时宁可不展示地址。
+ */
+const COMPANY_MAIL_DOMAIN = (process.env.COMPANY_MAIL_DOMAIN || '')
+  .trim()
+  .replace(/^@+/, '');
+
+/** 域名没配好时不能猜地址，直接告诉运维要配什么。 */
+const MAIL_DOMAIN_MISSING_TEXT =
+  '项目邮箱别名未配置：请运维设置 COMPANY_MAIL_DOMAIN（公司邮箱域名）后重新构建';
 
 const visibilityLabel = (visibility?: string) =>
   visibility === 'PRIVATE_COMPANY'
@@ -126,29 +152,45 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
  */
 export default function ProjectIntakeSection({
   projectId,
+  projectCode,
 }: {
   projectId: number;
+  /** 项目编码（邮箱别名要用）；不传就按 projectId 回查一次项目树 */
+  projectCode?: string;
 }) {
   const [activeTab, setActiveTab] = useState('file');
   const [facts, setFacts] = useState<ProjectFact[]>([]);
   const [loading, setLoading] = useState(false);
+  /** 投递概览：统计失败只在本块显示占位，不影响投递本身。 */
+  const [summary, setSummary] = useState<ProjectFactsSummary>();
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
+  /** 邮箱别名用的项目编码：没传就回查项目树，查不到就不显示别名。 */
+  const [resolvedCode, setResolvedCode] = useState(projectCode || '');
   const [uploadingCount, setUploadingCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [fileNote, setFileNote] = useState('');
-  const [fileVisibility, setFileVisibility] =
-    useState<ProjectFactVisibility>(DEFAULT_VISIBILITY);
+  /**
+   * 可见性初值一律 undefined（= 跟随默认）：显式发 PROJECT 会让后端的敏感文件名策略失效，
+   * 敏感文件就默认公开给全体项目成员了。
+   */
+  const [fileVisibility, setFileVisibility] = useState<
+    ProjectFactVisibility | undefined
+  >(undefined);
 
   const [noteTitle, setNoteTitle] = useState('');
   const [noteBody, setNoteBody] = useState('');
-  const [noteVisibility, setNoteVisibility] =
-    useState<ProjectFactVisibility>(DEFAULT_VISIBILITY);
+  const [noteVisibility, setNoteVisibility] = useState<
+    ProjectFactVisibility | undefined
+  >(undefined);
 
   const [chatText, setChatText] = useState('');
   const [senderEdits, setSenderEdits] = useState<Record<number, string>>({});
-  const [chatVisibility, setChatVisibility] =
-    useState<ProjectFactVisibility>(DEFAULT_VISIBILITY);
+  const [chatVisibility, setChatVisibility] = useState<
+    ProjectFactVisibility | undefined
+  >(undefined);
 
   const uploading = uploadingCount > 0;
 
@@ -174,6 +216,58 @@ export default function ProjectIntakeSection({
     void load();
   }, [load]);
 
+  /** 投递概览：各来源计数 / 低质 / 24h / 未归类 / 本周是否 0 新增。挖不到就占位。 */
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    setSummaryError('');
+    try {
+      setSummary(await superworkApi.getProjectFactsSummary(projectId));
+    } catch {
+      setSummary(undefined);
+      setSummaryError('概览统计不到，稍后重试即可，不影响投递');
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadSummary();
+  }, [loadSummary]);
+
+  /** 投完一轮：列表和概览一起刷，别让人以为没投进去。 */
+  const refresh = useCallback(() => {
+    void load();
+    void loadSummary();
+  }, [load, loadSummary]);
+
+  // 没传 projectCode 时从项目树里摸一次；摸不到就空着，不编一个编码出来。
+  useEffect(() => {
+    if (projectCode) {
+      setResolvedCode(projectCode);
+      return;
+    }
+    let cancelled = false;
+    const findCode = (nodes: ProjectTreeNode[]): string => {
+      for (const node of nodes) {
+        if (node.id === projectId) return node.code || '';
+        const hit = findCode(node.children || []);
+        if (hit) return hit;
+      }
+      return '';
+    };
+    void superworkApi
+      .getProjectTree()
+      .then((tree) => {
+        if (!cancelled) setResolvedCode(findCode(tree || []));
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedCode('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode, projectId]);
+
   // 文本一改就重新解析，顺手清掉旧的发送人改写，避免张冠李戴。
   useEffect(() => {
     setSenderEdits({});
@@ -198,7 +292,7 @@ export default function ProjectIntakeSection({
       .then((fact) => {
         options.onSuccess?.(fact);
         message.success(INTAKE_DONE_TEXT);
-        void load();
+        refresh();
       })
       .catch((error: unknown) => {
         options.onError?.(
@@ -233,6 +327,7 @@ export default function ProjectIntakeSection({
       setNoteTitle('');
       setNoteBody('');
       await load();
+      void loadSummary();
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : '保存失败，请稍后重试',
@@ -263,6 +358,7 @@ export default function ProjectIntakeSection({
       message.success(INTAKE_DONE_TEXT);
       setChatText('');
       await load();
+      void loadSummary();
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : '导入失败，请稍后重试',
@@ -272,8 +368,143 @@ export default function ProjectIntakeSection({
     }
   };
 
+  const overview = summary;
+  const bySource = overview?.bySource || {};
+  const sourceCount = (type: string) => bySource[type] ?? 0;
+  /**
+   * 未归类邮件数：**用户级**口径（我名下没归属的邮件），后端统计失败给 null，别当成 0。
+   * 这里只看本项目这一份，不做跨项目加总。
+   */
+  const ungroupedText =
+    typeof overview?.ungrouped === 'number'
+      ? `${overview.ungrouped} 封`
+      : '统计不到';
+  /** 待补文件（ungroupedFiles，项目级可求和）：投上来但没正文的文件。 */
+  const pendingFilesText =
+    typeof overview?.ungroupedFiles === 'number'
+      ? `${overview.ungroupedFiles} 个`
+      : '统计不到';
+  /**
+   * 统计是否被截断（后端只统计了前 N 条事实）：截断时上面这几个数字都只是**下限**，
+   * 不是确定值——真实条数只会更多，不会更少。所以数字照旧显示，但必须标一条
+   * 「仅覆盖部分事实」，不能再让人把它当准确值去对账。
+   *
+   * 更不能据此下「本周 0 新增」这种结论：这个 0 可能是「没统计到」，而不是「真的没有」；
+   * 按 SOP 去补料、找运维这类确定性动作建立在「确实为 0」之上，截断时站不住脚，
+   * 所以这里只提示「可能 0 新增」，不重复那套确定建议。
+   */
+  const truncated = overview?.truncated === true;
+
   return (
     <div>
+      <div
+        style={{
+          border: '1px solid #f0f0f0',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 12,
+        }}
+      >
+        <Space size={8} wrap>
+          <Typography.Text strong>投递概览</Typography.Text>
+          {summaryLoading && !overview ? (
+            <Typography.Text type="secondary">统计中…</Typography.Text>
+          ) : overview ? (
+            <>
+              <Typography.Text type="secondary">
+                {SOURCE_LABEL.FILE_UPLOAD} {sourceCount('FILE_UPLOAD')}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {SOURCE_LABEL.NOTE} {sourceCount('NOTE')}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {SOURCE_LABEL.CHAT_EXPORT} {sourceCount('CHAT_EXPORT')}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {SOURCE_LABEL.ARTIFACT} {sourceCount('ARTIFACT')}
+              </Typography.Text>
+              <Tag color={Number(overview.lowQuality || 0) > 0 ? 'orange' : 'default'}>
+                低质 {overview.lowQuality || 0}
+              </Tag>
+              <Tag color="blue">24h 投递 {overview.last24h || 0}</Tag>
+              <Tag
+                color={
+                  typeof overview.ungrouped === 'number' && overview.ungrouped > 0
+                    ? 'gold'
+                    : 'default'
+                }
+              >
+                未归类 {ungroupedText}
+              </Tag>
+              {/* 待补文件是新字段（项目级）；isolated 恒为 null、只有本机知道，这里不展示 */}
+              <Tag
+                color={
+                  typeof overview.ungroupedFiles === 'number' &&
+                  overview.ungroupedFiles > 0
+                    ? 'gold'
+                    : 'default'
+                }
+              >
+                待补文件 {pendingFilesText}
+              </Tag>
+              {/* 截断时「本周有新增」仍然成立（看到的事实是真的），但「0 新增」只是个下限结论 */}
+                {overview.thisWeekZero ? (
+                  <Tag color={truncated ? 'default' : 'red'}>
+                    {truncated ? '本周可能 0 新增' : '本周 0 新增'}
+                  </Tag>
+              ) : (
+                <Tag color="green">本周有新增</Tag>
+              )}
+              {/* 截断提示放在数据行末尾：数字照旧给，但明确它们只是下限 */}
+              {truncated && (
+                <Tag color="warning">统计仅覆盖部分事实，上面数字为下限</Tag>
+              )}
+            </>
+          ) : (
+            <Typography.Text type="secondary">
+              {summaryLoading ? '统计中…' : summaryError || '概览统计不到'}
+            </Typography.Text>
+          )}
+        </Space>
+        {/* 截断时不下定论：不能说「一条都没有」，也不该让人按 SOP 去做确定性的补救动作 */}
+          {truncated && overview?.thisWeekZero && (
+            <div style={{ marginTop: 6 }}>
+              <Typography.Text type="warning">
+              本周可能 0 新增（统计未覆盖全部事实），先按上面的下限看，别据此判断要不要补料。
+            </Typography.Text>
+          </div>
+        )}
+        {!truncated && overview?.thisWeekZero && (
+          <div style={{ marginTop: 6 }}>
+            <Typography.Text type="secondary">
+              本周一条新事实都没有：按 SOP 先确认归档邮箱在收信（找运维），
+              再把客户原话转发到下面这个项目邮箱；否则夜里 agent 只能空转。
+            </Typography.Text>
+          </div>
+        )}
+        {resolvedCode ? (
+          <div style={{ marginTop: 6 }}>
+            <Typography.Text type="secondary">
+              {COMPANY_MAIL_DOMAIN ? (
+                  <>
+                    项目邮箱别名：{' '}
+                    <Typography.Text code>
+                      {`inbox+${resolvedCode}@${COMPANY_MAIL_DOMAIN}`}
+                    </Typography.Text>{' '}
+                    （外部客户直接发到这里，自动归到本项目）
+                  </>
+              ) : (
+                MAIL_DOMAIN_MISSING_TEXT
+              )}
+            </Typography.Text>
+          </div>
+        ) : null}
+        <div style={{ marginTop: 4 }}>
+          <Typography.Text type="secondary">
+            文件名命中敏感关键词的投递默认仅自己可见。
+          </Typography.Text>
+        </div>
+      </div>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -300,10 +531,10 @@ export default function ProjectIntakeSection({
                 </Upload.Dragger>
                 <Field label="可见性">
                   <Select
-                    value={fileVisibility}
+                    value={fromVisibility(fileVisibility)}
                     options={VISIBILITY_OPTIONS}
-                    onChange={setFileVisibility}
-                    style={{ maxWidth: 200 }}
+                    onChange={(value) => setFileVisibility(toVisibility(value))}
+                    style={{ maxWidth: 260 }}
                   />
                 </Field>
                 <Field label="备注（选填，会一起进事实）">
@@ -341,10 +572,10 @@ export default function ProjectIntakeSection({
                 </Field>
                 <Field label="可见性">
                   <Select
-                    value={noteVisibility}
+                    value={fromVisibility(noteVisibility)}
                     options={VISIBILITY_OPTIONS}
-                    onChange={setNoteVisibility}
-                    style={{ maxWidth: 200 }}
+                    onChange={(value) => setNoteVisibility(toVisibility(value))}
+                    style={{ maxWidth: 260 }}
                   />
                 </Field>
                 <Button
@@ -416,10 +647,10 @@ export default function ProjectIntakeSection({
                 )}
                 <Field label="可见性">
                   <Select
-                    value={chatVisibility}
+                    value={fromVisibility(chatVisibility)}
                     options={VISIBILITY_OPTIONS}
-                    onChange={setChatVisibility}
-                    style={{ maxWidth: 200 }}
+                    onChange={(value) => setChatVisibility(toVisibility(value))}
+                    style={{ maxWidth: 260 }}
                   />
                 </Field>
                 <Button

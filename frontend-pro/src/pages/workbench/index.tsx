@@ -23,6 +23,7 @@ import {
   Space,
   Statistic,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -36,7 +37,8 @@ import {
   type Requirement,
   type SalesOpportunity,
   superworkApi,
-  type WorkItemRecord, type AiProactiveSuggestion, type AiProactiveStats } from '@/services/superwork/api';
+  type WorkItemRecord, type AiProactiveSuggestion, type AiProactiveStats, type ProjectFactsSummary,
+  type ProjectRecord } from '@/services/superwork/api';
 import './style.less';
 
 type Matter = Record<string, unknown>;
@@ -81,6 +83,49 @@ const parseBriefItems = (content?: string | null): AiBriefItem[] => {
 };
 const isHttpUrl = (url: string) => /^https?:\/\//i.test(url);
 const count = (value: unknown) => Number(value || 0);
+/** 跨项目相加：一项都没取到就是 null，界面显示占位，不拿 0 冒充。 */
+const sumKnown = (values: Array<number | null | undefined>): number | null => {
+  const known = values.filter(
+    (value): value is number =>
+      typeof value === 'number' && Number.isFinite(value),
+  );
+  return known.length
+    ? known.reduce((total, value) => total + value, 0)
+    : null;
+};
+// null 一律渲成占位：统计不到 / 被主动跳过时不能把 0 或 NaN 当成真实数字
+const intakeNumber = (value: number | null | undefined) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : '—';
+/** 未归类 / 已隔离 / 本周 0 新增：跨项目汇总的结果。 */
+type IntakeOverview = {
+  emails: number | null;
+  files: number | null;
+  isolated: number | null;
+  weekZero: string[];
+};
+const emptyIntakeOverview = (): IntakeOverview => ({
+  emails: null,
+  files: null,
+  isolated: null,
+  weekZero: [],
+});
+/**
+ * hover 提示：把三个口径分开说清——否则容易把「未归类」当项目级去加、
+ * 把「隔离」当成服务端能算出来的数字。
+ */
+const INTAKE_SCOPE_HINT = (
+  <div>
+    <div>邮件 = 我名下还没归属到项目的邮件（用户级口径，跨项目只算一次，不能相加）</div>
+    <div>待补文件 = 投进来的文件但还没有正文（项目级口径，可以跨项目相加）</div>
+    <div>隔离 = 文件名命中敏感规则、仅本机可见；服务端不知道条数，有值才显示数字</div>
+  </div>
+);
+/** 未归类汇总是跨项目的：要按页拉全，不能只看第 1 页。 */
+const INTAKE_PAGE_SIZE = 100;
+/** 页数封顶，接口异常返回空页 / total 不对时不会死循环。 */
+const INTAKE_MAX_PAGES = 20;
+/** 项目数上限：再多就只统计前 500 个，避免一屏打上百次请求。 */
+const INTAKE_MAX_PROJECTS = 500;
 const reqTone = (status?: string) => {
   if (deliveredReq.includes(status || '')) return 'success';
   if (status === '待上线' || status === '测试中') return 'warning';
@@ -149,6 +194,10 @@ export default function WorkbenchPage() {
   const [data, setData] = useState<Snapshot>(emptySnapshot);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /** 未归类 / 已隔离：只在本卡尾部提示，拉了不到就显示占位，不影响别的内容。 */
+  const [intake, setIntake] = useState<IntakeOverview>(emptyIntakeOverview);
+  const [intakeLoading, setIntakeLoading] = useState(true);
+  const [intakeError, setIntakeError] = useState('');
   const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
   const [suggestionStats, setSuggestionStats] = useState<AiProactiveStats>();
   const [briefs, setBriefs] = useState<AiBrief[]>([]);
@@ -240,6 +289,155 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  /**
+   * 未归类 / 已隔离：按「我能看的项目」逐个取事实汇总再加起来。
+   * 失败只让这一行显示占位，不弹错，也不拖累晨报和评审卡。
+   */
+  const loadIntakeOverview = useCallback(async () => {
+    setIntakeLoading(true);
+    setIntakeError('');
+    try {
+      // 按页拉全：只取第 1 页会把第 21 个项目之后的全漏掉，总数和本周零新增就残缺。
+      let projects: ProjectRecord[] = [];
+      let total = 0;
+      let lastPageNo = 0;
+        let lastPageFull = false;
+        for (let page = 1; page <= INTAKE_MAX_PAGES; page += 1) {
+          const chunk = await superworkApi.getProjects({
+            page,
+            size: INTAKE_PAGE_SIZE,
+        });
+        const records = chunk?.records || [];
+        total = Number(chunk?.total) || total;
+        projects = projects.concat(records);
+        lastPageNo = page;
+          lastPageFull = records.length >= INTAKE_PAGE_SIZE;
+          // 末页（不满一页）或已够 total 就收工
+        if (records.length < INTAKE_PAGE_SIZE) break;
+        if (total > 0 && projects.length >= total) break;
+        }
+        /**
+         * 被主动跳过、没纳入统计的项目数。
+       * 接口给了 total 就算差额；没 total 时只能看「是不是跑满了页数上限」：
+       * 停在上限页且那页还是满页 ⇔ 后面大概率还有没拉到的，最少按 1 个算。
+       * 这个数必须往上报：被跳过的项目里可能还有待补文件 / 未归类邮件，不体现就是少计。
+       */
+      // 第 2 条（被下面 slice 丢掉的数量）不能省：没给 total 时循环可能因末页不满正常结束，
+      // 但已收集的项目早超过 INTAKE_MAX_PROJECTS，slice 会静默丢弃，不取最大就又是一次静默少计。
+      const skippedCount = Math.max(
+        total > 0
+          ? Math.max(0, total - projects.length)
+          : lastPageNo === INTAKE_MAX_PAGES && lastPageFull
+            ? 1
+            : 0,
+        Math.max(0, projects.length - INTAKE_MAX_PROJECTS),
+      );
+      if (projects.length > INTAKE_MAX_PROJECTS) {
+        projects = projects.slice(0, INTAKE_MAX_PROJECTS);
+        // 仅开发辅助：真正的提示必须出现在界面上（见下面 intakeError 的 skipped 分句）。
+        console.warn(
+          `[workbench] 未归类汇总只统计前 ${INTAKE_MAX_PROJECTS} 个项目（接口 total=${total || '未知'}），其余 ${skippedCount} 个已跳过`,
+        );
+      }
+      if (!projects.length) {
+        // 空列表分两种：真的一个项目都没有，还是「接口 total 说 >0、records 却是空」
+        // （统计与列表之间被并发删除 / 后端过滤）。后者不是干净的空，
+        // 跳过数必须按下面同一套口径往上报，否则界面会默默清空统计，又是一次静默少计。
+        setIntake(emptyIntakeOverview());
+        setIntakeError(
+          skippedCount > 0 ? `还有 ${skippedCount} 个项目未纳入统计` : '',
+        );
+        // loading 由外层 finally 释放，这里提前 return 不会卡住。
+        return;
+      }
+      const results = await Promise.allSettled(
+        projects.map((project) =>
+          superworkApi.getProjectFactsSummary(project.id),
+        ),
+      );
+      // 失败的项目不能直接丢掉：丢掉后剩下的项目照样求和，会给出一个偏小的「确定数字」。
+        const failedCount = results.filter(
+          (item) => item.status === 'rejected',
+        ).length;
+        const summaries = results
+        .filter(
+            (item): item is PromiseFulfilledResult<ProjectFactsSummary> =>
+              item.status === 'fulfilled',
+        )
+        .map((item) => item.value || {});
+        // 后端只统计了前 N 条：数字是下限，界面要说清楚。
+        const truncated = summaries.some((item) => item.truncated === true);
+        // 用户级口径：同一个数在每个项目里都一样，取第一个非 null 即可，失败不影响它。
+        const emailsKnown = summaries.reduce<number | null>(
+          (found, item) =>
+          found ??
+            (typeof item.ungrouped === 'number' && Number.isFinite(item.ungrouped)
+              ? item.ungrouped
+              : null),
+        null,
+        );
+        const hasFailure = failedCount > 0;
+        /**
+         * 有项目被主动跳过时，emails / files / isolated 全部置 null：
+         * 跳掉的那部分项目里可能还有未归类邮件、待补文件，任何求和都会偏小。
+         * 宁可显示占位，也不给一个看上去确定的少计数字。
+         */
+        const hasSkipped = skippedCount > 0;
+        const emails = hasSkipped ? null : emailsKnown;
+        setIntake({
+          // ungrouped 是**用户级**口径（我名下没归属的邮件）：每个项目的汇总里都是同一个数，
+          // 跨项目相加会重复计算，所以只取第一个非 null 的值，不求和。
+        // 一个都没取到就是 null（有失败时更是如此），界面显示占位。
+        emails,
+        // ungroupedFiles 是**项目级**口径（投上来但没正文），本来可以放心求和；
+        // 但只要有一个项目失败（或整批项目被跳过），总和就不完整——宁可显示占位，也不给错数。
+        files: hasFailure || hasSkipped
+          ? null
+          : sumKnown(summaries.map((item) => item.ungroupedFiles)),
+        // isolated 恒为 null（是否隔离只有本机客户端知道），不参与求和；
+        // 全 null 时界面只说「本机隔离（仅本机可见）」，有值才显示数字。
+        // 有失败 / 有跳过时同样置 null：缺了项目的「有值」也是残缺的。
+        isolated: hasFailure || hasSkipped
+          ? null
+          : summaries.reduce<number | null>(
+              (found, item) =>
+                found ??
+                (typeof item.isolated === 'number' ? item.isolated : null),
+              null,
+            ),
+        weekZero: projects
+          .filter((project, index) => {
+            const result = results[index];
+            return (
+              result?.status === 'fulfilled' &&
+              Boolean((result as PromiseFulfilledResult<ProjectFactsSummary>).value?.thisWeekZero)
+            );
+          })
+          .map((project) => project.name || `#${project.id}`),
+        });
+        // 提示只挂在「未归类」这一行，不影响晨报、评审卡和今日安排。
+        // 失败 / 截断 / 主动跳过合并成一句话，用分号分隔，不堆多条 alert。
+        setIntakeError(
+          [
+            hasFailure
+              ? `部分项目（${failedCount} 个）的投递统计取不到，数字不完整`
+              : '',
+            truncated ? '统计已达到上限，数字为下限' : '',
+            hasSkipped ? `还有 ${skippedCount} 个项目未纳入统计` : '',
+          ]
+            .filter(Boolean)
+            .join('；'),
+        );
+    } catch {
+      setIntake(emptyIntakeOverview());
+      setIntakeError('未归类统计暂时取不到，其余内容不受影响。');
+    } finally {
+      setIntakeLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadIntakeOverview();
+  }, [loadIntakeOverview]);
   const loadSuggestions = useCallback(async () => {
     try {
       const [list, stats] = await Promise.all([
@@ -603,7 +801,10 @@ export default function WorkbenchPage() {
           <Button
             icon={<ReloadOutlined />}
             loading={loading}
-            onClick={() => void load()}
+            onClick={() => {
+                void load();
+                void loadIntakeOverview();
+            }}
           >
             刷新
           </Button>
@@ -728,6 +929,51 @@ export default function WorkbenchPage() {
             </Button>
           </Empty>
         )}
+        {/* 未归类 / 已隔离：接不上就只显示占位，不在卡片里报错 */}
+        <div
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {intakeLoading ? (
+            <Typography.Text type="secondary">
+              正在统计未归类…
+            </Typography.Text>
+          ) : (
+            <Tooltip title={INTAKE_SCOPE_HINT}>
+              <Typography.Text type="secondary" style={{ cursor: 'help' }}>
+                未归类：
+                <Link to="/emails?ungrouped=1">
+                  {intakeNumber(intake.emails)} 封邮件
+                </Link>{' '}
+                /{' '}
+                <Link to="/projects">
+                  {intakeNumber(intake.files)} 个待补文件
+                </Link>
+                ，
+                {intake.isolated === null
+                  ? '本机隔离（仅本机可见）'
+                  : `本机隔离 ${intake.isolated} 个`}
+              </Typography.Text>
+            </Tooltip>
+          )}
+          {/* 失败 / 截断只在这一行提示，不影响今日安排等其它内容 */}
+          {!intakeLoading && intakeError && (
+            <Typography.Text type="warning">{intakeError}</Typography.Text>
+          )}
+          {intake.weekZero.length > 0 && (
+            <Typography.Text type="secondary">
+              本周 0 新事实：{intake.weekZero.slice(0, 3).join('、')}
+              {intake.weekZero.length > 3
+                ? ` 等 ${intake.weekZero.length} 个项目`
+                : ''}
+              。按 SOP 周五清一遍未归类，缺料就转发到项目邮箱 inbox+&lt;编码&gt;@，别让夜里空转。
+            </Typography.Text>
+          )}
+        </div>
       </Card>
       <Card
         variant="borderless"
