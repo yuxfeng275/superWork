@@ -1,0 +1,58 @@
+{
+  "base": "http://192.168.1.241:18080",
+  "user": "admin",
+  "startedAt": "2026-11-17T16:33:46.122Z",
+  "steps": [
+    {
+      "name": "登录",
+      "ok": true,
+      "detail": "HTTP 200，用户 admin"
+    },
+    {
+      "name": "工作台打开",
+      "ok": true,
+      "detail": "待我评审卡片可见",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/01-workbench.png"
+    },
+    {
+      "name": "建议去做",
+      "ok": true,
+      "detail": "预填 51 字",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/02-suggestion-draft.png"
+    },
+    {
+      "name": "助手对话",
+      "ok": true,
+      "detail": "Jev 状态可见；气泡 0→3",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/03-assistant-chat.png"
+    },
+    {
+      "name": "知识库检索",
+      "ok": true,
+      "detail": "检索「会员通 交付周期」",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/04-knowledge.png"
+    },
+    {
+      "name": "团队效能",
+      "ok": true,
+      "detail": "10 行数据",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/05-team-efficiency.png"
+    },
+    {
+      "name": "制品评审",
+      "ok": true,
+      "detail": "详情抽屉已打开",
+      "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/06-artifact-review.png"
+    }
+  ],
+  "consoleErrors": [
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)"
+  ],
+  "serverErrors": [],
+  "finishedAt": "2026-11-17T16:34:48.477Z",
+  "ok": true
+}

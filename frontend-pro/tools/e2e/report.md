@@ -1,0 +1,25 @@
+# 241 E2E 报告
+
+- 地址：http://192.168.1.241:18080
+- 账号：admin
+- 开始：2026-11-17T16:33:46.122Z
+- 结束：2026-11-17T16:34:48.477Z
+- 结果：全部通过
+
+| 步骤 | 结果 | 说明 | 截图 |
+|---|---|---|---|
+| 登录 | ✅ | HTTP 200，用户 admin |  |
+| 工作台打开 | ✅ | 待我评审卡片可见 | 01-workbench.png |
+| 建议去做 | ✅ | 预填 51 字 | 02-suggestion-draft.png |
+| 助手对话 | ✅ | Jev 状态可见；气泡 0→3 | 03-assistant-chat.png |
+| 知识库检索 | ✅ | 检索「会员通 交付周期」 | 04-knowledge.png |
+| 团队效能 | ✅ | 10 行数据 | 05-team-efficiency.png |
+| 制品评审 | ✅ | 详情抽屉已打开 | 06-artifact-review.png |
+
+## 服务端错误
+
+无
+
+## 控制台告警（不计入失败）
+
+共 5 条，首条：plugin-model: Invoking 'index' model failed: Error
