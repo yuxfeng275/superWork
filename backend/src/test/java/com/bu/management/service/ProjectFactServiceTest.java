@@ -2,12 +2,14 @@ package com.bu.management.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.Meeting;
 import com.bu.management.entity.ProjectFact;
@@ -20,7 +22,9 @@ import com.bu.management.mapper.YunxiaoWorkitemCacheMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,8 +47,18 @@ class ProjectFactServiceTest {
     @Mock private YunxiaoWorkitemCacheMapper workitemCacheMapper;
     @Mock private BuKeyMatterMapper keyMatterMapper;
     @Mock private ProjectFactAccessGuard projectFactAccessGuard;
+    @Mock private MeetingProjectAttributionService meetingAttributionService;
 
     private ProjectFactService service;
+
+    /** LambdaUpdateWrapper 解列名要有表信息，纯单元测试里自己初始化一次。 */
+    @BeforeAll
+    static void initTableInfo() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new org.apache.ibatis.session.Configuration(), ""),
+                ProjectFact.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -52,7 +66,8 @@ class ProjectFactServiceTest {
         properties.setMaxSourceRows(50);
         service = new ProjectFactService(factMapper, projectMapper, meetingMapper,
                 emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties,
-                new ProjectFactPolicy(projectFactAccessGuard));
+                new ProjectFactPolicy(projectFactAccessGuard), new FactRedactionService(),
+                meetingAttributionService);
     }
 
     @Test
@@ -219,6 +234,64 @@ class ProjectFactServiceTest {
 
         assertThat(service.queryForAgent(5L, 11L, null, null, 10))
                 .extracting(ProjectFact::getId).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("保留期清理：只清 body，事实行与 title/digest/source_ref 保留")
+    void purgeBodiesOnlyClearsBody() {
+        when(factMapper.update(isNull(), any())).thenReturn(3);
+
+        int purged = service.purgeBodies(LocalDateTime.now().minusDays(180),
+                List.of(ProjectFactService.SOURCE_FILE_UPLOAD, ProjectFactService.SOURCE_CHAT_EXPORT));
+
+        assertThat(purged).isEqualTo(3);
+        ArgumentCaptor<LambdaUpdateWrapper<ProjectFact>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(factMapper).update(isNull(), captor.capture());
+        // SET 子句只能动 body：标题、摘要、溯源与事实行本身全部保留
+        String setSql = captor.getValue().getSqlSet();
+        assertThat(setSql).contains("body=").doesNotContain("title", "digest", "source_ref");
+        // 且 body 绑的是 null（占位符渲染成 null 参数）
+        assertThat(captor.getValue().getParamNameValuePairs().values()).containsNull();
+        // WHERE 只限定这两类来源 + 到期时间（列名渲染成属性名，取值看参数表）
+        String whereSql = captor.getValue().getSqlSegment();
+        assertThat(whereSql).contains("sourceType IN", "happenedAt <");
+        assertThat(captor.getValue().getParamNameValuePairs().values())
+                .contains(ProjectFactService.SOURCE_FILE_UPLOAD, ProjectFactService.SOURCE_CHAT_EXPORT);
+    }
+
+    @Test
+    @DisplayName("保留期清理：入参不完整直接 0，不动库")
+    void purgeBodiesIgnoresEmptyArguments() {
+        assertThat(service.purgeBodies(null, List.of(ProjectFactService.SOURCE_FILE_UPLOAD))).isZero();
+        assertThat(service.purgeBodies(LocalDateTime.now(), List.of())).isZero();
+        verify(factMapper, never()).update(any(), any());
+    }
+
+    @Test
+    @DisplayName("质量判定：body 空且 digest 短于 40 算低质")
+    void qualityOfUsesBodyAndDigestLength() {
+        assertThat(service.qualityOf(factWith(ProjectFactService.VISIBILITY_PROJECT, null, "短标题")))
+                .isFalse();
+        // 边界：digest 恰好 40 字算合格
+        assertThat(service.qualityOf(factWith(ProjectFactService.VISIBILITY_PROJECT, null,
+                "一".repeat(40)))).isTrue();
+        assertThat(service.qualityOf(factWith(ProjectFactService.VISIBILITY_PROJECT, null,
+                "一".repeat(39)))).isFalse();
+        // body 有内容：即便 digest 短也算合格（原文还在，能回查）
+        assertThat(service.qualityOf(factWith(ProjectFactService.VISIBILITY_PROJECT, "正文", "标题")))
+                .isTrue();
+        assertThat(service.qualityOf(null)).isFalse();
+    }
+
+    private ProjectFact factWith(String visibility, String body, String digest) {
+        ProjectFact fact = new ProjectFact();
+        fact.setId(1L);
+        fact.setProjectId(11L);
+        fact.setVisibility(visibility);
+        fact.setBody(body);
+        fact.setDigest(digest);
+        return fact;
     }
 
     private ProjectFact fact(Long id, String visibility, Long actorId) {

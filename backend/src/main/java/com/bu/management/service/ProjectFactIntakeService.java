@@ -54,16 +54,23 @@ public class ProjectFactIntakeService {
     public record ChatRequest(List<ChatMessage> messages, String visibility) {
     }
 
-    /** 本机文件投递：落盘 + 写一条 FILE_UPLOAD 事实。 */
+    /** 本机文件投递：落盘 + 写一条 FILE_UPLOAD 事实。
+     *
+     * <p>可见性：调用方显式传了就照用；没传则按文件名兜默认值（{@link FactVisibilityPolicy}）
+     * ——命中敏感关键词 / 扩展名 / 固定文件名默认 OWNER（仅投递人），其余默认 PROJECT。
+     */
     public ProjectFact intakeFile(Long projectId, Long actorId, String fileName, InputStream in,
             String note, String visibility, LocalDateTime occurredAt) throws IOException {
         String safeName = StringUtils.hasText(fileName) ? fileName.strip() : "未命名文件";
+        String effectiveVisibility = StringUtils.hasText(visibility)
+                ? visibility.strip()
+                : FactVisibilityPolicy.defaultVisibility(safeName);
         ProjectFactStorage.StoredFactFile stored = storage.store(projectId, safeName, in);
         String sourceRef = "file:" + projectId + ":" + stored.sha256();
         String body = mergeBody(note, textHead(stored, safeName));
         String title = StringUtils.hasText(note) ? safeName + " · " + note.strip() : safeName;
         append(projectId, ProjectFactService.SOURCE_FILE_UPLOAD, sourceRef, actorId, occurredAt,
-                title, body, visibility);
+                title, body, effectiveVisibility);
         return factService.find(ProjectFactService.SOURCE_FILE_UPLOAD, sourceRef);
     }
 

@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.BuKeyMatter;
 import com.bu.management.entity.EmailMessage;
@@ -21,10 +22,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -66,6 +69,8 @@ public class ProjectFactService {
     private static final int MAX_DIGEST = 1000;
     private static final int DEFAULT_LIMIT = 100;
     private static final int MAX_LIMIT = 500;
+    /** 低质阈值：body 空且 digest 短于该长度就算低质（只有标题的空壳）。 */
+    private static final int LOW_QUALITY_DIGEST_MIN = 40;
 
     private final ProjectFactMapper factMapper;
     private final ProjectMapper projectMapper;
@@ -75,6 +80,14 @@ public class ProjectFactService {
     private final BuKeyMatterMapper keyMatterMapper;
     private final ProjectContextProperties properties;
     private final ProjectFactPolicy factPolicy;
+    /** 入库前脉络：五类敏感数据在这里就被换成占位符，原文绝不落库。 */
+    private final FactRedactionService redactionService;
+    /** 会议自动归属：上传时没认领项目的会议先在这里找唯一确定的项目，只查不写。 */
+    private final MeetingProjectAttributionService meetingAttributionService;
+
+    /** 公司域名白名单（逗号分隔），空则来信一律按项目可见（不猜）。 */
+    @Value("${email.company-domains:}")
+    private String companyDomains;
 
     /** 单个项目的一次汇入；返回新增或更新的条数。 */
     @Transactional
@@ -108,11 +121,24 @@ public class ProjectFactService {
 
     /** 供 autoloop 读取的项目上下文；types 为空表示全部来源。 */
     public List<ProjectFact> query(Long projectId, List<String> types, LocalDateTime since, int limit) {
+        return query(projectId, types, since, limit, 0);
+    }
+
+    /**
+     * 分页取事实：排序口径与上面完全一致（happened_at 倒序），额外跳过前 offset 条。
+     *
+     * <p>汇总要算全量数字，必须靠它一页页翻。排序再加 id 倒序兜底：只有 happened_at 一个排序键时，
+     * 同一时刻的多条事实在翻页之间顺序不稳定，limit/offset 会重复或漏行，分页统计出来的总量就是错的。
+     * offset 小于 0 按 0 处理（SQL 里负 offset 直接报错）。
+     */
+    public List<ProjectFact> query(Long projectId, List<String> types, LocalDateTime since, int limit,
+            int offset) {
         int size = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
         LambdaQueryWrapper<ProjectFact> wrapper = new LambdaQueryWrapper<ProjectFact>()
                 .eq(ProjectFact::getProjectId, projectId)
                 .orderByDesc(ProjectFact::getHappenedAt)
-                .last("limit " + size);
+                .orderByDesc(ProjectFact::getId)
+                .last("limit " + size + " offset " + Math.max(offset, 0));
         if (types != null && !types.isEmpty()) {
             wrapper.in(ProjectFact::getSourceType, types);
         }
@@ -164,6 +190,25 @@ public class ProjectFactService {
     // ==================== 来源适配器 ====================
 
     private int ingestMeetings(Long projectId, LocalDateTime since) {
+        // ① 没认领项目的会议先自动归属：三条规则唯一命中才回写 project_id，猜不准就原地不动。
+        List<Meeting> orphans = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
+                .isNull(Meeting::getProjectId)
+                .ge(Meeting::getUpdatedAt, since)
+                .orderByDesc(Meeting::getUpdatedAt)
+                .last("limit " + properties.getMaxSourceRows()));
+        for (Meeting orphan : orphans) {
+            if (orphan.getProjectId() != null) {
+                continue;
+            }
+            Long attributed = meetingAttributionService.attribute(orphan);
+            if (attributed == null) {
+                continue;
+            }
+            orphan.setProjectId(attributed);
+            meetingMapper.updateById(orphan);
+        }
+
+        // ② 已归属的会议（含刚回写的）：照旧 upsert 事实，v1 口径仍是只有上传人可见。
         List<Meeting> rows = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
                 .eq(Meeting::getProjectId, projectId)
                 .ge(Meeting::getUpdatedAt, since)
@@ -194,9 +239,32 @@ public class ProjectFactService {
                 .ge(EmailMessage::getReceivedAt, since)
                 .orderByDesc(EmailMessage::getReceivedAt)
                 .last("limit " + properties.getMaxSourceRows()));
+        // 可见性由发件人域决定：白名单为空一律按项目可见；发件人域不在白名单里的外部来信降级为公司可见。
+        Set<String> companyDomainSet = new LinkedHashSet<>();
+        if (StringUtils.hasText(companyDomains)) {
+            for (String domain : companyDomains.split(",")) {
+                String value = domain.trim().toLowerCase(Locale.ROOT);
+                if (!value.isEmpty()) {
+                    companyDomainSet.add(value);
+                }
+            }
+        }
         int changed = 0;
         for (EmailMessage mail : rows) {
             LocalDateTime happenedAt = mail.getReceivedAt() == null ? mail.getCreatedAt() : mail.getReceivedAt();
+            String senderDomain = null;
+            if (mail.getSenderAddress() != null) {
+                int at = mail.getSenderAddress().lastIndexOf('@');
+                if (at >= 0 && at < mail.getSenderAddress().length() - 1) {
+                    senderDomain = mail.getSenderAddress().substring(at + 1).trim().toLowerCase(Locale.ROOT);
+                }
+            }
+            // 域无法判定时不猜，按项目可见；确认是外部域才降级
+            String visibility = !companyDomainSet.isEmpty()
+                    && senderDomain != null
+                    && !companyDomainSet.contains(senderDomain)
+                    ? VISIBILITY_COMPANY
+                    : VISIBILITY_PROJECT;
             changed += upsert(new FactDraft(
                     projectId,
                     SOURCE_EMAIL,
@@ -205,7 +273,7 @@ public class ProjectFactService {
                     happenedAt,
                     truncate(mail.getSubject(), MAX_TITLE),
                     mail.getBodyText(),
-                    VISIBILITY_PROJECT));
+                    visibility));
         }
         return changed;
     }
@@ -325,8 +393,11 @@ public class ProjectFactService {
         if (!StringUtils.hasText(draft.sourceRef()) || draft.happenedAt() == null) {
             return 0;
         }
+        // 先脉络再落库：title / body 都换成脉络后的文本，digest 也基于脉络后的内容，原文绝不入库
+        String safeTitle = redactionService.redact(draft.title());
+        String safeBody = redactionService.redact(draft.body());
         String hash = dedupeHash(draft.sourceType(), draft.sourceRef());
-        String digest = digestOf(draft.title(), draft.body());
+        String digest = digestOf(safeTitle, safeBody);
         LocalDateTime now = LocalDateTime.now();
         ProjectFact existing = factMapper.selectOne(new LambdaQueryWrapper<ProjectFact>()
                 .eq(ProjectFact::getDedupeHash, hash)
@@ -338,8 +409,8 @@ public class ProjectFactService {
             fact.setSourceRef(draft.sourceRef());
             fact.setActorId(draft.actorId());
             fact.setHappenedAt(draft.happenedAt());
-            fact.setTitle(draft.title());
-            fact.setBody(draft.body());
+            fact.setTitle(safeTitle);
+            fact.setBody(safeBody);
             fact.setDigest(digest);
             fact.setVisibility(draft.visibility());
             fact.setDedupeHash(hash);
@@ -357,8 +428,8 @@ public class ProjectFactService {
             existing.setHappenedAt(draft.happenedAt());
             existing.setVisibility(draft.visibility());
         }
-        existing.setTitle(draft.title());
-        existing.setBody(draft.body());
+        existing.setTitle(safeTitle);
+        existing.setBody(safeBody);
         existing.setDigest(digest);
         existing.setUpdatedAt(now);
         if (foreignActor) {
@@ -367,6 +438,49 @@ public class ProjectFactService {
                     draft.projectId(), draft.sourceType());
         }
         return factMapper.updateById(existing) > 0 ? 1 : 0;
+    }
+
+    /**
+     * 保留期清理：把到期的原文正文置 null，事实行与 title / digest / source_ref 全部保留。
+     *
+     * <p>只动传入的 source_types（目前只有 FILE_UPLOAD / CHAT_EXPORT），不会被清理归入其它来源。
+     * 已经清过的行（body 为 null 或空串）不重复计入。
+     *
+     * @param before      时间阀值：happened_at 早于它的才清
+     * @param sourceTypes 参与清理的来源类型
+     * @return 被清掉正文的条数
+     */
+    @Transactional
+    public int purgeBodies(LocalDateTime before, List<String> sourceTypes) {
+        if (before == null || sourceTypes == null || sourceTypes.isEmpty()) {
+            return 0;
+        }
+        LambdaUpdateWrapper<ProjectFact> wrapper = new LambdaUpdateWrapper<ProjectFact>()
+                .in(ProjectFact::getSourceType, sourceTypes)
+                .lt(ProjectFact::getHappenedAt, before)
+                .isNotNull(ProjectFact::getBody)
+                .ne(ProjectFact::getBody, "")
+                .set(ProjectFact::getBody, null)
+                .set(ProjectFact::getUpdatedAt, LocalDateTime.now());
+        return factMapper.update(null, wrapper);
+    }
+
+    /**
+     * 事实质量判定：body 为空且 digest 长度小于 40 视为低质（只有一句话、回查不到任何上下文）。
+     *
+     * <p>阈值取 40 字：一条能用的摘要至少得交待清楚「推 / 時間 / 干系人」，低于这个长度多半是
+     * 只有标题的空壳。body 有内容一律算合格（原文还在，回头能查）。
+     *
+     * @param fact 事实；null 返回 false
+     * @return true = 质量合格
+     */
+    public boolean qualityOf(ProjectFact fact) {
+        if (fact == null) {
+            return false;
+        }
+        boolean bodyEmpty = !StringUtils.hasText(fact.getBody());
+        int digestLength = fact.getDigest() == null ? 0 : fact.getDigest().strip().length();
+        return !(bodyEmpty && digestLength < LOW_QUALITY_DIGEST_MIN);
     }
 
     /** 摘要：标题 + 正文前若干字，供模型消费；正文不进提示词。 */

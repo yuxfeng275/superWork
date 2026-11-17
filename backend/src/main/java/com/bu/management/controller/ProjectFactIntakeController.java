@@ -2,6 +2,7 @@ package com.bu.management.controller;
 
 import com.bu.management.annotation.RequirePermission;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.service.FactSummaryService;
 import com.bu.management.service.ProjectFactAccessGuard;
 import com.bu.management.service.ProjectFactIntakeService;
 import com.bu.management.service.ProjectFactPolicy;
@@ -44,6 +45,8 @@ public class ProjectFactIntakeController {
     private static final String NO_ACCESS = "无权访问该项目的事实";
 
     private final ProjectFactIntakeService intakeService;
+    /** 汇总口径：顶部几个数字，统计逻辑在 FactSummaryService，不往 controller 里堆。 */
+    private final FactSummaryService summaryService;
     private final ProjectFactAccessGuard accessGuard;
     /** 可见性口径的唯一真源：与 AI 工具用同一份实现，别再在这里自己拼过滤。 */
     private final ProjectFactPolicy factPolicy;
@@ -132,5 +135,24 @@ public class ProjectFactIntakeController {
         // 不能在这里给通用查询设默认值，否则证据全被过滤成「不可见或已删除」。
         return ResponseEntity.ok(Result.success(factPolicy.visible(userId, projectId,
                 intakeService.list(projectId, types, limit))));
+    }
+
+    @Operation(summary = "项目事实汇总",
+            description = "返回各来源条数、总量、低质条数、最近 24 小时新增、未分类邮件数（ungrouped）、"
+                    + "无正文文件数（ungroupedFiles）、本机隔离数（isolated，服务端不掌握，恒为 null，"
+                    + "前端显示占位不要当 0 用），以及本周是否 0 新增；"
+                    + "统计只覆盖当前用户可见的事实；"
+                    + "truncated 为 true 表示统计只跑满 20 页（最多 1 万条）还有余量，此时各项数字都是下限，"
+                    + "界面必须提示统计未覆盖全部事实；"
+                    + "ungrouped 是用户级口径（我名下 project_id 为空且 grouping_status=UNGROUPED 的邮件），"
+                    + "跨项目不能相加；ungroupedFiles 是项目级口径，可跨项目相加")
+    @GetMapping("/summary")
+    public ResponseEntity<?> summary(
+            @Parameter(description = "项目ID") @PathVariable Long projectId,
+            @RequestAttribute("userId") Long userId) {
+        if (!accessGuard.canRead(userId, projectId)) {
+            return ResponseEntity.status(403).body(Result.error(403, NO_ACCESS));
+        }
+        return ResponseEntity.ok(Result.success(summaryService.summary(userId, projectId)));
     }
 }

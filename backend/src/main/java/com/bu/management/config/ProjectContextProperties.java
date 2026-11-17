@@ -24,4 +24,10 @@ public class ProjectContextProperties {
 
     /** 手工投递单文件大小上限（MB） */
     private int factMaxFileMb = 50;
+
+    /** 事实保留期（天）：到期只清 FILE_UPLOAD / CHAT_EXPORT 的正文，事实行保留；非正数按 180 处理 */
+    private int factRetentionDays = 180;
+
+    /** 事实保留期清理的执行时间（Spring cron，六段式），默认每天 03:30 */
+    private String factRetentionCron = "0 30 3 * * *";
 }

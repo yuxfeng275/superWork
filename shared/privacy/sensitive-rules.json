@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-08",
+  "thresholds": {
+    "maxFileSizeMb": 50
+  },
+  "directories": {
+    "whitelist": ["合拍", "合拍投递"],
+    "ignoreNames": [".DS_Store", "Thumbs.db"],
+    "ignorePrefixes": ["~$", "."],
+    "ignoreSuffixes": [".tmp", ".crdownload", ".part", ".download"]
+  },
+  "sensitiveFileKeywords": ["身份证", "银行卡", "工资", "薪资", "劳动合同", "简历", "体检", "密码", "社保", "公积金", "个税", "离职", "offer", "背调", "病例", "诊断"],
+  "sensitiveExtensions": [".pem", ".key", ".p12", ".pfx", ".kdbx", ".env", ".ovpn", ".jks", ".keystore"],
+  "sensitiveNames": ["id_rsa", "id_ed25519", "credentials", "passwords"],
+  "notes": "命中任一即本地隔离，不上传；规则改动需同步 mac 与 Windows 两端"
+}

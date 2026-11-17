@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.service.FactSummaryService;
 import com.bu.management.service.ProjectFactAccessGuard;
 import com.bu.management.service.ProjectFactIntakeService;
 import com.bu.management.service.ProjectFactPolicy;
@@ -35,6 +36,7 @@ class ProjectFactIntakeControllerTest {
     private static final Long STRANGER_ID = 7L;
 
     @Mock private ProjectFactIntakeService intakeService;
+    @Mock private FactSummaryService summaryService;
     @Mock private ProjectFactAccessGuard accessGuard;
     @Mock private ProjectFactPolicy factPolicy;
 
@@ -42,7 +44,8 @@ class ProjectFactIntakeControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new ProjectFactIntakeController(intakeService, accessGuard, factPolicy);
+        controller = new ProjectFactIntakeController(intakeService, summaryService, accessGuard,
+                factPolicy);
         when(accessGuard.canWrite(anyLong(), anyLong())).thenReturn(false);
         when(accessGuard.canRead(anyLong(), anyLong())).thenReturn(false);
     }

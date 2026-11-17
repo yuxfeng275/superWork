@@ -47,6 +47,7 @@ class ProjectFactIntakeServiceTest {
     @Mock private YunxiaoWorkitemCacheMapper workitemCacheMapper;
     @Mock private BuKeyMatterMapper keyMatterMapper;
     @Mock private ProjectFactAccessGuard projectFactAccessGuard;
+    @Mock private MeetingProjectAttributionService meetingAttributionService;
 
     @TempDir Path tempDir;
 
@@ -75,7 +76,8 @@ class ProjectFactIntakeServiceTest {
         storage = new ProjectFactStorage(properties);
         ProjectFactService factService = new ProjectFactService(factMapper, projectMapper,
                 meetingMapper, emailMessageMapper, workitemCacheMapper, keyMatterMapper, properties,
-                new ProjectFactPolicy(projectFactAccessGuard));
+                new ProjectFactPolicy(projectFactAccessGuard), new FactRedactionService(),
+                meetingAttributionService);
         intakeService = new ProjectFactIntakeService(factService, storage);
 
         when(factMapper.insert(any(ProjectFact.class))).thenAnswer(inv -> {
