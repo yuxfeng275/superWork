@@ -342,9 +342,9 @@ public class AiAgentController {
 
         SseEmitter emitter = new SseEmitter(0L);
         AtomicBoolean done = new AtomicBoolean(false);
-        if (intent.ready()) {
-            forward(emitter, done, "jev_decision", toJson(intent.payload()));
-        }
+        // 无论是否生效都发事件：否则前端只能看到「Jev 已启用」的标签，
+        // 却不知道本轮实际是 fail-open 还是真的收窄了工具集。
+        forward(emitter, done, "jev_decision", toJson(intent.payload()));
 
         // 运行超时定时器：SseEmitter 0L 不超时，由自己计时并发错误事件后收尾
         ScheduledFuture<?> timeoutFuture = timeoutScheduler.schedule(() -> {

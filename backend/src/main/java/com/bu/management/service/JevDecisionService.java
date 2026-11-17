@@ -235,7 +235,8 @@ public class JevDecisionService {
     }
 
     private IntentDecision skipped(String intent) {
-        return new IntentDecision(false, "", intent, 0, false, "");
+        return new IntentDecision(false, "", intent, 0, false,
+                "Jev 未生效，本轮不收敛工具（fail-open）");
     }
 
     private String normalizeIntent(String raw) {
