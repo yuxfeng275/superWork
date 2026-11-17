@@ -2173,6 +2173,39 @@ export interface KbHit {
   score: number;
 }
 
+export interface TeamEfficiencyProject {
+  projectId: number;
+  projectName: string;
+  facts: number;
+  contributors: number;
+  lowQuality: number;
+  lastFactAt?: string | null;
+  pendingArtifacts: number;
+  approved: number;
+}
+
+export interface TeamEfficiencyMember {
+  userId: number;
+  name: string;
+  facts: number;
+  openTasks: number;
+  overdueTasks: number;
+  pendingArtifacts: number;
+}
+
+export interface TeamEfficiencyReport {
+  days: number;
+  since: string;
+  activeProjects: number;
+  deliveredProjects: number;
+  deliveryRate: number;
+  totalFacts: number;
+  lowQualityFacts: number;
+  pendingArtifacts: number;
+  projects: TeamEfficiencyProject[];
+  members: TeamEfficiencyMember[];
+}
+
 export interface JevStatus {
   ready: boolean;
   model?: string | null;
@@ -2738,6 +2771,9 @@ export const superworkApi = {
   },
   getAiAgentUsage() {
     return requestJson<AiAgentUsageSummary>("/api/ai-agent/usage");
+  },
+  getTeamEfficiency(days = 30) {
+    return requestJson<TeamEfficiencyReport>(`/api/team-efficiency/overview?days=${days}`);
   },
   getJevStatus() {
     return requestJson<JevStatus>("/api/ai-agent/jev/status");

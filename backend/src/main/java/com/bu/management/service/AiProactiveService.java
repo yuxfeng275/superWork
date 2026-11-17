@@ -90,11 +90,26 @@ public class AiProactiveService {
         if (rows == null) {
             return List.of();
         }
-        return rows.stream()
-                .map(row -> new Suggestion(row.getId(), row.getKind(), row.getTitle(), row.getBody(),
-                        row.getPrompt(), row.getTargetPath(),
-                        row.getScore() == null ? 0 : row.getScore(), row.getDraft()))
-                .toList();
+        return rows.stream().map(this::toSuggestion).toList();
+    }
+
+    /** 行 → 视图；老建议没有 draft 时按同一套模板补出来并回写，避免「去做」仍是空对话。 */
+    private Suggestion toSuggestion(AiProactiveSuggestion row) {
+        String draft = row.getDraft();
+        if (!StringUtils.hasText(draft)) {
+            draft = cap(draftOf(new Draft(row.getKind(), row.getDedupeKey(), row.getTitle(),
+                    row.getBody(), row.getPrompt(), row.getTargetPath(),
+                    row.getScore() == null ? 0 : row.getScore())), 4000);
+            try {
+                row.setDraft(draft);
+                suggestionMapper.updateById(row);
+            } catch (Exception e) {
+                log.warn("主动建议草稿回填失败 id={}: {}", row.getId(), e.getMessage());
+            }
+        }
+        return new Suggestion(row.getId(), row.getKind(), row.getTitle(), row.getBody(),
+                row.getPrompt(), row.getTargetPath(),
+                row.getScore() == null ? 0 : row.getScore(), draft);
     }
 
     /** 用户点了「去做」：标记已处理，避免重复提示。 */
