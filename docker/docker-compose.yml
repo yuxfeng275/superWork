@@ -6,10 +6,10 @@ services:
     container_name: bu-management-mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: bu_management
       MYSQL_USER: bu_admin
-      MYSQL_PASSWORD: bu_admin123
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Shanghai
     ports:
       - "3306:3306"
@@ -19,7 +19,7 @@ services:
       - ./mysql/init:/docker-entrypoint-initdb.d
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "bu_admin", "-pbu_admin123"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "bu_admin", "-p${MYSQL_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -45,8 +45,8 @@ services:
     container_name: bu-management-minio
     restart: always
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -92,6 +92,57 @@ try {
   );
   record('登录', true, `HTTP ${login.status()}，用户 ${userInfo.username || USER}`);
 
+  // ---------- 0. 接口：会话流里的 jev_decision ----------
+  try {
+    const created = await context.request.post(`${BASE}/api/ai-agent/sessions`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { title: 'E2E Jev 事件' },
+    });
+    const sessionId = (await created.json()).data.id;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90000);
+    const response = await fetch(`${BASE}/api/ai-agent/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify({ content: '列出我负责的未完成任务' }),
+      signal: controller.signal,
+    });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let event = null;
+    let jev = null;
+    while (!jev) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let index;
+      while ((index = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, index).trim();
+        buffer = buffer.slice(index + 1);
+        if (line.startsWith('event:')) event = line.slice(6).trim();
+        else if (line.startsWith('data:') && event === 'jev_decision') {
+          jev = JSON.parse(line.slice(5).trim());
+        }
+      }
+    }
+    clearTimeout(timer);
+    try {
+      await reader.cancel();
+    } catch {
+      // 流已结束
+    }
+    report.jevDecision = jev;
+    record('Jev 会话事件', Boolean(jev),
+      jev ? `ready=${jev.ready}；${jev.summary}` : '未收到 jev_decision');
+  } catch (error) {
+    record('Jev 会话事件', false, String(error.message));
+  }
+
   // ---------- 1. 工作台：晨报 + 待评审 ----------
   try {
     await page.goto(`${BASE}/workbench`, { waitUntil: 'domcontentloaded' });
@@ -221,6 +272,12 @@ try {
     '|---|---|---|---|',
     ...report.steps.map((step) =>
       `| ${step.name} | ${step.ok ? '✅' : '❌'} | ${step.detail || ''} | ${step.screenshot ? step.screenshot.split('/').pop() : ''} |`),
+    '',
+    '## Jev 会话事件',
+    '',
+    report.jevDecision
+      ? `- ready=${report.jevDecision.ready}；${report.jevDecision.summary}`
+      : '- 未收到',
     '',
     '## 服务端错误',
     '',

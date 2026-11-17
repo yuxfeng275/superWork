@@ -14,13 +14,13 @@ services:
       TZ: Asia/Shanghai
       SPRING_DATASOURCE_URL: jdbc:mysql://superwork-bu-mysql:3306/bu_management?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: bu_admin
-      SPRING_DATASOURCE_PASSWORD: bu_admin123
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
       REDIS_HOST: superwork-bu-redis
       SPRING_DATA_REDIS_HOST: superwork-bu-redis
       SPRING_DATA_REDIS_PORT: "6379"
       MINIO_ENDPOINT: http://superwork-bu-minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin123
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       AI_SIDECAR_URL: http://superwork-bu-ai-sidecar:8787
       AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
       AI_SIDECAR_TOOL_CALLBACK_URL: http://bu-ai-backend:8081/internal/ai-agent/tools

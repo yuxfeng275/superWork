@@ -5,7 +5,7 @@
 - **MySQL 8.0** - 数据库服务
   - 端口: 3306
   - 用户: bu_admin
-  - 密码: bu_admin123
+  - 密码: ${MYSQL_PASSWORD}
   - 数据库: bu_management
 
 - **Redis 7** - 缓存服务
@@ -14,8 +14,8 @@
 - **MinIO** - 对象存储服务
   - API 端口: 9000
   - Console 端口: 9001
-  - 用户: minioadmin
-  - 密码: minioadmin123
+  - 用户: ${MINIO_ACCESS_KEY}
+  - 密码: ${MINIO_SECRET_KEY}
 
 - **Nginx** - 反向代理
   - 端口: 80

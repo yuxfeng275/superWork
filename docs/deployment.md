@@ -225,8 +225,8 @@ docker compose down -v
 | Host | localhost:3306 |
 | 数据库名 | bu_management |
 | 用户名 | bu_admin |
-| 密码 | bu_admin123 |
-| Root 密码 | root123456 |
+| 密码 | ${MYSQL_PASSWORD} |
+| Root 密码 | ${MYSQL_ROOT_PASSWORD} |
 
 ### Redis
 
@@ -241,8 +241,8 @@ docker compose down -v
 |------|----|
 | API 端口 | 9000 |
 | 控制台端口 | 9001 |
-| AccessKey | minioadmin |
-| SecretKey | minioadmin123 |
+| AccessKey | ${MINIO_ACCESS_KEY} |
+| SecretKey | ${MINIO_SECRET_KEY} |
 
 ### 数据持久化目录
 
@@ -368,7 +368,7 @@ docker compose logs -f mysql
 
 # 进入容器
 docker exec -it bu-management-backend sh
-docker exec -it bu-management-mysql mysql -u bu_admin -pbu_admin123 bu_management
+docker exec -it bu-management-mysql mysql -u bu_admin -p${MYSQL_PASSWORD} bu_management
 
 # 重启单个服务
 docker compose restart backend
@@ -377,10 +377,10 @@ docker compose restart backend
 docker stats bu-management-backend bu-management-mysql
 
 # 备份数据库
-docker exec bu-management-mysql mysqldump -u bu_admin -pbu_admin123 bu_management > backup_$(date +%Y%m%d).sql
+docker exec bu-management-mysql mysqldump -u bu_admin -p${MYSQL_PASSWORD} bu_management > backup_$(date +%Y%m%d).sql
 
 # 恢复数据库
-docker exec -i bu-management-mysql mysql -u bu_admin -pbu_admin123 bu_management < backup.sql
+docker exec -i bu-management-mysql mysql -u bu_admin -p${MYSQL_PASSWORD} bu_management < backup.sql
 ```
 
 ---
@@ -391,7 +391,7 @@ docker exec -i bu-management-mysql mysql -u bu_admin -pbu_admin123 bu_management
 
 ```bash
 # 检查 MySQL 是否就绪
-docker exec bu-management-mysql mysqladmin ping -u bu_admin -pbu_admin123
+docker exec bu-management-mysql mysqladmin ping -u bu_admin -p${MYSQL_PASSWORD}
 
 # 查看后端启动日志
 docker compose logs backend | grep -E "ERROR|WARN|Started|Failed"

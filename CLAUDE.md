@@ -395,7 +395,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/bu_management
     username: bu_admin
-    password: bu_admin123
+    password: ${MYSQL_PASSWORD}
   flyway:
     enabled: true
     out-of-order: true  # 允许乱序迁移

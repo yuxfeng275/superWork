@@ -1,0 +1,9 @@
+{
+  "type": "jev_decision",
+  "ready": false,
+  "model": "",
+  "intent": "other",
+  "confidence": 0.0,
+  "writeLikely": false,
+  "summary": "Jev 未生效，本轮不收敛工具（fail-open）"
+}

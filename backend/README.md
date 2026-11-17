@@ -115,12 +115,12 @@ docker run -d \
   -e MYSQL_PORT=3306 \
   -e MYSQL_DATABASE=bu_management \
   -e MYSQL_USER=bu_admin \
-  -e MYSQL_PASSWORD=bu_admin123 \
+  -e MYSQL_PASSWORD=${MYSQL_PASSWORD} \
   -e REDIS_HOST=redis \
   -e REDIS_PORT=6379 \
   -e MINIO_ENDPOINT=http://minio:9000 \
-  -e MINIO_ACCESS_KEY=minioadmin \
-  -e MINIO_SECRET_KEY=minioadmin123 \
+  -e MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY} \
+  -e MINIO_SECRET_KEY=${MINIO_SECRET_KEY} \
   --name bu-management-backend \
   bu-management-backend:latest
 ```
@@ -161,12 +161,12 @@ mvn test jacoco:report
 | MYSQL_PORT | MySQL 端口 | 3306 |
 | MYSQL_DATABASE | 数据库名 | bu_management |
 | MYSQL_USER | 数据库用户 | bu_admin |
-| MYSQL_PASSWORD | 数据库密码 | bu_admin123 |
+| MYSQL_PASSWORD | 数据库密码 | ${MYSQL_PASSWORD} |
 | REDIS_HOST | Redis 主机 | localhost |
 | REDIS_PORT | Redis 端口 | 6379 |
 | MINIO_ENDPOINT | MinIO 地址 | http://localhost:9000 |
-| MINIO_ACCESS_KEY | MinIO 访问密钥 | minioadmin |
-| MINIO_SECRET_KEY | MinIO 密钥 | minioadmin123 |
+| MINIO_ACCESS_KEY | MinIO 访问密钥 | ${MINIO_ACCESS_KEY} |
+| MINIO_SECRET_KEY | MinIO 密钥 | ${MINIO_SECRET_KEY} |
 | JWT_SECRET | JWT 密钥 | (需要设置) |
 
 ## 注意事项
