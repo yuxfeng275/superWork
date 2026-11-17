@@ -29,8 +29,8 @@ E2E 发现：助手会话重载后，assistant 消息的 `thinking` 分片与 `t
 - dsh 的模型凭据通过一次性环境变量 `DEEPSEEK_API_KEY` 注入，运行结束即删除，不落盘、不进仓库；
 - **没有配置常驻的夜间 dsh 规则**：当前按任务手动触发，避免同一缺陷每晚重复产出；
   需要常驻时，在 `~/.agent-autoloop/rules.json` 增加 `use:"dsh"` 的 agent 与规则即可；
-- 另一条已合并到 master 的隔离分支是 `fix/assistant-thinking-render`（含独立单测），
-  两者修的是同一处；以 dsh 分支作为 M2 通道证据。
+- 同类修复已在评审后合并到 master：`fix/assistant-thinking-render` → `0f00b22`（含 messages.ts 与 3 例单测），
+  241 前端镜像已重建；M2 的 dsh 分支仍作为通道证据，主分支在试点当时零改动。
 
 ## 应用方式
 

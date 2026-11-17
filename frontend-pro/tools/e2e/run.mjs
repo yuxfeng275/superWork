@@ -200,8 +200,11 @@ try {
     const after = await page.locator('body').innerText();
     const replied = afterBubbles > beforeBubbles || /暂无|任务|没有/.test(after.slice(body.length));
     const failOpenShown = after.includes('Jev 未生效');
-    record('助手对话', jevVisible && replied && failOpenShown,
-      `${jevVisible ? 'Jev 标签可见' : '未见 Jev 标签'}；fail-open 提示=${failOpenShown}；气泡 ${beforeBubbles}→${afterBubbles}`,
+    // 只看气泡正文，不看 Think 折叠头：正文里出现英文推理说明 thinking 又被拼回可见文本
+    const bubbleText = (await page.locator('.ant-bubble-content').last().innerText().catch(() => '')) || '';
+    const reasoningLeak = /(Let me|I'll|The tool|Actually|I need|Maybe|Let's)\b/i.test(bubbleText);
+    record('助手对话', jevVisible && replied && failOpenShown && !reasoningLeak,
+      `${jevVisible ? 'Jev 标签可见' : '未见 Jev 标签'}；fail-open=${failOpenShown}；物理气泡 ${beforeBubbles}→${afterBubbles}；正文英文推理=${reasoningLeak}`,
       await shot(page, '03-assistant-chat'));
   } catch (error) {
     record('助手对话', false, String(error.message), await shot(page, '03-assistant-failed'));

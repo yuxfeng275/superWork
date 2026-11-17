@@ -1,7 +1,7 @@
 {
   "base": "http://192.168.1.241:18080",
   "user": "e2e_admin",
-  "startedAt": "2026-11-17T18:14:14.369Z",
+  "startedAt": "2026-11-17T19:06:34.463Z",
   "steps": [
     {
       "name": "登录",
@@ -22,13 +22,13 @@
     {
       "name": "建议去做",
       "ok": true,
-      "detail": "预填 120 字",
+      "detail": "预填 60 字",
       "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/02-suggestion-draft.png"
     },
     {
       "name": "助手对话",
       "ok": true,
-      "detail": "Jev 标签可见；fail-open 提示=true；气泡 0→4",
+      "detail": "Jev 标签可见；fail-open=true；物理气泡 0→4；正文英文推理=false",
       "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/03-assistant-chat.png"
     },
     {
@@ -51,11 +51,11 @@
     }
   ],
   "consoleErrors": [
-    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.295a099a.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.295a099a.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.295a099a.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.295a099a.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.295a099a.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.295a099a.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.295a099a.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.295a099a.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.295a099a.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.295a099a.js:418:117183)",
-    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.295a099a.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.295a099a.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.295a099a.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.295a099a.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.295a099a.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.295a099a.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.295a099a.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.295a099a.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.295a099a.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.295a099a.js:418:117183)",
-    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.295a099a.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.295a099a.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.295a099a.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.295a099a.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.295a099a.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.295a099a.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.295a099a.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.295a099a.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.295a099a.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.295a099a.js:418:117183)",
-    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.295a099a.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.295a099a.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.295a099a.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.295a099a.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.295a099a.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.295a099a.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.295a099a.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.295a099a.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.295a099a.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.295a099a.js:418:117183)",
-    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.295a099a.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.295a099a.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.295a099a.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.295a099a.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.295a099a.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.295a099a.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.295a099a.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.295a099a.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.295a099a.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.295a099a.js:418:117183)"
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.2c0a7b89.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.2c0a7b89.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.2c0a7b89.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.2c0a7b89.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.2c0a7b89.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.2c0a7b89.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.2c0a7b89.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.2c0a7b89.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.2c0a7b89.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.2c0a7b89.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.2c0a7b89.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.2c0a7b89.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.2c0a7b89.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.2c0a7b89.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.2c0a7b89.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.2c0a7b89.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.2c0a7b89.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.2c0a7b89.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.2c0a7b89.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.2c0a7b89.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.2c0a7b89.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.2c0a7b89.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.2c0a7b89.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.2c0a7b89.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117183)",
+    "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.2c0a7b89.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.2c0a7b89.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.2c0a7b89.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.2c0a7b89.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.2c0a7b89.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.2c0a7b89.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.2c0a7b89.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.2c0a7b89.js:418:117183)"
   ],
   "serverErrors": [],
   "network": [
@@ -87,17 +87,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/key-matters/access"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/requirements?size=100"
-    },
-    {
-      "method": "GET",
-      "status": 200,
       "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
     },
     {
       "method": "GET",
@@ -107,7 +102,17 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/quotations?size=20"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?size=100"
     },
     {
       "method": "GET",
@@ -117,17 +122,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai/notices"
+      "path": "/api/ai-agent/proactive/stats?days=30"
     },
     {
       "method": "GET",
       "status": 200,
       "path": "/api/projects?page=1&size=100"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/key-matters"
     },
     {
       "method": "GET",
@@ -138,6 +138,16 @@
       "method": "GET",
       "status": 200,
       "path": "/api/ai-briefs?date=2026-11-18"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
     },
     {
       "method": "GET",
@@ -157,22 +167,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
-    },
-    {
-      "method": "GET",
-      "status": 200,
       "path": "/api/projects/22/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
       "path": "/api/projects/21/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/ai-agent/proactive/stats?days=30"
     },
     {
       "method": "GET",
@@ -222,12 +222,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/11/facts/summary"
+      "path": "/api/projects/9/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/9/facts/summary"
+      "path": "/api/projects/11/facts/summary"
     },
     {
       "method": "GET",
@@ -242,22 +242,17 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/1/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
       "path": "/api/projects/7/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/4/facts/summary"
+      "path": "/api/projects/1/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/tasks/overview"
+      "path": "/api/projects/4/facts/summary"
     },
     {
       "method": "GET",
@@ -272,17 +267,22 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/tasks/overview"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/defects/overview?size=20"
     },
     {
       "method": "POST",
       "status": 200,
-      "path": "/api/ai-agent/proactive/56/accept"
+      "path": "/api/ai-agent/proactive/57/accept"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-agent/sessions"
+      "path": "/api/ai-agent/jev/status"
     },
     {
       "method": "GET",
@@ -292,12 +292,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-agent/usage"
+      "path": "/api/ai-agent/sessions"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-agent/jev/status"
+      "path": "/api/ai-agent/usage"
     },
     {
       "method": "GET",
@@ -342,6 +342,11 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/ai/notices/unread-count"
     },
     {
@@ -352,17 +357,17 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/key-matters/access"
+      "path": "/api/ai-agent/usage"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive"
     },
     {
       "method": "GET",
       "status": 200,
       "path": "/api/ai-agent/sessions"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/ai-agent/usage"
     },
     {
       "method": "GET",
@@ -373,11 +378,6 @@
       "method": "GET",
       "status": 200,
       "path": "/api/ai-agent/jev/status"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/ai-agent/proactive"
     },
     {
       "method": "GET",
@@ -397,12 +397,12 @@
     {
       "method": "POST",
       "status": 200,
-      "path": "/api/ai-agent/sessions/103/messages"
+      "path": "/api/ai-agent/sessions/106/messages"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-agent/sessions/103"
+      "path": "/api/ai-agent/sessions/106"
     },
     {
       "method": "GET",
@@ -427,17 +427,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/auth/my-menus"
-    },
-    {
-      "method": "GET",
-      "status": 200,
       "path": "/api/requirements?page=1&size=1"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/key-matters/access"
+      "path": "/api/auth/my-menus"
     },
     {
       "method": "GET",
@@ -448,6 +443,11 @@
       "method": "GET",
       "status": 200,
       "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
     },
     {
       "method": "GET",
@@ -472,32 +472,17 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/auth/my-menus"
     },
     {
       "method": "GET",
       "status": 200,
       "path": "/api/auth/my-menu-tree"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/requirements?page=1&size=1"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/ai/notices/unread-count"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/ai/notices"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/key-matters/access"
     },
     {
       "method": "GET",
@@ -507,27 +492,7 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/ai-capabilities/stats?days=7"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/auth/my-menus"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/auth/my-menu-tree"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/requirements?page=1&size=1"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/key-matters/access"
+      "path": "/api/ai/notices/unread-count"
     },
     {
       "method": "GET",
@@ -537,12 +502,47 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/ai/notices/unread-count"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/requirements?size=100"
+      "path": "/api/quotations?size=20"
     },
     {
       "method": "GET",
@@ -552,7 +552,7 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/quotations?size=20"
+      "path": "/api/requirements?size=100"
     },
     {
       "method": "GET",
@@ -592,12 +592,17 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/projects/22/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/projects/23/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/22/facts/summary"
+      "path": "/api/projects/21/facts/summary"
     },
     {
       "method": "GET",
@@ -608,11 +613,6 @@
       "method": "GET",
       "status": 200,
       "path": "/api/projects/20/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/projects/21/facts/summary"
     },
     {
       "method": "GET",
@@ -632,27 +632,12 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/16/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
       "path": "/api/projects/15/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/tasks/overview"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/projects/11/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/projects/12/facts/summary"
+      "path": "/api/projects/16/facts/summary"
     },
     {
       "method": "GET",
@@ -662,7 +647,17 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/7/facts/summary"
+      "path": "/api/projects/12/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/10/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/11/facts/summary"
     },
     {
       "method": "GET",
@@ -677,12 +672,7 @@
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/4/facts/summary"
-    },
-    {
-      "method": "GET",
-      "status": 200,
-      "path": "/api/projects/6/facts/summary"
+      "path": "/api/projects/7/facts/summary"
     },
     {
       "method": "GET",
@@ -692,17 +682,27 @@
     {
       "method": "GET",
       "status": 200,
+      "path": "/api/tasks/overview"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/4/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
       "path": "/api/projects/3/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/2/facts/summary"
+      "path": "/api/projects/6/facts/summary"
     },
     {
       "method": "GET",
       "status": 200,
-      "path": "/api/projects/10/facts/summary"
+      "path": "/api/projects/2/facts/summary"
     },
     {
       "method": "GET",
@@ -724,7 +724,7 @@
     "writeLikely": false,
     "summary": "Jev 调用失败，已 fail-open：TypeSafe Jev暂时不可用(451)"
   },
-  "finishedAt": "2026-11-17T18:15:16.606Z",
+  "finishedAt": "2026-11-17T19:07:35.723Z",
   "ok": true,
   "apiCalls": 131,
   "apiFailures": 0
