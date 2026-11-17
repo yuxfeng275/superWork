@@ -85,8 +85,12 @@ try {
   try {
     await page.goto(`${BASE}/workbench`, { waitUntil: 'domcontentloaded' });
     await page.getByText('待我评审').first().waitFor({ timeout: 20000 });
-    await page.waitForTimeout(2500);
-    record('工作台打开', true, '待我评审卡片可见', await shot(page, '01-workbench'));
+    await page.waitForTimeout(3000);
+    const body = await page.locator('body').innerText();
+    const briefVisible = body.includes('今日安排') && body.includes('E2E 验证：晨报链路');
+    record('工作台打开', briefVisible,
+      briefVisible ? '待我评审 + 今日晨报可见' : '待我评审可见，但未看到今日晨报',
+      await shot(page, '01-workbench'));
   } catch (error) {
     record('工作台打开', false, String(error.message), await shot(page, '01-workbench-failed'));
   }

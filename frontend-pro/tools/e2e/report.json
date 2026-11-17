@@ -1,7 +1,7 @@
 {
   "base": "http://192.168.1.241:18080",
   "user": "admin",
-  "startedAt": "2026-11-17T16:33:46.122Z",
+  "startedAt": "2026-11-17T16:41:54.447Z",
   "steps": [
     {
       "name": "登录",
@@ -11,13 +11,13 @@
     {
       "name": "工作台打开",
       "ok": true,
-      "detail": "待我评审卡片可见",
+      "detail": "待我评审 + 今日晨报可见",
       "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/01-workbench.png"
     },
     {
       "name": "建议去做",
       "ok": true,
-      "detail": "预填 51 字",
+      "detail": "预填 120 字",
       "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/02-suggestion-draft.png"
     },
     {
@@ -53,6 +53,6 @@
     "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)"
   ],
   "serverErrors": [],
-  "finishedAt": "2026-11-17T16:34:48.477Z",
+  "finishedAt": "2026-11-17T16:42:57.420Z",
   "ok": true
 }
