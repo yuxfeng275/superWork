@@ -3755,8 +3755,11 @@ export const superworkApi = {
       body: JSON.stringify(payload),
     });
   },
-  searchKnowledge(q: string, limit = 5) {
-    return requestJson<KbHit[]>(`/api/knowledge/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+  searchKnowledge(q: string, limit = 5, projectId?: number) {
+    const scope = projectId ? `&projectId=${projectId}` : '';
+    return requestJson<KbHit[]>(
+      `/api/knowledge/search?q=${encodeURIComponent(q)}&limit=${limit}${scope}`,
+    );
   },
   getQuotationPolicies(
     params: { type?: string; taxMode?: string; status?: string } = {}

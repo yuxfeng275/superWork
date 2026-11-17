@@ -67,6 +67,10 @@ class OpportunityCoachServiceTest {
     @Mock
     private KbSearchService kbSearchService;
 
+    /** 业务线名称 → ID：默认查不到，按 COMPANY/OWNER 范围检索。 */
+    @Mock
+    private com.bu.management.mapper.BusinessLineMapper businessLineMapper;
+
     private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private OpportunityCoachService service;
@@ -80,7 +84,7 @@ class OpportunityCoachServiceTest {
         PromptRegistry promptRegistry = new PromptRegistry(aiPromptMapper, 60);
         service = new OpportunityCoachService(coachMapper, opportunityMapper, followUpMapper, promptMapper,
                 quotationMapper, digestLlmClient, systemConfigService, objectMapper, followUpSender,
-                aiTaskService, promptRegistry, aiCallRecorder, kbSearchService);
+                aiTaskService, promptRegistry, aiCallRecorder, kbSearchService, businessLineMapper);
         // 开关默认开、每日上限默认 10（读不到也按这套口径走）
         when(systemConfigService.getBoolean("opportunity", "coach.enabled", true)).thenReturn(true);
         when(systemConfigService.getBoolean("opportunity", "coach.wecom-push", true)).thenReturn(true);

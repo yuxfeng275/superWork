@@ -14,9 +14,12 @@ import org.springframework.util.StringUtils;
  * 知识库检索：只做「问句 → 命中块 → 可注入模型的片段」这一条链路。
  *
  * <p>权限口径全部压在 {@link KbChunkMapper#search} 的 SQL 里：
- * COMPANY 全员可见；OWNER 只有本人；PROJECT / BUSINESS_LINE 必须调用方显式传 scopeId
- * 才放行。这是有意为之的保守默认——能力层与站内接口当前都不传 scopeId，
+ * COMPANY 全员可见；OWNER 只有本人；PROJECT / BUSINESS_LINE 必须调用方显式传各自的 ID
+ * 才放行。这是有意为之的保守默认——不传就只召回 COMPANY 与本人的 OWNER 文档，
  * 宁可少召回，也不把别人的项目文档捞给模型。
+ *
+ * <p>检索故障与空召回严格区分：前者抛 {@link KbSearchException}，后者返回空列表。
+ * 吞成空召回会让模型把「检索不了」当成「知识库没有」，进而凭常识编造。
  *
  * @author BU Team
  * @since 2026-11-22
@@ -47,15 +50,40 @@ public class KbSearchService {
     private final KbChunkMapper chunkMapper;
 
     /**
+     * 检索范围：项目与业务线分开传，ID 空间独立，不能合并成一个 scopeId。
+     *
+     * @param projectId      项目 ID；null 表示不召回 PROJECT 文档
+     * @param businessLineId 业务线 ID；null 表示不召回 BUSINESS_LINE 文档
+     */
+    public record Scope(Long projectId, Long businessLineId) {
+
+        /** 只召回到 COMPANY 与本人 OWNER 的保守范围。 */
+        public static Scope none() {
+            return new Scope(null, null);
+        }
+
+        /** 项目范围：调用方必须先确认用户对该项目有读权限。 */
+        public static Scope project(Long projectId) {
+            return new Scope(projectId, null);
+        }
+
+        /** 业务线范围：调用方必须先确认用户属于该业务线。 */
+        public static Scope businessLine(Long businessLineId) {
+            return new Scope(null, businessLineId);
+        }
+    }
+
+    /**
      * 检索。
      *
-     * @param query   用户问句
-     * @param userId  调用人（放行 OWNER 范围用）
-     * @param scopeId 项目 / 业务线 ID；为 null 时这两类文档不召回（保守默认）
-     * @param limit   条数，≤0 取默认 5，最大 10
+     * @param query  用户问句
+     * @param userId 调用人（放行 OWNER 范围用）
+     * @param scope  范围，null 按 {@link Scope#none()} 处理
+     * @param limit  条数，≤0 取默认 5，最大 10
      * @return 按相关度倒序的命中，永不为 null
+     * @throws KbSearchException 数据库/索引故障：调用方必须看见「检索不了」，而不是空召回
      */
-    public List<KbHit> search(String query, Long userId, Long scopeId, int limit) {
+    public List<KbHit> search(String query, Long userId, Scope scope, int limit) {
         if (!StringUtils.hasText(query)) {
             return List.of();
         }
@@ -64,13 +92,16 @@ public class KbSearchService {
             return List.of();
         }
         int effectiveLimit = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+        Scope effectiveScope = scope == null ? Scope.none() : scope;
         List<Map<String, Object>> rows;
         try {
-            rows = chunkMapper.search(q, userId, scopeId, effectiveLimit);
+            rows = chunkMapper.search(q, userId, effectiveScope.projectId(),
+                    effectiveScope.businessLineId(), effectiveLimit);
         } catch (Exception e) {
-            // 检索失败不该把上游整条链路打断（助手还要继续回答），降级成空召回
-            log.warn("知识库检索失败，按无命中处理：query={} 原因={}", q, e.getMessage());
-            return List.of();
+            // 空召回与检索故障是两件事：这里必须让上游看见故障，不能伪装成「没检索到」
+            log.error("知识库检索失败：query={} projectId={} businessLineId={} 原因={}",
+                    q, effectiveScope.projectId(), effectiveScope.businessLineId(), e.getMessage());
+            throw new KbSearchException("知识库检索暂时不可用，请稍后重试", e);
         }
         if (rows == null || rows.isEmpty()) {
             return List.of();

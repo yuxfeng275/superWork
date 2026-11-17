@@ -3,11 +3,13 @@ package com.bu.management.controller;
 import com.bu.management.constant.PositionRoles;
 import com.bu.management.entity.KbDocument;
 import com.bu.management.entity.SysRole;
+import com.bu.management.exception.ForbiddenOperationException;
 import com.bu.management.mapper.KbDocumentMapper;
 import com.bu.management.service.KbHit;
 import com.bu.management.service.KbIngestService;
 import com.bu.management.service.KbSearchService;
 import com.bu.management.service.KbYuqueImportService;
+import com.bu.management.service.ProjectFactAccessGuard;
 import com.bu.management.service.SysRoleService;
 import com.bu.management.vo.Result;
 import java.util.List;
@@ -43,6 +45,9 @@ public class KnowledgeController {
     private final KbDocumentMapper kbDocumentMapper;
 
     private final KbYuqueImportService kbYuqueImportService;
+
+    /** 项目准入：projectId 由前端传，先校验用户对该项目有读权限再检索。 */
+    private final ProjectFactAccessGuard accessGuard;
 
     /**
      * 入库请求体。
@@ -140,8 +145,14 @@ public class KnowledgeController {
     @GetMapping("/search")
     public Result<List<KbHit>> search(@RequestAttribute("userId") Long userId,
                                       @RequestParam(value = "q", required = false) String q,
-                                      @RequestParam(value = "limit", required = false, defaultValue = "5") int limit) {
-        return Result.success(kbSearchService.search(q, userId, null, limit));
+                                      @RequestParam(value = "limit", required = false, defaultValue = "5") int limit,
+                                      @RequestParam(value = "projectId", required = false) Long projectId) {
+        if (projectId != null && !accessGuard.canRead(userId, projectId)) {
+            throw new ForbiddenOperationException("无权检索该项目文档");
+        }
+        return Result.success(kbSearchService.search(q, userId,
+                projectId == null ? KbSearchService.Scope.none() : KbSearchService.Scope.project(projectId),
+                limit));
     }
 
     /** 管理岗位校验：与 OpportunityFollowUpController#requireAdmin 同一口径。 */

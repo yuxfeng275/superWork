@@ -9,7 +9,9 @@ import com.bu.management.capability.CapabilityRisk;
 import com.bu.management.plugin.support.ToolArgs;
 import com.bu.management.plugin.support.ToolResults;
 import com.bu.management.service.KbHit;
+import com.bu.management.service.KbSearchException;
 import com.bu.management.service.KbSearchService;
+import com.bu.management.service.ProjectFactAccessGuard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -21,11 +23,11 @@ import org.springframework.stereotype.Component;
 /**
  * 检索合拍知识库：把 ngram 全文检索包成能力，供助手在回答前先召回。
  *
- * <p>无命中不是错误：返回 {@code {"hits":[],"count":0}}，由模型自己去问用户，
- * 别让「知识库暂时没有这条」变成一个需要人排查的失败。
+ * <p>无命中不是错误：返回 {@code {"hits":[],"count":0}}，由模型自己去问用户；
+ * 检索故障则回错误码 {@code KB_SEARCH_FAILED}，不能伪装成「知识库没有」。
  *
- * <p>范围只放行 COMPANY 与本人的 OWNER 文档（scopeId 传 null），
- * 项目 / 业务线文档留到下一步接入教练时按上下文再开。
+ * <p>范围：默认只放行 COMPANY 与本人的 OWNER 文档；模型传了 {@code projectId} 时，
+ * 先校验用户对该项目有读权限，再按项目范围召回。项目 ID 是模型给的，不可信，校验在服务端。
  *
  * @author BU Team
  * @since 2026-11-22
@@ -36,7 +38,7 @@ import org.springframework.stereotype.Component;
         title = "检索合拍知识库",
         whenToUse = "回答产品能力/方案/案例/口径类问题时先检索知识库",
         inputSchema = """
-                {"type":"object","properties":{"query":{"type":"string","description":"检索问句，至少 2 个字，用业务原话而不是关键词堆砌"},"limit":{"type":"integer","description":"返回条数，默认 5，最大 10"}},"required":["query"]}
+                {"type":"object","properties":{"query":{"type":"string","description":"检索问句，至少 2 个字，用业务原话而不是关键词堆砌"},"limit":{"type":"integer","description":"返回条数，默认 5，最大 10"},"projectId":{"type":"integer","description":"当前项目 ID，可选；传了就只在该项目与公司级范围内召回"}},"required":["query"]}
                 """,
         timeoutMs = 15000)
 @Component
@@ -48,6 +50,9 @@ public class SearchKnowledgeCapability implements CapabilityHandler {
 
     private final KbSearchService kbSearchService;
 
+    /** 项目准入：模型给的 projectId 不可信，检索前必须服务端校验。 */
+    private final ProjectFactAccessGuard accessGuard;
+
     private final ObjectMapper objectMapper;
 
     @Override
@@ -55,7 +60,21 @@ public class SearchKnowledgeCapability implements CapabilityHandler {
         String query = ToolArgs.text(input, "query");
         Integer limitArg = ToolArgs.integer(input, "limit");
         int limit = limitArg == null ? KbSearchService.DEFAULT_LIMIT : limitArg;
-        List<KbHit> hits = kbSearchService.search(query, ctx.userId(), null, limit);
+        Integer projectIdArg = ToolArgs.integer(input, "projectId");
+        Long projectId = projectIdArg == null ? null : projectIdArg.longValue();
+        if (projectId != null
+                && (ctx.userId() == null || !accessGuard.canRead(ctx.userId(), projectId))) {
+            return CapabilityResult.fail("KB_SCOPE_DENIED", "无权检索该项目文档");
+        }
+        List<KbHit> hits;
+        try {
+            hits = kbSearchService.search(query, ctx.userId(),
+                    projectId == null ? KbSearchService.Scope.none() : KbSearchService.Scope.project(projectId),
+                    limit);
+        } catch (KbSearchException e) {
+            // 检索故障必须原样告诉模型：否则它会把「检索不了」当成「没有这条知识」
+            return CapabilityResult.fail(e.code(), e.getMessage());
+        }
 
         ObjectNode root = objectMapper.createObjectNode();
         ArrayNode rows = root.putArray("hits");

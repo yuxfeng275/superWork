@@ -2,12 +2,14 @@ package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.AiTask;
+import com.bu.management.entity.BusinessLine;
 import com.bu.management.entity.OpportunityCoach;
 import com.bu.management.entity.OpportunityFollowupPrompt;
 import com.bu.management.entity.Quotation;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
 import com.bu.management.integration.DigestLlmClient;
+import com.bu.management.mapper.BusinessLineMapper;
 import com.bu.management.mapper.OpportunityCoachMapper;
 import com.bu.management.mapper.OpportunityFollowupPromptMapper;
 import com.bu.management.mapper.QuotationMapper;
@@ -264,6 +266,8 @@ public class OpportunityCoachService {
     private final AiCallRecorder aiCallRecorder;
     /** 知识库检索（MySQL ngram）；无命中时也要明确告诉模型不得编造。 */
     private final KbSearchService kbSearchService;
+    /** 业务线名称 → ID：知识库 BUSINESS_LINE 文档按 ID 放行，不能拿名称直接比。 */
+    private final BusinessLineMapper businessLineMapper;
 
     /**
      * {@code ai.platform.task-enabled} 的 yml 默认值；库里 {@code ai-platform/task.enabled} 优先，
@@ -284,7 +288,8 @@ public class OpportunityCoachService {
                                    AiTaskService aiTaskService,
                                    PromptRegistry promptRegistry,
                                    AiCallRecorder aiCallRecorder,
-                                   KbSearchService kbSearchService) {
+                                   KbSearchService kbSearchService,
+                                   BusinessLineMapper businessLineMapper) {
         this.coachMapper = coachMapper;
         this.opportunityMapper = opportunityMapper;
         this.followUpMapper = followUpMapper;
@@ -298,6 +303,7 @@ public class OpportunityCoachService {
         this.promptRegistry = promptRegistry;
         this.aiCallRecorder = aiCallRecorder;
         this.kbSearchService = kbSearchService;
+        this.businessLineMapper = businessLineMapper;
     }
 
     // ==================== 入队 ====================
@@ -394,8 +400,8 @@ public class OpportunityCoachService {
                 throw new IllegalStateException("商机不存在：" + coach.getOpportunityId());
             }
             LocalDate today = LocalDate.now();
-            List<KbHit> kbHits = searchKnowledge(opportunity, coach);
-            String userInput = buildContext(opportunity, coach, today, kbHits);
+            KnowledgeContext knowledge = searchKnowledge(opportunity, coach);
+            String userInput = buildContext(opportunity, coach, today, knowledge);
             // 走 AiCallRecorder：一次调用落一行 ai_agent_usage（提示词编码/耗时/成败），返回值与异常口径不变
             DigestLlmClient.ChatResult result = aiCallRecorder.call(
                     new AiCallRecorder.CallSpec(PROMPT_CODE, null, coach.getId(), null),
@@ -404,7 +410,7 @@ public class OpportunityCoachService {
             JsonNode normalized = normalizeDates(result.json(), today, opportunity.getOwner());
             if (normalized instanceof ObjectNode node) {
                 ArrayNode refs = node.putArray("knowledgeRefs");
-                for (String title : knowledgeRefTitles(kbHits)) {
+                for (String title : knowledgeRefTitles(knowledge.hits())) {
                     refs.add(title);
                 }
             }
@@ -840,14 +846,14 @@ public class OpportunityCoachService {
      * <p>紧凑文本块而不是 JSON：多数候选模型对键值文本的遵循度更稳，也省 token。
      */
     private String buildContext(SalesOpportunity opportunity, OpportunityCoach coach, LocalDate today,
-                                List<KbHit> hits) {
+                                KnowledgeContext knowledge) {
         LocalDateTime now = LocalDateTime.now();
         String body = background(opportunity, now, CONTEXT_FOLLOW_UPS) + currentEvent(coach);
         if (body.length() > CONTEXT_BUDGET) {
             // 还是超预算：历史砍到 2 条，再长只会拖慢生成
             body = background(opportunity, now, CONTEXT_FOLLOW_UPS_MIN) + currentEvent(coach);
         }
-        return body + knowledge() + knowledgeBlock(hits);
+        return body + knowledge() + knowledgeBlock(knowledge);
     }
 
     /** 背景块：当前时间 + 商机事实 + 历史跟进 + 报价概况。<b>它只是背景</b>，不是客户当下说了什么。 */
@@ -963,9 +969,10 @@ public class OpportunityCoachService {
     /**
      * 检索合拍知识库：用「商机名 + 客户 + 业务线 + 本次回复前 80 字」当 query。
      *
-     * <p>任何异常都降级为空列表：知识库没命中只是少一块上下文，不能因此让教练包生成失败。
+     * <p>业务线文档按业务线 ID 放行：名称只用于 query，不能直接当 scopeId。
+     * 检索故障不阻断教练包生成，但必须把「不可用」带进上下文，不能伪装成无命中。
      */
-    private List<KbHit> searchKnowledge(SalesOpportunity opportunity, OpportunityCoach coach) {
+    private KnowledgeContext searchKnowledge(SalesOpportunity opportunity, OpportunityCoach coach) {
         try {
             StringBuilder q = new StringBuilder();
             q.append(nz(opportunity.getName())).append(' ').append(nz(opportunity.getCustomer()));
@@ -979,15 +986,43 @@ public class OpportunityCoachService {
                 }
             }
             Long userId = coach.getRequestedBy() == null ? opportunity.getOwnerUserId() : coach.getRequestedBy();
-            return kbSearchService.search(q.toString(), userId, null, KNOWLEDGE_HITS);
+            Long businessLineId = businessLineId(opportunity.getBusinessLine());
+            KbSearchService.Scope scope = businessLineId == null
+                    ? KbSearchService.Scope.none()
+                    : KbSearchService.Scope.businessLine(businessLineId);
+            return new KnowledgeContext(
+                    kbSearchService.search(q.toString(), userId, scope, KNOWLEDGE_HITS), false);
+        } catch (KbSearchException e) {
+            log.warn("商机 AI 教练知识库检索失败（{}），按不可用降级: err={}", e.code(), e.getMessage());
+            return new KnowledgeContext(List.of(), true);
         } catch (Exception e) {
-            log.warn("商机 AI 教练知识库检索失败，按无命中处理: err={}", e.getMessage());
-            return List.of();
+            log.warn("商机 AI 教练知识库检索异常，按不可用降级: err={}", e.getMessage());
+            return new KnowledgeContext(List.of(), true);
         }
     }
 
+    /** 业务线名称 → ID；查不到就不召回业务线文档（保守默认）。 */
+    private Long businessLineId(String name) {
+        if (!StringUtils.hasText(name)) {
+            return null;
+        }
+        BusinessLine line = businessLineMapper.selectOne(new LambdaQueryWrapper<BusinessLine>()
+                .eq(BusinessLine::getName, name.strip())
+                .last("limit 1"));
+        return line == null ? null : line.getId();
+    }
+
+    /** 一次知识检索的结果：检索失败与空命中是两件事，不能都回空列表。 */
+    private record KnowledgeContext(List<KbHit> hits, boolean unavailable) {
+    }
+
     /** 知识片段块：命中就带出处，没命中就明确要求模型别编。 */
-    private String knowledgeBlock(List<KbHit> hits) {
+    private String knowledgeBlock(KnowledgeContext knowledge) {
+        if (knowledge.unavailable()) {
+            // 检索失败 ≠ 没有命中：如实告诉模型，否则它会按「知识库没有」的口径编造
+            return "\n【知识库片段】本次检索不可用（KB_SEARCH_FAILED），不得声称已查知识库，也不得编造产品能力/案例/交付与报价口径。\n";
+        }
+        List<KbHit> hits = knowledge.hits();
         if (hits == null || hits.isEmpty()) {
             return "\n【知识库片段】无命中，不得编造产品能力/案例/交付与报价口径。\n";
         }

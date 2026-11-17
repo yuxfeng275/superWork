@@ -236,7 +236,8 @@ public class AiAgentToolService {
                 "检索合拍知识库（产品能力、标准方案、成功案例、报价与交付口径）。回答这类问题前先用它检索，不要凭常识编造",
                 objectSchema(Map.of(
                         "query", stringProperty("检索关键词，例如「会员通 交付周期」"),
-                        "limit", integerProperty("返回条数，默认 5，最大 10，可选")))));
+                        "limit", integerProperty("返回条数，默认 5，最大 10，可选"),
+                        "projectId", integerProperty("当前项目 ID，可选；传了就只在该项目与公司级范围内召回")))));
         defs.addAll(connectorToolService.definitions());
         defs.addAll(genericConnectorToolService.definitions());
         defs.addAll(emailActionToolService.definitions());

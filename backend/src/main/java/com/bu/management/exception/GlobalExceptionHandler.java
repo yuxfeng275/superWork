@@ -1,5 +1,6 @@
 package com.bu.management.exception;
 
+import com.bu.management.service.KbSearchException;
 import com.bu.management.vo.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -95,6 +96,13 @@ public class GlobalExceptionHandler {
     /**
      * 处理运行时异常：业务文案原样返回；SQL/堆栈类文案统一兜底。
      */
+    @ExceptionHandler(KbSearchException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Result<Void> handleKbSearchException(KbSearchException e) {
+        log.warn("知识库检索失败: {}", e.getMessage());
+        return Result.error(503, e.code() + "：" + e.getMessage());
+    }
+
     @ExceptionHandler(RuntimeException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleRuntimeException(RuntimeException e) {
