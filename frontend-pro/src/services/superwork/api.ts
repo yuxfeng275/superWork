@@ -2173,6 +2173,12 @@ export interface KbHit {
   score: number;
 }
 
+export interface JevStatus {
+  ready: boolean;
+  model?: string | null;
+  reason?: string | null;
+}
+
 export interface AiCapabilityStat {
   capabilityId: string;
   calls: number;
@@ -2732,6 +2738,13 @@ export const superworkApi = {
   },
   getAiAgentUsage() {
     return requestJson<AiAgentUsageSummary>("/api/ai-agent/usage");
+  },
+  getJevStatus() {
+    return requestJson<JevStatus>("/api/ai-agent/jev/status");
+  },
+  /** 导出本人会话为 Markdown 文本；由前端转 Blob 下载，鉴权仍走请求头。 */
+  exportAiAgentSession(id: number) {
+    return requestJson<string>(`/api/ai-agent/sessions/${id}/export`);
   },
   /** 我的晨报；date 传 YYYY-MM-DD，缺省按今天取。 */
   getMyBriefs(date?: string) {

@@ -1,5 +1,6 @@
 import {
   CloudUploadOutlined,
+  DownloadOutlined,
   MailOutlined,
   BulbOutlined,
   MessageOutlined,
@@ -34,6 +35,7 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,6 +48,7 @@ import {
   type AiAgentUsageSummary,
   type AiConnectorStatus,
   type AiProactiveSuggestion,
+  type JevStatus,
   superworkApi,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
@@ -122,6 +125,7 @@ export default function AiAssistantPage() {
   const [selectedModel, setSelectedModel] = useState('');
   const [connectors, setConnectors] = useState<AiConnectorStatus[]>([]);
   const [usage, setUsage] = useState<AiAgentUsageSummary>();
+  const [jevStatus, setJevStatus] = useState<JevStatus | null>(null);
   const [suggestions, setSuggestions] = useState<AiProactiveSuggestion[]>([]);
   const [connectorOpen, setConnectorOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -220,6 +224,10 @@ export default function AiAssistantPage() {
       superworkApi
         .getAiAgentConnectors()
         .then(setConnectors)
+        .catch(() => undefined),
+      superworkApi
+        .getJevStatus()
+        .then(setJevStatus)
         .catch(() => undefined),
     ]);
   }, [loadSessions, loadUsage, loadSuggestions]);
@@ -551,6 +559,25 @@ export default function AiAssistantPage() {
       : status === 'NOT_CONFIGURED'
         ? 'warning'
         : 'default';
+  const exportSession = async () => {
+    if (!active) {
+      return;
+    }
+    try {
+      const markdown = await superworkApi.exportAiAgentSession(active.id);
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ai-session-${active.id}.md`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '导出失败');
+    }
+  };
+
+
   return (
     <div className="sw-page sw-ai-assistant">
       <XProvider>
@@ -593,11 +620,28 @@ export default function AiAssistantPage() {
             </div>
             <Space>
               {usage && usage.totalRuns > 0 && (
-                <Typography.Text type="secondary">
-                  近 30 天 {usage.monthRuns} 次 · {formatTokens(usage.monthTokens)}{' '}
-                  tokens
-                </Typography.Text>
+                <Tooltip title="只统计成功落库的 run；token 为输入+输出+缓存读写总和，成本为按模型定价估算的美元值，仅作趋势参考">
+                  <Typography.Text type="secondary">
+                    近 30 天 {usage.monthRuns} 次 · {formatTokens(usage.monthTokens)}{' '}
+                    tokens
+                  </Typography.Text>
+                </Tooltip>
               )}
+              {jevStatus ? (
+                <Tag color={jevStatus.ready ? 'green' : 'orange'} title={jevStatus.reason || ''}>
+                  {jevStatus.ready
+                    ? `Jev 已启用${jevStatus.model ? ` · ${jevStatus.model}` : ''}`
+                    : 'Jev 未启用，写操作仍需确认'}
+                </Tag>
+              ) : null}
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={!active}
+                onClick={() => void exportSession()}
+              >
+                导出
+              </Button>
               <Select
                 size="small"
                 value={selectedModel || undefined}

@@ -97,6 +97,24 @@ public class AiAgentController {
             .build();
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor();
 
+    /** Jev 决策层是否生效：前端用它显示「未启用」提示，避免误以为写门禁在跑。 */
+    @GetMapping("/jev/status")
+    public Result<JevDecisionService.Status> jevStatus() {
+        return Result.success(jevDecisionService.status());
+    }
+
+    /**
+     * 导出会话为 Markdown：只导出本人会话（sessionService.get 内部校验归属）。
+     *
+     * <p>返回 JSON 字符串而不是文件流：前端带 JWT 在请求头里，文件流下载拿不到身份；
+     * 由前端把字符串转 Blob，既保住鉴权，也不用在 URL 上放令牌。
+     */
+    @GetMapping("/sessions/{id}/export")
+    public Result<String> exportSession(@RequestAttribute("userId") Long userId,
+                                        @PathVariable Long id) {
+        return Result.success(exportMarkdown(sessionService.get(userId, id)));
+    }
+
     @GetMapping("/sessions")
     public Result<List<AiAgentSessionSummary>> sessions(@RequestAttribute("userId") Long userId) {
         return Result.success(sessionService.list(userId));
@@ -171,6 +189,64 @@ public class AiAgentController {
         String provider = request == null ? null : request.getProvider();
         String model = request == null ? null : request.getModel();
         return Result.success(sessionService.create(userId, title, provider, model));
+    }
+
+    /** 会话 → Markdown：用户/助手消息按时间顺序，工具调用与思考只留一行摘要。 */
+    private String exportMarkdown(AiAgentSessionView view) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(view.title() == null ? "AI 会话" : view.title()).append("\n\n");
+        sb.append("- 模型：").append(view.provider()).append(" / ").append(view.model()).append('\n');
+        sb.append("- 更新时间：").append(view.updatedAt()).append('\n');
+        sb.append("- 导出时间：").append(java.time.LocalDateTime.now()).append("\n\n---\n\n");
+        Object messages = view.messages();
+        if (messages instanceof List<?> list) {
+            for (Object item : list) {
+                appendMessage(sb, item);
+            }
+        } else if (messages != null) {
+            sb.append(objectMapper.valueToTree(messages).toPrettyString());
+        }
+        return sb.toString();
+    }
+
+    /** 单条消息渲染：content 可能是字符串，也可能是 text / thinking / toolCall 的数组。 */
+    private void appendMessage(StringBuilder sb, Object item) {
+        JsonNode node = objectMapper.valueToTree(item);
+        String role = node.path("role").asText("unknown");
+        String label = switch (role) {
+            case "user" -> "用户";
+            case "assistant" -> "助手";
+            case "toolResult" -> "工具结果";
+            case "system" -> "系统";
+            default -> role;
+        };
+        sb.append("## ").append(label).append("\n\n");
+        JsonNode content = node.path("content");
+        if (content.isTextual()) {
+            sb.append(content.asText()).append("\n\n");
+        } else if (content.isArray()) {
+            for (JsonNode part : content) {
+                String type = part.path("type").asText("");
+                switch (type) {
+                    case "text" -> sb.append(part.path("text").asText("")).append("\n\n");
+                    case "thinking" -> sb.append("> 思考：")
+                            .append(cap(part.path("thinking").asText(""), 300)).append("\n\n");
+                    case "toolCall" -> sb.append("> 工具调用：")
+                            .append(part.path("name").asText("unknown")).append("\n\n");
+                    default -> {
+                        // 未知片段不丢：原样留一行，导出的内容是给人复核的
+                        if (!part.isMissingNode()) {
+                            sb.append("```json\n").append(part.toPrettyString()).append("\n```\n\n");
+                        }
+                    }
+                }
+            }
+        }
+        sb.append("---\n\n");
+    }
+
+    private static String cap(String value, int max) {
+        return value == null || value.length() <= max ? value : value.substring(0, max) + "…";
     }
 
     @GetMapping("/sessions/{id}")

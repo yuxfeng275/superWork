@@ -99,6 +99,25 @@ public class JevDecisionService {
     public record WriteGate(boolean ready, boolean allow, String action, String reason) {
     }
 
+    /**
+     * Jev 当前生效状态：未配置时前端必须显式提示，不能让用户以为写门禁在跑。
+     *
+     * @param ready  是否已配置连接器与决策模型
+     * @param model  决策模型（未配置为 null）
+     * @param reason 未生效原因（人话）
+     */
+    public record Status(boolean ready, String model, String reason) {
+    }
+
+    /** 查询 Jev 是否生效（只读，不调用远端）。 */
+    public Status status() {
+        Optional<Resolved> resolved = resolve();
+        if (resolved.isEmpty()) {
+            return new Status(false, null, "未配置 typesafe 连接器或「决策使用」模型");
+        }
+        return new Status(true, resolved.get().model(), "");
+    }
+
     public IntentDecision classifyIntent(String userMessage) {
         Optional<Resolved> resolved = resolve();
         if (resolved.isEmpty() || !StringUtils.hasText(userMessage)) {
