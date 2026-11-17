@@ -40,6 +40,7 @@ import {
 } from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
+import CapabilityStatsCard from './CapabilityStatsCard';
 
 type ModelForm = {
   providerCode: string;
@@ -546,6 +547,7 @@ export default function ModelsPage() {
           locale={{ emptyText: '暂无模型，请先新建模型' }}
         />
       </Card>
+      <CapabilityStatsCard />
       <Modal
         title={editing ? `编辑模型 · ${editing.model}` : '新建模型'}
         open={open}

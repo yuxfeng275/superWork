@@ -2171,6 +2171,27 @@ export interface KbHit {
   score: number;
 }
 
+export interface AiCapabilityStat {
+  capabilityId: string;
+  calls: number;
+  okCalls: number;
+  failedCalls: number;
+  timeouts: number;
+  gateDenied: number;
+  avgLatencyMs: number;
+  successRate: number;
+  timeoutRate: number;
+  gateDeniedRate: number;
+  lastCalledAt?: string | null;
+}
+
+export interface AiCapabilityStats {
+  days: number;
+  since: string;
+  totalCalls: number;
+  capabilities: AiCapabilityStat[];
+}
+
 export interface KbSourceHealth {
   sourceType: string;
   total: number;
@@ -3747,6 +3768,9 @@ export const superworkApi = {
   },
   getKnowledgeHealth() {
     return requestJson<KbHealth>(`/api/knowledge/health`);
+  },
+  getAiCapabilityStats(days = 7) {
+    return requestJson<AiCapabilityStats>(`/api/ai-capabilities/stats?days=${days}`);
   },
   setKnowledgeDocumentEnabled(id: number, value: boolean) {
     return requestJson<void>(`/api/knowledge/documents/${id}/enabled?value=${value}`, {

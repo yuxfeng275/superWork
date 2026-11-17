@@ -33,7 +33,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -81,11 +80,16 @@ public class AiAgentToolService {
     private final CapabilityRegistry capabilityRegistry;
 
     /**
-     * 注册表优先开关。默认开启；关掉后 12 个已能力化的工具全部回到下面的旧 switch，
-     * 单个工具要回退时只需让它从注册表里消失（或整体关掉这个开关）。
+     * 已能力化的 13 个工具：只走注册表，旧 switch 不再保留对应分支。
+     *
+     * <p>保留这份清单是为了「注册表缺失时明确报错」：如果启动期注册表残缺，
+     * 这里会返回 CONFIG_ERROR，而不是悄悄落到 connector 兜底上执行错工具。
      */
-    @Value("${capability.gateway.tools-enabled:true}")
-    private boolean gatewayToolsEnabled = true;
+    private static final Set<String> CAPABILITY_TOOL_NAMES = Set.of(
+            "query_my_tasks", "query_my_requirements", "query_my_worklogs", "count_my_issues",
+            "weekly_report_facts", "weekly_report_input", "query_my_opportunities",
+            "list_opportunity_followups_due", "save_opportunity_followup", "project_facts",
+            "save_daily_brief", "save_artifact", "search_knowledge");
 
     /** 读事实被拒时的统一文案：让模型看到明确拒绝，而不是一个无解释的空列表。 */
     static final String NO_FACT_READ = "无权访问该项目的事实（需项目成员/项目负责人或管理角色）";
@@ -281,9 +285,9 @@ public class AiAgentToolService {
                     return new AiAgentToolResult(gate.reason(), true);
                 }
             }
-            // 注册表优先：工具名在注册表里 + 开关打开 → 走能力网关（门禁 / 超时 / 审计集中在网关）；
-            // 否则原样落到下面的 switch——旧实现一行未删，任何时候都能退回去。
-            if (gatewayToolsEnabled && capabilityRegistry.find(toolName).isPresent()) {
+            // 能力化工具只走注册表：命中就进网关（门禁 / 超时 / 审计），没命中直接报配置错误。
+            // 旧 switch 对应分支已删除，不存在「注册表坏了就退回旧实现」的隐式回退。
+            if (capabilityRegistry.find(toolName).isPresent()) {
                 CapabilityResult result = capabilityGateway.invoke(toolName, args,
                         CapabilityContext.agent(userId, runId, unattended));
                 if (!result.ok()) {
@@ -291,19 +295,11 @@ public class AiAgentToolService {
                 }
                 return new AiAgentToolResult(CapabilityTextPayload.unwrap(result.dataJson()), false);
             }
+            if (CAPABILITY_TOOL_NAMES.contains(toolName)) {
+                log.error("能力未注册，拒绝执行：tool={}（检查启动期能力扫描是否完整）", toolName);
+                return new AiAgentToolResult("能力未注册（CONFIG_ERROR）：" + toolName, true);
+            }
             return switch (toolName) {
-                case "query_my_tasks" -> queryMyTasks(userId, args);
-                case "query_my_requirements" -> queryMyRequirements(userId, args);
-                case "query_my_worklogs" -> queryMyWorklogs(userId, args);
-                case "count_my_issues" -> countMyIssues(userId, args);
-                case "weekly_report_facts" -> weeklyReportFacts(args);
-                case "weekly_report_input" -> weeklyReportInput(args);
-                case "project_facts" -> projectFacts(userId, args);
-                case "save_daily_brief" -> saveDailyBrief(userId, args);
-                case "save_artifact" -> saveArtifact(userId, args);
-                case "query_my_opportunities" -> queryMyOpportunities(userId, args);
-                case "list_opportunity_followups_due" -> listOpportunityFollowupsDue(userId, args);
-                case "save_opportunity_followup" -> saveOpportunityFollowup(userId, args);
                 default -> connectorToolService.handles(toolName)
                         ? connectorToolService.execute(userId, toolName, args)
                         : emailActionToolService.handles(toolName)
