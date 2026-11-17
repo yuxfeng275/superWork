@@ -83,6 +83,9 @@ services:
       AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
       AI_SIDECAR_TOOL_CALLBACK_URL: http://backend:8081/internal/ai-agent/tools
       PROJECT_CONTEXT_TOKEN: ${PROJECT_CONTEXT_TOKEN:-}
+      # 任务编排灰度：总开关 + 用户 ID 名单（为空时入口一律 403）
+      AI_AGENT_ENABLED: ${AI_AGENT_ENABLED:-false}
+      AI_AGENT_GRAY_USER_IDS: ${AI_AGENT_GRAY_USER_IDS:-}
       PROJECT_BRIEF_PUSH_ENABLED: ${PROJECT_BRIEF_PUSH_ENABLED:-true}
       JWT_SECRET: ${JWT_SECRET:-superwork-bu-management-server-241-change-me}
       YUNXIAO_ENABLED: ${YUNXIAO_ENABLED:-false}
