@@ -5,6 +5,7 @@ import com.bu.management.entity.KbDocument;
 import com.bu.management.entity.SysRole;
 import com.bu.management.exception.ForbiddenOperationException;
 import com.bu.management.mapper.KbDocumentMapper;
+import com.bu.management.service.KbHealthService;
 import com.bu.management.service.KbHit;
 import com.bu.management.service.KbIngestService;
 import com.bu.management.service.KbSearchService;
@@ -48,6 +49,9 @@ public class KnowledgeController {
 
     /** 项目准入：projectId 由前端传，先校验用户对该项目有读权限再检索。 */
     private final ProjectFactAccessGuard accessGuard;
+
+    /** 语料健康度：总量 / 启停 / 过期未更新 / 内容重复，只读写口给管理岗位。 */
+    private final KbHealthService healthService;
 
     /**
      * 入库请求体。
@@ -140,6 +144,17 @@ public class KnowledgeController {
         doc.setUpdatedAt(java.time.LocalDateTime.now());
         kbDocumentMapper.updateById(doc);
         return Result.success();
+    }
+
+    /**
+     * 语料健康度：管理页顶部那几个数字。
+     *
+     * <p>只对管理岗位开放：它暴露全库文档数量与重复情况，不属于普通用户需要看的信息。
+     */
+    @GetMapping("/health")
+    public Result<KbHealthService.Report> health(@RequestAttribute("userId") Long userId) {
+        requireAdmin(userId);
+        return Result.success(healthService.report());
     }
 
     @GetMapping("/search")

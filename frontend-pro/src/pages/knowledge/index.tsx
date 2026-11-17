@@ -25,6 +25,7 @@ import type { TableProps } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import {
   type KbDocument,
+  type KbHealth,
   type KbHit,
   type KbImportResult,
   superworkApi,
@@ -52,6 +53,7 @@ const sourceLabels: Record<string, string> = {
  */
 export default function KnowledgePage() {
   const [documents, setDocuments] = useState<KbDocument[]>([]);
+  const [health, setHealth] = useState<KbHealth | null>(null);
   const [loading, setLoading] = useState(false);
   const [ingestOpen, setIngestOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -67,8 +69,12 @@ export default function KnowledgePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await superworkApi.getKnowledgeDocuments(100);
+      const [list, report] = await Promise.all([
+        superworkApi.getKnowledgeDocuments(100),
+        superworkApi.getKnowledgeHealth(),
+      ]);
       setDocuments(list || []);
+      setHealth(report);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '知识库加载失败');
     } finally {
@@ -221,6 +227,27 @@ export default function KnowledgePage() {
           知识库供商机 AI 教练与 AI 助手检索：产品能力、标准方案、成功案例、报价与交付口径。
           切片与检索用 MySQL 全文索引（ngram），<strong>只有启用的文档才会被检索到</strong>。
         </Typography.Paragraph>
+        {health ? (
+          <Space size={8} wrap style={{ marginBottom: 12 }}>
+            <Tag>共 {health.total} 篇</Tag>
+            <Tag color="green">启用 {health.enabled}</Tag>
+            <Tag>停用 {health.disabled}</Tag>
+            <Tag color={health.duplicates > 0 ? 'orange' : undefined}>
+              内容重复 {health.duplicates} 组
+            </Tag>
+            <Tag color={health.stale > 0 ? 'gold' : undefined}>
+              超过 {health.staleDays} 天未更新 {health.stale}
+            </Tag>
+            {health.lastUpdatedAt ? (
+              <Tag>最近更新 {health.lastUpdatedAt.replace('T', ' ').slice(0, 16)}</Tag>
+            ) : null}
+            {health.sources.map((item) => (
+              <Tag key={item.sourceType}>
+                {sourceLabels[item.sourceType] || item.sourceType} {item.enabled}/{item.total}
+              </Tag>
+            ))}
+          </Space>
+        ) : null}
         <Table
           rowKey="id"
           size="small"

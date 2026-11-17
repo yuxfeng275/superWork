@@ -2171,6 +2171,26 @@ export interface KbHit {
   score: number;
 }
 
+export interface KbSourceHealth {
+  sourceType: string;
+  total: number;
+  enabled: number;
+  disabled: number;
+  stale: number;
+  lastUpdatedAt?: string | null;
+}
+
+export interface KbHealth {
+  total: number;
+  enabled: number;
+  disabled: number;
+  stale: number;
+  duplicates: number;
+  lastUpdatedAt?: string | null;
+  staleDays: number;
+  sources: KbSourceHealth[];
+}
+
 export interface KbImportResult {
   imported: number;
   skipped: number;
@@ -3724,6 +3744,9 @@ export const superworkApi = {
   },
   getKnowledgeDocuments(limit = 50) {
     return requestJson<KbDocument[]>(`/api/knowledge/documents?limit=${limit}`);
+  },
+  getKnowledgeHealth() {
+    return requestJson<KbHealth>(`/api/knowledge/health`);
   },
   setKnowledgeDocumentEnabled(id: number, value: boolean) {
     return requestJson<void>(`/api/knowledge/documents/${id}/enabled?value=${value}`, {
