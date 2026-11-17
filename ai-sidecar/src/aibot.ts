@@ -78,7 +78,7 @@ function sidecarToken(): string {
 }
 
 /** 从后端拉取机器人凭据；失败返回 null，不抛错 */
-async function fetchCredentials(): Promise<{ botId: string; secret: string } | null> {
+export async function fetchCredentials(): Promise<{ botId: string; secret: string } | null> {
   const url = `${backendBaseUrl()}/internal/wecom/aibot-credentials`;
   try {
     const res = await fetch(url, {
@@ -125,7 +125,7 @@ async function loadCredentials(): Promise<{ botId: string; secret: string } | nu
 const seenMsgIds = new Set<string>();
 
 /** 标记 msgid 已处理；返回 false 表示重复投递 */
-function markSeen(msgId: string): boolean {
+export function markSeen(msgId: string): boolean {
   if (seenMsgIds.has(msgId)) return false;
   seenMsgIds.add(msgId);
   if (seenMsgIds.size > SEEN_MSGID_LIMIT) {
@@ -142,7 +142,7 @@ interface ParsedReplyFields {
 }
 
 /** 从 Result.data.parsedJson 里取解析值；取不到返回 null（按「未识别到」处理，不报错） */
-function readParsedFields(payload: unknown): ParsedReplyFields | null {
+export function readParsedFields(payload: unknown): ParsedReplyFields | null {
   const data = (payload as { data?: unknown } | null)?.data;
   if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
   const raw = (data as { parsedJson?: unknown }).parsedJson;
@@ -171,7 +171,7 @@ function formatNextAt(value: string): string {
 }
 
 /** 匹配到问句时的回话：有解析值就带上，没有就提示去商机详情补 */
-function matchedReplyText(parsed: ParsedReplyFields | null): string {
+export function matchedReplyText(parsed: ParsedReplyFields | null): string {
   if (!parsed) return MATCHED_REPLY_NO_PARSED;
   const parts: string[] = [];
   if (typeof parsed.probability === "number") parts.push(`成交概率 ${parsed.probability}%`);
@@ -281,7 +281,7 @@ async function handleTextMessage(client: AibotWsClient, frame: WsFrame): Promise
 }
 
 /** 统一的帧入口：先去重，再只处理文本消息 */
-function onFrame(client: AibotWsClient, frame: WsFrame): void {
+export function onFrame(client: AibotWsClient, frame: WsFrame): void {
   try {
     const msgId = frame?.body?.msgid;
     if (typeof msgId !== "string" || msgId.length === 0) {

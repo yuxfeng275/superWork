@@ -93,6 +93,20 @@
    写操作（reply_my_email / convert_email_item_to_task / weekly_report_input / wecom_send_message /
    wecom_create_todo / wecom_finish_todo）需置信度 ≥ 0.70（noul ≥ 0.55）才放行。
 
+## 四之二、企微智能机器人（长连接，不是 HTTP 回调）
+
+- **传输**：ai-sidecar 用 `@wecom/aibot-node-sdk` 建 WebSocket 长连接，botId/secret 由后端
+  `/internal/wecom/aibot-credentials` 下发；鉴权与心跳由 SDK 完成，**不存在 Token/EncodingAESKey 验签解密**，
+  因此没有「回调验签」这一步（HTTP 回调方案未采用，也不需要公网回调地址）。
+- **入站**：文本消息（含引用回复）转发到 `/internal/opportunity/reply`，按「发送人 + 24 小时内最新待回复问句」
+  自动落库，再回一句「已写入合拍」；未匹配则回一句引导，不假装成功。
+- **降级**：凭据拉取失败每 30s 重试、最多 10 次后放弃长连接，但 sidecar 的 HTTP 能力不受影响；
+  SDK 未安装只警告不崩（`AIBOT_ENABLED=false` 时完全不建连）。
+- **边界**：目前只处理商机回复入站，尚未接「在企微里和助手自由对话」；后者需要把消息路由到 agent 会话，
+  属于下一阶段。
+- **smoke**：`cd ai-sidecar && npm test`，`aibot.test.ts` 用假 WS client + 假 fetch 覆盖
+  「入站→后端→回话」「重复 msgid 只转一次」「凭据失败返回 null」，不产生真实群发。
+
 ## 五、已知边界
 
 - 附件只做文本摘要注入（txt/md/csv/json/xml/log 等 ≤8000 字），不做图片/PDF/Office 解析。
