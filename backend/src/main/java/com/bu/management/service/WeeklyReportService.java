@@ -10,6 +10,7 @@ import com.bu.management.entity.Connector;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.SalesOpportunity;
 import com.bu.management.entity.SalesOpportunityFollowUp;
+import com.bu.management.entity.AiProactiveEvent;
 import com.bu.management.entity.WeeklyReport;
 import com.bu.management.integration.DigestLlmClient;
 import com.bu.management.integration.WeComClient;
@@ -82,6 +83,10 @@ public class WeeklyReportService {
             List.of("皇家项目", "飞鹤", "佳贝艾特", "海普诺凯", "黄天鹅", "Speedo", "澳优", "逢时");
 
     private final WeeklyReportMapper reportMapper;
+
+    /** 事件入口：字段注入避免改构造器签名；周报失败 → 生成一条「重试」建议。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AiProactiveEventService proactiveEvents;
     private final DigestLlmClient digestLlmClient;
     private final YuqueMcpClient yuqueClient;
     private final WeComClient weComClient;
@@ -500,6 +505,10 @@ public class WeeklyReportService {
             report.setGenerationError(message.length() > 500 ? message.substring(0, 500) : message);
             reportMapper.updateById(report);
             notifyFailure(weekStart, message);
+            if (proactiveEvents != null) {
+                proactiveEvents.record(report.getCreatedBy(),
+                        AiProactiveEvent.KIND_WEEKLY_REPORT_FAILED, String.valueOf(report.getId()));
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import com.bu.management.service.AiAgentAttachmentService;
 import com.bu.management.service.AiAgentToolService;
 import com.bu.management.service.AiAgentUsageService;
 import com.bu.management.service.AiProactivePushService;
+import com.bu.management.service.AiProactiveEventService;
 import com.bu.management.service.AiProactiveStatsService;
 import com.bu.management.service.AiProactiveService;
 import com.bu.management.service.JevDecisionService;
@@ -87,6 +88,7 @@ public class AiAgentController {
     private final AiProactiveService proactiveService;
     private final AiProactivePushService proactivePushService;
     private final AiProactiveStatsService proactiveStatsService;
+    private final AiProactiveEventService proactiveEventService;
     private final AiAgentProperties properties;
     private final ObjectMapper objectMapper;
 
@@ -136,6 +138,15 @@ public class AiAgentController {
             @PathVariable Long id) {
         proactiveService.dismiss(userId, id);
         return Result.success();
+    }
+
+    /** 主动性事件流水（默认近 1 天）：证明建议是事件触发而不是打开页面顺手扫的。 */
+    @GetMapping("/proactive/events")
+    public Result<List<com.bu.management.entity.AiProactiveEvent>> proactiveEvents(
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "1") int days,
+            @RequestParam(defaultValue = "20") int limit) {
+        return Result.success(proactiveEventService.recent(userId, days, limit));
     }
 
     /** 主动建议效果指标：采纳率 / 打扰率 / 推送成功率（默认近 30 天）。 */

@@ -84,6 +84,21 @@ class MeetingPipelineServiceTest {
     }
 
     @Test
+    @DisplayName("纪要生成成功：落一条主动性事件，触发建议重扫")
+    void summarize_recordsProactiveEvent() throws Exception {
+        Meeting meeting = meeting("DRAFT");
+        AiProactiveEventService events = org.mockito.Mockito.mock(AiProactiveEventService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(pipeline, "proactiveEvents", events);
+        stubSummary(meeting, """
+                {"summary":"概览","decisions":[],"risks":[],"todos":[]}""");
+
+        pipeline.summarize(1L);
+
+        org.mockito.Mockito.verify(events).record(meeting.getOwnerUserId(),
+                com.bu.management.entity.AiProactiveEvent.KIND_MEETING_MINUTES, "1");
+    }
+
+    @Test
     @DisplayName("模型缺增强字段 → 落库为空数组且不 FAILED")
     void summarize_missingEnhancedFields_storesEmptyArrays() throws Exception {
         Meeting meeting = meeting("DRAFT");

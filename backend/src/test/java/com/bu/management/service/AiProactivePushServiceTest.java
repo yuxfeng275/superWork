@@ -37,12 +37,13 @@ class AiProactivePushServiceTest {
     @Mock private EmailWeComMappingMapper mappingMapper;
     @Mock private AiProactiveService proactiveService;
     @Mock private WeComClient weComClient;
+    @Mock private com.bu.management.mapper.AiAgentUsageMapper usageMapper;
 
     private AiProactivePushService service;
 
     @BeforeEach
     void setUp() {
-        service = new AiProactivePushService(pushMapper, mappingMapper, proactiveService, weComClient);
+        service = new AiProactivePushService(pushMapper, mappingMapper, proactiveService, weComClient, usageMapper);
         org.springframework.test.util.ReflectionTestUtils.setField(
                 service, "publicBaseUrl", "https://bu.example.com");
         when(pushMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
@@ -133,6 +134,26 @@ class AiProactivePushServiceTest {
         assertThat(row.getValue().getReason()).contains("81013");
     }
 
+    @Test
+    void pushDailyPushesRecentlyActiveUser() {
+        when(usageMapper.activeUserIdsSince(any())).thenReturn(List.of(7L));
+        when(mappingMapper.selectList(any(Wrapper.class))).thenReturn(List.of(mapping("wx-user-1", 1)));
+
+        service.pushDaily();
+
+        verify(weComClient).pushText(eq("wx-user-1"), anyString());
+    }
+
+    @Test
+    void pushDailySkipsInactiveUsers() {
+        when(usageMapper.activeUserIdsSince(any())).thenReturn(List.of());
+        when(mappingMapper.selectList(any(Wrapper.class))).thenReturn(List.of(mapping("wx-user-1", 1)));
+
+        service.pushDaily();
+
+        verify(weComClient, never()).pushText(anyString(), anyString());
+    }
+
     private EmailWeComMapping mapping(String wecomUserId, int enabled) {
         EmailWeComMapping mapping = new EmailWeComMapping();
         mapping.setOwnerUserId(7L);
@@ -143,6 +164,6 @@ class AiProactivePushServiceTest {
 
     private AiProactiveService.Suggestion suggestion(Long id, String title, String body, String prompt) {
         return new AiProactiveService.Suggestion(id, "weekly_report", title, body, prompt,
-                "/weekly-report", 90);
+                "/weekly-report", 90, "本周周报草稿：待补充");
     }
 }

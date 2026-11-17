@@ -65,6 +65,8 @@ class WeeklyReportGenerateTest {
 
     private WeeklyReportService service;
 
+    private WeeklyReport report;
+
     private static final LocalDate WEEK_START = LocalDate.of(2026, 11, 2);
     private static final String NOTIFY_USER = "yufeng";
 
@@ -80,7 +82,7 @@ class WeeklyReportGenerateTest {
                 aiTaskService);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "notifyWeComUser", NOTIFY_USER);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "publicBaseUrl", "https://bu.example.com");
-        WeeklyReport report = new WeeklyReport();
+        report = new WeeklyReport();
         report.setId(9L);
         report.setWeekStartDate(WEEK_START);
         report.setStatus(WeeklyReport.STATUS_PENDING);
@@ -242,6 +244,20 @@ class WeeklyReportGenerateTest {
                 .contains("所有摘要模型均失败")
                 .doesNotContain("/weekly-report")
                 .contains("未配置 app.public-base-url");
+    }
+
+    @Test
+    void recordsProactiveEventWhenGenerationFails() {
+        AiProactiveEventService events = org.mockito.Mockito.mock(AiProactiveEventService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "proactiveEvents", events);
+        report.setCreatedBy(7L);
+        when(digestLlmClient.chat(anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("模型全挂了"));
+
+        service.generate(WEEK_START);
+
+        verify(events).record(eq(7L), eq(com.bu.management.entity.AiProactiveEvent.KIND_WEEKLY_REPORT_FAILED),
+                eq(String.valueOf(report.getId())));
     }
 
     @Test

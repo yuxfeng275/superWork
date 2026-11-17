@@ -156,6 +156,8 @@ ai:
   proactive:
     push-enabled: ${AI_PROACTIVE_PUSH_ENABLED:true}
     push-cron: ${AI_PROACTIVE_PUSH_CRON:0 50 8 * * MON-FRI}
+    # 站外推送只发给近 N 天用过助手的用户；≤0 关闭过滤（仅排障用）
+    push-active-days: ${AI_PROACTIVE_PUSH_ACTIVE_DAYS:30}
 
   # AI 平台地基层开关（YAML 顶层 key ai 已在此块声明，不能再写第二个 ai:，故合并在本块内）
   # 任务型 Agent 编排（计划-执行-观察）：默认关闭，灰度名单为空时入口一律拒绝

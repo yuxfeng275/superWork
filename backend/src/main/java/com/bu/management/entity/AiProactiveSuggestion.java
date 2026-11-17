@@ -40,6 +40,9 @@ public class AiProactiveSuggestion {
 
     private String prompt;
 
+    /** 点「去做」时预填的草稿正文：确定性生成，不是空对话。 */
+    private String draft;
+
     private String targetPath;
 
     private Integer score;

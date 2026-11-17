@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.entity.AiProactiveEvent;
 import com.bu.management.entity.EmailAccount;
 import com.bu.management.entity.EmailMessage;
 import com.bu.management.entity.User;
@@ -49,6 +50,10 @@ public class EmailSyncService {
   private final EmailProjectGroupingService groupingService;
   private final EmailRiskAlertService riskAlertService;
   private final Executor taskExecutor;
+
+  /** 事件入口：字段注入是为了不改构造器签名（业务同步本身不依赖它）。 */
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  private AiProactiveEventService proactiveEvents;
 
   /** 公司域名白名单（逗号分隔），空则归档模式不做域名过滤 */
   @Value("${email.company-domains:}")
@@ -156,6 +161,10 @@ public class EmailSyncService {
       }
       if (!snapshot.messages().isEmpty()) {
         groupingService.startAsync(ownerUserId, false);
+        if (proactiveEvents != null) {
+          proactiveEvents.record(ownerUserId, AiProactiveEvent.KIND_EMAIL_SYNCED,
+              String.valueOf(accountId));
+        }
         // 归档模式：匹配出的每个真实 owner 也各跑一次归属（已有 RUNNING 任务由 startAsync 自行幂等）
         context.matchedOwnerIds.stream()
             .filter(matchedOwnerId -> !matchedOwnerId.equals(ownerUserId))

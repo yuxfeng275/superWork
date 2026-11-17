@@ -637,7 +637,7 @@ export default function WorkbenchPage() {
     );
     void superworkApi.acceptAiProactive(suggestion.id).catch(() => undefined);
     navigate(
-      `/ai-assistant?prefill=${encodeURIComponent(suggestion.prompt)}`,
+      `/ai-assistant?prefill=${encodeURIComponent(suggestion.draft || suggestion.prompt)}`,
     );
   };
   /** 去处理：深链到具体周报/事项（抽屉已就位）。 */

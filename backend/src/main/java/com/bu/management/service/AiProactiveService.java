@@ -63,7 +63,7 @@ public class AiProactiveService {
 
     /** 前端展示用。 */
     public record Suggestion(Long id, String kind, String title, String body, String prompt,
-                             String targetPath, int score) {}
+                             String targetPath, int score, String draft) {}
 
     private final AiProactiveSuggestionMapper suggestionMapper;
     private final WeeklyReportService weeklyReportService;
@@ -93,7 +93,7 @@ public class AiProactiveService {
         return rows.stream()
                 .map(row -> new Suggestion(row.getId(), row.getKind(), row.getTitle(), row.getBody(),
                         row.getPrompt(), row.getTargetPath(),
-                        row.getScore() == null ? 0 : row.getScore()))
+                        row.getScore() == null ? 0 : row.getScore(), row.getDraft()))
                 .toList();
     }
 
@@ -114,6 +114,14 @@ public class AiProactiveService {
         }
         row.setStatus(status);
         suggestionMapper.updateById(row);
+    }
+
+    /**
+     * 事件触发的立即重扫：绕过「打开页面 10 分钟节流」，但仍按用户串行执行。
+     * 只给 {@link AiProactiveEventService} 用，不对外开放。
+     */
+    public void refreshNow(Long userId) {
+        scan(userId);
     }
 
     private void scanIfStale(Long userId) {
@@ -407,6 +415,7 @@ public class AiProactiveService {
         row.setTitle(cap(draft.title(), 200));
         row.setBody(cap(draft.body(), 500));
         row.setPrompt(cap(draft.prompt(), 1000));
+        row.setDraft(cap(draftOf(draft), 4000));
         row.setTargetPath(draft.targetPath());
         row.setScore(draft.score());
         row.setStatus(AiProactiveSuggestion.STATUS_NEW);
@@ -416,6 +425,30 @@ public class AiProactiveService {
         } catch (org.springframework.dao.DuplicateKeyException e) {
             // 并发扫描重复插入，忽略
         }
+    }
+
+    /**
+     * 生成「点去做」时预填的草稿：确定性模板 + 规则上下文，不再调模型。
+     *
+     * <p>它不是一个空聊天框里的提示词，而是用户可以直接改的初稿骨架；
+     * 真正的内容由助手拿到草稿后再调工具补全，成本与延迟都留在用户点下去之后。
+     */
+    private static String draftOf(Draft draft) {
+        String body = draft.body() == null ? "" : draft.body();
+        String title = draft.title() == null ? "" : draft.title();
+        return switch (draft.kind()) {
+            case KIND_WEEKLY -> "请按周报模板起草本周周报，五段都要有：\n"
+                    + "1) 本周完成\n2) 下周计划\n3) 风险与阻塞\n4) 需要协调\n5) 关键数据\n\n"
+                    + "已知线索：" + body + "\n"
+                    + "没有事实依据的句子写「待补充」，不要编造。";
+            case KIND_KEY_MATTER -> "请为以下大事逐项起草「本周进展 / 问题风险 / 需协调 / 下一步」：\n"
+                    + title + "\n" + body;
+            case KIND_MEETING -> "请过一遍这些会议待办，给出转任务或转事项的建议：\n" + body;
+            case KIND_EMAIL -> "请从昨日邮件摘要里挑出今天最该处理的 3 条，给出处理建议：\n" + body;
+            case KIND_WEEKLY_TOC -> "请给出语雀周会纪要重新挂载的步骤与需要核对的信息：\n" + body;
+            case KIND_MATTER_OVERDUE -> "请为以下逾期大事逐项给出：延期原因选项、新的预计完成时间、需要谁协调：\n" + body;
+            default -> draft.prompt();
+        };
     }
 
     private static String cap(String value, int max) {

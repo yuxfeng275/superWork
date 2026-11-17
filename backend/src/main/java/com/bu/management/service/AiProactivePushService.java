@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.bu.management.entity.AiProactivePush;
 import com.bu.management.entity.EmailWeComMapping;
 import com.bu.management.integration.WeComClient;
+import com.bu.management.mapper.AiAgentUsageMapper;
 import com.bu.management.mapper.AiProactivePushMapper;
 import com.bu.management.mapper.EmailWeComMappingMapper;
 import java.io.UnsupportedEncodingException;
@@ -46,9 +47,17 @@ public class AiProactivePushService {
     private final EmailWeComMappingMapper mappingMapper;
     private final AiProactiveService proactiveService;
     private final WeComClient weComClient;
+    private final AiAgentUsageMapper usageMapper;
 
     @Value("${app.public-base-url:}")
     private String publicBaseUrl;
+
+    /**
+     * 活跃度窗口（天）：只给最近有 AI 使用记录的人推站外消息。
+     * ≤0 关闭过滤（仅排障用，默认不要关）。
+     */
+    @Value("${ai.proactive.push-active-days:30}")
+    private int pushActiveDays = 30;
 
     /** 立即给某个用户推一条今日简报（手动触发与定时任务共用）。 */
     public PushResult pushToday(Long userId) {
@@ -95,7 +104,7 @@ public class AiProactivePushService {
         }
     }
 
-    /** 每天 08:50 的定时推送：只挑绑定企微的用户，逐人失败不互相影响。 */
+    /** 每天 08:50 的定时推送：只挑绑定企微且近 30 天用过系统的用户，逐人失败不互相影响。 */
     public void pushDaily() {
         List<Long> userIds = mappingMapper.selectList(new LambdaQueryWrapper<EmailWeComMapping>()
                         .eq(EmailWeComMapping::getEnabled, 1))
@@ -104,12 +113,37 @@ public class AiProactivePushService {
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList();
+        List<Long> activeUserIds = activeUserIds();
         for (Long userId : userIds) {
+            if (pushActiveDays > 0 && !activeUserIds.contains(userId)) {
+                log.debug("跳过不活跃用户 userId={}（近 {} 天无 AI 使用记录）", userId, pushActiveDays);
+                continue;
+            }
             try {
                 pushToday(userId);
             } catch (Exception e) {
                 log.warn("AI 主动建议定时推送异常 userId={}: {}", userId, e.getMessage());
             }
+        }
+    }
+
+    /**
+     * 近 N 天有 AI 使用记录的用户。
+     *
+     * <p>用 ai_agent_usage 而不是登录时间：登录了但从不碰 AI 的人，推「今天最值得做的事」
+     * 大概率是打扰；用过助手的人至少知道链接点开会发生什么。
+     */
+    private List<Long> activeUserIds() {
+        if (pushActiveDays <= 0) {
+            return List.of();
+        }
+        LocalDateTime since = LocalDateTime.now().minusDays(pushActiveDays);
+        try {
+            List<Long> rows = usageMapper.activeUserIdsSince(since);
+            return rows == null ? List.of() : rows;
+        } catch (Exception e) {
+            log.warn("活跃度过滤查询失败，按全部绑定用户推送: {}", e.getMessage());
+            return List.of();
         }
     }
 

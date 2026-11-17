@@ -1,6 +1,7 @@
 package com.bu.management.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.bu.management.entity.AiProactiveEvent;
 import com.bu.management.entity.Meeting;
 import com.bu.management.entity.MeetingSpeaker;
 import com.bu.management.entity.MeetingTodo;
@@ -85,6 +86,10 @@ public class MeetingPipelineService {
     @Resource(name = "meetingTaskExecutor")
     private Executor taskExecutor;
 
+    /** 事件入口：字段注入避免改构造器签名；纪要生成成功 → 触发一次建议重扫。 */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AiProactiveEventService proactiveEvents;
+
     // ==================== 调度 ====================
 
     public void startProcessing(Long meetingId) {
@@ -124,7 +129,12 @@ public class MeetingPipelineService {
             correct(meeting);
             updateStatus(meeting, "SUMMARIZING", null);
             summarizeInternal(meetingId);
-            updateStatus(require(meetingId), "DRAFT", null);
+            Meeting done = require(meetingId);
+            updateStatus(done, "DRAFT", null);
+            if (proactiveEvents != null) {
+                proactiveEvents.record(done.getOwnerUserId(),
+                        AiProactiveEvent.KIND_MEETING_MINUTES, String.valueOf(meetingId));
+            }
         } catch (Exception e) {
             fail(meetingId, e);
         }
@@ -133,7 +143,12 @@ public class MeetingPipelineService {
     private void runSummarize(Long meetingId) {
         try {
             summarizeInternal(meetingId);
-            updateStatus(require(meetingId), "DRAFT", null);
+            Meeting done = require(meetingId);
+            updateStatus(done, "DRAFT", null);
+            if (proactiveEvents != null) {
+                proactiveEvents.record(done.getOwnerUserId(),
+                        AiProactiveEvent.KIND_MEETING_MINUTES, String.valueOf(meetingId));
+            }
         } catch (Exception e) {
             fail(meetingId, e);
         }

@@ -549,6 +549,8 @@ export interface AiProactiveSuggestion {
   title: string;
   body?: string | null;
   prompt: string;
+  /** 点「去做」时预填的草稿正文；老数据可能为空，回退到 prompt */
+  draft?: string | null;
   targetPath?: string | null;
   score: number;
 }
