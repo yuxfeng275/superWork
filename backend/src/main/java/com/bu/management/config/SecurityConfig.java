@@ -88,6 +88,7 @@ public class SecurityConfig {
                         // 供 ai-sidecar 取企微智能机器人凭据，靠 X-Sidecar-Token 校验
                         .requestMatchers("/internal/wecom/**").permitAll()
                         .requestMatchers("/api/wecom/callback").permitAll()
+                        .requestMatchers("/api/ai-agent/health").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         // 其他所有请求需要认证
                         .anyRequest().authenticated()

@@ -98,6 +98,12 @@ public class AiAgentController {
     private final ScheduledExecutorService timeoutScheduler = Executors.newSingleThreadScheduledExecutor();
 
     /** Jev 决策层是否生效：前端用它显示「未启用」提示，避免误以为写门禁在跑。 */
+    /** 无鉴权健康检查：只报服务存活，不暴露配置/用量。 */
+    @GetMapping("/health")
+    public Result<java.util.Map<String, Object>> health() {
+        return Result.success(java.util.Map.of("status", "UP", "service", "ai-agent"));
+    }
+
     @GetMapping("/jev/status")
     public Result<JevDecisionService.Status> jevStatus() {
         return Result.success(jevDecisionService.status());

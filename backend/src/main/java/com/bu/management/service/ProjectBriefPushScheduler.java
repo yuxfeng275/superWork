@@ -21,7 +21,8 @@ public class ProjectBriefPushScheduler {
     @Value("${project.brief.push-enabled:true}")
     private boolean enabled;
 
-    @Scheduled(cron = "${project.brief.push-cron:0 30 7 * * MON-FRI}", zone = "Asia/Shanghai")
+    @Scheduled(cron = "${project.brief.push-cron:0 30 7 * * MON-FRI}",
+            zone = "${project.brief.push-zone:Asia/Shanghai}")
     public void pushMorningBriefs() {
         if (!enabled) {
             return;
