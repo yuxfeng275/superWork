@@ -512,6 +512,113 @@ describe("pruneMessages", () => {
     assert.deepEqual(pruneMessages(messages, 1), messages); // nothing prunable outside the tail
     assert.ok(MAX_CONTEXT_CHARS > 0);
   });
+
+  function assistantCallMessage(text: string, callIds: string[], timestamp: number): AgentMessage {
+    return {
+      role: "assistant",
+      content: [
+        { type: "text", text },
+        ...callIds.map((id) => ({ type: "toolCall", id, name: "read_file", arguments: {} })),
+      ],
+      api: "openai-completions",
+      provider: "deepseek",
+      model: "deepseek-flash",
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "toolUse",
+      timestamp,
+    } as unknown as AgentMessage;
+  }
+
+  function toolResultMessage(toolCallId: string, text: string, timestamp: number): AgentMessage {
+    return {
+      role: "toolResult",
+      toolCallId,
+      toolName: "read_file",
+      content: [{ type: "text", text }],
+      isError: false,
+      timestamp,
+    } as unknown as AgentMessage;
+  }
+
+  function callIdsOf(list: AgentMessage[]): string[] {
+    const ids: string[] = [];
+    for (const message of list) {
+      if (message.role !== "assistant") continue;
+      const content = (message as unknown as { content?: Array<{ type?: string; id?: string }> }).content ?? [];
+      for (const part of content) {
+        if (part.type === "toolCall" && typeof part.id === "string") ids.push(part.id);
+      }
+    }
+    return ids;
+  }
+
+  function resultIdsOf(list: AgentMessage[]): string[] {
+    return list
+      .filter((message) => message.role === "toolResult")
+      .map((message) => (message as unknown as { toolCallId: string }).toolCallId);
+  }
+
+  it("drops a pruned tool call together with its tool results and never leaves an orphan toolResult", () => {
+    const system = systemMessage("system prompt");
+    const messages: AgentMessage[] = [system, turnMessage("user", "start", 0)];
+    messages.push(assistantCallMessage("reading " + "a".repeat(2000), ["call-1"], 1));
+    messages.push(toolResultMessage("call-1", "r".repeat(2000), 2));
+    for (let i = 0; i < 40; i += 1) {
+      messages.push(turnMessage(i % 2 === 0 ? "user" : "assistant", `${i}`.padEnd(2000, "f"), 10 + i));
+      // A second call/result group buried in the middle of the filler.
+      if (i === 20) {
+        messages.push(assistantCallMessage("deeper " + "b".repeat(2000), ["call-2", "call-3"], 100));
+        messages.push(toolResultMessage("call-2", "x".repeat(1000), 101));
+        messages.push(toolResultMessage("call-3", "y".repeat(1000), 102));
+      }
+    }
+    messages.push(turnMessage("user", "latest question", 999));
+
+    const pruned = pruneMessages(messages, 40_000);
+    assert.ok(pruned.length < messages.length, "expected the transcript to be shortened");
+    assert.equal(pruned[0], system, "system message must survive pruning");
+    assert.deepEqual(pruned.slice(-PRUNE_KEEP_TAIL), messages.slice(-PRUNE_KEEP_TAIL));
+
+    const callIds = callIdsOf(pruned);
+    const resultIds = resultIdsOf(pruned);
+    // No orphan toolResult: every surviving result still has its call.
+    for (const id of resultIds) {
+      assert.ok(callIds.includes(id), `orphan toolResult ${id} survived pruning`);
+    }
+    // Pairing stays complete the other way too: no bare toolCall survives.
+    for (const id of callIds) {
+      assert.ok(resultIds.includes(id), `toolCall ${id} lost every toolResult`);
+    }
+    assert.equal(resultIds.length, new Set(resultIds).size, "tool results must not be duplicated");
+    // The oldest group went out as a unit.
+    assert.ok(!callIds.includes("call-1"), "the oldest tool call must be pruned");
+    assert.ok(!resultIds.includes("call-1"), "pruning the call must take its result along");
+    // Still idempotent once it fits.
+    assert.equal(pruneMessages(pruned, 40_000), pruned);
+  });
+
+  it("returns the transcript unchanged when it fits, tool calls and results included", () => {
+    const messages: AgentMessage[] = [
+      systemMessage("sys"),
+      turnMessage("user", "hi", 1),
+      assistantCallMessage("calling", ["call-a"], 2),
+      toolResultMessage("call-a", "done", 3),
+      turnMessage("assistant", "final answer", 4),
+    ];
+
+    assert.equal(pruneMessages(messages, MAX_CONTEXT_CHARS), messages);
+    assert.equal(pruneMessages(messages), messages);
+    assert.equal(pruneMessages(pruneMessages(messages, 100_000), 100_000), messages);
+    assert.deepEqual(callIdsOf(messages), ["call-a"]);
+    assert.deepEqual(resultIdsOf(messages), ["call-a"]);
+  });
 });
 
 describe("model definition resolution", () => {

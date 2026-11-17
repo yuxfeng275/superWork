@@ -392,11 +392,57 @@ function messageChars(message: AgentMessage): number {
 }
 
 /**
+ * Tool call ids an assistant message carries. pi stores calls as `toolCall`
+ * content parts; the Java-persisted shape may also carry a `toolCalls`
+ * array, so both spellings are read.
+ */
+  function toolCallIdsOf(message: AgentMessage): string[] {
+    const record = message as unknown as Record<string, unknown>;
+    const ids: string[] = [];
+  const collect = (value: unknown): void => {
+      if (!Array.isArray(value)) return;
+      for (const entry of value) {
+        if (!isPlainObject(entry)) continue;
+        if (entry.type !== undefined && entry.type !== "toolCall") continue;
+        const id = typeof entry.id === "string" ? entry.id : entry.toolCallId;
+      if (typeof id === "string") ids.push(id);
+      }
+  };
+  collect(record.content);
+    collect(record.toolCalls);
+    return ids;
+  }
+
+  function toolCallIdOf(message: AgentMessage): string | undefined {
+  const record = message as unknown as Record<string, unknown>;
+  return typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+}
+
+/** Index just past the contiguous run of toolResult messages after `index`. */
+function toolResultRunEnd(messages: AgentMessage[], index: number): number {
+  let end = index + 1;
+  while (end < messages.length && messages[end].role === "toolResult") end += 1;
+  return end;
+}
+
+/**
  * Drop the oldest user/assistant turns until the transcript fits `maxChars`.
  *
  * System messages (prompt + tool declarations) and the last PRUNE_KEEP_TAIL
  * messages are never dropped, so the current question and its tool results
  * always survive. Pure so it can be unit-tested.
+ *
+ * Tool protocol validity: an assistant message and the toolResults answering
+ * it are one unit. Dropping the assistant alone leaves orphan toolResults,
+ * and keeping a toolCall whose results all vanished leaves a call the
+ * provider waits for forever — either way an OpenAI-compatible provider
+ * rejects the whole transcript, so both shapes are pruned together:
+ * 1. dropping an assistant also drops the contiguous toolResult run behind
+ *    it (a candidate whose results reach into the never-pruned tail is
+ *    skipped instead, so the tail stays intact);
+ * 2. a surviving toolResult whose toolCallId has no surviving toolCall is
+ *    dropped as well;
+ * 3. an assistant whose toolCalls all lost their results is dropped too.
  */
 export function pruneMessages(
   messages: AgentMessage[],
@@ -408,12 +454,47 @@ export function pruneMessages(
 
   const prunableTail = Math.max(0, messages.length - PRUNE_KEEP_TAIL);
   const dropped = new Set<number>();
+  const drop = (index: number): void => {
+    if (dropped.has(index)) return;
+    dropped.add(index);
+    total -= messageChars(messages[index]);
+  };
+
+  // Pass 1 — budget, oldest first, calls and their results dropped together.
   for (let i = 0; i < prunableTail && total > maxChars; i += 1) {
     const role = messages[i].role;
     if (role !== "user" && role !== "assistant") continue; // keep system/toolResult
-    dropped.add(i);
-    total -= messageChars(messages[i]);
+    if (role === "assistant" && toolResultRunEnd(messages, i) > prunableTail) continue;
+    drop(i);
+    if (role !== "assistant") continue;
+    for (let j = i + 1; j < prunableTail && messages[j].role === "toolResult"; j += 1) drop(j);
   }
+
+  // Pass 2 — no orphan toolResult may survive its (dropped) call.
+  const liveCallIds = new Set<string>();
+  for (let i = 0; i < messages.length; i += 1) {
+    if (dropped.has(i) || messages[i].role !== "assistant") continue;
+    for (const id of toolCallIdsOf(messages[i])) liveCallIds.add(id);
+  }
+  for (let i = 0; i < prunableTail; i += 1) {
+    if (dropped.has(i) || messages[i].role !== "toolResult") continue;
+    const id = toolCallIdOf(messages[i]);
+    if (id === undefined || !liveCallIds.has(id)) drop(i);
+  }
+
+  // Pass 3 — no dangling toolCall may survive without any of its results.
+  for (let i = 0; i < prunableTail; i += 1) {
+    if (dropped.has(i) || messages[i].role !== "assistant") continue;
+    const callIds = toolCallIdsOf(messages[i]);
+    if (callIds.length === 0) continue;
+    const answered = messages.some((other, index) => {
+      if (dropped.has(index) || other.role !== "toolResult") return false;
+      const id = toolCallIdOf(other);
+      return id !== undefined && callIds.includes(id);
+    });
+    if (!answered) drop(i);
+  }
+
   if (dropped.size === 0) return messages;
   return messages.filter((_message, index) => !dropped.has(index));
 }
