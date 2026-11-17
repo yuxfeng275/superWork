@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getAiAgentModels: vi.fn(),
   getAssistantModels: vi.fn(),
   getAiAgentConnectors: vi.fn(),
+  getJevStatus: vi.fn(),
 }));
 
 vi.mock('@/services/superwork/api', () => ({
@@ -17,6 +18,7 @@ vi.mock('@/services/superwork/api', () => ({
     getAiAgentModels: mocks.getAiAgentModels,
     getAssistantModels: mocks.getAssistantModels,
     getAiAgentConnectors: mocks.getAiAgentConnectors,
+    getJevStatus: mocks.getJevStatus,
   },
 }));
 
@@ -35,6 +37,7 @@ describe('AI assistant Ant Design X migration', () => {
     mocks.getAiAgentModels.mockResolvedValue([]);
     mocks.getAssistantModels.mockResolvedValue([]);
     mocks.getAiAgentConnectors.mockResolvedValue([]);
+    mocks.getJevStatus.mockResolvedValue({ ready: true, model: 'jev-latest', reason: '' });
   });
 
   it('uses Conversations for the session rail', async () => {
