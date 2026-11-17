@@ -158,6 +158,11 @@ ai:
     push-cron: ${AI_PROACTIVE_PUSH_CRON:0 50 8 * * MON-FRI}
 
   # AI 平台地基层开关（YAML 顶层 key ai 已在此块声明，不能再写第二个 ai:，故合并在本块内）
+  # 任务型 Agent 编排（计划-执行-观察）：默认关闭，灰度名单为空时入口一律拒绝
+  agent:
+    enabled: ${AI_AGENT_ENABLED:false}
+    gray-user-ids: ${AI_AGENT_GRAY_USER_IDS:}
+
   platform:
     task-enabled: true          # 统一任务编排开关；false 时业务回退旧路径
     gateway-enabled: false      # 能力网关旁路开关，默认关（先灰度）

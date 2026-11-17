@@ -88,6 +88,15 @@ public class AgentOrchestrator {
     @Value("${ai.agent.enabled:false}")
     private boolean enabled = false;
 
+    /**
+     * 灰度名单（逗号分隔用户 ID）：只有名单里的人能触发编排入口。
+     *
+     * <p>为空表示「谁都不放行」——灰度开关打开但没填名单时，入口仍然关闭，
+     * 避免一次误配就把任务编排暴露给所有人。
+     */
+    @Value("${ai.agent.gray-user-ids:}")
+    private String grayUserIds = "";
+
     public AgentOrchestrator(CapabilityRegistry registry,
                              CapabilityGateway gateway,
                              AiCallRecorder aiCallRecorder,
@@ -98,6 +107,27 @@ public class AgentOrchestrator {
         this.aiCallRecorder = aiCallRecorder;
         this.promptRegistry = promptRegistry;
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 该用户是否已开通任务编排：全局开关 + 灰度名单双条件。
+     *
+     * @param userId 当前用户；null（系统调用）一律拒绝，灰度名额只给人
+     */
+    public boolean allow(Long userId) {
+        if (!enabled || userId == null) {
+            return false;
+        }
+        if (!StringUtils.hasText(grayUserIds)) {
+            return false;
+        }
+        for (String part : grayUserIds.split(",")) {
+            String value = part.strip();
+            if (!value.isEmpty() && value.equals(String.valueOf(userId))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -168,6 +168,21 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    @DisplayName("灰度入口：名单为空/未命中一律拒绝，命中且开关开才放行")
+    void grayAllowListIsFailClosed() {
+        // setUp 里 enabled=true，但灰度名单为空 → 谁都不放行
+        assertThat(orchestrator.allow(7L)).isFalse();
+        assertThat(orchestrator.allow(null)).isFalse();
+
+        ReflectionTestUtils.setField(orchestrator, "grayUserIds", "9, 7");
+        assertThat(orchestrator.allow(7L)).isTrue();
+        assertThat(orchestrator.allow(8L)).isFalse();
+
+        ReflectionTestUtils.setField(orchestrator, "enabled", false);
+        assertThat(orchestrator.allow(7L)).isFalse();
+    }
+
+    @Test
     @DisplayName("开关关闭：直接返回未启用，不调 LLM 也不调网关")
     void disabledSwitchSkipsEverything() {
         ReflectionTestUtils.setField(orchestrator, "enabled", false);
