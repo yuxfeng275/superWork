@@ -1,0 +1,67 @@
+From 6bfe180184a635b5534bf7a6c1a7fe1eb11867cc Mon Sep 17 00:00:00 2001
+From: S1ow <275908654@qq.com>
+Date: Tue, 17 Nov 2026 17:37:00 +0000
+Subject: [PATCH] fix(ai-assistant): keep thinking out of visible text
+
+---
+ frontend-pro/src/pages/ai-assistant/index.tsx | 30 +++++++++++++------
+ 1 file changed, 21 insertions(+), 9 deletions(-)
+
+diff --git a/frontend-pro/src/pages/ai-assistant/index.tsx b/frontend-pro/src/pages/ai-assistant/index.tsx
+index a5eb004..3903b10 100644
+--- a/frontend-pro/src/pages/ai-assistant/index.tsx
++++ b/frontend-pro/src/pages/ai-assistant/index.tsx
+@@ -100,22 +100,33 @@ const slashSuggestions = welcomePrompts.map((item) => ({
+   icon: item.icon,
+   extra: item.label,
+ }));
++/** 会话回放：正文只取 type=text 的片段，thinking 不能混进可见文本 */
+ const extractText = (content: unknown) => {
+   if (typeof content === 'string') return content;
+   if (Array.isArray(content))
+     return content
+-      .map((part) =>
+-        typeof part === 'object' && part
+-          ? String(
+-              (part as { text?: unknown }).text ||
+-                (part as { thinking?: unknown }).thinking ||
+-                '',
+-            )
+-          : '',
+-      )
++      .map((part) => {
++        if (typeof part !== 'object' || !part) return '';
++        const { type, text } = part as { type?: unknown; text?: unknown };
++        return type === 'text' ? String(text || '') : '';
++      })
+       .join('');
+   return '';
+ };
++/** 思考片段单独回填到 ChatItem.thinking（折叠区），与实时流展示一致 */
++const extractThinking = (content: unknown) => {
++  if (!Array.isArray(content)) return '';
++  return content
++    .map((part) => {
++      if (typeof part !== 'object' || !part) return '';
++      const { type, thinking } = part as {
++        type?: unknown;
++        thinking?: unknown;
++      };
++      return type === 'thinking' ? String(thinking || '') : '';
++    })
++    .join('');
++};
+ 
+ export default function AiAssistantPage() {
+   const [sessions, setSessions] = useState<AiAgentSessionSummary[]>([]);
+@@ -261,6 +272,7 @@ export default function AiAssistantPage() {
+             id: `m-${index}`,
+             role: 'assistant',
+             text: extractText(item.content),
++            thinking: extractThinking(item.content) || undefined,
+           });
+         return result;
+       },
+-- 
+2.34.1
+
