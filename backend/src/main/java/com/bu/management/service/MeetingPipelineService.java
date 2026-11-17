@@ -87,6 +87,7 @@ public class MeetingPipelineService {
     private Executor taskExecutor;
 
     /** 事件入口：字段注入避免改构造器签名；纪要生成成功 → 触发一次建议重扫。 */
+    @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AiProactiveEventService proactiveEvents;
 

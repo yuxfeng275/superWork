@@ -52,6 +52,7 @@ public class EmailSyncService {
   private final Executor taskExecutor;
 
   /** 事件入口：字段注入是为了不改构造器签名（业务同步本身不依赖它）。 */
+  @org.springframework.context.annotation.Lazy
   @org.springframework.beans.factory.annotation.Autowired(required = false)
   private AiProactiveEventService proactiveEvents;
 

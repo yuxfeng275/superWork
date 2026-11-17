@@ -85,6 +85,7 @@ public class WeeklyReportService {
     private final WeeklyReportMapper reportMapper;
 
     /** 事件入口：字段注入避免改构造器签名；周报失败 → 生成一条「重试」建议。 */
+    @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private AiProactiveEventService proactiveEvents;
     private final DigestLlmClient digestLlmClient;
