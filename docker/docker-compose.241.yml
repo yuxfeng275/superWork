@@ -6,10 +6,10 @@ services:
     container_name: superwork-bu-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD required}
       MYSQL_DATABASE: bu_management
       MYSQL_USER: bu_admin
-      MYSQL_PASSWORD: bu_admin123
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD required}
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:13306:3306"
@@ -18,7 +18,7 @@ services:
       - ./mysql/conf:/etc/mysql/conf.d:ro
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "bu_admin", "-pbu_admin123"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u bu_admin -p\"$$MYSQL_PASSWORD\""]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -29,6 +29,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: superwork-bu-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     volumes:
       - ./redis/data:/data
@@ -40,6 +45,11 @@ services:
   minio:
     image: minio/minio:latest
     container_name: superwork-bu-minio
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -58,6 +68,12 @@ services:
       context: ../backend
       dockerfile: Dockerfile.runtime
     container_name: superwork-bu-backend
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/doc.html"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -69,7 +85,7 @@ services:
       MYSQL_PORT: 3306
       MYSQL_DATABASE: bu_management
       MYSQL_USER: bu_admin
-      MYSQL_PASSWORD: bu_admin123
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ""
@@ -78,7 +94,7 @@ services:
       SPRING_DATA_REDIS_PASSWORD: ""
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin123
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY required}
       AI_SIDECAR_URL: http://ai-sidecar:8787
       AI_SIDECAR_TOKEN: ${AI_SIDECAR_TOKEN:-dev-sidecar-token}
       AI_SIDECAR_TOOL_CALLBACK_URL: http://backend:8081/internal/ai-agent/tools
@@ -87,7 +103,7 @@ services:
       AI_AGENT_ENABLED: ${AI_AGENT_ENABLED:-false}
       AI_AGENT_GRAY_USER_IDS: ${AI_AGENT_GRAY_USER_IDS:-}
       PROJECT_BRIEF_PUSH_ENABLED: ${PROJECT_BRIEF_PUSH_ENABLED:-true}
-      JWT_SECRET: ${JWT_SECRET:-superwork-bu-management-server-241-change-me}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
       YUNXIAO_ENABLED: ${YUNXIAO_ENABLED:-false}
       YUNXIAO_EDITION: ${YUNXIAO_EDITION:-center}
       YUNXIAO_BASE_URL: ${YUNXIAO_BASE_URL:-https://openapi-rdc.aliyuncs.com}
@@ -123,6 +139,12 @@ services:
       context: ../ai-sidecar
       dockerfile: Dockerfile
     container_name: superwork-bu-ai-sidecar
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     ports:
       - "8787:8787"
@@ -181,12 +203,22 @@ services:
       context: ../frontend-pro
       dockerfile: Dockerfile
     container_name: superwork-bu-frontend-pro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     networks:
       - bu-network
   nginx:
     image: nginx:alpine
     container_name: superwork-bu-nginx
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     ports:
       - "18080:80"

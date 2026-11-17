@@ -1,7 +1,7 @@
 {
   "base": "http://192.168.1.241:18080",
   "user": "admin",
-  "startedAt": "2026-11-17T16:41:54.447Z",
+  "startedAt": "2026-11-17T17:12:42.207Z",
   "steps": [
     {
       "name": "登录",
@@ -29,7 +29,7 @@
     {
       "name": "知识库检索",
       "ok": true,
-      "detail": "检索「会员通 交付周期」",
+      "detail": "检索「会员通 交付周期」；命中 1 条；首条：会员通交付说明 相关度 8.8430 会员通产品支持全渠道会员统一识别、积分通兑、等级体系。交付周期一般为 6-8 周，",
       "screenshot": "/Users/yufeng/Documents/SuperProduct/aiProject/superWork-claude-sp/frontend-pro/tools/e2e/screenshots/04-knowledge.png"
     },
     {
@@ -53,6 +53,665 @@
     "plugin-model: Invoking 'index' model failed: Error\n    at u (http://192.168.1.241:18080/umi.7ea1de21.js:419:45401)\n    at V (http://192.168.1.241:18080/umi.7ea1de21.js:419:49784)\n    at re (http://192.168.1.241:18080/umi.7ea1de21.js:122:10213)\n    at w (http://192.168.1.241:18080/umi.7ea1de21.js:122:652)\n    at Bo (http://192.168.1.241:18080/umi.7ea1de21.js:418:48955)\n    at $s (http://192.168.1.241:18080/umi.7ea1de21.js:418:71838)\n    at vf (http://192.168.1.241:18080/umi.7ea1de21.js:418:82344)\n    at kf (http://192.168.1.241:18080/umi.7ea1de21.js:418:118326)\n    at om (http://192.168.1.241:18080/umi.7ea1de21.js:418:117355)\n    at Fd (http://192.168.1.241:18080/umi.7ea1de21.js:418:117183)"
   ],
   "serverErrors": [],
-  "finishedAt": "2026-11-17T16:42:57.420Z",
-  "ok": true
+  "network": [
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?size=100"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/quotations?size=20"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/sales-opportunities"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects?page=1&size=100"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-briefs?date=2026-11-18"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive/stats?days=30"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-artifacts/my-reviews?status=APPROVED"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/23/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/24/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/22/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/20/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/21/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/19/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/18/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/17/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/16/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/15/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/13/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/12/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/11/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/10/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/9/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/7/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/8/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/1/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/6/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/4/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/3/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/2/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/tasks/overview"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/defects/overview?size=20"
+    },
+    {
+      "method": "POST",
+      "status": 200,
+      "path": "/api/ai-agent/proactive/53/accept"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/connectors"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/usage"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/assistant/models"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/jev/status"
+    },
+    {
+      "method": "POST",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/usage"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/assistant/models"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/jev/status"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/connectors"
+    },
+    {
+      "method": "POST",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "POST",
+      "status": 200,
+      "path": "/api/ai-agent/sessions/78/messages"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions/78"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/sessions"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/usage"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/knowledge/documents?limit=100"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/knowledge/health"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/knowledge/search?q=%E4%BC%9A%E5%91%98%E9%80%9A%20%E4%BA%A4%E4%BB%98%E5%91%A8%E6%9C%9F&limit=5"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/team-efficiency/overview?days=30"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-capabilities/stats?days=7"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menus"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/auth/my-menu-tree"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?page=1&size=1"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters/access"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices/unread-count"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai/notices"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/requirements?size=100"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/quotations?size=20"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/sales-opportunities"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects?page=1&size=100"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/key-matters"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-agent/proactive/stats?days=30"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-artifacts/my-reviews?status=APPROVED"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/24/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/23/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-artifacts/my-reviews?status=IN_REVIEW"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/22/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/tasks/overview"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/21/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/20/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/19/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/ai-briefs?date=2026-11-18"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/18/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/17/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/16/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/15/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/13/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/11/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/12/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/10/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/8/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/9/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/7/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/6/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/1/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/4/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/3/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/2/facts/summary"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/defects/overview?size=20"
+    },
+    {
+      "method": "GET",
+      "status": 200,
+      "path": "/api/projects/1/facts?limit=200"
+    }
+  ],
+  "finishedAt": "2026-11-17T17:13:42.570Z",
+  "ok": true,
+  "apiCalls": 131,
+  "apiFailures": 0
 }

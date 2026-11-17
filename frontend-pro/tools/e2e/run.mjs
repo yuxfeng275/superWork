@@ -28,6 +28,7 @@ const report = {
   steps: [],
   consoleErrors: [],
   serverErrors: [],
+  network: [],
 };
 
 function record(name, ok, detail, screenshot) {
@@ -56,6 +57,16 @@ page.on('console', (message) => {
 page.on('response', (response) => {
   const status = response.status();
   const url = response.url();
+  if (url.includes('/api/')) {
+    let path = url;
+    try {
+      const parsed = new URL(url);
+      path = `${parsed.pathname}${parsed.search}`;
+    } catch {
+      // 保留原 URL
+    }
+    report.network.push({ method: response.request().method(), status, path });
+  }
   if (status >= 500 || (status === 404 && url.includes('/api/'))) {
     report.serverErrors.push(`${status} ${url}`);
   }
@@ -148,10 +159,13 @@ try {
     const input = page.getByPlaceholder(/输入关键词/).first();
     await input.fill('会员通 交付周期');
     await page.getByRole('button', { name: '检索' }).first().click();
-    await page.waitForTimeout(3000);
-    const body = await page.locator('body').innerText();
-    const hit = body.includes('会员通') && body.includes('命中') === false ? body.includes('会员通') : body.includes('会员通');
-    record('知识库检索', hit, '检索「会员通 交付周期」', await shot(page, '04-knowledge'));
+    await page.locator('.ant-list-item').first().waitFor({ timeout: 15000 });
+    const hitCount = await page.locator('.ant-list-item').count();
+    const firstHit = (await page.locator('.ant-list-item').first().innerText()).replace(/\s+/g, ' ').trim();
+    const hit = hitCount > 0 && firstHit.includes('会员通');
+    record('知识库检索', hit,
+      `检索「会员通 交付周期」；命中 ${hitCount} 条；首条：${firstHit.slice(0, 60)}`,
+      await shot(page, '04-knowledge'));
   } catch (error) {
     record('知识库检索', false, String(error.message), await shot(page, '04-knowledge-failed'));
   }
@@ -189,6 +203,10 @@ try {
   report.finishedAt = new Date().toISOString();
   // 步骤全过且没有服务端 5xx/API 404 才算通过；控制台告警单独列出，不掩盖也不冒充失败
   report.ok = report.steps.every((step) => step.ok) && report.serverErrors.length === 0;
+  writeFileSync(join(HERE, 'network.json'), `${JSON.stringify(report.network, null, 2)}\n`);
+  const apiFailures = report.network.filter((row) => row.status >= 400);
+  report.apiCalls = report.network.length;
+  report.apiFailures = apiFailures.length;
   writeFileSync(join(HERE, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
   const md = [
     '# 241 E2E 报告',
@@ -207,6 +225,12 @@ try {
     '## 服务端错误',
     '',
     report.serverErrors.length ? report.serverErrors.map((line) => `- ${line}`).join('\n') : '无',
+    '',
+    '## 非 2xx API 调用',
+    '',
+    report.network.filter((row) => row.status >= 400).length
+      ? report.network.filter((row) => row.status >= 400).map((row) => `- ${row.status} ${row.method} ${row.path}`).join('\n')
+      : '无',
     '',
     '## 控制台告警（不计入失败）',
     '',

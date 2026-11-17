@@ -9,7 +9,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:bu_management}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USER:bu_admin}
-    password: ${MYSQL_PASSWORD:bu_admin123}
+    password: ${MYSQL_PASSWORD:}
     hikari:
       minimum-idle: 5
       maximum-pool-size: 20
@@ -104,7 +104,7 @@ minio:
 
 # JWT 配置
 jwt:
-  secret: ${JWT_SECRET:bu-management-secret-key-2026-change-in-production}
+  secret: ${JWT_SECRET:}
   expiration: 86400000  # 24小时（毫秒）
   refresh-expiration: 604800000  # 7天（毫秒）
 
