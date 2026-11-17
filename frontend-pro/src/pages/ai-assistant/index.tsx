@@ -52,6 +52,7 @@ import {
   superworkApi,
 } from '@/services/superwork/api';
 import '../workbench/style.less';
+import { extractMessageText, extractMessageThinking } from './messages';
 import './style.less';
 
 /** token 展示：1200 → 1.2k */
@@ -100,22 +101,6 @@ const slashSuggestions = welcomePrompts.map((item) => ({
   icon: item.icon,
   extra: item.label,
 }));
-const extractText = (content: unknown) => {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content))
-    return content
-      .map((part) =>
-        typeof part === 'object' && part
-          ? String(
-              (part as { text?: unknown }).text ||
-                (part as { thinking?: unknown }).thinking ||
-                '',
-            )
-          : '',
-      )
-      .join('');
-  return '';
-};
 
 export default function AiAssistantPage() {
   const [sessions, setSessions] = useState<AiAgentSessionSummary[]>([]);
@@ -254,13 +239,14 @@ export default function AiAssistantPage() {
           result.push({
             id: `m-${index}`,
             role: 'user',
-            text: extractText(item.content),
+            text: extractMessageText(item.content),
           });
         else if (item.role === 'assistant')
           result.push({
             id: `m-${index}`,
             role: 'assistant',
-            text: extractText(item.content),
+            text: extractMessageText(item.content),
+            thinking: extractMessageThinking(item.content) || undefined,
           });
         return result;
       },
