@@ -81,6 +81,7 @@ public class AiAgentController {
     private final AiAgentSessionService sessionService;
     private final AiAgentToolService toolService;
     private final AiModelConfigService modelConfigService;
+    private final com.bu.management.service.AiAgentHealthService healthService;
     private final ConnectorRegistryService registryService;
     private final AiAgentAttachmentService attachmentService;
     private final JevDecisionService jevDecisionService;
@@ -100,8 +101,13 @@ public class AiAgentController {
     /** Jev 决策层是否生效：前端用它显示「未启用」提示，避免误以为写门禁在跑。 */
     /** 无鉴权健康检查：只报服务存活，不暴露配置/用量。 */
     @GetMapping("/health")
-    public Result<java.util.Map<String, Object>> health() {
-        return Result.success(java.util.Map.of("status", "UP", "service", "ai-agent"));
+    public org.springframework.http.ResponseEntity<Result<com.bu.management.service.AiAgentHealthService.Health>> health() {
+        var health = healthService.check();
+        var status = "DOWN".equals(health.status())
+                ? org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE
+                : org.springframework.http.HttpStatus.OK;
+        return org.springframework.http.ResponseEntity.status(status)
+                .body(Result.success(health));
     }
 
     @GetMapping("/jev/status")
