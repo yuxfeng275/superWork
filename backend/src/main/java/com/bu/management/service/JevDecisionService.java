@@ -76,6 +76,10 @@ public class JevDecisionService {
     private final AiModelConfigService modelConfigService;
     private final JevClient jevClient;
 
+    /** 最近一次调用失败的时间与原因：配置存在但远端 451/超时时，状态接口要显示 fail-open。 */
+    private volatile java.time.Instant lastFailureAt;
+    private volatile String lastFailureReason;
+
     public record IntentDecision(
             boolean ready,
             String model,
@@ -114,6 +118,11 @@ public class JevDecisionService {
         Optional<Resolved> resolved = resolve();
         if (resolved.isEmpty()) {
             return new Status(false, null, "未配置 typesafe 连接器或「决策使用」模型");
+        }
+        if (lastFailureAt != null
+                && java.time.Duration.between(lastFailureAt, java.time.Instant.now()).toMinutes() < 10) {
+            return new Status(false, resolved.get().model(),
+                    "最近一次调用失败，已 fail-open：" + lastFailureReason);
         }
         return new Status(true, resolved.get().model(), "");
     }
@@ -157,10 +166,15 @@ public class JevDecisionService {
                     + " · 意图 " + INTENT_LABELS.getOrDefault(intent, intent)
                     + " " + percent(confidence)
                     + (writeLikely ? " · 可能写操作" : " · 只读");
+            lastFailureAt = null;
+            lastFailureReason = null;
             return new IntentDecision(true, evaluation.model(), intent, confidence, writeLikely, summary);
         } catch (RuntimeException e) {
             log.warn("Jev 意图路由失败，回落全工具: {}", e.getMessage());
-            return skipped("other");
+            lastFailureAt = java.time.Instant.now();
+            lastFailureReason = truncate(e.getMessage());
+            return new IntentDecision(false, "", "other", 0, false,
+                    "Jev 调用失败，已 fail-open：" + lastFailureReason);
         }
     }
 
@@ -232,6 +246,13 @@ public class JevDecisionService {
             return Optional.empty();
         }
         return Optional.of(new Resolved(model.get().baseUrl(), model.get().apiKey(), model.get().model()));
+    }
+
+    private static String truncate(String value) {
+        if (value == null) {
+            return "unknown";
+        }
+        return value.length() > 200 ? value.substring(0, 200) + "…" : value;
     }
 
     private IntentDecision skipped(String intent) {

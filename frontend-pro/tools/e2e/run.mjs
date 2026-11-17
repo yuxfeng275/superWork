@@ -195,8 +195,9 @@ try {
     const afterBubbles = await page.locator('.ant-bubble').count();
     const after = await page.locator('body').innerText();
     const replied = afterBubbles > beforeBubbles || /暂无|任务|没有/.test(after.slice(body.length));
-    record('助手对话', jevVisible && replied,
-      `${jevVisible ? 'Jev 状态可见' : '未见 Jev 状态'}；气泡 ${beforeBubbles}→${afterBubbles}`,
+    const failOpenShown = after.includes('Jev 未生效');
+    record('助手对话', jevVisible && replied && failOpenShown,
+      `${jevVisible ? 'Jev 标签可见' : '未见 Jev 标签'}；fail-open 提示=${failOpenShown}；气泡 ${beforeBubbles}→${afterBubbles}`,
       await shot(page, '03-assistant-chat'));
   } catch (error) {
     record('助手对话', false, String(error.message), await shot(page, '03-assistant-failed'));

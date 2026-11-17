@@ -397,6 +397,12 @@ export default function AiAssistantPage() {
             );
           } else if (event.type === 'jev_decision') {
             const summary = String(event.summary || 'Jev 已判定本轮意图');
+            // 事件里的 ready 才是本轮真实状态：配置存在但远端失败时，标签要跟着变成 fail-open
+            setJevStatus({
+              ready: Boolean(event.ready),
+              model: String(event.model || ''),
+              reason: summary,
+            });
             setItems((current) => [
               ...current,
               {
@@ -631,7 +637,7 @@ export default function AiAssistantPage() {
                 <Tag color={jevStatus.ready ? 'green' : 'orange'} title={jevStatus.reason || ''}>
                   {jevStatus.ready
                     ? `Jev 已启用${jevStatus.model ? ` · ${jevStatus.model}` : ''}`
-                    : 'Jev 未启用，写操作仍需确认'}
+                    : 'Jev 未生效（写操作仍需确认）'}
                 </Tag>
               ) : null}
               <Button
