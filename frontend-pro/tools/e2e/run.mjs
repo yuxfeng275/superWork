@@ -186,7 +186,7 @@ try {
       await page.waitForTimeout(2500);
     }
     const body = await page.locator('body').innerText();
-    const jevVisible = body.includes('Jev 已启用') || body.includes('Jev 未启用');
+    const jevVisible = body.includes('Jev 已启用') || body.includes('Jev 未生效') || body.includes('Jev 未启用');
     const textarea = page.locator('textarea').first();
     await textarea.fill('列出我负责的未完成任务，最多 5 条');
     const beforeBubbles = await page.locator('.ant-bubble').count();

@@ -2,24 +2,24 @@
 
 - 地址：http://192.168.1.241:18080
 - 账号：admin
-- 开始：2026-11-17T17:24:09.872Z
-- 结束：2026-11-17T17:25:11.661Z
+- 开始：2026-11-17T17:52:26.461Z
+- 结束：2026-11-17T17:53:26.472Z
 - 结果：全部通过
 
 | 步骤 | 结果 | 说明 | 截图 |
 |---|---|---|---|
 | 登录 | ✅ | HTTP 200，用户 admin |  |
-| Jev 会话事件 | ✅ | ready=false；Jev 未生效，本轮不收敛工具（fail-open） |  |
+| Jev 会话事件 | ✅ | ready=false；Jev 调用失败，已 fail-open：TypeSafe Jev暂时不可用(451) |  |
 | 工作台打开 | ✅ | 待我评审 + 今日晨报可见 | 01-workbench.png |
 | 建议去做 | ✅ | 预填 120 字 | 02-suggestion-draft.png |
-| 助手对话 | ✅ | Jev 状态可见；气泡 0→3 | 03-assistant-chat.png |
+| 助手对话 | ✅ | Jev 标签可见；fail-open 提示=true；气泡 0→4 | 03-assistant-chat.png |
 | 知识库检索 | ✅ | 检索「会员通 交付周期」；命中 1 条；首条：会员通交付说明 相关度 8.8430 会员通产品支持全渠道会员统一识别、积分通兑、等级体系。交付周期一般为 6-8 周， | 04-knowledge.png |
 | 团队效能 | ✅ | 10 行数据 | 05-team-efficiency.png |
 | 制品评审 | ✅ | 详情抽屉已打开 | 06-artifact-review.png |
 
 ## Jev 会话事件
 
-- ready=false；Jev 未生效，本轮不收敛工具（fail-open）
+- ready=false；Jev 调用失败，已 fail-open：TypeSafe Jev暂时不可用(451)
 
 ## 服务端错误
 
