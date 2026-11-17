@@ -11,7 +11,7 @@ INSERT INTO business_line (name, description, status) VALUES
 ('全渠道云鹿SAAS', '全渠道云鹿SAAS业务线', 1),
 ('会员通', '会员通业务线', 1);
 
--- 2. 初始化用户（密码为 初始口令（部署时轮换））
+-- 2. 初始化用户（密码为 123456）
 INSERT INTO user (username, password, real_name, role, email, phone, status) VALUES
 ('admin', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '系统管理员', 'BU_ADMIN', 'admin@bu.com', '13800000001', 1),
 ('pm_zhang', '$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e', '张项目经理', 'PM', 'pm.zhang@bu.com', '13800000002', 1),
@@ -65,5 +65,5 @@ INSERT INTO requirement (req_no, title, description, type, business_line_id, pro
 ('REQ-2026-0001', 'PMS系统用户管理模块优化', '优化用户管理模块，增加批量导入功能', '项目需求', 1, 2, 3, '待评估', '高', '客户', '2026-05-01', 2),
 ('REQ-2026-0002', 'SAAS平台多租户支持', '实现多租户架构，支持数据隔离', '产品需求', 2, 5, NULL, '待评估', '高', '内部', '2026-06-01', 4);
 
--- 注意：密码哈希值为初始口令，部署后必须轮换
+-- 注意：密码哈希值是 BCrypt 加密的 "123456"
 -- 实际使用时需要在应用层使用 BCryptPasswordEncoder 加密
