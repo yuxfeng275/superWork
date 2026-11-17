@@ -98,10 +98,13 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
     private let usernameField = NSTextField(string: "")
     private let passwordField = NSSecureTextField(string: "")
     private let foldersStack = NSStackView()
+    private let listeningLabel = NSTextField(wrappingLabelWithString: "")
+    private let quarantineLabel = NSTextField(wrappingLabelWithString: "")
     private var rows: [FolderRowView] = []
     private var addProxy: ActionProxy?
     private var saveProxy: ActionProxy?
     private var closeProxy: ActionProxy?
+    private var quarantineProxy: ActionProxy?
 
     var onSaved: ((AppConfig) -> Void)?
 
@@ -143,8 +146,14 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
         grid.column(at: 0).xPlacement = .trailing
         grid.translatesAutoresizingMaskIntoConstraints = false
 
-        let foldersTitle = NSTextField(labelWithString: "监听目录（新文件稳定后自动投递）")
+        let foldersTitle = NSTextField(labelWithString: "监听目录（新文件稳定后自动投递；projectId 0 = 待归类）")
         foldersTitle.font = NSFont.boldSystemFont(ofSize: 12)
+
+        for label in [listeningLabel, quarantineLabel] {
+            label.font = NSFont.systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            label.translatesAutoresizingMaskIntoConstraints = false
+        }
 
         foldersStack.orientation = .vertical
         foldersStack.alignment = .leading
@@ -191,9 +200,14 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
         hint.textColor = .secondaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
 
+        let quarantineProxy = ActionProxy { [weak self] in self?.openQuarantine() }
+        self.quarantineProxy = quarantineProxy
+        let quarantineButton = NSButton(title: "打开隔离目录", target: quarantineProxy, action: #selector(ActionProxy.fire))
+        quarantineButton.bezelStyle = .rounded
+
         let spacer = NSView()
         spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let buttons = NSStackView(views: [addButton, spacer, closeButton, saveButton])
+        let buttons = NSStackView(views: [addButton, quarantineButton, spacer, closeButton, saveButton])
         buttons.orientation = .horizontal
         buttons.spacing = 10
         buttons.translatesAutoresizingMaskIntoConstraints = false
@@ -201,6 +215,8 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
         let content = NSView()
         content.addSubview(grid)
         content.addSubview(foldersTitle)
+        content.addSubview(listeningLabel)
+        content.addSubview(quarantineLabel)
         content.addSubview(scroll)
         content.addSubview(buttons)
         content.addSubview(hint)
@@ -215,7 +231,15 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
             foldersTitle.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 18),
             foldersTitle.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
 
-            scroll.topAnchor.constraint(equalTo: foldersTitle.bottomAnchor, constant: 8),
+            listeningLabel.topAnchor.constraint(equalTo: foldersTitle.bottomAnchor, constant: 6),
+            listeningLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
+            listeningLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -18),
+
+            quarantineLabel.topAnchor.constraint(equalTo: listeningLabel.bottomAnchor, constant: 2),
+            quarantineLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
+            quarantineLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -18),
+
+            scroll.topAnchor.constraint(equalTo: quarantineLabel.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -18),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
@@ -253,6 +277,7 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
         if config.folders.isEmpty {
             addRow(FolderConfig(path: "", projectId: 1, visibility: "PROJECT"))
         }
+        refreshStatus(config)
     }
 
     private func addRow(_ folder: FolderConfig) {
@@ -267,15 +292,37 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
         row.widthAnchor.constraint(equalTo: foldersStack.widthAnchor).isActive = true
     }
 
+    // MARK: - 状态
+
+    /// 「正在监听哪些目录 / 已隔离 N 个文件」——打开窗口就能看清本机在做什么。
+    private func refreshStatus(_ config: AppConfig) {
+        let paths = config.folders.filter { !$0.path.isEmpty }.map { AppPaths.expand($0.path) }
+        listeningLabel.stringValue = paths.isEmpty
+            ? "正在监听：无（投递不会发生）"
+            : "正在监听 \(paths.count) 个目录：\(paths.joined(separator: "、"))"
+        let quarantined = Quarantine.fileCount(for: config)
+        let root = AppPaths.quarantineRoot(config.quarantineDir).path
+        let filter = config.sensitiveFilterEnabled ? "隐私护栏开" : "隐私护栏已关闭（不建议）"
+        quarantineLabel.stringValue = "已隔离 \(quarantined) 个文件 · \(filter) · 汇总每天 \(config.dailySummaryHour) 点 · \(root)"
+    }
+
+    private func openQuarantine() {
+        let config = ConfigStore.load() ?? AppConfig()
+        let root = AppPaths.quarantineRoot(config.quarantineDir)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(root)
+        refreshStatus(config)
+    }
+
     // MARK: - 保存
 
     private func save() {
         let folders = rows.map { $0.folder }.filter { !$0.path.isEmpty }
-        let config = AppConfig(
-            baseUrl: baseUrlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-            username: usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
-            folders: folders
-        )
+        // 先读现有配置，保留 JSON 里手改的护栏/汇总/编码字段。
+        var config = ConfigStore.load() ?? AppConfig()
+        config.baseUrl = baseUrlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.username = usernameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.folders = folders
 
         guard !config.baseUrl.isEmpty, !config.username.isEmpty else {
             alert("服务器地址和用户名必填")
@@ -285,8 +332,8 @@ final class ConfigWindowController: NSWindowController, NSWindowDelegate {
             alert("至少配置一个监听目录")
             return
         }
-        if folders.contains(where: { $0.projectId <= 0 }) {
-            alert("projectId 必须是正整数")
+        if folders.contains(where: { $0.projectId < 0 }) {
+            alert("projectId 不能是负数；填 0 表示待归类（按文件名里的项目编码自动识别）")
             return
         }
 

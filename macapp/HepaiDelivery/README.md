@@ -5,8 +5,10 @@ macOS 原生菜单栏小工具：监听本机若干目录，把落到目录里�
 
 - 菜单栏常驻（`NSStatusItem`），没有 Dock 图标
 - 新文件「稳定」后自动 multipart 上传（两次 `stat` 大小一致才投，防止投半个文件）
-- 失败队列落盘，每 60 秒重试一次；菜单里能看到「待投 N · 今日已投 M」
-- 命中弹系统通知（`UserNotifications`）
+- **本地隐私护栏**：文件名/扩展名/体积命中共享规则 → 移到隔离目录，不删也不传
+- **自动认项目**：文件名或路径里的项目编码（`HY-101`）自动选 `projectId`；认不到进「待归类」
+- 失败队列落盘，每 60 秒重试一次；菜单里能看到「待投 N · 今日已投 M · 今日隔离 K」
+- **静默**：不逐文件弹通知，每天 `dailySummaryHour`（默认 18 点）发一条汇总
 - 密码只进钥匙串，**不写明文到磁盘**
 
 ## 目录结构
@@ -24,6 +26,7 @@ macapp/HepaiDelivery/
 │   ├── DeliveryAPI.swift             # 登录拿 token + multipart 上传（401 重登一次）
 │   ├── QueueStore.swift              # queue.json / state.json（待投队列、今日计数）
 │   ├── Config.swift                  # ~/.hepai-delivery.json
+│   ├── SensitiveRules.swift          # 共享敏感规则 + 本地护栏 + 项目编码识别 + 隔离目录
 │   ├── Keychain.swift                # 密码存钥匙串（service com.bu.hepai.delivery）
 │   ├── Notifier.swift                # UserNotifications
 │   ├── Log.swift                     # delivery.log，>2MB 轮转
@@ -55,8 +58,15 @@ swift run -c release            # 前台跑一遍看日志（无 Dock 图标）
   "baseUrl": "https://hepai.example.com",
   "username": "your.name",
   "folders": [
-    { "path": "~/Desktop/投递箱", "projectId": 12, "visibility": "PROJECT" }
-  ]
+    { "path": "~/Documents/合拍", "projectId": 0, "visibility": "PROJECT" },
+    { "path": "~/Downloads/合拍", "projectId": 12, "visibility": "PROJECT" }
+  ],
+  "sensitiveFilterEnabled": true,
+  "quarantineDir": "",
+  "dailySummaryHour": 18,
+  "maxFileSizeMb": 50,
+  "projectCodes": { "HY-101": 12 },
+  "unmatchedProjectBehavior": "pending"
 }
 ```
 
@@ -64,9 +74,15 @@ swift run -c release            # 前台跑一遍看日志（无 Dock 图标）
 | --- | --- |
 | `baseUrl` | 合拍后端根地址，不带结尾 `/`；请求走 `{baseUrl}/api/...` |
 | `username` | 登录取 token 的账号，也是钥匙串条目的 account 后缀 |
-| `folders[].path` | 要监听的目录，支持 `~`；递归监听子目录 |
-| `folders[].projectId` | 投到哪个项目 |
+| `folders[].path` | 要监听的目录，支持 `~`；递归监听子目录（默认 `~/Documents/合拍`、`~/Downloads/合拍`） |
+| `folders[].projectId` | 投到哪个项目；`0` = 待归类，靠文件名里的项目编码自动认 |
 | `folders[].visibility` | `PROJECT` / `PRIVATE_COMPANY` / `OWNER`（对应事实层 visibility，缺省 `PROJECT`） |
+| `sensitiveFilterEnabled` | 本地隐私护栏开关，默认 `true`；关掉只建议排障时临时用 |
+| `quarantineDir` | 隔离目录；空 = `~/Library/Application Support/HepaiDelivery/quarantine/` |
+| `dailySummaryHour` | 每天几点发汇总（0–23），默认 `18` |
+| `maxFileSizeMb` | 单文件上限；`0` = 用规则文件里的 `thresholds.maxFileSizeMb` |
+| `projectCodes` | 项目编码 → `projectId` 映射，如 `{"HY-101": 12}` |
+| `unmatchedProjectBehavior` | 编码有但映射不到时：`pending`（待归类，默认）/ `folderDefault`（用目录的 projectId） |
 
 **密码**不在 JSON 里：存在登录钥匙串 `service = com.bu.hepai.delivery`，
 `account = password:<username>`。配置窗口里填一次即可；
@@ -78,8 +94,10 @@ swift run -c release            # 前台跑一遍看日志（无 Dock 图标）
 | --- | --- |
 | `~/.hepai-delivery.json` | 配置（不含密码） |
 | `~/Library/Application Support/HepaiDelivery/queue.json` | 失败队列，重启后继续重试 |
-| `~/Library/Application Support/HepaiDelivery/state.json` | 今日已投 / 累计已投计数 |
+| `~/Library/Application Support/HepaiDelivery/state.json` | 今日已投 / 累计已投 / 今日隔离 / 累计隔离计数 |
 | `~/Library/Application Support/HepaiDelivery/delivery.log` | 日志，超过 2MB 轮转为 `delivery.log.1` |
+| `~/Library/Application Support/HepaiDelivery/quarantine/yyyy-MM-dd/` | 被护栏挡下的文件（移过来，不删除） |
+| `~/Library/Application Support/HepaiDelivery/sensitive-rules.json` | 可选：用户自己放的规则覆盖份 |
 
 ## 接口
 
@@ -95,8 +113,49 @@ swift run -c release            # 前台跑一遍看日志（无 Dock 图标）
    | `visibility` | 目录配置里的 visibility |
 
 新文件判定：`DispatchSource` 收到目录 write/vnode 事件后 0.4s 合并重扫，
-发现新文件记下大小，**至少 1.2s 后再次 `stat` 大小一致**才入队上传（同时跳过 `.DS_Store`、
+发现新文件记下大小，**至少 1.2s 后再次 `stat` 大小一致**才进入护栏判定（同时跳过 `.DS_Store`、
 隐藏文件、`.part/.crdownload/.swp/~` 等未完成文件）。
+
+## 本地隐私护栏（不上传敏感文件）
+
+规则来自跨平台共享文件 `shared/privacy/sensitive-rules.json`，按序找：
+
+1. Bundle resources 里的 `sensitive-rules.json`
+2. 仓库相对路径 `../../shared/privacy/sensitive-rules.json`
+3. `~/Library/Application Support/HepaiDelivery/sensitive-rules.json`
+4. 都找不到 → 内置兜底（`.pem/.key/.p12/.kdbx/.env` + 身份证/银行卡/工资/薪资/简历/体检/密码）
+
+判定顺序（命中第一个就停）：
+
+| # | 规则 | 说明 |
+| --- | --- | --- |
+| 1 | `sensitiveFileKeywords` | 只看文件名，忽略大小写 |
+| 2 | `sensitiveExtensions` | 文件名后缀 |
+| 3 | `sensitiveNames` | `id_rsa`、`credentials` 这类整名匹配 |
+| 4 | `thresholds.maxFileSizeMb` | 配置 `maxFileSizeMb` 优先，超限即挡 |
+| 5 | `directories.ignorePrefixes` / `ignoreSuffixes` / `ignoreNames` | 临时文件、AppleDouble 等 |
+
+命中后：**不进队列、不发任何网络请求**，文件被移到 `quarantine/yyyy-MM-dd/`（同名不覆盖），
+隔离计数 +1，日志里写明命中的是哪条规则。入队时判一次，上传前再判一次（规则热更新后也生效）。
+
+「待归类」的文件（编码映射不到项目）留在队列里、不发请求、也不删除；
+补上 `projectCodes` 或把 `folders[].projectId` 填成真实 ID 后即会自动投递（两条都能救回历史队列：
+每轮重试时先按项目编码映射重认，再按文件所在目录的 `projectId` 重认，子目录配置优先）。
+
+## 静默与每日汇总
+
+逐文件通知已取消，只有一条汇总，每天到 `dailySummaryHour` 发一次（当天已发过就不再发）：
+
+> 合拍·投递 今日汇总 —— 今日已投 3，隔离 1（示例：工资单.xlsx）
+
+「已发」的标记写在 `state.json` 里，重启不会重发；到点时如果今日还什么都没有（无投递也无隔离），
+不会提前占掉当天名额，而是每分钟重试，等真的有投递（或隔离）再发。
+
+通知入队/授权失败时**不会**标成已发，会继续每分钟重试，直到当天真发出去为止（系统通知被拒时请
+到「系统设置 → 通知 → 合拍投递」打开权限）。
+
+菜单栏实时显示「待投 N · 今日已投 M · 今日隔离 K · 待归类 J」；配置窗口顶部会列出
+「正在监听哪些目录」与「已隔离 N 个文件」。
 
 ## 打成 .app（菜单栏 App）
 
@@ -197,11 +256,13 @@ launchctl bootout   "gui/$(id -u)/com.bu.hepai.delivery"
    - 密码（**只进钥匙串**，`service = com.bu.hepai.delivery`，不写盘）
    - 「＋ 添加目录」逐个加监听目录，填 `projectId`、选 `visibility`
 4. 点「保存」→ 配置写进 `~/.hepai-delivery.json`（`0600`，不含密码），监听立即生效
-5. 往目录里丢一个文件，几秒后应看到通知；菜单里「今日已投」+1
+5. 往目录里丢一个文件，几秒后日志里会出现「投递成功」；菜单里「今日已投」+1（不再弹逐条通知）
 6. 网络/后端挂了也不丢：进 `queue.json`，每 60 秒重试；菜单「立即重试」可手动催
+7. 丢一个 `身份证.jpg` 或 `工资.xlsx` 试试：它会被移到 `quarantine/yyyy-MM-dd/`，日志里写
+   「隐私护栏命中…未上传」，队列与后端都不该出现它
 
-菜单项：`待投 N · 今日已投 M` / `暂停监听`（或 `恢复监听`）/ `立即重试` /
-`打开配置（编辑 .hepai-delivery.json）` / `配置窗口…` / `重载配置` / `打开日志` / `退出`。
+菜单项：`待投 N · 今日已投 M`（命中隔离/待归类时会多显示） / `暂停监听`（或 `恢复监听`）/ `立即重试` /
+`打开配置（编辑 .hepai-delivery.json）` / `配置窗口…` / `重载配置` / `打开日志` / `打开隔离目录` / `退出`。
 
 「打开配置」用 `NSWorkspace.open` 把 `~/.hepai-delivery.json` 交给默认编辑器，改完点
 菜单「重载配置」即可（不用重启）。

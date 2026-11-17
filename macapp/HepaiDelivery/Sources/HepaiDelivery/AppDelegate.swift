@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onOpenConfigFile = { AppDelegate.openConfigFile() }
         menu.onOpenConfigWindow = { [weak self] in self?.showConfigWindow(firstRun: false) }
         menu.onOpenLog = { AppDelegate.openLog() }
+            menu.onOpenQuarantine = { AppDelegate.openQuarantine() }
         menu.onReloadConfig = { [weak self] in self?.reloadConfig() }
         menu.onQuit = { NSApp.terminate(nil) }
 
@@ -79,6 +80,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if !NSWorkspace.shared.open(AppPaths.logFile) {
             Log.shared.error("打开日志失败：\(AppPaths.logFile.path)")
+        }
+    }
+
+    private static func openQuarantine() {
+        let config = ConfigStore.load() ?? AppConfig()
+        let root = AppPaths.quarantineRoot(config.quarantineDir)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        if !NSWorkspace.shared.open(root) {
+            Log.shared.error("打开隔离目录失败：\(root.path)")
         }
     }
 }

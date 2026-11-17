@@ -21,17 +21,27 @@ enum Notifier {
         }
     }
 
-    static func delivered(fileName: String, projectId: Int, path: String) {
-        post(title: "已投递 \(fileName)", body: "项目 #\(projectId) · \(path)")
+    /// 每天一条汇总。逐文件通知已取消，这是现在唯一的通知出口。
+    /// `completion(true)` = 系统真的收下了这条通知（非 .app 时 = osascript 成功执行），
+    /// 授权被拒 / 入队失败一律回 `false`，让调用方别把当天标成「已发」。
+    /// 无论结果如何，completion 只调一次。
+    static func dailySummary(
+        delivered: Int,
+        quarantined: Int,
+        samples: [String],
+        completion: @escaping (Bool) -> Void
+    ) {
+        var body = "今日已投 \(delivered)，隔离 \(quarantined)"
+        if !samples.isEmpty {
+            let example = samples.prefix(3).joined(separator: "、")
+            body += "（示例：\(example)）"
+        }
+        post(title: "合拍·投递 今日汇总", body: body, completion: completion)
     }
 
-    static func failed(fileName: String, reason: String) {
-        post(title: "投递失败 \(fileName)", body: reason)
-    }
-
-    private static func post(title: String, body: String) {
+    private static func post(title: String, body: String, completion: @escaping (Bool) -> Void) {
         guard hasBundle else {
-            scriptNotification(title: title, body: body)
+            scriptNotification(title: title, body: body, completion: completion)
             return
         }
         let content = UNMutableNotificationContent()
@@ -43,11 +53,18 @@ enum Notifier {
             if let error {
                 Log.shared.warn("发通知失败：\(error.localizedDescription)")
             }
+            // 系统收下 = 入队成功（error 为 nil）；授权被拒会走到这里带 error。
+            completion(error == nil)
         }
     }
 
     /// 命令行直跑时的兜底：走 osascript，不需要 Bundle。
-    private static func scriptNotification(title: String, body: String) {
+    /// 退出码 0 才算发出去（失败保留原有日志）。
+    private static func scriptNotification(
+        title: String,
+        body: String,
+        completion: @escaping (Bool) -> Void
+    ) {
         func escape(_ text: String) -> String {
             text.replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
@@ -60,7 +77,14 @@ enum Notifier {
             try process.run()
         } catch {
             Log.shared.warn("osascript 通知失败：\(error.localizedDescription)")
+            completion(false)
+            return
         }
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            Log.shared.warn("osascript 通知失败：退出码 \(process.terminationStatus)")
+        }
+        completion(process.terminationStatus == 0)
     }
 }
 

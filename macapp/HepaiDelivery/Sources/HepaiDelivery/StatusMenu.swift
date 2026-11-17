@@ -14,6 +14,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     var onOpenConfigFile: (() -> Void)?
     var onOpenConfigWindow: (() -> Void)?
     var onOpenLog: (() -> Void)?
+    var onOpenQuarantine: (() -> Void)?
     var onReloadConfig: (() -> Void)?
     var onQuit: (() -> Void)?
 
@@ -55,6 +56,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(makeItem("配置窗口…", #selector(openConfigWindow)))
         menu.addItem(makeItem("重载配置", #selector(reloadConfig)))
         menu.addItem(makeItem("打开日志", #selector(openLog)))
+        menu.addItem(makeItem("打开隔离目录", #selector(openQuarantine)))
         menu.addItem(.separator())
         menu.addItem(makeItem("退出 合拍·投递", #selector(quit)))
     }
@@ -67,7 +69,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     func refresh() {
         guard let engine else { return }
-        statusLine.title = "待投 \(engine.pendingCount) · 今日已投 \(engine.deliveredToday)"
+        var parts = ["待投 \(engine.pendingCount)", "今日已投 \(engine.deliveredToday)"]
+        if engine.quarantinedToday > 0 {
+            parts.append("今日隔离 \(engine.quarantinedToday)")
+        }
+        if engine.unclassifiedCount > 0 {
+            parts.append("待归类 \(engine.unclassifiedCount)")
+        }
+        statusLine.title = parts.joined(separator: " · ")
         pauseItem.title = engine.paused ? "恢复监听" : "暂停监听"
 
         if let error = engine.lastError, !error.isEmpty {
@@ -96,6 +105,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func openConfigWindow() { onOpenConfigWindow?() }
     @objc private func reloadConfig() { onReloadConfig?() }
     @objc private func openLog() { onOpenLog?() }
+    @objc private func openQuarantine() { onOpenQuarantine?() }
     @objc private func quit() { onQuit?() }
 
     func menuWillOpen(_ menu: NSMenu) {

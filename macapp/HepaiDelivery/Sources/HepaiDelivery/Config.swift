@@ -19,10 +19,45 @@ struct AppConfig: Codable, Equatable {
     var username: String
     var folders: [FolderConfig]
 
-    init(baseUrl: String = "", username: String = "", folders: [FolderConfig] = []) {
+    /// 本地隐私护栏开关（默认开）。关掉等于敏感文件也照传，只建议排障时临时关。
+    var sensitiveFilterEnabled: Bool
+    /// 隔离目录；空 = `~/Library/Application Support/HepaiDelivery/quarantine/yyyy-MM-dd/`。
+    var quarantineDir: String
+    /// 每天几点发那条汇总（0–23），默认 18 点。
+    var dailySummaryHour: Int
+    /// 单文件体积上限（MB）；0 = 用规则文件里的 `thresholds.maxFileSizeMb`。
+    var maxFileSizeMb: Int
+    /// 项目编码 → projectId，例如 `"HY-101": 12`。
+    var projectCodes: [String: Int]
+    /// 编码匹配不到映射时的默认行为：`pending`（待归类，不上传）/ `folderDefault`（用目录的 projectId）。
+    var unmatchedProjectBehavior: String
+
+    /// 默认监听目录；projectId 0 = 待归类，靠文件名里的项目编码自动认。
+    static let defaultFolders = [
+        FolderConfig(path: "~/Documents/合拍", projectId: 0, visibility: "PROJECT"),
+        FolderConfig(path: "~/Downloads/合拍", projectId: 0, visibility: "PROJECT")
+    ]
+
+    init(
+        baseUrl: String = "",
+        username: String = "",
+        folders: [FolderConfig] = AppConfig.defaultFolders,
+        sensitiveFilterEnabled: Bool = true,
+        quarantineDir: String = "",
+        dailySummaryHour: Int = 18,
+        maxFileSizeMb: Int = 50,
+        projectCodes: [String: Int] = [:],
+        unmatchedProjectBehavior: String = "pending"
+    ) {
         self.baseUrl = baseUrl
         self.username = username
         self.folders = folders
+        self.sensitiveFilterEnabled = sensitiveFilterEnabled
+        self.quarantineDir = quarantineDir
+        self.dailySummaryHour = dailySummaryHour
+        self.maxFileSizeMb = maxFileSizeMb
+        self.projectCodes = projectCodes
+        self.unmatchedProjectBehavior = unmatchedProjectBehavior
     }
 
     /// 缺字段时给默认值，保证老配置文件也能读。
@@ -30,7 +65,18 @@ struct AppConfig: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         baseUrl = try container.decodeIfPresent(String.self, forKey: .baseUrl) ?? ""
         username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
-        folders = try container.decodeIfPresent([FolderConfig].self, forKey: .folders) ?? []
+        folders = try container.decodeIfPresent([FolderConfig].self, forKey: .folders) ?? AppConfig.defaultFolders
+        sensitiveFilterEnabled = try container.decodeIfPresent(Bool.self, forKey: .sensitiveFilterEnabled) ?? true
+        quarantineDir = try container.decodeIfPresent(String.self, forKey: .quarantineDir) ?? ""
+        dailySummaryHour = try container.decodeIfPresent(Int.self, forKey: .dailySummaryHour) ?? 18
+        maxFileSizeMb = try container.decodeIfPresent(Int.self, forKey: .maxFileSizeMb) ?? 50
+        projectCodes = try container.decodeIfPresent([String: Int].self, forKey: .projectCodes) ?? [:]
+        unmatchedProjectBehavior = try container.decodeIfPresent(String.self, forKey: .unmatchedProjectBehavior) ?? "pending"
+    }
+
+    /// 编码没映射到项目时是否走「待归类」（默认是；只有显式配 folderDefault 才用目录的 projectId）。
+    var unresolvedBehaviorIsPending: Bool {
+        unmatchedProjectBehavior.lowercased() != "folderdefault"
     }
 
     var isUsable: Bool {
@@ -47,7 +93,16 @@ enum ConfigStore {
     {
       "baseUrl": "",
       "username": "",
-      "folders": []
+      "folders": [
+        { "path": "~/Documents/合拍", "projectId": 0, "visibility": "PROJECT" },
+        { "path": "~/Downloads/合拍", "projectId": 0, "visibility": "PROJECT" }
+      ],
+      "sensitiveFilterEnabled": true,
+      "quarantineDir": "",
+      "dailySummaryHour": 18,
+      "maxFileSizeMb": 50,
+      "projectCodes": {},
+      "unmatchedProjectBehavior": "pending"
     }
 
     """
