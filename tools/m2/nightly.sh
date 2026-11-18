@@ -9,6 +9,7 @@ QUEUE_FILE="${M2_QUEUE_FILE:-/home/openclaw/m2/queue/current.md}"
 OUT_DIR="${M2_OUT_DIR:-/home/openclaw/m2/out}"
 REPO_DIR="${M2_REPO:-/home/openclaw/repos/superwork-m2}"
 KEY_FILE="${M2_KEY_FILE:-/home/openclaw/huji-agent/dsh.env}"
+ENV_FILE="${M2_ENV_FILE:-/home/openclaw/huji-agent/m2.env}"
 DSH_NODE="${M2_DSH_NODE:-/home/openclaw/node24/bin/node}"
 DSH_JS="${M2_DSH_JS:-/home/openclaw/node_modules/@deepseek-ai/dsh/lib/bin.js}"
 DSH_HOME_DIR="${DSH_HOME:-/home/openclaw/.dsh}"
@@ -16,6 +17,10 @@ DSH_HOME_DIR="${DSH_HOME:-/home/openclaw/.dsh}"
 if [ ! -s "$QUEUE_FILE" ]; then
   echo "M2 队列为空（${QUEUE_FILE}），跳过"
   exit 0
+fi
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
 fi
 if [ -f "$KEY_FILE" ]; then
   # shellcheck disable=SC1090
