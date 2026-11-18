@@ -35,7 +35,11 @@ export default function LoginPage() {
         localStorage.setItem('bu-remembered-username', values.username.trim());
       else localStorage.removeItem('bu-remembered-username');
       feedback.success('登录成功');
-      history.replace(params.get('redirect') || '/workbench');
+      if (result.passwordChangeRequired) {
+        history.replace('/change-password');
+      } else {
+        history.replace(params.get('redirect') || '/workbench');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '登录失败，请检查账号或密码');
     } finally {

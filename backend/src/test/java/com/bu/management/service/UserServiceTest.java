@@ -143,6 +143,7 @@ class UserServiceTest {
 
         assertThat(password).hasSize(14);
         assertThat(user.getPassword()).isEqualTo("ENCODED");
+        assertThat(user.getPasswordChangeRequired()).isEqualTo(1);
         verify(userMapper).updateById(user);
     }
 

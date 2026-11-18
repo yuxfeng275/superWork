@@ -13,6 +13,12 @@ export default [
   },
   { path: '/login', layout: false, redirect: '/user/login' },
   {
+    path: '/change-password',
+    name: '修改密码',
+    hideInMenu: true,
+    component: './user/change-password',
+  },
+  {
     path: '/workbench',
     name: '工作台',
     icon: 'appstore',

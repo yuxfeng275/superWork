@@ -95,6 +95,7 @@ class AuthServiceTest {
         authService.changePassword(5L, "old-pass", "new-pass");
 
         assertThat(user.getPassword()).isEqualTo("NEW_HASH");
+        assertThat(user.getPasswordChangeRequired()).isZero();
         verify(userMapper).updateById(user);
     }
 

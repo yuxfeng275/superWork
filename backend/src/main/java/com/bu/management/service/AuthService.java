@@ -93,6 +93,7 @@ public class AuthService {
             throw new RuntimeException("新密码不能与原密码相同");
         }
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangeRequired(0);
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
     }
@@ -145,6 +146,8 @@ public class AuthService {
                 .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .expiresIn(jwtProperties.getExpiration() / 1000)
+                .passwordChangeRequired(user.getPasswordChangeRequired() != null
+                        && user.getPasswordChangeRequired() == 1)
                 .userInfo(userInfo)
                 .build();
     }

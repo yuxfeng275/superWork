@@ -33,6 +33,9 @@ public class User {
      */
     private String password;
 
+    /** 1 = 下次登录必须修改密码（管理员重置后置 1，改密后清 0）。 */
+    private Integer passwordChangeRequired;
+
     /**
      * 真实姓名
      */

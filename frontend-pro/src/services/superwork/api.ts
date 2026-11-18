@@ -21,6 +21,8 @@ export interface LoginResponse {
   refreshToken: string;
   tokenType: string;
   expiresIn: number;
+  /** 管理员重置密码后为 true：登录后必须先改密。 */
+  passwordChangeRequired?: boolean;
   userInfo: CurrentUser;
 }
 

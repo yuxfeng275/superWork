@@ -37,6 +37,9 @@ public class AuthResponse {
      */
     private Long expiresIn;
 
+    /** 下次登录是否必须修改密码（管理员重置后为 true）。 */
+    private Boolean passwordChangeRequired;
+
     /**
      * 用户信息
      */

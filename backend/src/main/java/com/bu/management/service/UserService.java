@@ -174,6 +174,7 @@ public class UserService {
         }
         String plain = password.toString();
         user.setPassword(passwordEncoder.encode(plain));
+        user.setPasswordChangeRequired(1);
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
         return plain;
