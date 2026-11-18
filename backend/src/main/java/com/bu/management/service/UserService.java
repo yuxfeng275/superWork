@@ -12,6 +12,8 @@ import com.bu.management.mapper.SysUserRoleMapper;
 import com.bu.management.mapper.UserMapper;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,6 +32,13 @@ import org.springframework.util.StringUtils;
 public class UserService {
 
     private static final String SUPER_ADMIN_USERNAME = "admin";
+
+    /**
+     * V14 初始化时给所有在岗账号写入的 BCrypt 哈希；仍使用它的账号等于还在用初始密码。
+     * 只用于「识别 + 批量重置」的安全审计，不参与登录校验。
+     */
+    static final String SEED_PASSWORD_HASH =
+            "$2a$10$/Y4rNsVyq4.y8XD7v9ygZ.jD/Ckn.5amQZdq6oB72t9RxzuX0PV6e";
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
@@ -89,6 +98,61 @@ public class UserService {
     private static final String PASSWORD_ALPHABET =
             "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** 仍使用初始密码的账号（只返回身份信息，不返回哈希）。 */
+    public record SeedAccount(Long id, String username, String realName) {
+    }
+
+    /** 批量重置后交给管理员的一次性凭据。 */
+    public record SeedCredential(Long id, String username, String realName, String password) {
+    }
+
+    /** 识别仍使用 V14 初始密码的账号；只读，不修改。 */
+    public List<SeedAccount> seedPasswordAccounts() {
+        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getPassword, SEED_PASSWORD_HASH)
+                .orderByAsc(User::getId));
+        if (users == null) {
+            return List.of();
+        }
+        return users.stream()
+                .map(user -> new SeedAccount(user.getId(), user.getUsername(), user.getRealName()))
+                .toList();
+    }
+
+    /**
+     * 批量重置仍使用初始密码的账号：旧密码立即失效，返回每人一份一次性新密码。
+     *
+     * <p>这是管理动作，必须由管理员确认后调用；密码只在本次响应里出现，绝不写日志。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public List<SeedCredential> resetSeedPasswords() {
+        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getPassword, SEED_PASSWORD_HASH)
+                .orderByAsc(User::getId));
+        if (users == null || users.isEmpty()) {
+            return List.of();
+        }
+        List<SeedCredential> result = new ArrayList<>(users.size());
+        for (User user : users) {
+            String plain = randomPassword();
+            user.setPassword(passwordEncoder.encode(plain));
+            user.setUpdatedAt(LocalDateTime.now());
+            userMapper.updateById(user);
+            result.add(new SeedCredential(user.getId(), user.getUsername(),
+                    user.getRealName(), plain));
+        }
+        return result;
+    }
+
+    /** 14 位随机密码；字符集去掉易混字符。 */
+    private static String randomPassword() {
+        StringBuilder password = new StringBuilder(14);
+        for (int i = 0; i < 14; i++) {
+            password.append(PASSWORD_ALPHABET.charAt(RANDOM.nextInt(PASSWORD_ALPHABET.length())));
+        }
+        return password.toString();
+    }
 
     /**
      * 重置用户密码：生成一次性随机密码，旧密码立即失效。

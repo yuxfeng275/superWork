@@ -9,6 +9,7 @@ import com.bu.management.vo.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -50,6 +51,26 @@ public class UserController {
             @Valid @RequestBody UserRequest request) {
         User user = userService.update(id, request);
         return Result.success("更新成功", user);
+    }
+
+    /** 识别仍使用初始密码的账号（只返回身份，不返回哈希）。 */
+    @Operation(summary = "初始密码账号审计", description = "列出仍使用 V14 初始密码的账号")
+    @GetMapping("/security/seed-passwords")
+    @RequirePermission({"system:user:edit"})
+    public Result<List<UserService.SeedAccount>> seedPasswordAccounts() {
+        return Result.success(userService.seedPasswordAccounts());
+    }
+
+    /**
+     * 批量重置仍使用初始密码的账号。
+     *
+     * <p>响应包含每人一次性新密码，仅此一次；管理员必须自行转交。
+     */
+    @Operation(summary = "批量重置初始密码", description = "重置所有仍使用初始密码的账号并返回一次性密码")
+    @PostMapping("/security/seed-passwords/reset")
+    @RequirePermission({"system:user:edit"})
+    public Result<List<UserService.SeedCredential>> resetSeedPasswords() {
+        return Result.success(userService.resetSeedPasswords());
     }
 
     /**

@@ -87,6 +87,50 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("初始密码审计：返回仍使用 seed hash 的账号，不返回哈希")
+    void seedPasswordAccountsListsOnlySeedUsers() {
+        User user = new User();
+        user.setId(7L);
+        user.setUsername("seed_user");
+        user.setRealName("种子账号");
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(user));
+
+        var accounts = userService.seedPasswordAccounts();
+
+        assertThat(accounts).hasSize(1);
+        assertThat(accounts.get(0).username()).isEqualTo("seed_user");
+        assertThat(accounts.get(0).realName()).isEqualTo("种子账号");
+    }
+
+    @Test
+    @DisplayName("批量重置初始密码：每个账号生成 14 位新密码并更新")
+    void resetSeedPasswordsUpdatesAll() {
+        User first = new User();
+        first.setId(7L);
+        first.setUsername("a");
+        User second = new User();
+        second.setId(8L);
+        second.setUsername("b");
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of(first, second));
+        when(passwordEncoder.encode(org.mockito.ArgumentMatchers.anyString())).thenReturn("ENCODED");
+
+        var credentials = userService.resetSeedPasswords();
+
+        assertThat(credentials).hasSize(2);
+        assertThat(credentials).allSatisfy(item -> assertThat(item.password()).hasSize(14));
+        verify(userMapper, org.mockito.Mockito.times(2)).updateById(any(User.class));
+    }
+
+    @Test
+    @DisplayName("批量重置：没有 seed 账号时返回空，不写库")
+    void resetSeedPasswordsEmpty() {
+        when(userMapper.selectList(any())).thenReturn(java.util.List.of());
+
+        assertThat(userService.resetSeedPasswords()).isEmpty();
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
     @DisplayName("重置密码：生成 14 位随机密码并写入编码后的哈希")
     void resetPasswordGeneratesAndStoresHash() {
         User user = new User();

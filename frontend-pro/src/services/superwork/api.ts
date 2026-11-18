@@ -2206,6 +2206,16 @@ export interface TeamEfficiencyReport {
   members: TeamEfficiencyMember[];
 }
 
+export interface SeedAccount {
+  id: number;
+  username: string;
+  realName?: string | null;
+}
+
+export interface SeedCredential extends SeedAccount {
+  password: string;
+}
+
 export interface JevStatus {
   ready: boolean;
   model?: string | null;
@@ -2475,6 +2485,14 @@ export const superworkApi = {
       current: number;
       size: number;
     }>(`/api/projects${query(params)}`);
+  },
+  getSeedPasswordAccounts() {
+    return requestJson<SeedAccount[]>(`/api/users/security/seed-passwords`);
+  },
+  resetSeedPasswords() {
+    return requestJson<SeedCredential[]>(`/api/users/security/seed-passwords/reset`, {
+      method: "POST",
+    });
   },
   resetUserPassword(id: number) {
     return requestJson<{ password: string }>(`/api/users/${id}/reset-password`, {

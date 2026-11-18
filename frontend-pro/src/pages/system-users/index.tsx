@@ -26,7 +26,11 @@ import {
 } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getRoleLabel, POSITION_ROLE_OPTIONS } from '@/constants/roles';
-import { superworkApi, type UserRecord } from '@/services/superwork/api';
+import {
+  superworkApi,
+  type SeedAccount,
+  type UserRecord,
+} from '@/services/superwork/api';
 import '../workbench/style.less';
 import './style.less';
 
@@ -72,6 +76,7 @@ export default function SystemUsersPage() {
   const [open, setOpen] = useState(false);
   const [userDraft, setUserDraft] = useState<UserForm>();
   const [saving, setSaving] = useState(false);
+  const [seedAccounts, setSeedAccounts] = useState<SeedAccount[]>([]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -88,6 +93,13 @@ export default function SystemUsersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!canManage) return;
+    superworkApi
+      .getSeedPasswordAccounts()
+      .then(setSeedAccounts)
+      .catch(() => undefined);
+  }, [canManage]);
   useEffect(() => {
     if (open && userDraft) form.setFieldsValue(userDraft);
   }, [form, open, userDraft]);
@@ -161,6 +173,36 @@ export default function SystemUsersPage() {
       setSaving(false);
     }
   };
+  const resetAllSeedPasswords = async () => {
+    try {
+      const credentials = await superworkApi.resetSeedPasswords();
+      setSeedAccounts([]);
+      Modal.success({
+        title: `已重置 ${credentials.length} 个账号`,
+        width: 640,
+        content: (
+          <div style={{ maxHeight: 420, overflow: 'auto' }}>
+            <Typography.Paragraph type="secondary">
+              新密码只显示这一次，请立即复制并分别转交本人；旧密码已失效。
+            </Typography.Paragraph>
+            {credentials.map((item) => (
+              <div key={item.id} style={{ marginBottom: 6 }}>
+                <Typography.Text strong>
+                  {item.realName || item.username}（@{item.username}）
+                </Typography.Text>
+                <Typography.Text copyable style={{ marginLeft: 12 }}>
+                  {item.password}
+                </Typography.Text>
+              </div>
+            ))}
+          </div>
+        ),
+      });
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '批量重置失败');
+    }
+  };
+
   const resetPassword = async (user: UserRecord) => {
     try {
       const result = await superworkApi.resetUserPassword(user.id);
@@ -212,6 +254,25 @@ export default function SystemUsersPage() {
           )}
         </Space>
       </div>
+      {canManage && seedAccounts.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`发现 ${seedAccounts.length} 个账号仍在使用初始密码`}
+          description="建议全部重置；新密码只显示一次，请立即分别转交本人。"
+          action={
+            <Popconfirm
+              title={`将重置 ${seedAccounts.length} 个账号，旧密码立即失效，确定？`}
+              okText="全部重置"
+              cancelText="取消"
+              onConfirm={() => void resetAllSeedPasswords()}
+            >
+              <Button danger>全部重置</Button>
+            </Popconfirm>
+          }
+        />
+      )}
       <Row gutter={16} className="sw-stat-row">
         <Col xs={12} md={6}>
           <Card variant="borderless" className="sw-stat-card">
