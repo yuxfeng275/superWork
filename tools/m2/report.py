@@ -27,6 +27,7 @@ def main():
     p.add_argument("--patch", required=True)
     p.add_argument("--task", default="")
     args = p.parse_args()
+    task = args.task.strip()
     if not os.path.isfile(args.patch) or os.path.getsize(args.patch) == 0:
         print("patch 为空，拒绝建制品", file=sys.stderr)
         return 2
@@ -37,9 +38,9 @@ def main():
         print(f"登录失败 HTTP {status}", file=sys.stderr)
         return 3
     content = (f"M2 夜间队列自动产出。\n分支：{args.branch}\n补丁：{args.patch}\n"
-               f"任务：{args.task[:500]}\n主分支未改动；请评审后合并。")
+               f"任务：{task[:500]}\n主分支未改动；请评审后合并。")
     status, art = call(args.base, "/api/ai-artifacts", "POST", {
-        "title": f"M2 夜间补丁：{args.task[:80] or args.branch}",
+        "title": f"M2 夜间补丁：{task[:80] or args.branch}",
         "kind": "FIX_NOTE", "content": content,
         "evidenceJson": json.dumps([args.fact]), "branch": args.branch,
         "projectId": args.project,
