@@ -38,6 +38,12 @@ import org.springframework.util.StringUtils;
 @RequiredArgsConstructor
 public class AutomationRunService {
 
+    /** 企微自由对话的系统提示词：有用户在场，写操作必须先确认。 */
+    private static final String CHAT_SYSTEM_PROMPT =
+            "你是合拍 AI 助手，通过企业微信与用户对话。回答简洁、先给结论；"
+            + "涉及发邮件、改业务状态、转任务等写操作时，必须先向用户复述并取得确认，不得擅自执行；"
+            + "不知道或没有证据时直说，不要编造。";
+
     private static final String SYSTEM_PROMPT =
             "你是合拍系统的夜间执行助手，无人在场，只做「准备性工作」。"
             + "可用工具：project_facts（读项目统一事实）、save_daily_brief（写当前用户晨报），"
@@ -95,6 +101,22 @@ public class AutomationRunService {
 
     /** 以某个用户身份、针对某个项目跑一轮；阻塞直到侧车结束（或超时由侧车自己收尾）。 */
     public RunResult run(Long userId, Long projectId, String title, String prompt) {
+        return runInternal(userId, projectId, title, prompt, systemPrompt(projectId), true);
+    }
+
+    /**
+     * 企业微信自由对话：有用户在场，使用通用助手提示词与全部助手工具。
+     *
+     * @param userId 已通过企微绑定解析出的系统用户
+     * @param title  会话标题（固定「企微对话」）
+     * @param prompt 用户消息
+     */
+    public RunResult runChat(Long userId, String title, String prompt) {
+        return runInternal(userId, null, title, prompt, CHAT_SYSTEM_PROMPT, false);
+    }
+
+    private RunResult runInternal(Long userId, Long projectId, String title, String prompt,
+                                  String systemPrompt, boolean automation) {
         if (userId == null) {
             throw new IllegalArgumentException("userId 不能为空");
         }
@@ -118,7 +140,7 @@ public class AutomationRunService {
 
         var sessionView = sessionService.get(userId, session.id());
         String runId = UUID.randomUUID().toString();
-        toolService.registerRun(runId, userId, prompt, true);
+        toolService.registerRun(runId, userId, prompt, automation);
 
         String newMessagesJson = null;
         String error = null;
@@ -132,11 +154,13 @@ public class AutomationRunService {
             if (StringUtils.hasText(model.proxy())) {
                 body.put("proxy", model.proxy());
             }
-            body.put("systemPrompt", systemPrompt(projectId));
+            body.put("systemPrompt", systemPrompt);
             body.put("thinkingLevel", "high");
             body.set("messages", (JsonNode) sessionView.messages());
             // 只下发夜间白名单工具：发信/企微/待办/周报写入等一律不在场
-            body.set("tools", objectMapper.valueToTree(toolService.automationDefinitions()));
+            body.set("tools", objectMapper.valueToTree(automation
+                    ? toolService.automationDefinitions()
+                    : toolService.definitions()));
             body.put("toolCallbackUrl", properties.getToolCallbackUrl());
 
             HttpRequest.Builder builder = HttpRequest.newBuilder()

@@ -87,16 +87,37 @@ test("onFrame：入站文本 → 后端成功 → 回一句话（不连企微）
 
 test("onFrame：重复 msgid 只转发一次", async () => {
   const { client } = fakeClient();
-  let calls = 0;
-  globalThis.fetch = (async () => {
-    calls += 1;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    calls.push(String(input));
     return new Response(JSON.stringify({ data: null }), { status: 200 });
   }) as typeof fetch;
   try {
     onFrame(client as never, frame("m-3", "第一次"));
     onFrame(client as never, frame("m-3", "重复投递"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(calls, 1);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(calls.filter((url) => url.endsWith("/internal/opportunity/reply")).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("onFrame：商机无匹配 → 回落 AI 助手对话并回话", async () => {
+  const { client, replies } = fakeClient();
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    calls.push(String(input));
+    if (String(input).endsWith("/internal/opportunity/reply")) {
+      return new Response(JSON.stringify({ data: null }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ data: { matched: true, text: "助手回答：你好" } }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    onFrame(client as never, frame("m-4", "你好"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(calls.filter((url) => url.endsWith("/internal/ai-agent/wecom-chat")).length, 1);
+    assert.ok(replies.some((reply) => reply.content.includes("助手回答")));
   } finally {
     globalThis.fetch = originalFetch;
   }

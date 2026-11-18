@@ -234,6 +234,40 @@ async function forwardToBackend(frame: WsFrame, text: string): Promise<ReplyOutc
   }
 }
 
+/**
+ * 商机问句没匹配到时，把消息交给后端 AI 助手自由对话。
+ * 返回助手文本；未绑定/失败返回 null，由调用方回退到 UNMATCHED_REPLY。
+ */
+async function forwardToChat(frame: WsFrame, text: string): Promise<string | null> {
+  const url = `${backendBaseUrl()}/internal/ai-agent/wecom-chat`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Sidecar-Token": sidecarToken(),
+      },
+      body: JSON.stringify({ senderKey: frame.body?.from?.userid, text }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.warn(`[aibot] 助手对话失败：HTTP ${res.status}`);
+      return null;
+    }
+    const json = (await res.json().catch(() => null)) as
+      | { data?: { matched?: unknown; text?: unknown } }
+      | null;
+    const data = json?.data;
+    if (data?.matched === true && typeof data.text === "string" && data.text.trim()) {
+      return data.text.trim();
+    }
+    return null;
+  } catch (err) {
+    console.warn("[aibot] 助手对话异常：", err);
+    return null;
+  }
+}
+
 /** SDK 导出的 generateReqId（若有），用于生成流式回复的 streamId */
 let sdkGenerateReqId: ((prefix: string) => string) | null = null;
 
@@ -277,7 +311,13 @@ async function handleTextMessage(client: AibotWsClient, frame: WsFrame): Promise
   if (typeof content !== "string" || content.trim().length === 0) return;
   const outcome = await forwardToBackend(frame, content);
   if (outcome === null) return;
-  await replySafely(client, frame, outcome.matched ? matchedReplyText(outcome.parsed) : UNMATCHED_REPLY);
+  if (outcome.matched) {
+    await replySafely(client, frame, matchedReplyText(outcome.parsed));
+    return;
+  }
+  // 没匹配到商机问句：尝试 AI 助手自由对话；未绑定/失败再回引导
+  const chatReply = await forwardToChat(frame, content);
+  await replySafely(client, frame, chatReply || UNMATCHED_REPLY);
 }
 
 /** 统一的帧入口：先去重，再只处理文本消息 */
