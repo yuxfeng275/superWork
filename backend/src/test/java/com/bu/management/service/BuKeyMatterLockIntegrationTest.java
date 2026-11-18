@@ -84,6 +84,7 @@ class BuKeyMatterLockIntegrationTest {
                     id BIGINT PRIMARY KEY,
                     username VARCHAR(50),
                     password VARCHAR(100),
+                    password_change_required INT NOT NULL DEFAULT 0,
                     real_name VARCHAR(50),
                     role VARCHAR(30),
                     email VARCHAR(100),
