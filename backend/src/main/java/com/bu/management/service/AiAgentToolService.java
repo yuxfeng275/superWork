@@ -113,7 +113,7 @@ public class AiAgentToolService {
     static final Set<String> AUTOMATION_TOOLS = Set.of(
             "project_facts", "save_daily_brief", "save_artifact",
             "query_my_tasks", "query_my_requirements", "query_my_worklogs", "count_my_issues",
-            "weekly_report_facts");
+            "weekly_report_facts", "pending_delivery");
 
     /** 无人值守运行里允许绕过写门禁的工具：只能写给自己看、不触达外部。 */
     static final Set<String> AUTOMATION_SAFE_WRITE_TOOLS = Set.of("save_daily_brief");
@@ -236,6 +236,10 @@ public class AiAgentToolService {
                         "stage", stringProperty("推进到的阶段，可选：初步接触/需求确认/方案报价/商务谈判/已成交"),
                         "probability", integerProperty("成交概率 0-100，可选"),
                         "nextFollowUp", stringProperty("下次跟进时间，可选：明天 / 周三 15:00 / 2026-11-12 09:30")))));
+        defs.add(new AiAgentToolDefinition("pending_delivery",
+                "查询本月/指定月份的待确认交付合同（合同号、客户、金额、负责人、是否逾期）。只读，不要自动确认",
+                objectSchema(Map.of(
+                        "month", stringProperty("月份 YYYY-MM，默认当前月；传 all 看全年")))));
         defs.add(new AiAgentToolDefinition("search_knowledge",
                 "检索合拍知识库（产品能力、标准方案、成功案例、报价与交付口径）。回答这类问题前先用它检索，不要凭常识编造",
                 objectSchema(Map.of(
