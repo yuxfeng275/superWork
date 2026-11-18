@@ -22,4 +22,5 @@
 ```
 
 agent `m2` 用 `use:"command"` 指向 `tools/m2/nightly.sh`。队列空时是 no-op；有任务才调用 dsh。
-产出 patch 后人工评审，再决定是否合入；不会自动部署。
+产出 patch 后，若 `m2.env` 配了 `M2_ADMIN_PASSWORD`，`report.py` 会调用 `/api/ai-artifacts`
+自动建 FIX_NOTE 并送审（证据取 `M2_FACT_ID`）；不会自动部署。
