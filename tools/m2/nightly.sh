@@ -57,3 +57,15 @@ if ! git diff --quiet master..HEAD 2>/dev/null; then
 else
   echo "M2 无代码变更：branch=$BRANCH log=$LOG dsh_rc=$RC"
 fi
+
+# 有 patch 且配置了管理员口令时，自动建 FIX_NOTE 并送审
+if [ -s "$PATCH" ] && [ -n "${M2_ADMIN_PASSWORD:-}" ]; then
+  python3 "$(dirname "$0")/report.py" \
+    --base "${M2_BASE_URL:-http://127.0.0.1:18081}" \
+    --user "${M2_ADMIN_USER:-admin}" \
+    --password "$M2_ADMIN_PASSWORD" \
+    --project "${M2_PROJECT_ID:-1}" \
+    --fact "${M2_FACT_ID:-71}" \
+    --branch "$BRANCH" --patch "$PATCH" --task "$TASK" \
+    || echo "M2 制品自动登记失败，patch 仍在 ${PATCH}" >&2
+fi
