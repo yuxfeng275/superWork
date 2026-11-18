@@ -2,6 +2,8 @@ package com.bu.management.config;
 
 import com.bu.management.controller.AuthController;
 import com.bu.management.security.JwtAuthenticationFilter;
+import com.bu.management.security.PasswordChangeGateFilter;
+import com.bu.management.mapper.UserMapper;
 import com.bu.management.security.PermissionInterceptor;
 import com.bu.management.service.AuthService;
 import com.bu.management.util.JwtUtil;
@@ -24,12 +26,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(AuthController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, PasswordChangeGateFilter.class})
 @ContextConfiguration(classes = {
         SecurityConfigTest.TestApplication.class,
         AuthController.class,
         SecurityConfig.class,
-        JwtAuthenticationFilter.class
+        JwtAuthenticationFilter.class,
+        PasswordChangeGateFilter.class
 })
 class SecurityConfigTest {
 
@@ -55,6 +58,9 @@ class SecurityConfigTest {
 
     @MockBean
     private JwtUtil jwtUtil;
+
+    @MockBean
+    private UserMapper userMapper;
 
     @MockBean
     private PermissionInterceptor permissionInterceptor;
