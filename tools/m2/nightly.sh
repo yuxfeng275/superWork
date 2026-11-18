@@ -13,6 +13,7 @@ ENV_FILE="${M2_ENV_FILE:-/home/openclaw/huji-agent/m2.env}"
 DSH_NODE="${M2_DSH_NODE:-/home/openclaw/node24/bin/node}"
 DSH_JS="${M2_DSH_JS:-/home/openclaw/node_modules/@deepseek-ai/dsh/lib/bin.js}"
 DSH_HOME_DIR="${DSH_HOME:-/home/openclaw/.dsh}"
+MASTER_BUNDLE="${M2_MASTER_BUNDLE:-/home/openclaw/m2/superwork-master.bundle}"
 
 if [ ! -s "$QUEUE_FILE" ]; then
   echo "M2 队列为空（${QUEUE_FILE}），跳过"
@@ -44,6 +45,10 @@ LOG="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').log"
 PATCH="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').patch"
 
 cd "$REPO_DIR"
+# 隔离 clone 不会自己更新；每次任务前从本地 bundle 同步最新 master，避免在旧代码上打补丁
+if [ -f "$MASTER_BUNDLE" ]; then
+  git fetch "$MASTER_BUNDLE" master:master >/dev/null 2>&1 || true
+fi
 git reset --hard master >/dev/null
 git clean -fd >/dev/null
 git checkout -b "$BRANCH" >/dev/null
