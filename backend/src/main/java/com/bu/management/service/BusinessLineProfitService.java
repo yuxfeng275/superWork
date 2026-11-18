@@ -172,6 +172,34 @@ public class BusinessLineProfitService {
             if (line != null) {
                 return line.getId();
             }
+            // 工时系统新报表是层级名称（定制-品类定制-...、精准-...、全域-...），
+            // 映射表和精确名称都命中不了；按顶层分组回落到本地业务线，避免整行被页面过滤掉。
+            String mappedName = hierarchyBusinessLineName(wtBlName);
+            if (mappedName != null) {
+                BusinessLine mapped = businessLineMapper.selectOne(new LambdaQueryWrapper<BusinessLine>()
+                        .eq(BusinessLine::getName, mappedName)
+                        .last("LIMIT 1"));
+                if (mapped != null) {
+                    return mapped.getId();
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 层级工时业务线名 → 本地业务线名；只认有明确口径的定制/精准/全域三组。 */
+    static String hierarchyBusinessLineName(String wtName) {
+        if (!StringUtils.hasText(wtName)) {
+            return null;
+        }
+        String top = wtName.contains("-") ? wtName.substring(0, wtName.indexOf('-')) : wtName;
+        if ("定制".equals(top)) return "全渠道云鹿定制";
+        if ("精准".equals(top)) return "全域精准";
+        if ("全域".equals(top)) {
+            if (wtName.contains("会员通")) return "会员通";
+            if (wtName.contains("Saas") || wtName.contains("SAAS")) return "全渠道云鹿SAAS";
+            if (wtName.contains("定制")) return "全渠道云鹿定制";
+            if (wtName.contains("精准")) return "全域精准";
         }
         return null;
     }
