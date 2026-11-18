@@ -36,7 +36,9 @@ if [ ! -d "$REPO_DIR/.git" ]; then
 fi
 
 mkdir -p "$OUT_DIR"
-TASK="$(cat "$QUEUE_FILE")"
+FACT_FROM_QUEUE="$(sed -n 's/^fact:[[:space:]]*//p' "$QUEUE_FILE" | head -1)"
+if [ -n "$FACT_FROM_QUEUE" ]; then export M2_FACT_ID="$FACT_FROM_QUEUE"; fi
+TASK="$(sed '1{/^fact:[[:space:]]*/d;}' "$QUEUE_FILE")"
 BRANCH="m2/$(date +%Y%m%d-%H%M%S)"
 LOG="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').log"
 PATCH="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').patch"

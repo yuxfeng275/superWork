@@ -7,6 +7,7 @@
   `dsh headless --permission-mode workspace-write --approval-policy never`，
   要求 dsh 做最小改动、跑相关测试、提交；**不 push、不碰 master**。
 - 产出 patch 到 `/home/openclaw/m2/out/<branch>.patch`，dsh 日志同目录。
+- 队列首行可写 `fact: <id>` 作为本条任务的证据；runner 会读取并传给 `report.py`。用 `enqueue.py --fact N --task "..."` 入队。
 - 模型凭据只从 `/home/openclaw/huji-agent/dsh.env`（600）读取，不写仓库。
 
 接入 autoloop（示例，按本机 rules.json 的 schema 调整）：
