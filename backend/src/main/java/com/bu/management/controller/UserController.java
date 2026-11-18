@@ -53,6 +53,14 @@ public class UserController {
         return Result.success("更新成功", user);
     }
 
+    /** 强制改密合规状态：总用户 / 待改密 / 仍用初始密码。 */
+    @Operation(summary = "强制改密合规状态", description = "统计待强制改密与仍使用初始密码的账号数")
+    @GetMapping("/security/password-change-status")
+    @RequirePermission({"system:user:edit"})
+    public Result<UserService.PasswordChangeStatus> passwordChangeStatus() {
+        return Result.success(userService.passwordChangeStatus());
+    }
+
     /** 识别仍使用初始密码的账号（只返回身份，不返回哈希）。 */
     @Operation(summary = "初始密码账号审计", description = "列出仍使用 V14 初始密码的账号")
     @GetMapping("/security/seed-passwords")

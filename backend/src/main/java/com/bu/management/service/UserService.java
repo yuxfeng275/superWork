@@ -99,6 +99,26 @@ public class UserService {
             "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /**
+     * 强制改密合规状态：总量、已标记待改密、仍使用初始哈希。
+     *
+     * @param total       用户总数
+     * @param flagged     已标记下次登录必须改密
+     * @param seedPasswords 仍使用 V14 初始密码哈希的账号数
+     */
+    public record PasswordChangeStatus(long total, long flagged, long seedPasswords) {
+    }
+
+    /** 查询合规状态（只读）。 */
+    public PasswordChangeStatus passwordChangeStatus() {
+        long total = userMapper.selectCount(null);
+        long flagged = userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .eq(User::getPasswordChangeRequired, 1));
+        long seed = userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .eq(User::getPassword, SEED_PASSWORD_HASH));
+        return new PasswordChangeStatus(total, flagged, seed);
+    }
+
     /** 仍使用初始密码的账号（只返回身份信息，不返回哈希）。 */
     public record SeedAccount(Long id, String username, String realName) {
     }

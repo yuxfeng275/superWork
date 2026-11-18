@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getRoleLabel, POSITION_ROLE_OPTIONS } from '@/constants/roles';
 import {
   superworkApi,
+  type PasswordChangeStatus,
   type SeedAccount,
   type UserRecord,
 } from '@/services/superwork/api';
@@ -77,6 +78,7 @@ export default function SystemUsersPage() {
   const [userDraft, setUserDraft] = useState<UserForm>();
   const [saving, setSaving] = useState(false);
   const [seedAccounts, setSeedAccounts] = useState<SeedAccount[]>([]);
+  const [passwordStatus, setPasswordStatus] = useState<PasswordChangeStatus | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -98,6 +100,10 @@ export default function SystemUsersPage() {
     superworkApi
       .getSeedPasswordAccounts()
       .then(setSeedAccounts)
+      .catch(() => undefined);
+    superworkApi
+      .getPasswordChangeStatus()
+      .then(setPasswordStatus)
       .catch(() => undefined);
   }, [canManage]);
   useEffect(() => {
@@ -242,6 +248,9 @@ export default function SystemUsersPage() {
           <Typography.Paragraph type="secondary">
             按岗位序列组织成员，维护账号、联系方式与角色归属。
           </Typography.Paragraph>
+          {passwordStatus && passwordStatus.flagged > 0 ? (
+            <Tag color="orange">{passwordStatus.flagged} 人待强制改密</Tag>
+          ) : null}
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>

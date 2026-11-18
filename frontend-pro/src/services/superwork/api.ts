@@ -2208,6 +2208,12 @@ export interface TeamEfficiencyReport {
   members: TeamEfficiencyMember[];
 }
 
+export interface PasswordChangeStatus {
+  total: number;
+  flagged: number;
+  seedPasswords: number;
+}
+
 export interface SeedAccount {
   id: number;
   username: string;
@@ -2493,6 +2499,9 @@ export const superworkApi = {
       method: "POST",
       body: JSON.stringify({ oldPassword, newPassword }),
     });
+  },
+  getPasswordChangeStatus() {
+    return requestJson<PasswordChangeStatus>(`/api/users/security/password-change-status`);
   },
   getSeedPasswordAccounts() {
     return requestJson<SeedAccount[]>(`/api/users/security/seed-passwords`);

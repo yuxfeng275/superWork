@@ -87,6 +87,18 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("强制改密合规状态：总量/待改密/初始密码分别统计")
+    void passwordChangeStatusCounts() {
+        when(userMapper.selectCount(any())).thenReturn(20L, 16L, 16L);
+
+        var status = userService.passwordChangeStatus();
+
+        assertThat(status.total()).isEqualTo(20);
+        assertThat(status.flagged()).isEqualTo(16);
+        assertThat(status.seedPasswords()).isEqualTo(16);
+    }
+
+    @Test
     @DisplayName("初始密码审计：返回仍使用 seed hash 的账号，不返回哈希")
     void seedPasswordAccountsListsOnlySeedUsers() {
         User user = new User();
