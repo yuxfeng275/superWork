@@ -37,6 +37,7 @@ import java.nio.charset.StandardCharsets;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final com.bu.management.security.PasswordChangeGateFilter passwordChangeGateFilter;
     private final ObjectMapper objectMapper;
 
     /**
@@ -108,7 +109,9 @@ public class SecurityConfig {
                 )
 
                 // 添加 JWT 过滤器
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(passwordChangeGateFilter,
+                        com.bu.management.security.JwtAuthenticationFilter.class);
 
         return http.build();
     }
