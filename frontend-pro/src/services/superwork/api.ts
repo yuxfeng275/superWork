@@ -2486,6 +2486,12 @@ export const superworkApi = {
       size: number;
     }>(`/api/projects${query(params)}`);
   },
+  changePassword(oldPassword: string, newPassword: string) {
+    return requestJson<void>(`/api/auth/change-password`, {
+      method: "POST",
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  },
   getSeedPasswordAccounts() {
     return requestJson<SeedAccount[]>(`/api/users/security/seed-passwords`);
   },

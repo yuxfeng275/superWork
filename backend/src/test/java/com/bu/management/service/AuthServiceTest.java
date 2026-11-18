@@ -81,6 +81,51 @@ class AuthServiceTest {
         existingUser.setUpdatedAt(LocalDateTime.now());
     }
 
+    @Test
+    @DisplayName("修改密码：原密码正确时写入新哈希")
+    void changePasswordUpdatesHash() {
+        User user = new User();
+        user.setId(5L);
+        user.setPassword("OLD_HASH");
+        when(userMapper.selectById(5L)).thenReturn(user);
+        when(passwordEncoder.matches("old-pass", "OLD_HASH")).thenReturn(true);
+        when(passwordEncoder.matches("new-pass", "OLD_HASH")).thenReturn(false);
+        when(passwordEncoder.encode("new-pass")).thenReturn("NEW_HASH");
+
+        authService.changePassword(5L, "old-pass", "new-pass");
+
+        assertThat(user.getPassword()).isEqualTo("NEW_HASH");
+        verify(userMapper).updateById(user);
+    }
+
+    @Test
+    @DisplayName("修改密码：原密码错误拒绝")
+    void changePasswordRejectsWrongOldPassword() {
+        User user = new User();
+        user.setId(5L);
+        user.setPassword("OLD_HASH");
+        when(userMapper.selectById(5L)).thenReturn(user);
+        when(passwordEncoder.matches("bad", "OLD_HASH")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.changePassword(5L, "bad", "new-pass"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("原密码");
+    }
+
+    @Test
+    @DisplayName("修改密码：新密码少于 8 位拒绝")
+    void changePasswordRejectsShortPassword() {
+        User user = new User();
+        user.setId(5L);
+        user.setPassword("OLD_HASH");
+        when(userMapper.selectById(5L)).thenReturn(user);
+        when(passwordEncoder.matches("old-pass", "OLD_HASH")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.changePassword(5L, "old-pass", "short"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("8 位");
+    }
+
     @Nested
     @DisplayName("register 方法测试")
     class RegisterTests {

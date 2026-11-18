@@ -8,7 +8,9 @@ import com.bu.management.entity.User;
 import com.bu.management.mapper.UserMapper;
 import com.bu.management.util.JwtUtil;
 import com.bu.management.vo.AuthResponse;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +65,36 @@ public class AuthService {
 
         // 生成 Token
         return generateAuthResponse(user);
+    }
+
+    /**
+     * 自助修改密码：校验原密码，新密码至少 8 位且不能与原密码相同。
+     *
+     * <p>改完后旧密码立即失效；当前 JWT 仍可用到过期，前端可选择重新登录。
+     *
+     * @param userId      当前用户
+     * @param oldPassword 原密码
+     * @param newPassword 新密码
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void changePassword(Long userId, String oldPassword, String newPassword) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        if (!StringUtils.hasText(oldPassword)
+                || !passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new RuntimeException("原密码不正确");
+        }
+        if (!StringUtils.hasText(newPassword) || newPassword.length() < 8) {
+            throw new RuntimeException("新密码至少 8 位");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new RuntimeException("新密码不能与原密码相同");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
     }
 
     /**

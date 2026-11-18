@@ -58,6 +58,20 @@ public class AuthController {
     }
 
 
+    /** 自助修改密码。 */
+    public record ChangePasswordRequest(String oldPassword, String newPassword) {
+    }
+
+    @PostMapping("/change-password")
+    public Result<Void> changePassword(@RequestAttribute("userId") Long userId,
+                                       @RequestBody ChangePasswordRequest request) {
+        if (request == null) {
+            throw new RuntimeException("请求体不能为空");
+        }
+        authService.changePassword(userId, request.oldPassword(), request.newPassword());
+        return Result.success("密码已修改", null);
+    }
+
     /**
      * 当前用户可见菜单路径（按角色菜单授权计算，无任何授权时返回空，前端回退岗位默认）
      */

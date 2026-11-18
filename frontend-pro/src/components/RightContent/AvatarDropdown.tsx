@@ -1,13 +1,15 @@
 import {
+  LockOutlined,
   LogoutOutlined,
   SettingOutlined,
   SkinOutlined,
 } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import type { MenuProps } from 'antd';
-import { Spin } from 'antd';
-import React, { startTransition } from 'react';
+import { Form, Input, Modal, Spin, message } from 'antd';
+import React, { startTransition, useState } from 'react';
 import { outLogin } from '@/services/ant-design-pro/api';
+import { superworkApi } from '@/services/superwork/api';
 import HeaderDropdown from '../HeaderDropdown';
 
 type GlobalHeaderRightProps = {
@@ -24,6 +26,11 @@ const menuItems: MenuProps['items'] = [
     key: 'theme',
     icon: <SkinOutlined />,
     label: '主题设置',
+  },
+  {
+    key: 'password',
+    icon: <LockOutlined />,
+    label: '修改密码',
   },
   {
     type: 'divider' as const,
@@ -59,6 +66,28 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
   children,
 }) => {
   const { initialState, setInitialState } = useModel('@@initialState');
+  const [passwordForm] = Form.useForm();
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [changing, setChanging] = useState(false);
+
+  const submitPassword = async () => {
+    const values = await passwordForm.validateFields();
+    setChanging(true);
+    try {
+      await superworkApi.changePassword(values.oldPassword, values.newPassword);
+      message.success('密码已修改，请用新密码重新登录');
+      setPasswordOpen(false);
+      passwordForm.resetFields();
+      startTransition(() => {
+        setInitialState((s) => ({ ...s, currentUser: undefined }));
+      });
+      await loginOut();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '修改密码失败');
+    } finally {
+      setChanging(false);
+    }
+  };
 
   const onMenuClick: MenuProps['onClick'] = (event) => {
     const { key } = event;
@@ -71,6 +100,10 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     }
     if (key === 'theme') {
       setInitialState((s) => ({ ...s, settingDrawerOpen: true }));
+      return;
+    }
+    if (key === 'password') {
+      setPasswordOpen(true);
       return;
     }
     history.push(`/account/${key}`);
@@ -87,6 +120,7 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
   }
 
   return (
+    <>
     <HeaderDropdown
       placement="bottomRight"
       menu={{
@@ -98,5 +132,54 @@ export const AvatarDropdown: React.FC<GlobalHeaderRightProps> = ({
     >
       {children}
     </HeaderDropdown>
+    <Modal
+      title="修改密码"
+      open={passwordOpen}
+      confirmLoading={changing}
+      onCancel={() => setPasswordOpen(false)}
+      onOk={() => passwordForm.submit()}
+      okText="修改并重新登录"
+      cancelText="取消"
+      destroyOnHidden
+    >
+      <Form form={passwordForm} layout="vertical" onFinish={() => void submitPassword()}>
+        <Form.Item
+          name="oldPassword"
+          label="原密码"
+          rules={[{ required: true, message: '请输入原密码' }]}
+        >
+          <Input.Password autoComplete="current-password" />
+        </Form.Item>
+        <Form.Item
+          name="newPassword"
+          label="新密码"
+          rules={[
+            { required: true, message: '请输入新密码' },
+            { min: 8, message: '新密码至少 8 位' },
+          ]}
+        >
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+        <Form.Item
+          name="confirmPassword"
+          label="确认新密码"
+          dependencies={['newPassword']}
+          rules={[
+            { required: true, message: '请再次输入新密码' },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!value || getFieldValue('newPassword') === value) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('两次输入的新密码不一致'));
+              },
+            }),
+          ]}
+        >
+          <Input.Password autoComplete="new-password" />
+        </Form.Item>
+      </Form>
+    </Modal>
+    </>
   );
 };
