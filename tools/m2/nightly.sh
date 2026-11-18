@@ -45,11 +45,15 @@ LOG="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').log"
 PATCH="$OUT_DIR/$(echo "$BRANCH" | tr '/' '-').patch"
 
 cd "$REPO_DIR"
-# 隔离 clone 不会自己更新；每次任务前从本地 bundle 同步最新 master，避免在旧代码上打补丁
+# 隔离 clone 不会自己更新；每次任务前从本地 bundle 同步最新 master。
+# fetch 到 FETCH_HEAD 再建 m2-base，避免 clone 脏时 fetch 到当前分支失败后继续用旧代码。
 if [ -f "$MASTER_BUNDLE" ]; then
-  git fetch "$MASTER_BUNDLE" master:master >/dev/null 2>&1 || true
+  git fetch "$MASTER_BUNDLE" master >/dev/null
+  git checkout -B m2-base FETCH_HEAD >/dev/null
+else
+  git checkout -B m2-base master >/dev/null
 fi
-git reset --hard master >/dev/null
+git reset --hard m2-base >/dev/null
 git clean -fd >/dev/null
 git checkout -b "$BRANCH" >/dev/null
 
@@ -63,8 +67,8 @@ DSH_HOME="$DSH_HOME_DIR" DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
 RC=$?
 set -e
 
-if ! git diff --quiet master..HEAD 2>/dev/null; then
-  git format-patch -1 --stdout > "$PATCH" 2>/dev/null || git diff master..HEAD > "$PATCH"
+if ! git diff --quiet m2-base..HEAD 2>/dev/null; then
+  git format-patch -1 --stdout > "$PATCH" 2>/dev/null || git diff m2-base..HEAD > "$PATCH"
   echo "M2 产出：branch=$BRANCH patch=$PATCH log=$LOG dsh_rc=$RC"
 else
   echo "M2 无代码变更：branch=$BRANCH log=$LOG dsh_rc=$RC"
