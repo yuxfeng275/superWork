@@ -2,6 +2,7 @@
 
 `nightly.sh` 是 agent-autoloop 的 command 通道脚本：
 
+- 部署后运行 `M2_HOST=241 tools/m2/refresh-bundle.sh` 更新 bundle；否则 runner 会继续用旧基线。
 - 每次任务前从 `M2_MASTER_BUNDLE`（默认 `/home/openclaw/m2/superwork-master.bundle`）同步最新 master；否则隔离 clone 会一直停在旧提交。
 - 队列文件默认 `/home/openclaw/m2/queue/current.md`；**为空时直接退出**，不启动 dsh、不消耗 token。
 - 有任务时在隔离 clone `/home/openclaw/repos/superwork-m2` 的 `m2/<时间戳>` 分支上运行
