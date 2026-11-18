@@ -59,6 +59,24 @@ class PasswordChangeGateFilterTest {
     }
 
     @Test
+    @DisplayName("flag=1 时 /api/auth/register 也被拦，不能借注册绕过强制改密")
+    void blocksRegisterWhenChangeRequired() throws Exception {
+        User user = new User();
+        user.setId(5L);
+        user.setPasswordChangeRequired(1);
+        when(userMapper.selectById(5L)).thenReturn(user);
+        PasswordChangeGateFilter filter = new PasswordChangeGateFilter(userMapper);
+        MockHttpServletRequest request = request("/api/auth/register", 5L);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
     @DisplayName("flag=0 正常放行")
     void allowsWhenNoChangeRequired() throws Exception {
         User user = new User();

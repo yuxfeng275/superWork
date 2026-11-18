@@ -62,9 +62,12 @@ public class PasswordChangeGateFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    /** 认证、健康、企微回调、静态探活放行。 */
+    /** 登录/改密/菜单与健康、企微回调放行；注册等其它 auth 接口不放行。 */
     private static boolean allowed(String uri) {
-        return uri.startsWith("/api/auth/")
+        return uri.equals("/api/auth/login")
+                || uri.equals("/api/auth/change-password")
+                || uri.equals("/api/auth/my-menus")
+                || uri.equals("/api/auth/my-menu-tree")
                 || uri.startsWith("/api/ai-agent/health")
                 || uri.startsWith("/api/wecom/callback")
                 || uri.startsWith("/api/knowledge/health");
