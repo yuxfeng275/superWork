@@ -53,6 +53,23 @@ public class UserController {
     }
 
     /**
+     * 重置用户密码（仅管理岗位）。
+     *
+     * <p>返回一次性明文新密码，供管理员转交；旧密码立即失效。
+     */
+    @Operation(summary = "重置用户密码", description = "生成随机新密码并返回一次")
+    @PostMapping("/{id}/reset-password")
+    @RequirePermission({"system:user:edit"})
+    public Result<ResetPasswordResponse> resetPassword(
+            @Parameter(description = "用户ID") @PathVariable Long id) {
+        return Result.success(new ResetPasswordResponse(userService.resetPassword(id)));
+    }
+
+    /** 重置密码响应：密码只在这一次响应里出现。 */
+    public record ResetPasswordResponse(String password) {
+    }
+
+    /**
      * 禁用/启用用户
      */
     @Operation(summary = "禁用/启用用户", description = "更新用户状态")

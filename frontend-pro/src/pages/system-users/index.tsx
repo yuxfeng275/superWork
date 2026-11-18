@@ -161,6 +161,25 @@ export default function SystemUsersPage() {
       setSaving(false);
     }
   };
+  const resetPassword = async (user: UserRecord) => {
+    try {
+      const result = await superworkApi.resetUserPassword(user.id);
+      Modal.success({
+        title: '密码已重置',
+        content: (
+          <Space direction="vertical" size={6}>
+            <Typography.Text type="secondary">
+              旧密码已失效，请立即复制并转交给本人，关闭后不再显示。
+            </Typography.Text>
+            <Typography.Text copyable strong>{result.password}</Typography.Text>
+          </Space>
+        ),
+      });
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '重置密码失败');
+    }
+  };
+
   const remove = async (user: UserRecord) => {
     try {
       await superworkApi.deleteUser(user.id);
@@ -329,6 +348,14 @@ export default function SystemUsersPage() {
                       >
                         编辑
                       </Button>
+                      <Popconfirm
+                        title={`重置「${user.realName || user.username}」的密码？旧密码将立即失效`}
+                        okText="重置"
+                        cancelText="取消"
+                        onConfirm={() => void resetPassword(user)}
+                      >
+                        <Button type="link">重置密码</Button>
+                      </Popconfirm>
                       <Popconfirm
                         title={`删除「${user.realName || user.username}」吗？`}
                         okText="删除"

@@ -86,6 +86,32 @@ class UserServiceTest {
         existingUser.setUpdatedAt(LocalDateTime.now());
     }
 
+    @Test
+    @DisplayName("重置密码：生成 14 位随机密码并写入编码后的哈希")
+    void resetPasswordGeneratesAndStoresHash() {
+        User user = new User();
+        user.setId(5L);
+        user.setUsername("seed_user");
+        when(userMapper.selectById(5L)).thenReturn(user);
+        when(passwordEncoder.encode(org.mockito.ArgumentMatchers.anyString())).thenReturn("ENCODED");
+
+        String password = userService.resetPassword(5L);
+
+        assertThat(password).hasSize(14);
+        assertThat(user.getPassword()).isEqualTo("ENCODED");
+        verify(userMapper).updateById(user);
+    }
+
+    @Test
+    @DisplayName("重置不存在的用户：抛业务异常")
+    void resetPasswordMissingUser() {
+        when(userMapper.selectById(99L)).thenReturn(null);
+
+        assertThatThrownBy(() -> userService.resetPassword(99L))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("用户不存在");
+    }
+
     @Nested
     @DisplayName("create 方法测试")
     class CreateTests {

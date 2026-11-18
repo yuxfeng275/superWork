@@ -10,6 +10,8 @@ import com.bu.management.entity.SysUserRole;
 import com.bu.management.mapper.SysRoleMapper;
 import com.bu.management.mapper.SysUserRoleMapper;
 import com.bu.management.mapper.UserMapper;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -81,6 +83,36 @@ public class UserService {
         // 清除密码字段，不返回给前端
         user.setPassword(null);
         return user;
+    }
+
+    /** 重置密码可用字符：去掉 0/O/1/l/I 等易混字符，方便口头转交。 */
+    private static final String PASSWORD_ALPHABET =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /**
+     * 重置用户密码：生成一次性随机密码，旧密码立即失效。
+     *
+     * <p>返回值是明文新密码，只应在本次响应中交给管理员；日志绝不打印它。
+     *
+     * @param id 用户 ID
+     * @return 新密码（明文，仅此一次）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public String resetPassword(Long id) {
+        User user = userMapper.selectById(id);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        StringBuilder password = new StringBuilder(14);
+        for (int i = 0; i < 14; i++) {
+            password.append(PASSWORD_ALPHABET.charAt(RANDOM.nextInt(PASSWORD_ALPHABET.length())));
+        }
+        String plain = password.toString();
+        user.setPassword(passwordEncoder.encode(plain));
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+        return plain;
     }
 
     /**

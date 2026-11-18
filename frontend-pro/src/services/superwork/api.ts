@@ -2476,6 +2476,11 @@ export const superworkApi = {
       size: number;
     }>(`/api/projects${query(params)}`);
   },
+  resetUserPassword(id: number) {
+    return requestJson<{ password: string }>(`/api/users/${id}/reset-password`, {
+      method: "POST",
+    });
+  },
   getUsers(params: { page?: number; size?: number } = {}) {
     return requestJson<{
       records: UserRecord[];
