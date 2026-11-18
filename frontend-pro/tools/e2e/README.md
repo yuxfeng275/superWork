@@ -13,6 +13,15 @@ E2E_BASE=http://192.168.1.241:18080 E2E_USER=e2e_admin E2E_PASSWORD=*** \
    不属于任何真实项目；工作台「今日安排」读取它，用来断言晨报可见。
 3. 不触发真实企微群发/邮件外发；登录走 API + localStorage 注入，不在页面输入密码。
 
+## 安全流程 E2E
+
+```bash
+ADMIN_PASSWORD=*** E2E_BASE=http://192.168.1.241:18080 \
+  node frontend-pro/tools/e2e/security-flow.mjs
+```
+
+管理员重置临时账号密码 → 登录强制改密 → 业务 API 403 → 改密 → 恢复；只创建/删除临时账号，密码不落盘。
+
 ## 产物
 
 - `report.md` / `report.json`：步骤、断言说明、截图、Jev 事件、服务端错误
