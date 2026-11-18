@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """把 M2 patch 登记为 FIX_NOTE 并送审（调用现有 /api/ai-artifacts）。"""
-import argparse, json, urllib.request, urllib.error, os, sys
+import argparse, json, re, urllib.request, urllib.error, os, sys
 
 def call(base, path, method="GET", body=None, token=None):
     data = json.dumps(body).encode() if body is not None else None
@@ -40,7 +40,7 @@ def main():
     content = (f"M2 夜间队列自动产出。\n分支：{args.branch}\n补丁：{args.patch}\n"
                f"任务：{task[:500]}\n主分支未改动；请评审后合并。")
     status, art = call(args.base, "/api/ai-artifacts", "POST", {
-        "title": f"M2 夜间补丁：{task[:80] or args.branch}",
+        "title": "M2 夜间补丁：" + (re.sub(r"\s+", " ", task).strip()[:80] or args.branch),
         "kind": "FIX_NOTE", "content": content,
         "evidenceJson": json.dumps([args.fact]), "branch": args.branch,
         "projectId": args.project,

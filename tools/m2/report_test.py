@@ -29,12 +29,13 @@ try:
     out = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "report.py"),
         "--base", f"http://127.0.0.1:{server.server_port}", "--password", "p",
         "--project", "1", "--fact", "71", "--branch", "m2/test",
-        "--patch", patch, "--task", "\n\n测试任务"], text=True, capture_output=True)
+        "--patch", patch, "--task", "\n\n测试任务\n第二行"], text=True, capture_output=True)
     assert out.returncode == 0, out.stderr
     art = [body for path, body, _ in captured if path == "/api/ai-artifacts"][0]
     assert art["evidenceJson"] == "[71]", art
     assert art["branch"] == "m2/test"
     assert "\n" not in art["title"], art["title"]
+    assert "第二行" in art["title"]
     assert any(path == "/api/ai-artifacts/7/submit" for path, _, _ in captured)
     print("report.py contract ok")
 finally:
