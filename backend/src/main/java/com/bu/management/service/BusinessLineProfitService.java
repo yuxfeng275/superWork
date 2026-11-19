@@ -232,13 +232,23 @@ public class BusinessLineProfitService {
                     .toList();
         }
 
+        Map<Long, String> lineNames = managedLines == null ? Map.of() : managedLines.stream()
+                .filter(line -> line.getId() != null && line.getName() != null)
+                .collect(java.util.stream.Collectors.toMap(BusinessLine::getId, BusinessLine::getName,
+                        (a, b) -> a));
+        // 按本地业务线聚合：层级工时行映射到同一条业务线时必须合并，否则页面会出现
+        // 27 个「定制-...」明细行，看起来像重复/未同步。
         Map<String, List<BizLineProfitReport>> byLine = new LinkedHashMap<>();
         rows.stream()
-                .sorted(Comparator.comparing(BizLineProfitReport::getWorktimeBusinessLineName,
-                        Comparator.nullsLast(String::compareTo)))
-                .forEach(row -> byLine.computeIfAbsent(
-                        row.getWorktimeBusinessLineName() == null ? "未知" : row.getWorktimeBusinessLineName(),
-                        k -> new ArrayList<>()).add(row));
+                .sorted(Comparator.comparing(row -> row.getBusinessLineId() == null
+                        ? (row.getWorktimeBusinessLineName() == null ? "未知" : row.getWorktimeBusinessLineName())
+                        : lineNames.getOrDefault(row.getBusinessLineId(), "业务线#" + row.getBusinessLineId())))
+                .forEach(row -> {
+                    String key = row.getBusinessLineId() == null
+                            ? (row.getWorktimeBusinessLineName() == null ? "未知" : row.getWorktimeBusinessLineName())
+                            : "bl:" + row.getBusinessLineId();
+                    byLine.computeIfAbsent(key, k -> new ArrayList<>()).add(row);
+                });
 
         BizLineProfitReportVO vo = new BizLineProfitReportVO();
         vo.setYear(year);
@@ -248,7 +258,9 @@ public class BusinessLineProfitService {
             List<BizLineProfitReport> months = entry.getValue();
             BizLineProfitReportVO.LineGroup group = new BizLineProfitReportVO.LineGroup();
             group.setBusinessLineId(months.get(0).getBusinessLineId());
-            group.setBusinessLineName(entry.getKey());
+            group.setBusinessLineName(months.get(0).getBusinessLineId() == null
+                    ? entry.getKey()
+                    : lineNames.getOrDefault(months.get(0).getBusinessLineId(), entry.getKey()));
             group.setGroupName(months.get(0).getGroupName());
             group.setMonths(months);
             group.setYtd(aggregate(entry.getKey(), months));
