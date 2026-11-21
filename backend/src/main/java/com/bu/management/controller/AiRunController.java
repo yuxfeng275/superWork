@@ -3,7 +3,9 @@ package com.bu.management.controller;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.AiRun;
+import com.bu.management.entity.AiInvocation;
 import com.bu.management.entity.AiRunNode;
+import com.bu.management.mapper.AiInvocationMapper;
 import com.bu.management.mapper.AiRunMapper;
 import com.bu.management.orchestration.NightBatchService;
 import com.bu.management.vo.Result;
@@ -46,6 +48,8 @@ public class AiRunController {
 
     private final AiRunMapper runMapper;
 
+    private final AiInvocationMapper invocationMapper;
+
     private final ProjectContextProperties properties;
 
     /** 手动触发请求体。 */
@@ -75,7 +79,12 @@ public class AiRunController {
         if (run == null) {
             return Result.error(404, "run 不存在");
         }
-        return Result.success(new RunDetail(run, nightBatchService.nodes(id)));
+        // 结果未知的调用数：这是「可能已经写了」的唯一显式提示，必须出现在运行面上
+        Long unknown = invocationMapper.selectCount(Wrappers.<AiInvocation>lambdaQuery()
+                .eq(AiInvocation::getRunId, id)
+                .in(AiInvocation::getStatus, "STARTED", "UNKNOWN"));
+        return Result.success(new RunDetail(run, nightBatchService.nodes(id),
+                unknown == null ? 0 : unknown));
     }
 
     /** 手动触发：以成员身份跑一次夜间批（幂等）。 */
@@ -120,7 +129,7 @@ public class AiRunController {
     }
 
     /** run 详情响应。 */
-    public record RunDetail(AiRun run, List<AiRunNode> nodes) {
+    public record RunDetail(AiRun run, List<AiRunNode> nodes, long unknownInvocations) {
     }
 
     private boolean tokenOk(HttpServletRequest request) {

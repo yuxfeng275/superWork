@@ -2238,6 +2238,8 @@ export interface AiRunNodeRow {
 export interface AiRunDetail {
   run: AiRunRow;
   nodes: AiRunNodeRow[];
+  /** 结果未知的工具调用数：可能已经写入业务数据，必须先核对 */
+  unknownInvocations?: number;
 }
 
 export interface AiCapabilityStat {

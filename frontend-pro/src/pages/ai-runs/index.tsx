@@ -233,6 +233,15 @@ export default function AiRunsPage() {
               <Descriptions.Item label="结论" span={2}>
                 {detail.run.summary || '—'}
               </Descriptions.Item>
+              <Descriptions.Item label="结果未知的调用" span={2}>
+                {detail.unknownInvocations ? (
+                  <Tag color="volcano">
+                    {detail.unknownInvocations} 次 · 可能已写入，请先核对再重跑
+                  </Tag>
+                ) : (
+                  '0'
+                )}
+              </Descriptions.Item>
             </Descriptions>
             <Table
               rowKey="id"
