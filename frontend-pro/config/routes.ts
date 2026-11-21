@@ -25,6 +25,12 @@ export default [
     component: './workbench',
   },
   {
+    path: '/confirmations',
+    name: '待我确认',
+    icon: 'checkCircle',
+    component: './confirmations',
+  },
+  {
     path: '/ai-runs',
     name: 'AI 运行',
     icon: 'thunderbolt',

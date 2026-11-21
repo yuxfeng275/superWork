@@ -2235,6 +2235,24 @@ export interface AiRunNodeRow {
   finishedAt?: string | null;
 }
 
+/** 「待我确认」里的一条：闸门或制品。 */
+export interface ConfirmationItem {
+  type: 'GATE' | 'ARTIFACT';
+  id: number;
+  projectId?: number | null;
+  title: string;
+  detail?: string | null;
+  risk: 'LOW' | 'MEDIUM' | 'HIGH';
+  expectedAttempt?: number | null;
+  expectedRework?: number | null;
+  createdAt?: string | null;
+}
+
+export interface ConfirmationQueue {
+  queue: { gates: ConfirmationItem[]; artifacts: ConfirmationItem[] };
+  lowRiskCount: number;
+}
+
 export interface AiRunDetail {
   run: AiRunRow;
   nodes: AiRunNodeRow[];
@@ -2838,6 +2856,22 @@ export const superworkApi = {
   /** 运行面：run 详情（含节点）。 */
   getAiRun(id: number) {
     return requestJson<AiRunDetail>(`/api/ai-runs/${id}`);
+  },
+  /** 待我确认：节点闸门 + 制品评审合流成一个队列。 */
+  getConfirmations() {
+    return requestJson<ConfirmationQueue>("/api/ai-confirmations");
+  },
+  /** 批量通过/打回：逐条独立生效，返回值里带每一条失败原因。 */
+  batchConfirm(body: {
+    artifactIds?: number[];
+    gates?: { id: number; expectedAttempt: number; expectedRework: number }[];
+    approve: boolean;
+    reason?: string;
+  }) {
+    return requestJson<{ approved: number; failures: string[] }>(
+      "/api/ai-confirmations/batch",
+      { method: "POST", body: JSON.stringify(body) },
+    );
   },
   /** 手动触发一次夜间批（幂等：同一天同项目重复触发拿回同一条）。 */
   triggerAiRun(body: { userId: number; projectId?: number; bizDate?: string }) {
