@@ -2,6 +2,10 @@
 
 把「夜间自动干活、次日分发」交给 [agent-autoloop](https://github.com/KKKKhazix/agent-autoloop)（MIT，Node 24，单机零依赖），
 合拍只提供它给不了的三样：**项目事实层**、**业务工具面**、**晨报与评审**。
+
+> 2026-11-21 起：夜间批的流程由合拍编排（`NightBatchService`：事实 → 制品 → 晨报），
+> autoloop 规则只调用 `night-batch-trigger.sh` 发一句「开始今晚的夜间批」，不再在提示词里写步骤。
+> 旧的 `run-huji-agent.sh` 保留给晨报补发等单步任务。
 设计见 [docs/project-agent-loop-plan.md](../docs/project-agent-loop-plan.md)。
 
 ```

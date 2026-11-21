@@ -48,7 +48,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | 每 30 分钟 | 事实汇入（会议/邮件/工作项/大事儿） | `ProjectFactIngestScheduler`（已有） | `dedupe_hash = sha256(source_type\|source_ref)` 唯一 | 单项目失败只跳过该项目 |
 | 18:30（工作日） | 今日同步巡检：缺投递项目、有决议无任务、待确认超 48h | autoloop 规则 → `POST /internal/project-context/run` | `(rule, biz_date)` 只跑一次 | 不阻断夜间批，缺陷记入运行面 |
-| 22:00（工作日） | 夜间批（主链路） | autoloop cron → 合拍编排 `POST /api/ai-runs` | `(sop_code, project_id, biz_date)` 唯一；重复调用返回同一 run | 单节点失败不影响兄弟节点；run 标记 `PARTIAL` |
+| 22:00（工作日） | 夜间批（主链路） | autoloop cron → `night-batch-trigger.sh` → `POST /internal/project-context/night-batch`（**规则里不写流程**） | `(kind, sop_code, project_id, owner_user_id, biz_date)` 唯一；重复调用返回同一 run | 单节点失败不影响兄弟节点；run 标记 `PARTIAL` |
 | 23:00（工作日） | M2 代码类夜间任务（队列驱动） | autoloop cron + `tools/m2/queue` | `(project_id, queue_item, biz_date)` | 队列为空跳过（已有行为） |
 | 07:30（工作日） | 晨报分发 | 合拍 `AiProactivePushScheduler` / autoloop 晨报补发 | `ai_brief(user_id, brief_date, project_id)` 唯一 | 推送失败重试 3 次，失败进运行面 |
 | 事件驱动 | 会议纪要确认、周报生成失败、报价 SENT 超期、大事儿逾期 | 合拍业务钩子 `POST` autoloop `emit`，或直接建单步 run | 事件 `id` 去重 | 丢弃并记 `ai_run` 失败原因 |
