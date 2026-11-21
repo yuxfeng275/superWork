@@ -2,6 +2,7 @@ package com.bu.management.controller;
 
 import com.bu.management.config.ProjectContextProperties;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.service.AiFileService;
 import com.bu.management.service.AutomationRunService;
 import com.bu.management.service.ProjectBriefPushService;
 import com.bu.management.service.ProjectBriefService;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * agent-autoloop 读取项目事实、回写晨报的内部端点（/internal/project-context/**）。
@@ -44,10 +46,50 @@ public class ProjectContextInternalController {
     private final ProjectBriefPushService briefPushService;
     private final AutomationRunService automationRunService;
     private final ProjectContextProperties properties;
+    private final AiFileService aiFileService;
 
     /** 晨报回写请求体。 */
     public record BriefWriteRequest(Long userId, Long projectId, LocalDate briefDate,
                                     String content, String sourceTask) {
+    }
+
+    /** 文件投递回执（内部通道：邮件转发 / 目录同步）。 */
+    public record FileUploadResult(Long fileId, String filename, Long sizeBytes, Long factId,
+                                   boolean deduped) {
+    }
+
+    /**
+     * 内部文件投递：邮件转发与目录同步器用同一个入口，来源记在 {@code source}。
+     *
+     * <p>与网页上传共用 {@link AiFileService}：鉴权靠 X-Sidecar-Token + 显式 userId，
+     * 项目写权限仍由服务层按该 userId 判定，不因为走内部通道而放宽。
+     */
+    @PostMapping("/internal/project-context/files")
+    public ResponseEntity<?> uploadFile(@RequestParam Long userId,
+            @RequestParam Long projectId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(required = false) String source,
+            @RequestParam(required = false) String sourceRef,
+            HttpServletRequest request) {
+        if (!tokenOk(request)) {
+            return ResponseEntity.status(401).body(Result.error(401, "invalid token"));
+        }
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Result.error(400, "文件为空"));
+        }
+        try (java.io.InputStream in = file.getInputStream()) {
+            AiFileService.StoredFile stored = aiFileService.store(userId, projectId,
+                    file.getOriginalFilename(), in, file.getContentType(), file.getSize(),
+                    StringUtils.hasText(source) ? source : "EMAIL", sourceRef);
+            return ResponseEntity.ok(Result.success(new FileUploadResult(stored.file().getId(),
+                    stored.file().getFilename(), stored.file().getSizeBytes(), stored.factId(),
+                    stored.deduped())));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
+        } catch (Exception e) {
+            log.warn("内部文件投递失败：userId={} projectId={} {}", userId, projectId, e.getMessage());
+            return ResponseEntity.internalServerError().body(Result.error(500, "文件投递失败"));
+        }
     }
 
     @GetMapping("/internal/project-context/{projectId}/facts")

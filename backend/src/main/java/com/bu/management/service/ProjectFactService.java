@@ -385,6 +385,31 @@ public class ProjectFactService {
                 .last("limit 1"));
     }
 
+    /**
+     * 统一空间的文件投递：把一份文件变成一条 {@code FILE_UPLOAD} 事实。
+     *
+     * <p>同一文件重复投递时 source_ref 不变（{@code file:<id>}），dedupe_hash 自然命中同一条事实，
+     * 只刷新摘要与时间；归属与可见性沿用原投递人（见 {@code upsert} 的 foreignActor 保护）。
+     *
+     * @param projectId 归属项目
+     * @param actorId   投递人（决定归属与可见性）
+     * @param fileId    ai_file.id
+     * @param filename  原始文件名
+     * @param textForDigest 供摘要使用的文本（文件名 + 大小 + 文本开头），不存原文
+     * @param happenedAt 投递时间
+     * @param visibility PROJECT / PRIVATE_COMPANY / OWNER
+     * @return 新增或刷新 1，跳过 0
+     */
+    public int upsertFileFact(Long projectId, Long actorId, Long fileId, String filename,
+                              String textForDigest, LocalDateTime happenedAt, String visibility) {
+        if (projectId == null || fileId == null) {
+            return 0;
+        }
+        return upsert(new FactDraft(projectId, SOURCE_FILE_UPLOAD, "file:" + fileId, actorId,
+                happenedAt, filename, textForDigest,
+                visibility == null || visibility.isBlank() ? VISIBILITY_PROJECT : visibility));
+    }
+
     private record FactDraft(Long projectId, String sourceType, String sourceRef, Long actorId,
                              LocalDateTime happenedAt, String title, String body, String visibility) {
     }

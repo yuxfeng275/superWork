@@ -98,8 +98,10 @@ springdoc:
 # MinIO 配置
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
-  access-key: ${MINIO_ACCESS_KEY:${MINIO_ACCESS_KEY}}
-  secret-key: ${MINIO_SECRET_KEY:${MINIO_SECRET_KEY}}
+  # 默认留空：旧写法 ${MINIO_ACCESS_KEY:${MINIO_ACCESS_KEY}} 是自引用，
+  # 环境里没有该变量时连占位符都解析不了，任何读取该属性的 Bean 都会启动失败。
+  access-key: ${MINIO_ACCESS_KEY:}
+  secret-key: ${MINIO_SECRET_KEY:}
   bucket-name: bu-management
 
 # JWT 配置
