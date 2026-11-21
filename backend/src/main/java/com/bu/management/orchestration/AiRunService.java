@@ -62,6 +62,10 @@ public class AiRunService {
         run.setOwnerUserId(cmd.ownerUserId());
         run.setBizDate(cmd.bizDate() == null ? LocalDate.now() : cmd.bizDate());
         run.setTriggerSource(StringUtils.hasText(cmd.triggerSource()) ? cmd.triggerSource() : "API");
+        // run_no 必须是插入前就有：列是 NOT NULL，插入后再回填会直接违反非空约束
+        run.setRunNo("NR-" + run.getBizDate().format(DAY) + "-"
+                + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HHmmss"))
+                + "-" + String.format("%04x", java.util.concurrent.ThreadLocalRandom.current().nextInt(0x10000)));
         run.setStatus(RunStatus.PENDING.name());
         run.setEpoch(0);
         run.setAttempt(0);
@@ -77,15 +81,6 @@ public class AiRunService {
             log.info("run 并发创建命中幂等键，复用已有 run id={}", raced.getId());
             return raced;
         }
-        // runNo 需要 id：插入后回填，失败不影响主流程（只用于展示）
-        String runNo = "NR-" + run.getBizDate().format(DAY) + "-"
-                + String.format("%06d", run.getId() == null ? 0 : run.getId());
-        AiRun patch = new AiRun();
-        patch.setId(run.getId());
-        patch.setRunNo(runNo);
-        patch.setUpdatedAt(LocalDateTime.now());
-        runMapper.updateById(patch);
-        run.setRunNo(runNo);
         return run;
     }
 

@@ -93,7 +93,7 @@ class AiRunServiceTest {
         AiRun run = service.createOrGet(new AiRunService.CreateRun(
                 "NIGHT_BATCH", "night-brief", 1, 1L, 7L, LocalDate.of(2026, 11, 22), "CRON"));
 
-        assertThat(run.getRunNo()).isEqualTo("NR-20261122-000123");
+        assertThat(run.getRunNo()).startsWith("NR-20261122-");
         assertThat(run.getStatus()).isEqualTo(RunStatus.PENDING.name());
         assertThat(run.getEpoch()).isZero();
     }
