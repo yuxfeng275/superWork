@@ -5,10 +5,12 @@ import com.bu.management.entity.AiRun;
 import com.bu.management.entity.AiRunNode;
 import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.AiBrief;
+import com.bu.management.entity.Project;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.mapper.AiArtifactMapper;
 import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.AiRunNodeMapper;
+import com.bu.management.mapper.ProjectMapper;
 import com.bu.management.service.AutomationRunService;
 import com.bu.management.service.ProjectFactService;
 import java.time.Duration;
@@ -17,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -73,6 +76,20 @@ public class NightBatchService {
 
     private final AiBriefMapper briefMapper;
 
+    private final ProjectMapper projectMapper;
+
+    private final AiGateService gateService;
+
+    /**
+     * 节点级闸门开关：默认关。打开后 draft 产完制品会停在 WAITING_HUMAN，
+     * 等人批准再由 {@link #resumeAfterGate(Long)} 续跑晨报节点。
+     *
+     * <p>为什么默认关：它会让 run 停在等人状态，直接拉低「夜间自动跑完」的成功率口径。
+     * 稳定窗口期间先关，等指标与审批时效有数了再按项目逐步打开。
+     */
+    @Value("${ai.night.gate-enabled:false}")
+    private boolean gateEnabled;
+
     /**
      * 触发一次夜间批（幂等）：同 kind+sop+项目+身份+业务日只跑一次。
      *
@@ -88,15 +105,36 @@ public class NightBatchService {
                 "NIGHT_BATCH", SOP_CODE, SOP_VERSION, projectId, ownerUserId, day, triggerSource));
         if (RunStatus.SUCCEEDED.name().equals(run.getStatus())
                 || RunStatus.PARTIAL.name().equals(run.getStatus())
-                || RunStatus.RUNNING.name().equals(run.getStatus())) {
+                || RunStatus.RUNNING.name().equals(run.getStatus())
+                || RunStatus.WAITING_HUMAN.name().equals(run.getStatus())) {
             // 已跑过或正在跑：直接返回，不再派活（幂等的下半句）
             log.info("夜间批已存在，跳过：runId={} status={}", run.getId(), run.getStatus());
             return run;
         }
-        return execute(run, ownerUserId, projectId);
+        return execute(run, ownerUserId, projectId, 0);
     }
 
-    private AiRun execute(AiRun run, Long ownerUserId, Long projectId) {
+    /**
+     * 闸门通过后继续跑剩下的节点。
+     *
+     * @return 续跑后的 run；不是等待人工的 run 直接原样返回
+     */
+    public AiRun resumeAfterGate(Long runId) {
+        AiRun run = runService.require(runId);
+        if (!RunStatus.WAITING_HUMAN.name().equals(run.getStatus())) {
+            return run;
+        }
+        int fromSeq = 0;
+        for (NodeSpec spec : NODES) {
+            AiRunNode node = node(runId, spec.key());
+            if (NodeStatus.SUCCEEDED.name().equals(node.getStatus())) {
+                fromSeq = spec.seq();
+            }
+        }
+        return execute(run, run.getOwnerUserId(), run.getProjectId(), fromSeq);
+    }
+
+    private AiRun execute(AiRun run, Long ownerUserId, Long projectId, int startSeq) {
         AiRun claimed = runService.claim(run.getId(), "night-batch", Duration.ofMinutes(30));
         int epoch = claimed.getEpoch() == null ? 0 : claimed.getEpoch();
         ensureNodes(run.getId(), epoch);
@@ -106,6 +144,9 @@ public class NightBatchService {
                 .query(projectId, null, LocalDateTime.now().minusDays(3), 1).isEmpty();
 
         for (NodeSpec spec : NODES) {
+            if (spec.seq() <= startSeq) {
+                continue;
+            }
             AiRunNode node = node(run.getId(), spec.key());
             try {
                 if (spec.seq() > 1 && factsEmpty) {
@@ -147,6 +188,23 @@ public class NightBatchService {
                 if ("brief".equals(spec.key()) && !briefExists(ownerUserId, projectId,
                         LocalDate.now().plusDays(1))) {
                     throw new IllegalStateException("节点没有写出晨报");
+                }
+                Long managerId = projectManager(projectId);
+                if (gateEnabled && "draft".equals(spec.key()) && managerId != null) {
+                    // 不落 SUCCEEDED，直接进 WAITING_GATE：节点语义是「跑完等你点头」
+                    AiRunNode gatePatch = new AiRunNode();
+                    gatePatch.setId(running.getId());
+                    gatePatch.setStatus(NodeStatus.WAITING_GATE.name());
+                    gatePatch.setOutputJson("{\"summary\":\"" + escape(summary) + "\"}");
+                    nodeMapper.update(gatePatch, Wrappers.<AiRunNode>lambdaUpdate()
+                            .eq(AiRunNode::getId, running.getId())
+                            .eq(AiRunNode::getEpoch, running.getEpoch()));
+                    gateService.request(run.getId(), running.getId(), managerId,
+                            "夜间产出已就绪，请确认后继续写晨报",
+                            LocalDateTime.now().plusDays(1));
+                    runService.finishRun(run.getId(), epoch, RunStatus.WAITING_HUMAN,
+                            "等待审批 draft 产出");
+                    return runService.require(run.getId());
                 }
                 runService.finishNode(running.getId(), running.getEpoch(), NodeStatus.SUCCEEDED,
                         "{\"summary\":\"" + escape(summary) + "\"}", null, null);
@@ -214,6 +272,15 @@ public class NightBatchService {
         } catch (Exception e) {
             log.error("节点状态落库失败 node={}：{}", nodeId, e.getMessage());
         }
+    }
+
+    /** 项目负责人：节点级闸门指派给他；没有负责人就不开闸（宁可跑完进评审队列）。 */
+    private Long projectManager(Long projectId) {
+        if (projectId == null) {
+            return null;
+        }
+        Project project = projectMapper.selectById(projectId);
+        return project == null ? null : project.getManagerId();
     }
 
     /** 节点开始之后是否产出过制品：没有制品就是没交付，不能算成功。 */

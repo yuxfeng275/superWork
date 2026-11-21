@@ -3,10 +3,12 @@ package com.bu.management.controller;
 import com.bu.management.entity.AiGate;
 import com.bu.management.mapper.AiGateMapper;
 import com.bu.management.orchestration.AiGateService;
+import com.bu.management.orchestration.NightBatchService;
 import com.bu.management.vo.Result;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  * @author BU Team
  * @since 2026-11-21
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/ai-gates")
 @RequiredArgsConstructor
@@ -33,6 +36,8 @@ public class AiGateController {
     private final AiGateService gateService;
 
     private final AiGateMapper gateMapper;
+
+    private final NightBatchService nightBatchService;
 
     /** 决策请求体：expectedAttempt/expectedRework 必须与页面拿到的闸门快照一致。 */
     public record DecisionRequest(String reason, String rejectTo,
@@ -53,9 +58,26 @@ public class AiGateController {
     public Result<AiGate> approve(@RequestAttribute("userId") Long userId,
                                   @PathVariable Long id,
                                   @RequestBody(required = false) DecisionRequest body) {
-        return decide(() -> gateService.approve(id, userId,
-                body == null ? null : body.reason(),
-                attemptOf(body), reworkOf(body)));
+        return decide(() -> {
+            AiGate gate = gateService.approve(id, userId,
+                    body == null ? null : body.reason(), attemptOf(body), reworkOf(body));
+            resumeRunIfWaiting(gate);
+            return gate;
+        });
+    }
+
+    /**
+     * 通过后把停在闸门上的夜间批继续跑完。
+     *
+     * <p>续跑失败不回滚审批：审批已经生效，run 会留在 WAITING_HUMAN，
+     * 运行面上能直接看到并手动补跑——比悄悄把审批撤销掉更可解释。
+     */
+    private void resumeRunIfWaiting(AiGate gate) {
+        try {
+            nightBatchService.resumeAfterGate(gate.getRunId());
+        } catch (RuntimeException e) {
+            log.warn("闸门通过后续跑失败 runId={}：{}", gate.getRunId(), e.getMessage());
+        }
     }
 
     @PostMapping("/{id}/reject")
