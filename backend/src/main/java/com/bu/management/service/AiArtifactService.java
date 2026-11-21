@@ -38,6 +38,9 @@ public class AiArtifactService {
     public static final String KIND_REVIEW_FIX = "REVIEW_FIX";
     public static final String KIND_CHECKLIST = "CHECKLIST";
 
+    /** 人工闸门的决策记录：证据是闸门本身与上游制品，因此允许空 evidence。 */
+    public static final String KIND_DECISION = "DECISION";
+
     public static final String STATUS_DRAFT = "DRAFT";
     public static final String STATUS_IN_REVIEW = "IN_REVIEW";
     public static final String STATUS_APPROVED = "APPROVED";
@@ -46,13 +49,13 @@ public class AiArtifactService {
 
     /** 允许的制品类型；不在白名单里的一律拒绝，避免模型自创类型污染评审队列。 */
     public static final Set<String> ALLOWED_KINDS = Set.of(
-            KIND_PLAN, KIND_PATCH, KIND_FIX_NOTE, KIND_REVIEW_FIX, KIND_CHECKLIST);
+            KIND_PLAN, KIND_PATCH, KIND_FIX_NOTE, KIND_REVIEW_FIX, KIND_CHECKLIST, KIND_DECISION);
 
     public static final String EVIDENCE_REQUIRED = "制品必须挂证据（project_fact.id）";
 
     private static final int MAX_TITLE = 300;
     private static final int MAX_REASON = 500;
-    private static final String KIND_HINT = "PLAN/PATCH/FIX_NOTE/REVIEW_FIX/CHECKLIST";
+    private static final String KIND_HINT = "PLAN/PATCH/FIX_NOTE/REVIEW_FIX/CHECKLIST/DECISION";
 
     /** 无权采纳该项目制品时的统一文案（采纳会回写项目事实）。 */
     static final String NO_WRITE_ACCESS = "无权采纳该项目的制品";
@@ -92,7 +95,10 @@ public class AiArtifactService {
         if (!StringUtils.hasText(req.content())) {
             throw new IllegalArgumentException("制品正文不能为空");
         }
-        String evidence = normalizeEvidence(req.evidenceJson());
+        // 决策记录不需要「事实证据」：它本身就是一次人工决策，上游制品与闸门即证据链
+        String evidence = KIND_DECISION.equals(kind) && !StringUtils.hasText(req.evidenceJson())
+                ? "[]"
+                : normalizeEvidence(req.evidenceJson());
 
         LocalDateTime now = LocalDateTime.now();
         AiArtifact artifact = new AiArtifact();
