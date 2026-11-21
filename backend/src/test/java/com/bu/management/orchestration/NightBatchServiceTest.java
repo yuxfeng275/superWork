@@ -1,0 +1,181 @@
+package com.bu.management.orchestration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.bu.management.entity.AiRun;
+import com.bu.management.entity.AiRunNode;
+import com.bu.management.entity.ProjectFact;
+import com.bu.management.mapper.AiRunNodeMapper;
+import com.bu.management.service.AutomationRunService;
+import com.bu.management.service.ProjectFactService;
+import java.time.LocalDate;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+/**
+ * 夜间批 SOP 的行为契约：无事实不派活、单节点失败不拖垮整批、重复触发不重复执行。
+ */
+@ExtendWith(MockitoExtension.class)
+class NightBatchServiceTest {
+
+    @Mock private AiRunService runService;
+    @Mock private AiRunNodeMapper nodeMapper;
+    @Mock private ProjectFactService factService;
+    @Mock private AutomationRunService automationRunService;
+
+    private NightBatchService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new NightBatchService(runService, nodeMapper, factService, automationRunService);
+    }
+
+    @Test
+    @DisplayName("有事实：三个节点依次跑完，run 记 SUCCEEDED")
+    void happyPathRunsAllNodes() {
+        AiRun run = run(RunStatus.PENDING, 0);
+        AiRun claimed = run(RunStatus.RUNNING, 1);
+        when(runService.createOrGet(any())).thenReturn(run);
+        when(runService.claim(eq(9L), anyString(), any())).thenReturn(claimed);
+        stubNodeLookups();
+        stubNodesLifecycle();
+        when(factService.query(anyLong(), any(), any(), anyInt()))
+                .thenReturn(List.of(fact()));
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+                .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "写好了", null, 2));
+        when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
+                .thenReturn(run(RunStatus.SUCCEEDED, 1));
+
+        service.run(7L, 1L, LocalDate.of(2026, 11, 22), "AUTOLOOP");
+
+        // facts 节点不调模型，另外两个节点各调一次
+        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(),
+                any(), any());
+        ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
+        verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
+        assertThat(status.getValue()).isEqualTo(RunStatus.SUCCEEDED);
+    }
+
+    @Test
+    @DisplayName("没有事实：制品与晨报节点记 NO_FACTS 失败，run 记 PARTIAL 且不调模型")
+    void noFactsSkipsModelWork() {
+        AiRun run = run(RunStatus.PENDING, 0);
+        AiRun claimed = run(RunStatus.RUNNING, 1);
+        when(runService.createOrGet(any())).thenReturn(run);
+        when(runService.claim(eq(9L), anyString(), any())).thenReturn(claimed);
+        stubNodeLookups();
+        stubNodesLifecycle();
+        when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of());
+        when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
+                .thenReturn(run(RunStatus.PARTIAL, 1));
+
+        service.run(7L, 1L, LocalDate.of(2026, 11, 22), "CRON");
+
+        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(),
+                any(), any());
+        ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
+        verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
+        assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
+    }
+
+    @Test
+    @DisplayName("单个节点抛错：不影响后面的节点，run 记 PARTIAL")
+    void nodeFailureDoesNotStopSiblings() {
+        AiRun run = run(RunStatus.PENDING, 0);
+        AiRun claimed = run(RunStatus.RUNNING, 1);
+        when(runService.createOrGet(any())).thenReturn(run);
+        when(runService.claim(eq(9L), anyString(), any())).thenReturn(claimed);
+        stubNodeLookups();
+        stubNodesLifecycle();
+        when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of(fact()));
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+                .thenThrow(new IllegalStateException("模型超时"))
+                .thenReturn(new AutomationRunService.RunResult("r2", 2L, "p", "m", "晨报写好了", null, 1));
+        when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
+                .thenReturn(run(RunStatus.PARTIAL, 1));
+        // 失败落库走 failQuietly：先查节点再直接改状态
+        when(nodeMapper.selectById(anyLong())).thenReturn(node("draft", 2));
+
+        service.run(7L, 1L, LocalDate.of(2026, 11, 22), "API");
+
+        // draft 抛错后，brief 仍然被尝试
+        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(),
+                any(), any());
+        ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
+        verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
+        assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
+        // 失败节点被显式置 FAILED
+        verify(nodeMapper).update(any(AiRunNode.class), any());
+    }
+
+    @Test
+    @DisplayName("重复触发：已完成的 run 直接返回，不再派活")
+    void repeatedTriggerDoesNotRerun() {
+        when(runService.createOrGet(any())).thenReturn(run(RunStatus.SUCCEEDED, 3));
+
+        AiRun result = service.run(7L, 1L, LocalDate.of(2026, 11, 22), "CRON");
+
+        assertThat(result.getStatus()).isEqualTo(RunStatus.SUCCEEDED.name());
+        verify(runService, never()).claim(anyLong(), anyString(), any());
+        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(),
+                any(), any());
+    }
+
+    private void stubNodeLookups() {
+        when(nodeMapper.selectOne(any())).thenReturn(
+                node("facts", 1), node("draft", 2), node("brief", 3),
+                node("facts", 1), node("draft", 2), node("brief", 3));
+    }
+
+    private void stubNodesLifecycle() {
+        when(runService.startNode(anyLong(), anyInt(), any())).thenAnswer(inv ->
+                node("draft", 2));
+        when(runService.finishNode(anyLong(), anyInt(), any(), any(), any(), any()))
+                .thenAnswer(inv -> node("brief", 3));
+    }
+
+    private static AiRun run(RunStatus status, int epoch) {
+        AiRun run = new AiRun();
+        run.setId(9L);
+        run.setProjectId(1L);
+        run.setOwnerUserId(7L);
+        run.setStatus(status.name());
+        run.setEpoch(epoch);
+        return run;
+    }
+
+    private static AiRunNode node(String key, int seq) {
+        AiRunNode node = new AiRunNode();
+        node.setId((long) seq);
+        node.setRunId(9L);
+        node.setNodeKey(key);
+        node.setSeq(seq);
+        node.setStatus(NodeStatus.PENDING.name());
+        node.setEpoch(1);
+        node.setAttempt(0);
+        node.setReworkCount(0);
+        return node;
+    }
+
+    private static ProjectFact fact() {
+        ProjectFact fact = new ProjectFact();
+        fact.setId(5L);
+        fact.setProjectId(1L);
+        return fact;
+    }
+}

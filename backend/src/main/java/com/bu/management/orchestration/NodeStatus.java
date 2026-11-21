@@ -35,7 +35,8 @@ public enum NodeStatus {
             case RUNNING -> Set.of(READY);
             case WAITING_GATE -> Set.of(RUNNING);
             case SUCCEEDED -> Set.of(RUNNING, WAITING_GATE);
-            case FAILED -> Set.of(RUNNING, UNKNOWN, WAITING_GATE);
+            // READY 也算：依赖满足后可能被前置检查直接判失败（例如项目没有事实）
+            case FAILED -> Set.of(READY, RUNNING, UNKNOWN, WAITING_GATE);
             case UNKNOWN -> Set.of(RUNNING);
             case CANCELLED -> Set.of(PENDING, READY, RUNNING, WAITING_GATE, FAILED, UNKNOWN);
         };
