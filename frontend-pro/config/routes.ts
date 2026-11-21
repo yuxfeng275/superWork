@@ -116,12 +116,6 @@ export default [
     component: './knowledge',
   },
   {
-    path: '/team-efficiency',
-    name: '团队效能',
-    icon: 'team',
-    component: './team-efficiency',
-  },
-  {
     path: '/quotation-policies',
     name: '报价策略管理',
     icon: 'sliders',

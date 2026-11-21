@@ -229,18 +229,7 @@ try {
     record('知识库检索', false, String(error.message), await shot(page, '04-knowledge-failed'));
   }
 
-  // ---------- 5. 团队效能 ----------
-  try {
-    await page.goto(`${BASE}/team-efficiency`, { waitUntil: 'domcontentloaded' });
-    await page.getByText('投递率').first().waitFor({ timeout: 15000 });
-    await page.waitForTimeout(2500);
-    const rows = await page.locator('.ant-table-row').count();
-    record('团队效能', rows > 0, `${rows} 行数据`, await shot(page, '05-team-efficiency'));
-  } catch (error) {
-    record('团队效能', false, String(error.message), await shot(page, '05-team-failed'));
-  }
-
-  // ---------- 6. 制品评审详情 ----------
+  // ---------- 5. 制品评审详情 ----------
   try {
     await page.goto(`${BASE}/workbench`, { waitUntil: 'domcontentloaded' });
     await page.getByText('待我评审').first().waitFor({ timeout: 20000 });
@@ -253,10 +242,10 @@ try {
       await page.waitForTimeout(2000);
       const body = await page.locator('body').innerText();
       const drawer = (await page.locator('.ant-drawer').count()) > 0;
-      record('制品评审', drawer, drawer ? '详情抽屉已打开' : '未出现详情抽屉', await shot(page, '06-artifact-review'));
+      record('制品评审', drawer, drawer ? '详情抽屉已打开' : '未出现详情抽屉', await shot(page, '05-artifact-review'));
     }
   } catch (error) {
-    record('制品评审', false, String(error.message), await shot(page, '06-artifact-failed'));
+    record('制品评审', false, String(error.message), await shot(page, '05-artifact-failed'));
   }
 } finally {
   report.finishedAt = new Date().toISOString();
