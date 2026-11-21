@@ -25,6 +25,12 @@ export default [
     component: './workbench',
   },
   {
+    path: '/ai-runs',
+    name: 'AI 运行',
+    icon: 'thunderbolt',
+    component: './ai-runs',
+  },
+  {
     path: '/requirements',
     name: '需求管理',
     icon: 'fileText',

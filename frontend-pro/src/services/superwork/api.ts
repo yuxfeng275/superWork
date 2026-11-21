@@ -2197,6 +2197,49 @@ export interface JevStatus {
   reason?: string | null;
 }
 
+/** 一次夜间批 / 一次流程实例（对齐 ai_run 表）。 */
+export interface AiRunRow {
+  id: number;
+  runNo?: string | null;
+  kind: string;
+  sopCode: string;
+  sopVersion: number;
+  projectId?: number | null;
+  ownerUserId: number;
+  bizDate: string;
+  triggerSource: string;
+  status: string;
+  epoch: number;
+  attempt: number;
+  summary?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt?: string | null;
+}
+
+/** SOP 节点执行状态（对齐 ai_run_node 表）。 */
+export interface AiRunNodeRow {
+  id: number;
+  runId: number;
+  nodeKey: string;
+  seq: number;
+  executorKind: string;
+  status: string;
+  attempt: number;
+  maxAttempt: number;
+  reworkCount: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  outputJson?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export interface AiRunDetail {
+  run: AiRunRow;
+  nodes: AiRunNodeRow[];
+}
+
 export interface AiCapabilityStat {
   capabilityId: string;
   calls: number;
@@ -2781,6 +2824,25 @@ export const superworkApi = {
   },
   getJevStatus() {
     return requestJson<JevStatus>("/api/ai-agent/jev/status");
+  },
+  /** 运行面：最近 50 条 run，可按项目/状态过滤。 */
+  listAiRuns(params: { projectId?: number; status?: string } = {}) {
+    const query = new URLSearchParams();
+    if (params.projectId) query.set("projectId", String(params.projectId));
+    if (params.status) query.set("status", params.status);
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    return requestJson<AiRunRow[]>(`/api/ai-runs${suffix}`);
+  },
+  /** 运行面：run 详情（含节点）。 */
+  getAiRun(id: number) {
+    return requestJson<AiRunDetail>(`/api/ai-runs/${id}`);
+  },
+  /** 手动触发一次夜间批（幂等：同一天同项目重复触发拿回同一条）。 */
+  triggerAiRun(body: { userId: number; projectId?: number; bizDate?: string }) {
+    return requestJson<AiRunRow>("/api/ai-runs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   },
   /** 导出本人会话为 Markdown 文本；由前端转 Blob 下载，鉴权仍走请求头。 */
   exportAiAgentSession(id: number) {
