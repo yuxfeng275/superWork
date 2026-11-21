@@ -247,7 +247,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <skipTests>false</skipTests>
+                    <!-- 不在这里写死 skipTests：写过 false 会让 -DskipTests 失效，
+                         打包时无法跳过（见 2026-11-21 部署踩坑）。默认仍然跑测试。 -->
                     <argLine>
                         --add-opens java.base/java.lang=ALL-UNNAMED
                         --add-opens java.base/java.util=ALL-UNNAMED
