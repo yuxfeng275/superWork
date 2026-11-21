@@ -3,7 +3,11 @@ package com.bu.management.orchestration;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.bu.management.entity.AiRun;
 import com.bu.management.entity.AiRunNode;
+import com.bu.management.entity.AiArtifact;
+import com.bu.management.entity.AiBrief;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.mapper.AiArtifactMapper;
+import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.AiRunNodeMapper;
 import com.bu.management.service.AutomationRunService;
 import com.bu.management.service.ProjectFactService;
@@ -65,6 +69,10 @@ public class NightBatchService {
 
     private final AutomationRunService automationRunService;
 
+    private final AiArtifactMapper artifactMapper;
+
+    private final AiBriefMapper briefMapper;
+
     /**
      * 触发一次夜间批（幂等）：同 kind+sop+项目+身份+业务日只跑一次。
      *
@@ -107,6 +115,14 @@ public class NightBatchService {
                     anyFailure = true;
                     continue;
                 }
+                if ("brief".equals(spec.key()) && briefDelivered(ownerUserId, projectId,
+                        LocalDate.now().plusDays(1))) {
+                    runService.markNodeReady(node.getId(), node.getEpoch());
+                    runService.finishNode(node.getId(), node.getEpoch(), NodeStatus.FAILED,
+                            null, "BRIEF_LOCKED", "次日晨报已分发，夜间批不再覆盖");
+                    anyFailure = true;
+                    continue;
+                }
                 runService.markNodeReady(node.getId(), node.getEpoch());
                 AiRunNode running = runService.startNode(node.getId(), node.getEpoch(),
                         node.getExecutorSessionId());
@@ -122,6 +138,13 @@ public class NightBatchService {
                     if (!result.ok()) {
                         throw new IllegalStateException(result.error());
                     }
+                }
+                if ("draft".equals(spec.key()) && !artifactSince(projectId, running.getStartedAt())) {
+                    throw new IllegalStateException("节点没有产出任何制品（模型可能因缺少证据而放弃）");
+                }
+                if ("brief".equals(spec.key()) && !briefExists(ownerUserId, projectId,
+                        LocalDate.now().plusDays(1))) {
+                    throw new IllegalStateException("节点没有写出晨报");
                 }
                 runService.finishNode(running.getId(), running.getEpoch(), NodeStatus.SUCCEEDED,
                         "{\"summary\":\"" + escape(summary) + "\"}", null, null);
@@ -189,6 +212,37 @@ public class NightBatchService {
         } catch (Exception e) {
             log.error("节点状态落库失败 node={}：{}", nodeId, e.getMessage());
         }
+    }
+
+    /** 节点开始之后是否产出过制品：没有制品就是没交付，不能算成功。 */
+    private boolean artifactSince(Long projectId, LocalDateTime since) {
+        if (projectId == null || since == null) {
+            return false;
+        }
+        Long count = artifactMapper.selectCount(Wrappers.<AiArtifact>lambdaQuery()
+                .eq(AiArtifact::getProjectId, projectId)
+                .ge(AiArtifact::getCreatedAt, since));
+        return count != null && count > 0;
+    }
+
+    private boolean briefExists(Long userId, Long projectId, LocalDate date) {
+        return findBrief(userId, projectId, date) != null;
+    }
+
+    private boolean briefDelivered(Long userId, Long projectId, LocalDate date) {
+        AiBrief brief = findBrief(userId, projectId, date);
+        return brief != null && brief.getDeliveredAt() != null;
+    }
+
+    private AiBrief findBrief(Long userId, Long projectId, LocalDate date) {
+        if (projectId == null || date == null) {
+            return null;
+        }
+        return briefMapper.selectOne(Wrappers.<AiBrief>lambdaQuery()
+                .eq(AiBrief::getUserId, userId)
+                .eq(AiBrief::getProjectId, projectId)
+                .eq(AiBrief::getBriefDate, date)
+                .last("limit 1"));
     }
 
     /** 给运行面用：某个 run 的节点列表。 */

@@ -11,9 +11,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.bu.management.entity.AiBrief;
 import com.bu.management.entity.AiRun;
 import com.bu.management.entity.AiRunNode;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.mapper.AiArtifactMapper;
+import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.AiRunNodeMapper;
 import com.bu.management.service.AutomationRunService;
 import com.bu.management.service.ProjectFactService;
@@ -37,12 +40,15 @@ class NightBatchServiceTest {
     @Mock private AiRunNodeMapper nodeMapper;
     @Mock private ProjectFactService factService;
     @Mock private AutomationRunService automationRunService;
+    @Mock private AiArtifactMapper artifactMapper;
+    @Mock private AiBriefMapper briefMapper;
 
     private NightBatchService service;
 
     @BeforeEach
     void setUp() {
-        service = new NightBatchService(runService, nodeMapper, factService, automationRunService);
+        service = new NightBatchService(runService, nodeMapper, factService, automationRunService,
+                artifactMapper, briefMapper);
     }
 
     @Test
@@ -58,6 +64,8 @@ class NightBatchServiceTest {
                 .thenReturn(List.of(fact()));
         when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
                 .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "写好了", null, 2));
+        when(artifactMapper.selectCount(any())).thenReturn(1L);
+        when(briefMapper.selectOne(any())).thenReturn(null, brief());
         when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
                 .thenReturn(run(RunStatus.SUCCEEDED, 1));
 
@@ -106,6 +114,7 @@ class NightBatchServiceTest {
         when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
                 .thenThrow(new IllegalStateException("模型超时"))
                 .thenReturn(new AutomationRunService.RunResult("r2", 2L, "p", "m", "晨报写好了", null, 1));
+        when(briefMapper.selectOne(any())).thenReturn(null, brief());
         when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
                 .thenReturn(run(RunStatus.PARTIAL, 1));
         // 失败落库走 failQuietly：先查节点再直接改状态
@@ -136,6 +145,32 @@ class NightBatchServiceTest {
                 any(), any());
     }
 
+
+    @Test
+    @DisplayName("节点没产出制品：不算成功，run 记 PARTIAL（成功=有交付物）")
+    void missingDeliverableIsNotSuccess() {
+        AiRun run = run(RunStatus.PENDING, 0);
+        AiRun claimed = run(RunStatus.RUNNING, 1);
+        when(runService.createOrGet(any())).thenReturn(run);
+        when(runService.claim(eq(9L), anyString(), any())).thenReturn(claimed);
+        stubNodeLookups();
+        stubNodesLifecycle();
+        when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of(fact()));
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+                .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "我没产出", null, 1));
+        when(nodeMapper.selectById(anyLong())).thenReturn(node("draft", 2));
+        // 制品表里没有新记录
+        when(artifactMapper.selectCount(any())).thenReturn(0L);
+        when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
+                .thenReturn(run(RunStatus.PARTIAL, 1));
+
+        service.run(7L, 1L, LocalDate.of(2026, 11, 22), "API");
+
+        ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
+        verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
+        assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
+    }
+
     private void stubNodeLookups() {
         when(nodeMapper.selectOne(any())).thenReturn(
                 node("facts", 1), node("draft", 2), node("brief", 3),
@@ -143,8 +178,11 @@ class NightBatchServiceTest {
     }
 
     private void stubNodesLifecycle() {
-        when(runService.startNode(anyLong(), anyInt(), any())).thenAnswer(inv ->
-                node("draft", 2));
+        when(runService.startNode(anyLong(), anyInt(), any())).thenAnswer(inv -> {
+            AiRunNode started = node("draft", 2);
+            started.setStartedAt(java.time.LocalDateTime.now());
+            return started;
+        });
         when(runService.finishNode(anyLong(), anyInt(), any(), any(), any(), any()))
                 .thenAnswer(inv -> node("brief", 3));
     }
@@ -170,6 +208,14 @@ class NightBatchServiceTest {
         node.setAttempt(0);
         node.setReworkCount(0);
         return node;
+    }
+
+    private static AiBrief brief() {
+        AiBrief brief = new AiBrief();
+        brief.setId(21L);
+        brief.setUserId(9L);
+        brief.setProjectId(1L);
+        return brief;
     }
 
     private static ProjectFact fact() {
