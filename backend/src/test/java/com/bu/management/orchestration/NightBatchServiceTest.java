@@ -16,6 +16,7 @@ import com.bu.management.entity.AiRun;
 import com.bu.management.entity.AiRunNode;
 import com.bu.management.entity.ProjectFact;
 import com.bu.management.mapper.AiArtifactMapper;
+import com.bu.management.mapper.AiInvocationMapper;
 import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.entity.Project;
 import com.bu.management.mapper.AiRunNodeMapper;
@@ -45,6 +46,7 @@ class NightBatchServiceTest {
     @Mock private AiArtifactMapper artifactMapper;
     @Mock private AiBriefMapper briefMapper;
     @Mock private ProjectMapper projectMapper;
+    @Mock private AiInvocationMapper invocationMapper;
     @Mock private AiGateService gateService;
 
     private NightBatchService service;
@@ -52,7 +54,7 @@ class NightBatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new NightBatchService(runService, nodeMapper, factService, automationRunService,
-                artifactMapper, briefMapper, projectMapper, gateService);
+                artifactMapper, briefMapper, invocationMapper, projectMapper, gateService);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "gateEnabled", false);
     }
 
@@ -250,6 +252,43 @@ class NightBatchServiceTest {
         ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
         verify(runService).finishRun(eq(9L), eq(2), status.capture(), anyString());
         assertThat(status.getValue()).isEqualTo(RunStatus.SUCCEEDED);
+    }
+
+
+    @Test
+    @DisplayName("有结果未知的调用：节点记 UNKNOWN（不是成功），run 记 PARTIAL")
+    void unknownInvocationMarksNodeUnknown() {
+        AiRun run = run(RunStatus.PENDING, 0);
+        AiRun claimed = run(RunStatus.RUNNING, 1);
+        when(runService.createOrGet(any())).thenReturn(run);
+        when(runService.claim(eq(9L), anyString(), any())).thenReturn(claimed);
+        stubNodeLookups();
+        // 这个用例里 draft 直接转 UNKNOWN、brief 因缺晨报失败，所以只用到 startNode
+        when(runService.startNode(anyLong(), anyInt(), any())).thenAnswer(inv -> {
+            AiRunNode started = node("draft", 2);
+            started.setStartedAt(java.time.LocalDateTime.now());
+            return started;
+        });
+        when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of(fact()));
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt()))
+                .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "试过了", null, 1));
+        when(artifactMapper.selectCount(any())).thenReturn(1L);
+        // draft 节点有一次调用停在 STARTED/UNKNOWN
+        when(invocationMapper.selectCount(any())).thenReturn(1L);
+        when(nodeMapper.update(any(AiRunNode.class), any())).thenReturn(1);
+        when(runService.finishRun(anyLong(), anyInt(), any(), anyString()))
+                .thenReturn(run(RunStatus.PARTIAL, 1));
+
+        service.run(7L, 1L, LocalDate.of(2026, 11, 22), "API");
+
+        ArgumentCaptor<AiRunNode> nodePatch = ArgumentCaptor.forClass(AiRunNode.class);
+        verify(nodeMapper, org.mockito.Mockito.atLeastOnce()).update(nodePatch.capture(), any());
+        assertThat(nodePatch.getAllValues()).anySatisfy(p ->
+                assertThat(p.getStatus()).isEqualTo(NodeStatus.UNKNOWN.name()));
+        ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
+        verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
+        assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
     }
 
     private void stubNodeLookups() {

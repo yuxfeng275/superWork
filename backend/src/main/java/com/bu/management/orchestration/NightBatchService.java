@@ -7,7 +7,9 @@ import com.bu.management.entity.AiArtifact;
 import com.bu.management.entity.AiBrief;
 import com.bu.management.entity.Project;
 import com.bu.management.entity.ProjectFact;
+import com.bu.management.entity.AiInvocation;
 import com.bu.management.mapper.AiArtifactMapper;
+import com.bu.management.mapper.AiInvocationMapper;
 import com.bu.management.mapper.AiBriefMapper;
 import com.bu.management.mapper.AiRunNodeMapper;
 import com.bu.management.mapper.ProjectMapper;
@@ -75,6 +77,8 @@ public class NightBatchService {
     private final AiArtifactMapper artifactMapper;
 
     private final AiBriefMapper briefMapper;
+
+    private final AiInvocationMapper invocationMapper;
 
     private final ProjectMapper projectMapper;
 
@@ -206,6 +210,22 @@ public class NightBatchService {
                             "等待审批 draft 产出");
                     return runService.require(run.getId());
                 }
+                // 有「结果未知」的调用时不能记成功：可能已经写入业务数据，必须人工核对
+                long unknown = unknownInvocations(run.getId(), running.getId());
+                if (unknown > 0) {
+                    AiRunNode unknownPatch = new AiRunNode();
+                    unknownPatch.setId(running.getId());
+                    unknownPatch.setStatus(NodeStatus.UNKNOWN.name());
+                    unknownPatch.setOutputJson("{\"summary\":\"" + escape(summary) + "\"}");
+                    unknownPatch.setErrorCode("UNKNOWN_OUTCOME");
+                    unknownPatch.setErrorMessage(unknown + " 次工具调用结果未知，需核对后再决定是否重跑");
+                    unknownPatch.setFinishedAt(LocalDateTime.now());
+                    nodeMapper.update(unknownPatch, Wrappers.<AiRunNode>lambdaUpdate()
+                            .eq(AiRunNode::getId, running.getId())
+                            .eq(AiRunNode::getEpoch, running.getEpoch()));
+                    anyFailure = true;
+                    continue;
+                }
                 runService.finishNode(running.getId(), running.getEpoch(), NodeStatus.SUCCEEDED,
                         "{\"summary\":\"" + escape(summary) + "\"}", null, null);
             } catch (Exception e) {
@@ -272,6 +292,15 @@ public class NightBatchService {
         } catch (Exception e) {
             log.error("节点状态落库失败 node={}：{}", nodeId, e.getMessage());
         }
+    }
+
+    /** 该节点本次尝试里「有前置记录但没有结果」的调用数。 */
+    private long unknownInvocations(Long runId, Long nodeId) {
+        Long count = invocationMapper.selectCount(Wrappers.<AiInvocation>lambdaQuery()
+                .eq(AiInvocation::getRunId, runId)
+                .eq(AiInvocation::getNodeId, nodeId)
+                .in(AiInvocation::getStatus, "STARTED", "UNKNOWN"));
+        return count == null ? 0 : count;
     }
 
     /** 项目负责人：节点级闸门指派给他；没有负责人就不开闸（宁可跑完进评审队列）。 */
