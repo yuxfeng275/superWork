@@ -137,7 +137,8 @@ public class ProjectContextInternalController {
     }
 
     /** 无人在场的一轮 Agent 运行（agent-autoloop 的 command 通道入口）。 */
-    public record AutomationRunRequest(Long userId, Long projectId, String title, String prompt) {
+    public record AutomationRunRequest(Long userId, Long projectId, String title, String prompt,
+                                       String mode, String systemPrompt) {
     }
 
     @PostMapping("/internal/project-context/run")
@@ -147,7 +148,8 @@ public class ProjectContextInternalController {
         }
         try {
             return ResponseEntity.ok(Result.success(automationRunService.run(
-                    body.userId(), body.projectId(), body.title(), body.prompt())));
+                    body.userId(), body.projectId(), body.title(), body.prompt(),
+                    AutomationRunService.Mode.from(body.mode()), body.systemPrompt())));
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(Result.error(400, e.getMessage()));
         }

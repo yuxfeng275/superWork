@@ -10,6 +10,8 @@
  *   HUJI_AGENT_USER_ID  以谁的身份跑（决定工具可见范围，必须是真实成员）
  *   HUJI_PROJECT_ID     目标项目 id（必填）
  *   HUJI_TASK_ID        可选，agent-autoloop 任务号，写进会话便于 why 回溯
+ *   HUJI_MODE           可选，本轮产出模式：NIGHT_BRIEF（默认）/ PLAN / PATCH / CHECK / CUSTOM
+ *                      试跑、巡检类规则必须显式声明，否则默认会去写次日晨报
  *
  * 约定：向 stdout 打印最后一条结论；失败时打印原因并以非 0 退出。
  * 中台只看最后一条回复，因此不要在 stdout 混入日志（日志走 stderr）。
@@ -21,6 +23,8 @@ const userId = Number(process.env.HUJI_AGENT_USER_ID || 0);
 const projectId = Number(process.env.HUJI_PROJECT_ID || 0);
 const taskId = process.env.HUJI_TASK_ID || "";
 const prompt = process.argv.slice(2).join(" ").trim();
+// 产出模式：不填就是夜间批（写次日晨报），只读类的规则必须显式传 CHECK
+const mode = (process.env.HUJI_MODE || "").trim();
 
 function fail(message) {
   console.error(message.startsWith("失败") ? message : `失败：${message}`);
@@ -42,7 +46,13 @@ try {
       "Content-Type": "application/json",
       ...(token ? { "X-Sidecar-Token": token } : {}),
     },
-    body: JSON.stringify({ userId, projectId, title: taskId || "自动任务", prompt }),
+    body: JSON.stringify({
+      userId,
+      projectId,
+      title: taskId || "自动任务",
+      prompt,
+      ...(mode ? { mode } : {}),
+    }),
     signal: controller.signal,
   });
 
