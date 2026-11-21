@@ -24,6 +24,12 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 生产环境使用 SLF4J
 
 # MinIO 配置
+# 统一空间：原文进 MinIO（本地盘只在 dev/单机使用）
+ai:
+  file:
+    store: ${AI_FILE_STORE:minio}
+    max-mb: ${AI_FILE_MAX_MB:50}
+
 minio:
   endpoint: ${MINIO_ENDPOINT}
   access-key: ${MINIO_ACCESS_KEY}

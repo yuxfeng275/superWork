@@ -96,6 +96,13 @@ springdoc:
       packages-to-scan: com.bu.management.controller
 
 # MinIO 配置
+# 统一空间的文件存储：local=本地盘（dev 默认），minio=对象存储（prod）
+ai:
+  file:
+    store: ${AI_FILE_STORE:local}
+    local-root: ${AI_FILE_LOCAL_ROOT:/data/ai-files}
+    max-mb: ${AI_FILE_MAX_MB:50}
+
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   # 默认留空：旧写法 ${MINIO_ACCESS_KEY:${MINIO_ACCESS_KEY}} 是自引用，
