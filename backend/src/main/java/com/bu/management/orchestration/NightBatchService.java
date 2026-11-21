@@ -133,7 +133,9 @@ public class NightBatchService {
                             LocalDateTime.now().minusDays(3), 50).size();
                 } else {
                     AutomationRunService.RunResult result = automationRunService.run(
-                            ownerUserId, projectId, spec.title(), spec.prompt(), spec.mode(), null);
+                            ownerUserId, projectId, spec.title(), spec.prompt(), spec.mode(), null,
+                            run.getId(), running.getId(),
+                            running.getAttempt() == null ? 1 : running.getAttempt());
                     summary = truncate(result.text());
                     if (!result.ok()) {
                         throw new IllegalStateException(result.error());

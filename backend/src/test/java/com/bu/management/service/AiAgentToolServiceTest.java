@@ -61,6 +61,7 @@ class AiAgentToolServiceTest {
     @Mock private OpportunityFollowUpService opportunityFollowUpService;
     @Mock private CapabilityGateway capabilityGateway;
     @Mock private CapabilityRegistry capabilityRegistry;
+    @Mock private com.bu.management.orchestration.AiInvocationService invocationService;
 
     private AiAgentToolService service;
 
@@ -70,7 +71,7 @@ class AiAgentToolServiceTest {
                 new ObjectMapper(), connectorToolService, genericConnectorToolService, emailActionToolService,
                 weComCliToolService, weeklyReportService, jevDecisionService, projectFactService,
                 projectBriefService, aiArtifactService, projectFactAccessGuard,
-                opportunityFollowUpService, capabilityGateway, capabilityRegistry);
+                opportunityFollowUpService, invocationService, capabilityGateway, capabilityRegistry);
         when(jevDecisionService.gateWrite(anyString(), any(), anyString()))
                 .thenReturn(new JevDecisionService.WriteGate(true, true, "ok", null));
         service.registerRun(RUN_ID, OWNER);

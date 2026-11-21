@@ -73,6 +73,9 @@ public class AiAgentToolService {
     private final ProjectFactAccessGuard projectFactAccessGuard;
     private final OpportunityFollowUpService opportunityFollowUpService;
 
+    /** 工具调用前置记录与幂等：编排链路（夜间批）才启用，普通对话不写。 */
+    private final com.bu.management.orchestration.AiInvocationService invocationService;
+
     /** 能力网关：注册表优先路径的唯一执行入口（门禁 / 超时 / 审计都在它里边）。 */
     private final CapabilityGateway capabilityGateway;
 
@@ -80,7 +83,7 @@ public class AiAgentToolService {
     private final CapabilityRegistry capabilityRegistry;
 
     /**
-     * 已能力化的 13 个工具：只走注册表，旧 switch 不再保留对应分支。
+     * 已能力化的工具：只走注册表，旧 switch 不再保留对应分支。
      *
      * <p>保留这份清单是为了「注册表缺失时明确报错」：如果启动期注册表残缺，
      * 这里会返回 CONFIG_ERROR，而不是悄悄落到 connector 兜底上执行错工具。
@@ -89,7 +92,10 @@ public class AiAgentToolService {
             "query_my_tasks", "query_my_requirements", "query_my_worklogs", "count_my_issues",
             "weekly_report_facts", "weekly_report_input", "query_my_opportunities",
             "list_opportunity_followups_due", "save_opportunity_followup", "project_facts",
-            "save_daily_brief", "save_artifact", "search_knowledge");
+            "save_daily_brief", "save_artifact", "search_knowledge",
+            "create_quotation_from_requirement",
+            "pending_delivery", "confirm_pending_delivery",
+            "confirm_requirement");
 
     /** 读事实被拒时的统一文案：让模型看到明确拒绝，而不是一个无解释的空列表。 */
     static final String NO_FACT_READ = "无权访问该项目的事实（需项目成员/项目负责人或管理角色）";
@@ -125,6 +131,14 @@ public class AiAgentToolService {
     private final ConcurrentHashMap<String, String> runMessages = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Boolean> runUnattended = new ConcurrentHashMap<>();
 
+    /** 编排上下文：runId → (ai_run, 节点, attempt)。为空表示这次运行不在编排链路里。 */
+    private final ConcurrentHashMap<String, OrchestrationRef> runOrchestration =
+            new ConcurrentHashMap<>();
+
+    /** 一次工具调用归属到哪个 run 的哪个节点第几次尝试。 */
+    public record OrchestrationRef(Long aiRunId, Long nodeId, int attempt) {
+    }
+
     public void registerRun(String runId, Long userId) {
         registerRun(runId, userId, null);
     }
@@ -147,7 +161,20 @@ public class AiAgentToolService {
         }
     }
 
+    /**
+     * 编排链路注册：带上 ai_run/节点/attempt，之后的每次工具调用都会先写 ai_invocation
+     * （前置记录 + 幂等键），重放时直接返回上次结果。
+     */
+    public void registerRun(String runId, Long userId, String userMessage, boolean unattended,
+                            Long aiRunId, Long nodeId, int attempt) {
+        registerRun(runId, userId, userMessage, unattended);
+        if (aiRunId != null && nodeId != null) {
+            runOrchestration.put(runId, new OrchestrationRef(aiRunId, nodeId, attempt));
+        }
+    }
+
     public void completeRun(String runId) {
+        runOrchestration.remove(runId);
         runUsers.remove(runId);
         runMessages.remove(runId);
         runUnattended.remove(runId);
@@ -236,10 +263,35 @@ public class AiAgentToolService {
                         "stage", stringProperty("推进到的阶段，可选：初步接触/需求确认/方案报价/商务谈判/已成交"),
                         "probability", integerProperty("成交概率 0-100，可选"),
                         "nextFollowUp", stringProperty("下次跟进时间，可选：明天 / 周三 15:00 / 2026-11-12 09:30")))));
+        defs.add(new AiAgentToolDefinition("create_quotation_from_requirement",
+                "把一条需求直接出一份可编辑的 DRAFT 报价（客户/联系人/交期/有效期按需求与策略自动带出，"
+                        + "金额走标准定价引擎）。写操作：默认 dryRun=true 只试算，必须先把策略、行项数、"
+                        + "首年含税总额讲给用户、得到明确同意后把 dryRun 设为 false 才落库；无人值守运行只允许试算",
+                objectSchema(Map.of(
+                        "requirementId", integerProperty("需求 ID，必填（取自 query_my_requirements 的返回）"),
+                        "policyId", integerProperty("报价策略 ID，可选；不传则取生效中的最新已发布策略"),
+                        "dryRun", booleanProperty("true=只试算不落库（默认）；false=真生成 DRAFT 报价")))));
         defs.add(new AiAgentToolDefinition("pending_delivery",
-                "查询本月/指定月份的待确认交付合同（合同号、客户、金额、负责人、是否逾期）。只读，不要自动确认",
+                "查询本月/指定月份的待确认交付合同（合同号、客户、金额、负责人、是否逾期）。"
+                        + "只读；需要落确认时先 dryRun 试算、经用户同意后调 confirm_pending_delivery",
                 objectSchema(Map.of(
                         "month", stringProperty("月份 YYYY-MM，默认当前月；传 all 看全年")))));
+        defs.add(new AiAgentToolDefinition("confirm_pending_delivery",
+                "按确定性规则把待交付合同落成确认（计入项目利润预估）。写操作：默认 dryRun=true 只试算，"
+                        + "必须先把清单讲给用户、得到同意后把 dryRun 与 confirm 都设为 true 才落库；"
+                        + "只给 dryRun=false、不给 confirm=true 一律当试算，无人值守运行只允许试算",
+                objectSchema(Map.of(
+                        "year", integerProperty("年份，可选，默认当年"),
+                        "dryRun", booleanProperty("true=只试算不落库（默认）；false=真落确认"),
+                        "confirm", booleanProperty("落库确认位：缺省视为 false，必须显式传 true 才落库")))));
+        defs.add(new AiAgentToolDefinition("confirm_requirement",
+                "按确定性规则把「待确认」的需求落成确认（需求进入开发中并排队云效交接）。写操作："
+                        + "默认 dryRun=true 只试算，必须先把清单（哪些产品需求能自动确认、哪些仍需人工）讲给用户、"
+                        + "得到明确同意后把 dryRun 与 confirm 都设为 true 才落库；项目需求的确认语义是客户书面签字，"
+                        + "系统永远不自动确认，只会出现在需人工清单里；无人值守运行只允许试算",
+                objectSchema(Map.of(
+                        "dryRun", booleanProperty("true=只试算不落库（默认）；false=真落确认"),
+                        "confirm", booleanProperty("落库确认位：缺省视为 false，必须显式传 true 才落库")))));
         defs.add(new AiAgentToolDefinition("search_knowledge",
                 "检索合拍知识库（产品能力、标准方案、成功案例、报价与交付口径）。回答这类问题前先用它检索，不要凭常识编造",
                 objectSchema(Map.of(
@@ -266,7 +318,69 @@ public class AiAgentToolService {
     /**
      * 执行工具；未知 runId/未知工具/参数错误均返回 isError 结果，不抛异常。
      */
+    /**
+     * 工具入口：编排链路先落前置记录再执行，命中幂等键则回放上次结果。
+     *
+     * <p>顺序不能反：先执行后记录的话，进程死在两者之间就再也说不清「到底写没写」。
+     */
     public AiAgentToolResult execute(String runId, String toolName, String argsJson) {
+        OrchestrationRef ref = runOrchestration.get(runId);
+        if (ref == null) {
+            return executeTool(runId, toolName, argsJson);
+        }
+        String callId = "c-" + java.util.UUID.randomUUID();
+        com.bu.management.orchestration.AiInvocationService.BeginResult begin =
+                invocationService.begin(new com.bu.management.orchestration.AiInvocationService
+                        .BeginCall(ref.aiRunId(), ref.nodeId(), ref.attempt(), callId, toolName, argsJson));
+        if (begin.replayable()) {
+            return replayOf(begin.invocation());
+        }
+        if (begin.inFlight()) {
+            return new AiAgentToolResult("同一动作正在执行中（命中幂等键），请稍后再试", true);
+        }
+        AiAgentToolResult result;
+        try {
+            result = executeTool(runId, toolName, argsJson);
+        } catch (RuntimeException e) {
+            invocationService.fail(begin.invocation().getId(), "EXCEPTION",
+                    "{\"message\":\"" + escapeForJson(e.getMessage()) + "\"}");
+            throw e;
+        }
+        String payload = "{\"content\":\"" + escapeForJson(result.content())
+                + "\",\"isError\":" + result.isError() + "}";
+        if (result.isError()) {
+            invocationService.fail(begin.invocation().getId(), "TOOL_ERROR", payload);
+        } else {
+            invocationService.succeed(begin.invocation().getId(), payload);
+        }
+        return result;
+    }
+
+    /** 回放上次结果：结构化字段齐全就用它，否则退回原始文本。 */
+    private AiAgentToolResult replayOf(com.bu.management.entity.AiInvocation invocation) {
+        String raw = invocation.getResultJson();
+        if (!StringUtils.hasText(raw)) {
+            return new AiAgentToolResult("（重复调用，已使用上次结果）", false);
+        }
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            String content = node.path("content").asText("");
+            boolean isError = node.path("isError").asBoolean(false);
+            return new AiAgentToolResult(StringUtils.hasText(content) ? content : raw, isError);
+        } catch (Exception e) {
+            return new AiAgentToolResult(raw, false);
+        }
+    }
+
+    private static String escapeForJson(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("\\", "\\\\").replace("\"", "'")
+                .replace("\n", " ").replace("\r", " ");
+    }
+
+    private AiAgentToolResult executeTool(String runId, String toolName, String argsJson) {
         Long userId = runUsers.get(runId);
         if (userId == null) {
             return new AiAgentToolResult("无效或已过期的运行 ID", true);
@@ -830,6 +944,13 @@ public class AiAgentToolService {
     private JsonNode integerProperty(String description) {
         var node = objectMapper.createObjectNode();
         node.put("type", "integer");
+        node.put("description", description);
+        return node;
+    }
+
+    private JsonNode booleanProperty(String description) {
+        var node = objectMapper.createObjectNode();
+        node.put("type", "boolean");
         node.put("description", description);
         return node;
     }

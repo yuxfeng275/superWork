@@ -62,7 +62,8 @@ class NightBatchServiceTest {
         stubNodesLifecycle();
         when(factService.query(anyLong(), any(), any(), anyInt()))
                 .thenReturn(List.of(fact()));
-        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt()))
                 .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "写好了", null, 2));
         when(artifactMapper.selectCount(any())).thenReturn(1L);
         when(briefMapper.selectOne(any())).thenReturn(null, brief());
@@ -72,8 +73,8 @@ class NightBatchServiceTest {
         service.run(7L, 1L, LocalDate.of(2026, 11, 22), "AUTOLOOP");
 
         // facts 节点不调模型，另外两个节点各调一次
-        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(),
-                any(), any());
+        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt());
         ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
         verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
         assertThat(status.getValue()).isEqualTo(RunStatus.SUCCEEDED);
@@ -94,8 +95,8 @@ class NightBatchServiceTest {
 
         service.run(7L, 1L, LocalDate.of(2026, 11, 22), "CRON");
 
-        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(),
-                any(), any());
+        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt());
         ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
         verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
         assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
@@ -111,7 +112,8 @@ class NightBatchServiceTest {
         stubNodeLookups();
         stubNodesLifecycle();
         when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of(fact()));
-        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt()))
                 .thenThrow(new IllegalStateException("模型超时"))
                 .thenReturn(new AutomationRunService.RunResult("r2", 2L, "p", "m", "晨报写好了", null, 1));
         when(briefMapper.selectOne(any())).thenReturn(null, brief());
@@ -123,8 +125,8 @@ class NightBatchServiceTest {
         service.run(7L, 1L, LocalDate.of(2026, 11, 22), "API");
 
         // draft 抛错后，brief 仍然被尝试
-        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(),
-                any(), any());
+        verify(automationRunService, times(2)).run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt());
         ArgumentCaptor<RunStatus> status = ArgumentCaptor.forClass(RunStatus.class);
         verify(runService).finishRun(eq(9L), eq(1), status.capture(), anyString());
         assertThat(status.getValue()).isEqualTo(RunStatus.PARTIAL);
@@ -141,8 +143,8 @@ class NightBatchServiceTest {
 
         assertThat(result.getStatus()).isEqualTo(RunStatus.SUCCEEDED.name());
         verify(runService, never()).claim(anyLong(), anyString(), any());
-        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(),
-                any(), any());
+        verify(automationRunService, never()).run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt());
     }
 
 
@@ -156,7 +158,8 @@ class NightBatchServiceTest {
         stubNodeLookups();
         stubNodesLifecycle();
         when(factService.query(anyLong(), any(), any(), anyInt())).thenReturn(List.of(fact()));
-        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any()))
+        when(automationRunService.run(anyLong(), anyLong(), anyString(), anyString(), any(), any(),
+                anyLong(), anyLong(), anyInt()))
                 .thenReturn(new AutomationRunService.RunResult("r1", 1L, "p", "m", "我没产出", null, 1));
         when(nodeMapper.selectById(anyLong())).thenReturn(node("draft", 2));
         // 制品表里没有新记录

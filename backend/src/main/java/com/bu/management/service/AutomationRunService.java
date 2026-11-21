@@ -170,7 +170,19 @@ public class AutomationRunService {
     public RunResult run(Long userId, Long projectId, String title, String prompt,
                          Mode mode, String promptOverride) {
         return runInternal(userId, projectId, title, prompt,
-                systemPrompt(mode, projectId, promptOverride), true);
+                systemPrompt(mode, projectId, promptOverride), true, null, null, 0);
+    }
+
+    /**
+     * 编排链路专用：带上 ai_run / 节点 / attempt，工具调用会落 ai_invocation。
+     *
+     * <p>只有真的挂在 run 上才写前置记录——普通对话没有人事后核对，写了也只是噪声。
+     */
+    public RunResult run(Long userId, Long projectId, String title, String prompt,
+                         Mode mode, String promptOverride,
+                         Long aiRunId, Long nodeId, int attempt) {
+        return runInternal(userId, projectId, title, prompt,
+                systemPrompt(mode, projectId, promptOverride), true, aiRunId, nodeId, attempt);
     }
 
     /**
@@ -181,11 +193,12 @@ public class AutomationRunService {
      * @param prompt 用户消息
      */
     public RunResult runChat(Long userId, String title, String prompt) {
-        return runInternal(userId, null, title, prompt, CHAT_SYSTEM_PROMPT, false);
+        return runInternal(userId, null, title, prompt, CHAT_SYSTEM_PROMPT, false, null, null, 0);
     }
 
     private RunResult runInternal(Long userId, Long projectId, String title, String prompt,
-                                  String systemPrompt, boolean automation) {
+                                  String systemPrompt, boolean automation,
+                                  Long aiRunId, Long nodeId, int attempt) {
         if (userId == null) {
             throw new IllegalArgumentException("userId 不能为空");
         }
@@ -209,7 +222,7 @@ public class AutomationRunService {
 
         var sessionView = sessionService.get(userId, session.id());
         String runId = UUID.randomUUID().toString();
-        toolService.registerRun(runId, userId, prompt, automation);
+        toolService.registerRun(runId, userId, prompt, automation, aiRunId, nodeId, attempt);
 
         String newMessagesJson = null;
         String error = null;
