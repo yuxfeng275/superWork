@@ -256,14 +256,14 @@ public class BusinessLineProfitService {
         BizLineProfitReport total = emptyRow("合计", null);
         for (Map.Entry<String, List<BizLineProfitReport>> entry : byLine.entrySet()) {
             List<BizLineProfitReport> months = entry.getValue();
+            Long lineId = months.get(0).getBusinessLineId();
             BizLineProfitReportVO.LineGroup group = new BizLineProfitReportVO.LineGroup();
-            group.setBusinessLineId(months.get(0).getBusinessLineId());
-            group.setBusinessLineName(months.get(0).getBusinessLineId() == null
-                    ? entry.getKey()
-                    : lineNames.getOrDefault(months.get(0).getBusinessLineId(), entry.getKey()));
+            group.setBusinessLineId(lineId);
+            String displayName = displayName(entry.getKey(), lineId, months, lineNames);
+            group.setBusinessLineName(displayName);
             group.setGroupName(months.get(0).getGroupName());
             group.setMonths(months);
-            group.setYtd(aggregate(entry.getKey(), months));
+            group.setYtd(aggregate(displayName, months));
             accumulate(total, group.getYtd());
             lines.add(group);
         }
@@ -271,6 +271,28 @@ public class BusinessLineProfitService {
         vo.setLines(lines);
         vo.setTotalYtd(total);
         return vo;
+    }
+
+    /**
+     * 分组展示名：本地业务线名 > 工时行名 > 分组键。
+     *
+     * <p>本地业务线名称缺失（历史数据未填）时不能用 {@code bl:3} 这种内部键上页面，
+     * 回落到该组工时行的业务线名，页面至少能看出是哪个口径。
+     */
+    private String displayName(String key, Long lineId, List<BizLineProfitReport> months,
+                               Map<Long, String> lineNames) {
+        String localName = lineId == null ? null : lineNames.get(lineId);
+        if (StringUtils.hasText(localName)) {
+            return localName;
+        }
+        if (lineId == null) {
+            return key;
+        }
+        return months.stream()
+                .map(BizLineProfitReport::getWorktimeBusinessLineName)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(key);
     }
 
     /** YTD 聚合：金额/工时求和，比率按合计重算（毛利率=毛利/营收，净利率=净利/营收） */
