@@ -65,11 +65,20 @@ public interface ExecSink {                       // 执行器只能通过这些
 
 实现约定：
 
-| 插槽 | 现状 | 接入要点 |
+| 插槽 | 实现 | 接入要点 |
 |---|---|---|
-| `sidecar` | `/v1/runs` 已有 SSE 事件（`run_start`/`message_delta`/`tool_execution_*`/`run_end`），工具回调走 `/internal/ai-agent/tools` | 直接映射到 `ExecSink`；`run_end.newMessages` 落会话 |
-| `dsh-acp` | 241 已装 dsh（`~/.dsh`，headless profile），有 ACP server；agent-autoloop v1.9.5 已验证 `use:"acp"` | 走 stdio ACP：`session/load` → prompt → 语义更新 → `cancel`；权限按 `read/edit/full` 一次性授予 |
-| `cli` | `nightly.sh` / `run-huji-agent.sh` 现状 | 仅保留给脚本类节点，不作为流程主控 |
+| `sidecar` | `SidecarExecutor`：`POST /v1/runs` + SSE | 把 `message_delta`/`tool_execution_*`/`run_end` 翻成 `ExecSink` 事件；工具仍走合拍回调 |
+| `dsh` | `DshExecutor`：`dsh --profile headless --json --session-id <id> <prompt>` | 会话号随节点保存，下一轮续跑同一会话；不在这里实现 ACP 客户端 |
+| `cli` | `CommandExecutor`：任意命令模板 | 脚本类节点（`nightly.sh`）专用，只输出文本，不承诺结构化 |
+
+**关于 ACP**：ACP 的 stdio JSON-RPC 留给<b>触发器</b>（agent-autoloop 的 `use:"acp"`），
+编排内核只需要「给提示词、收事件、能续跑」三件事，CLI + `--session-id` 已稳定提供。
+若将来需要在同一次会话里做多轮工具交互，再按 ACP 替换 `DshExecutor`，上层不受影响。
+
+执行器统一契约见 `com.bu.management.executor.AgentExecutor`：
+`start(request, sink)` 立即返回句柄（`await/cancel`），事件只有
+`onSession/onText/onThinking/onToolCall/onToolResult/onFinish` 六种，
+终态 `OK/NEEDS_INPUT/FAILED/CANCELLED/UNKNOWN`——**UNKNOWN 不是失败**，它表示「可能已经写了」。
 
 ## 四、对象存储（L0 原文放哪）
 
